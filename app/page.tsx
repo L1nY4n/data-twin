@@ -59,7 +59,7 @@ export default function DigitalTwinPage() {
         {/* 左侧面板 */}
         <div
           className={cn(
-            'relative flex flex-col border-r bg-background transition-all duration-300',
+            'relative flex shrink-0 flex-col overflow-hidden border-r bg-background transition-all duration-300',
             leftPanelOpen ? 'w-64' : 'w-0'
           )}
         >
@@ -137,7 +137,7 @@ export default function DigitalTwinPage() {
         {/* 右侧面板 */}
         <div
           className={cn(
-            'relative flex flex-col border-l bg-background transition-all duration-300',
+            'relative flex shrink-0 flex-col overflow-hidden border-l bg-background transition-all duration-300',
             rightPanelOpen ? 'w-64' : 'w-0'
           )}
         >

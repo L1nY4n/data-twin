@@ -17,4 +17,20 @@ describe('rules panel dock layout', () => {
 
     expect(source.includes("bottomPanelOpen ? 'h-72' : 'h-0'")).toBe(false)
   })
+
+  test('keeps left and right side panels at fixed non-shrinking widths', () => {
+    const pagePath = join(process.cwd(), 'app/page.tsx')
+    const source = readFileSync(pagePath, 'utf8')
+
+    expect(
+      source.includes(
+        "'relative flex shrink-0 flex-col overflow-hidden border-r bg-background transition-all duration-300'"
+      )
+    ).toBe(true)
+    expect(
+      source.includes(
+        "'relative flex shrink-0 flex-col overflow-hidden border-l bg-background transition-all duration-300'"
+      )
+    ).toBe(true)
+  })
 })
