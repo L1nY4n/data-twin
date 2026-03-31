@@ -1,0 +1,176 @@
+'use client'
+
+import { useMemo } from 'react'
+import { useThree } from '@react-three/fiber'
+import { Html, Line } from '@react-three/drei'
+import * as THREE from 'three'
+import { useDigitalTwinStore } from '@/lib/digital-twin/store'
+import { 
+  calculateDistance, 
+  formatDistance,
+  calculateAngleDegrees,
+  formatAngle,
+} from '@/lib/digital-twin/spatial-utils'
+
+export function MeasurementTool() {
+  const measurementMode = useDigitalTwinStore((state) => state.measurementMode)
+  const measurementPoints = useDigitalTwinStore((state) => state.measurementPoints)
+  const addMeasurementPoint = useDigitalTwinStore((state) => state.addMeasurementPoint)
+
+  const { camera, raycaster, gl } = useThree()
+
+  // 点击添加测量点
+  const handleClick = (event: THREE.Event) => {
+    const rect = gl.domElement.getBoundingClientRect()
+    const mouse = new THREE.Vector2(
+      ((event as unknown as MouseEvent).clientX - rect.left) / rect.width * 2 - 1,
+      -((event as unknown as MouseEvent).clientY - rect.top) / rect.height * 2 + 1
+    )
+
+    raycaster.setFromCamera(mouse, camera)
+    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0)
+    const intersection = new THREE.Vector3()
+    raycaster.ray.intersectPlane(plane, intersection)
+
+    if (intersection) {
+      addMeasurementPoint({
+        x: intersection.x,
+        y: 0,
+        z: intersection.z,
+      })
+    }
+  }
+
+  // 计算测量结果
+  const measurements = useMemo(() => {
+    if (measurementMode === 'distance' && measurementPoints.length >= 2) {
+      const distances: { from: number; to: number; distance: number; midpoint: THREE.Vector3 }[] = []
+      let total = 0
+
+      for (let i = 0; i < measurementPoints.length - 1; i++) {
+        const dist = calculateDistance(measurementPoints[i], measurementPoints[i + 1])
+        total += dist
+        distances.push({
+          from: i,
+          to: i + 1,
+          distance: dist,
+          midpoint: new THREE.Vector3(
+            (measurementPoints[i].x + measurementPoints[i + 1].x) / 2,
+            0.5,
+            (measurementPoints[i].z + measurementPoints[i + 1].z) / 2
+          ),
+        })
+      }
+
+      return { type: 'distance', distances, total }
+    }
+
+    if (measurementMode === 'angle' && measurementPoints.length >= 3) {
+      const p1 = measurementPoints[0]
+      const p2 = measurementPoints[1]
+      const p3 = measurementPoints[2]
+
+      const angle1 = calculateAngleDegrees(p2, p1)
+      const angle2 = calculateAngleDegrees(p2, p3)
+      let angle = Math.abs(angle2 - angle1)
+      if (angle > 180) angle = 360 - angle
+
+      return { type: 'angle', angle, vertex: p2 }
+    }
+
+    return null
+  }, [measurementMode, measurementPoints])
+
+  return (
+    <group onClick={handleClick as never}>
+      {/* 点击检测平面（不可见） */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]}>
+        <planeGeometry args={[200, 200]} />
+        <meshBasicMaterial visible={false} />
+      </mesh>
+
+      {/* 测量点 */}
+      {measurementPoints.map((point, index) => (
+        <group key={index} position={[point.x, 0.1, point.z]}>
+          <mesh>
+            <sphereGeometry args={[0.3, 16, 16]} />
+            <meshStandardMaterial color="#f59e0b" emissive="#f59e0b" emissiveIntensity={0.5} />
+          </mesh>
+          <Html center position={[0, 1, 0]} style={{ pointerEvents: 'none' }}>
+            <div className="rounded bg-background/90 px-1.5 py-0.5 text-xs font-medium text-foreground">
+              P{index + 1}
+            </div>
+          </Html>
+        </group>
+      ))}
+
+      {/* 距离测量线 */}
+      {measurementMode === 'distance' && measurementPoints.length >= 2 && (
+        <>
+          <Line
+            points={measurementPoints.map((p) => [p.x, 0.2, p.z])}
+            color="#f59e0b"
+            lineWidth={2}
+            dashed
+            dashSize={0.5}
+            gapSize={0.2}
+          />
+          {measurements?.type === 'distance' &&
+            measurements.distances.map((seg, i) => (
+              <Html
+                key={i}
+                position={[seg.midpoint.x, seg.midpoint.y, seg.midpoint.z]}
+                center
+                style={{ pointerEvents: 'none' }}
+              >
+                <div className="rounded-lg border bg-background/95 px-2 py-1 text-xs font-medium text-foreground shadow-lg">
+                  {formatDistance(seg.distance)}
+                </div>
+              </Html>
+            ))}
+        </>
+      )}
+
+      {/* 角度测量 */}
+      {measurementMode === 'angle' && measurementPoints.length >= 3 && measurements?.type === 'angle' && (
+        <>
+          <Line
+            points={[
+              [measurementPoints[0].x, 0.2, measurementPoints[0].z],
+              [measurementPoints[1].x, 0.2, measurementPoints[1].z],
+              [measurementPoints[2].x, 0.2, measurementPoints[2].z],
+            ]}
+            color="#f59e0b"
+            lineWidth={2}
+          />
+          <Html
+            position={[measurements.vertex.x, 1, measurements.vertex.z]}
+            center
+            style={{ pointerEvents: 'none' }}
+          >
+            <div className="rounded-lg border bg-background/95 px-2 py-1 text-xs font-medium text-foreground shadow-lg">
+              {formatAngle(measurements.angle)}
+            </div>
+          </Html>
+        </>
+      )}
+
+      {/* 总距离显示 */}
+      {measurements?.type === 'distance' && measurements.total > 0 && (
+        <Html
+          position={[
+            measurementPoints[measurementPoints.length - 1].x,
+            2,
+            measurementPoints[measurementPoints.length - 1].z,
+          ]}
+          center
+          style={{ pointerEvents: 'none' }}
+        >
+          <div className="rounded-lg border-2 border-amber-500 bg-background/95 px-3 py-1.5 font-medium text-foreground shadow-lg">
+            总距离: {formatDistance(measurements.total)}
+          </div>
+        </Html>
+      )}
+    </group>
+  )
+}
