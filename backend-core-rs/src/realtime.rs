@@ -12,6 +12,7 @@ use axum::{
         ws::{Message, WebSocket, WebSocketUpgrade},
         State,
     },
+    http::{header, HeaderMap, HeaderValue, StatusCode},
     response::IntoResponse,
 };
 use futures_util::{SinkExt, StreamExt};
@@ -35,26 +36,26 @@ const EQUIPMENT_ID: &str = "equipment-cnc-01";
 pub struct RealtimeState {
     broadcaster: broadcast::Sender<RealtimeEvent>,
     ticker_started: Arc<AtomicBool>,
-}
-
-impl Default for RealtimeState {
-    fn default() -> Self {
-        Self::new()
-    }
+    allowed_origin: HeaderValue,
 }
 
 impl RealtimeState {
-    pub fn new() -> Self {
+    pub fn new(allowed_origin: HeaderValue) -> Self {
         let (broadcaster, _) = broadcast::channel(32);
 
         Self {
             broadcaster,
             ticker_started: Arc::new(AtomicBool::new(false)),
+            allowed_origin,
         }
     }
 
     fn subscribe(&self) -> broadcast::Receiver<RealtimeEvent> {
         self.broadcaster.subscribe()
+    }
+
+    fn origin_allowed(&self, origin: Option<&HeaderValue>) -> bool {
+        origin == Some(&self.allowed_origin)
     }
 
     fn ensure_ticker_started(&self) {
@@ -74,8 +75,18 @@ impl RealtimeState {
 pub async fn realtime_ws_handler(
     ws: WebSocketUpgrade,
     State(state): State<RealtimeState>,
-) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| client_stream(socket, state))
+    headers: HeaderMap,
+) -> Result<impl IntoResponse, StatusCode> {
+    if !state.origin_allowed(headers.get(header::ORIGIN)) {
+        warn!(
+            request_origin = ?headers.get(header::ORIGIN),
+            allowed_origin = ?state.allowed_origin,
+            "rejected websocket handshake due to invalid origin"
+        );
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    Ok(ws.on_upgrade(move |socket| client_stream(socket, state)))
 }
 
 async fn client_stream(socket: WebSocket, state: RealtimeState) {

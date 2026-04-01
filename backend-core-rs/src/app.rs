@@ -39,7 +39,7 @@ impl Error for AppBuildError {
 
 pub fn build_app(allowed_origin: &str) -> Result<Router, AppBuildError> {
     let allowed_origin = parse_allowed_origin(allowed_origin)?;
-    let realtime_state = RealtimeState::new();
+    let realtime_state = RealtimeState::new(allowed_origin.clone());
 
     Ok(Router::new()
         .route("/health/live", get(live))
