@@ -58,8 +58,23 @@ async fn ready_health_returns_ready_status_payload() {
 }
 
 #[test]
-fn invalid_allowed_origin_returns_a_build_error() {
-    let result = backend_core_rs::app::build_app("localhost:3000");
+fn malformed_allowed_origins_return_syntax_errors() {
+    let cases = [
+        "localhost:3000",
+        "http://localhost:3000/",
+        "http://localhost:3000/path",
+        "ftp://localhost:3000",
+    ];
 
-    assert!(result.is_err());
+    for case in cases {
+        let result = backend_core_rs::app::build_app(case);
+
+        assert!(
+            matches!(
+                result,
+                Err(backend_core_rs::app::AppBuildError::InvalidAllowedOriginSyntax)
+            ),
+            "{case} should return InvalidAllowedOriginSyntax, got {result:?}"
+        );
+    }
 }
