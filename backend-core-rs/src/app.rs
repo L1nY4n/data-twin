@@ -8,6 +8,7 @@ use axum::{
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 
 use crate::health::{live, ready};
+use crate::site::bootstrap;
 
 #[derive(Debug)]
 pub enum AppBuildError {
@@ -41,6 +42,7 @@ pub fn build_app(allowed_origin: &str) -> Result<Router, AppBuildError> {
     Ok(Router::new()
         .route("/health/live", get(live))
         .route("/health/ready", get(ready))
+        .route("/api/v1/site/bootstrap", get(bootstrap))
         .layer(
             CorsLayer::new()
                 .allow_origin(allowed_origin)
