@@ -1,5 +1,7 @@
+use std::{error::Error, fmt};
+
 use axum::{
-    http::{HeaderValue, Method},
+    http::{header::InvalidHeaderValue, HeaderValue, Method},
     routing::get,
     Router,
 };
@@ -7,12 +9,35 @@ use tower_http::{cors::CorsLayer, trace::TraceLayer};
 
 use crate::health::{live, ready};
 
-pub fn build_app(allowed_origin: &str) -> Router {
+#[derive(Debug)]
+pub enum AppBuildError {
+    InvalidAllowedOrigin(InvalidHeaderValue),
+}
+
+impl fmt::Display for AppBuildError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidAllowedOrigin(_) => {
+                write!(f, "BACKEND_ALLOWED_ORIGIN must be a valid header value")
+            }
+        }
+    }
+}
+
+impl Error for AppBuildError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::InvalidAllowedOrigin(error) => Some(error),
+        }
+    }
+}
+
+pub fn build_app(allowed_origin: &str) -> Result<Router, AppBuildError> {
     let allowed_origin = allowed_origin
         .parse::<HeaderValue>()
-        .expect("BACKEND_ALLOWED_ORIGIN must be a valid header value");
+        .map_err(AppBuildError::InvalidAllowedOrigin)?;
 
-    Router::new()
+    Ok(Router::new()
         .route("/health/live", get(live))
         .route("/health/ready", get(ready))
         .layer(
@@ -20,5 +45,5 @@ pub fn build_app(allowed_origin: &str) -> Router {
                 .allow_origin(allowed_origin)
                 .allow_methods([Method::GET]),
         )
-        .layer(TraceLayer::new_for_http())
+        .layer(TraceLayer::new_for_http()))
 }

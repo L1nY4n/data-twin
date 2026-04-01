@@ -9,6 +9,7 @@ use tower::ServiceExt;
 #[tokio::test]
 async fn live_health_returns_ok_status_payload() {
     let response = backend_core_rs::app::build_app("http://localhost:3000")
+        .expect("valid allowed origin should build the app")
         .oneshot(
             Request::builder()
                 .uri("/health/live")
@@ -29,6 +30,7 @@ async fn live_health_returns_ok_status_payload() {
 #[tokio::test]
 async fn ready_health_returns_ready_status_payload() {
     let response = backend_core_rs::app::build_app("http://localhost:3000")
+        .expect("valid allowed origin should build the app")
         .oneshot(
             Request::builder()
                 .uri("/health/ready")
@@ -44,4 +46,11 @@ async fn ready_health_returns_ready_status_payload() {
         serde_json::from_slice::<serde_json::Value>(&body).unwrap(),
         json!({"status": "ready"})
     );
+}
+
+#[test]
+fn invalid_allowed_origin_returns_a_build_error() {
+    let result = backend_core_rs::app::build_app("http://localhost:3000\ninvalid");
+
+    assert!(result.is_err());
 }
