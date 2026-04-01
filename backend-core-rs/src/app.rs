@@ -1,7 +1,7 @@
 use std::{error::Error, fmt};
 
 use axum::{
-    http::{header::InvalidHeaderValue, HeaderValue, Method},
+    http::{header::InvalidHeaderValue, HeaderValue, Method, Uri},
     routing::get,
     Router,
 };
@@ -11,15 +11,17 @@ use crate::health::{live, ready};
 
 #[derive(Debug)]
 pub enum AppBuildError {
-    InvalidAllowedOrigin(InvalidHeaderValue),
+    InvalidAllowedOriginSyntax,
+    InvalidAllowedOriginHeader(InvalidHeaderValue),
 }
 
 impl fmt::Display for AppBuildError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::InvalidAllowedOrigin(_) => {
-                write!(f, "BACKEND_ALLOWED_ORIGIN must be a valid header value")
-            }
+            Self::InvalidAllowedOriginSyntax | Self::InvalidAllowedOriginHeader(_) => write!(
+                f,
+                "BACKEND_ALLOWED_ORIGIN must be a valid origin like http://localhost:3000"
+            ),
         }
     }
 }
@@ -27,15 +29,14 @@ impl fmt::Display for AppBuildError {
 impl Error for AppBuildError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::InvalidAllowedOrigin(error) => Some(error),
+            Self::InvalidAllowedOriginSyntax => None,
+            Self::InvalidAllowedOriginHeader(error) => Some(error),
         }
     }
 }
 
 pub fn build_app(allowed_origin: &str) -> Result<Router, AppBuildError> {
-    let allowed_origin = allowed_origin
-        .parse::<HeaderValue>()
-        .map_err(AppBuildError::InvalidAllowedOrigin)?;
+    let allowed_origin = parse_allowed_origin(allowed_origin)?;
 
     Ok(Router::new()
         .route("/health/live", get(live))
@@ -46,4 +47,28 @@ pub fn build_app(allowed_origin: &str) -> Result<Router, AppBuildError> {
                 .allow_methods([Method::GET]),
         )
         .layer(TraceLayer::new_for_http()))
+}
+
+fn parse_allowed_origin(allowed_origin: &str) -> Result<HeaderValue, AppBuildError> {
+    let uri = allowed_origin
+        .parse::<Uri>()
+        .map_err(|_| AppBuildError::InvalidAllowedOriginSyntax)?;
+    let Some(scheme) = uri.scheme_str() else {
+        return Err(AppBuildError::InvalidAllowedOriginSyntax);
+    };
+    let Some(authority) = uri.authority() else {
+        return Err(AppBuildError::InvalidAllowedOriginSyntax);
+    };
+
+    if !matches!(scheme, "http" | "https") {
+        return Err(AppBuildError::InvalidAllowedOriginSyntax);
+    }
+
+    if allowed_origin != format!("{scheme}://{authority}") {
+        return Err(AppBuildError::InvalidAllowedOriginSyntax);
+    }
+
+    allowed_origin
+        .parse::<HeaderValue>()
+        .map_err(AppBuildError::InvalidAllowedOriginHeader)
 }

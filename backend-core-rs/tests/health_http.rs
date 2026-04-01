@@ -1,6 +1,9 @@
 use axum::{
     body::Body,
-    http::{Request, StatusCode},
+    http::{
+        header::{ACCESS_CONTROL_ALLOW_ORIGIN, ORIGIN},
+        Request, StatusCode,
+    },
 };
 use http_body_util::BodyExt;
 use serde_json::json;
@@ -8,11 +11,13 @@ use tower::ServiceExt;
 
 #[tokio::test]
 async fn live_health_returns_ok_status_payload() {
-    let response = backend_core_rs::app::build_app("http://localhost:3000")
+    let allowed_origin = "http://localhost:3000";
+    let response = backend_core_rs::app::build_app(allowed_origin)
         .expect("valid allowed origin should build the app")
         .oneshot(
             Request::builder()
                 .uri("/health/live")
+                .header(ORIGIN, allowed_origin)
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -20,6 +25,10 @@ async fn live_health_returns_ok_status_payload() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers().get(ACCESS_CONTROL_ALLOW_ORIGIN).unwrap(),
+        allowed_origin
+    );
     let body = response.into_body().collect().await.unwrap().to_bytes();
     assert_eq!(
         serde_json::from_slice::<serde_json::Value>(&body).unwrap(),
@@ -50,7 +59,7 @@ async fn ready_health_returns_ready_status_payload() {
 
 #[test]
 fn invalid_allowed_origin_returns_a_build_error() {
-    let result = backend_core_rs::app::build_app("http://localhost:3000\ninvalid");
+    let result = backend_core_rs::app::build_app("localhost:3000");
 
     assert!(result.is_err());
 }
