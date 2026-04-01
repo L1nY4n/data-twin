@@ -260,3 +260,50 @@ pub enum ContractValue {
     Array(Vec<ContractValue>),
     Object(BTreeMap<String, ContractValue>),
 }
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum RealtimeEvent {
+    PositionUpdate {
+        timestamp: u64,
+        payload: PositionUpdatePayload,
+    },
+    StatusUpdate {
+        timestamp: u64,
+        payload: StatusUpdatePayload,
+    },
+    Alarm {
+        timestamp: u64,
+        payload: AlarmEventPayload,
+    },
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PositionUpdatePayload {
+    pub entity_id: String,
+    pub position: Vector3,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rotation: Option<Vector3>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub speed: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub heading: Option<f32>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StatusUpdatePayload {
+    pub entity_id: String,
+    pub status: EntityStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parameters: Option<BTreeMap<String, ContractValue>>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AlarmEventPayload {
+    pub id: String,
+    pub level: AlarmLevel,
+    pub message: String,
+}

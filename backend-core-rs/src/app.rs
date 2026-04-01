@@ -8,6 +8,7 @@ use axum::{
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 
 use crate::health::{live, ready};
+use crate::realtime::{realtime_ws_handler, RealtimeState};
 use crate::site::bootstrap;
 
 #[derive(Debug)]
@@ -38,11 +39,14 @@ impl Error for AppBuildError {
 
 pub fn build_app(allowed_origin: &str) -> Result<Router, AppBuildError> {
     let allowed_origin = parse_allowed_origin(allowed_origin)?;
+    let realtime_state = RealtimeState::new();
 
     Ok(Router::new()
         .route("/health/live", get(live))
         .route("/health/ready", get(ready))
         .route("/api/v1/site/bootstrap", get(bootstrap))
+        .route("/ws/realtime", get(realtime_ws_handler))
+        .with_state(realtime_state)
         .layer(
             CorsLayer::new()
                 .allow_origin(allowed_origin)
