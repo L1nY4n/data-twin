@@ -6,7 +6,8 @@
     "dev": "tsx watch src/main.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node --enable-source-maps dist/main.js",
-    "test": "bun test ./test"
+    "test": "bun test ./test",
+    "verify:build-output": "node -e \"const fs = require('node:fs'); process.exit(fs.existsSync('dist/main.js') ? 0 : 1)\""
   },
   "dependencies": {
     "@nestjs/common": "^11.0.0",
