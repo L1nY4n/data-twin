@@ -191,7 +191,7 @@ EMQX 作为本地事件接入层。
 
 #### 6）`backend-core`
 
-推荐技术栈：`NestJS + Fastify + TypeScript`
+推荐技术栈：`Rust + Axum + Tokio`
 
 职责：
 
@@ -488,8 +488,8 @@ Redis 不作为最终事实源。
 
 ## 13. 推荐技术选型
 
-- `backend-core`: NestJS + Fastify + TypeScript
-- `protocol-gateway`: TypeScript 或 Go，按协议复杂度选择
+- `backend-core`: Rust + Axum + Tokio
+- `protocol-gateway`: Rust 或 Go，按协议复杂度选择
 - `event-bus`: EMQX
 - `database`: PostgreSQL + TimescaleDB
 - `cache/runtime`: Redis

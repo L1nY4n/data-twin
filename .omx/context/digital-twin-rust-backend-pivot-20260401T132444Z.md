@@ -1,0 +1,22 @@
+# Ralph Context Snapshot
+
+- task statement: 用户要求停止 TypeScript 后端路线，将数字孪生园区 `backend-core` 改为 Rust 重写，并解释此前为何选择 TypeScript。
+- desired outcome: 明确技术栈转向原因，冻结现有 TS 尝试，更新架构文档中的默认后端技术栈，并以 Rust 作为后续 Phase 1 实施基线。
+- known facts/evidence:
+  - 前端仓库仍是 `Next.js` 数字孪生原型。
+  - 已批准的后端架构是“园区边缘优先”的分层方案。
+  - 已有 spec 将 `backend-core` 写成 `NestJS + Fastify + TypeScript`，这是当前需要修正的主要文档假设。
+  - 已存在一个隔离 worktree：`/Users/l1ny4n/.config/superpowers/worktrees/data-t/backend-phase-1`
+  - TS 子任务只在隔离 worktree 内试做了 Task 1，没有合并回用户当前工作区。
+- constraints:
+  - 用户明确要求 Rust 重写后端。
+  - 前端仍保持现有 Next.js，不重写前端。
+  - 不应继续沿用 TS 计划推进实现。
+  - 需要保持“本地稳定运行、边缘优先、可扩展到多园区”的原始系统目标。
+- unknowns/open questions:
+  - Rust Phase 1 是只重写 `backend-core`，还是同时要求后续协议网关也统一 Rust。
+  - 用户是否希望保留 TS 尝试分支作为参考，还是后续直接删除。
+- likely codebase touchpoints:
+  - `docs/superpowers/specs/2026-04-01-digital-twin-backend-design.md`
+  - `docs/superpowers/plans/` 下新的 Rust Phase 1 计划文档
+  - 后续实际实现将落在 `backend-core/` 或新的 Rust 服务目录
