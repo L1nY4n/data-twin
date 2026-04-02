@@ -16,22 +16,17 @@ import {
 } from '@/lib/digital-twin/renderer/material-stability'
 
 export function ZoneAreas() {
-  const entities = useDigitalTwinStore((state) => state.entities)
+  const zones = useDigitalTwinStore((state) => state.entityBuckets.zones)
   const entityFilters = useDigitalTwinStore((state) => state.entityFilters)
 
-  const zones = useMemo(() => {
-    const result: ZoneEntity[] = []
-    entities.forEach((entity) => {
-      if (entity.type === 'zone' && entityFilters.types.includes('zone') && entity.visible) {
-        result.push(entity as ZoneEntity)
-      }
-    })
-    return result
-  }, [entities, entityFilters])
+  const visibleZones = useMemo(
+    () => zones.filter((zone) => entityFilters.types.includes('zone') && zone.visible),
+    [entityFilters.types, zones]
+  )
 
   return (
     <group>
-      {zones.map((zone) => (
+      {visibleZones.map((zone) => (
         <ZoneArea key={zone.id} zone={zone} />
       ))}
     </group>

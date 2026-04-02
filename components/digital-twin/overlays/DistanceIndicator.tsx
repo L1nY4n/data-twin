@@ -70,31 +70,38 @@ export function DistanceIndicator({
 // 显示选中实体到最近实体的距离
 export function NearbyDistanceOverlay() {
   const selectedEntityId = useDigitalTwinStore((state) => state.selectedEntityId)
-  const entities = useDigitalTwinStore((state) => state.entities)
+  const persons = useDigitalTwinStore((state) => state.entityBuckets.persons)
+  const vehicles = useDigitalTwinStore((state) => state.entityBuckets.vehicles)
+  const equipment = useDigitalTwinStore((state) => state.entityBuckets.equipment)
+
+  const selectedEntity = useMemo(() => {
+    if (!selectedEntityId) return null
+    return (
+      persons.find((entity) => entity.id === selectedEntityId) ??
+      vehicles.find((entity) => entity.id === selectedEntityId) ??
+      equipment.find((entity) => entity.id === selectedEntityId) ??
+      null
+    )
+  }, [equipment, persons, selectedEntityId, vehicles])
 
   const nearbyConnections = useMemo(() => {
-    if (!selectedEntityId) return []
-
-    const selectedEntity = entities.get(selectedEntityId)
-    if (!selectedEntity || selectedEntity.type === 'zone') return []
+    if (!selectedEntity) return []
 
     const connections: { entity: Entity; distance: number }[] = []
+    for (const bucket of [persons, vehicles, equipment]) {
+      for (const entity of bucket) {
+        if (entity.id === selectedEntity.id) continue
 
-    entities.forEach((entity) => {
-      if (entity.id === selectedEntityId) return
-      if (entity.type === 'zone') return
-
-      const distance = calculateDistance(selectedEntity.position, entity.position)
-      if (distance < 15) { // 只显示15米内的
-        connections.push({ entity, distance })
+        const distance = calculateDistance(selectedEntity.position, entity.position)
+        if (distance < 15) {
+          connections.push({ entity, distance })
+        }
       }
-    })
+    }
 
     // 按距离排序，取最近的3个
     return connections.sort((a, b) => a.distance - b.distance).slice(0, 3)
-  }, [selectedEntityId, entities])
-
-  const selectedEntity = selectedEntityId ? entities.get(selectedEntityId) : null
+  }, [equipment, persons, selectedEntity, vehicles])
 
   if (!selectedEntity || nearbyConnections.length === 0) return null
 

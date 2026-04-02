@@ -48,6 +48,24 @@ describe('performance guards', () => {
     expect(source.includes('state.entities')).toBe(false)
   })
 
+  test('zone and nearby-distance overlays should avoid subscribing to the full entities map', () => {
+    const zoneAreas = readFileSync(
+      join(process.cwd(), 'components/digital-twin/entities/ZoneAreas.tsx'),
+      'utf8'
+    )
+    const distanceOverlay = readFileSync(
+      join(process.cwd(), 'components/digital-twin/overlays/DistanceIndicator.tsx'),
+      'utf8'
+    )
+
+    expect(zoneAreas.includes('state.entityBuckets.zones')).toBe(true)
+    expect(zoneAreas.includes('state.entities')).toBe(false)
+    expect(distanceOverlay.includes('state.entityBuckets.persons')).toBe(true)
+    expect(distanceOverlay.includes('state.entityBuckets.vehicles')).toBe(true)
+    expect(distanceOverlay.includes('state.entityBuckets.equipment')).toBe(true)
+    expect(distanceOverlay.includes('state.entities')).toBe(false)
+  })
+
   test('scene picking should coalesce pointer events without layout reads on the hover hot path', () => {
     const source = readFileSync(
       join(process.cwd(), 'components/digital-twin/scene/ScenePicking.tsx'),
