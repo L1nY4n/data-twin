@@ -4,6 +4,7 @@ import { memo } from 'react'
 import { Instance, Instances } from '@react-three/drei'
 import {
   CAMPUS_DISTRICTS,
+  LOGISTICS_BAY_OFFSETS,
   PROCESS_WEST_LAYOUT_BLUEPRINTS,
   TANK_EAST_LAYOUT_BLUEPRINTS,
   type LayoutBlueprint,
@@ -53,10 +54,15 @@ interface StaticBoxInstanceSpec {
   scale?: [number, number, number]
 }
 
-const BAY_OFFSETS = [-70, -36, -2, 32, 66] as const
+const BAY_OFFSETS = LOGISTICS_BAY_OFFSETS
 const PARKING_OFFSETS = [-82, -70, -58, 48, 60, 72, 84] as const
+const ROAD_LINE_OFFSETS = [-84, -56, -28, 0, 28, 56, 84] as const
 const COOLING_TOWER_OFFSETS = [-14, 0, 14] as const
 const SUBSTATION_FRAME_OFFSETS = [-7, 0, 7] as const
+const LOGISTICS_MAIN_ROAD_Z = 54
+const LOGISTICS_BUFFER_Z = 62
+const LOGISTICS_LOADING_APRON_Z = 69
+const LOGISTICS_BUILDING_Z = 76
 const SPHERE_SUPPORT_OFFSETS = [
   [-2.1, -2.1],
   [2.1, -2.1],
@@ -502,6 +508,14 @@ function VerticalTankCompound({ blueprint, palette }: { blueprint: LayoutBluepri
             <cylinderGeometry args={[radius + 0.56, radius + 0.56, 0.24, 24]} />
             <meshStandardMaterial color={palette.curb} roughness={0.78} metalness={0.04} />
           </mesh>
+          <mesh position={[radius + 1.15, height * 0.3, 0]}>
+            <boxGeometry args={[0.2, height * 0.6, 0.2]} />
+            <meshStandardMaterial color={palette.steel} metalness={0.64} roughness={0.34} />
+          </mesh>
+          <mesh position={[radius + 0.55, height * 0.58, 0]}>
+            <boxGeometry args={[1.4, 0.12, radius * 1.5]} />
+            <meshStandardMaterial color={palette.steelDark} metalness={0.6} roughness={0.38} />
+          </mesh>
         </group>
       ))}
       <mesh position={[0, 3.4, blueprint.depth / 2 - 2.1]} rotation={[0, 0, Math.PI / 2]}>
@@ -537,6 +551,20 @@ function SphereTank({ blueprint, palette }: { blueprint: LayoutBlueprint; palett
         <cylinderGeometry args={[radius + 0.56, radius + 0.56, 0.24, 24]} />
         <meshStandardMaterial color={palette.curb} roughness={0.78} metalness={0.04} />
       </mesh>
+      <mesh position={[0, 1.7, 0]}>
+        <boxGeometry args={[blueprint.width - 1.4, 0.22, 1.1]} />
+        <meshStandardMaterial color={palette.steelDark} metalness={0.62} roughness={0.36} />
+      </mesh>
+      <group position={[radius + 1.2, 0, 0]}>
+        <mesh position={[0, sphereY / 2, 0]}>
+          <boxGeometry args={[0.22, sphereY - 1.6, 0.22]} />
+          <meshStandardMaterial color={palette.steel} metalness={0.66} roughness={0.34} />
+        </mesh>
+        <mesh position={[-0.9, sphereY - 0.8, 0]}>
+          <boxGeometry args={[1.8, 0.14, 1.4]} />
+          <meshStandardMaterial color={palette.steelDark} metalness={0.6} roughness={0.38} />
+        </mesh>
+      </group>
       <mesh position={[0, sphereY + 0.12, 0]} rotation={[Math.PI / 2, 0, 0]}>
         <torusGeometry args={[radius * 0.82, 0.08, 10, 28]} />
         <meshStandardMaterial color={palette.steelDark} metalness={0.56} roughness={0.36} />
@@ -633,67 +661,136 @@ function TankFarmDistrict({ palette }: { palette: PlantPalette }) {
   )
 }
 
+function LoadingBay({ offset, palette }: { offset: number; palette: PlantPalette }) {
+  const postInstances: StaticBoxInstanceSpec[] = [
+    { key: `bay-${offset}-front-left`, position: [-5.2, 2.4, -3.1] },
+    { key: `bay-${offset}-front-right`, position: [5.2, 2.4, -3.1] },
+    { key: `bay-${offset}-rear-left`, position: [-5.2, 2.4, 3.1] },
+    { key: `bay-${offset}-rear-right`, position: [5.2, 2.4, 3.1] },
+  ]
+
+  return (
+    <group position={[offset, 0, LOGISTICS_LOADING_APRON_Z]}>
+      <mesh position={[0, 0.18, 0]} receiveShadow>
+        <boxGeometry args={[13.4, 0.36, 8.8]} />
+        <meshStandardMaterial color={palette.slabAlt} roughness={0.9} metalness={0.05} />
+      </mesh>
+      <mesh position={[0, 0.26, -3.4]}>
+        <boxGeometry args={[11.2, 0.18, 0.28]} />
+        <meshStandardMaterial color={palette.stripe} roughness={0.92} metalness={0.02} />
+      </mesh>
+      <mesh position={[-2.8, 0.26, -0.2]}>
+        <boxGeometry args={[0.18, 0.18, 6.4]} />
+        <meshStandardMaterial color={palette.curb} roughness={0.86} metalness={0.04} />
+      </mesh>
+      <mesh position={[2.8, 0.26, -0.2]}>
+        <boxGeometry args={[0.18, 0.18, 6.4]} />
+        <meshStandardMaterial color={palette.curb} roughness={0.86} metalness={0.04} />
+      </mesh>
+      <mesh position={[0, 4.9, 0.15]}>
+        <boxGeometry args={[14, 0.24, 9.6]} />
+        <meshStandardMaterial color={palette.canopy} metalness={0.6} roughness={0.34} />
+      </mesh>
+      <StaticBoxInstances
+        args={[0.34, 4.8, 0.34]}
+        color={palette.canopy}
+        metalness={0.62}
+        roughness={0.34}
+        instances={postInstances}
+      />
+      <mesh position={[0, 4.46, 1.5]}>
+        <boxGeometry args={[11.4, 0.18, 0.28]} />
+        <meshStandardMaterial color={palette.steelDark} metalness={0.66} roughness={0.34} />
+      </mesh>
+      {[-2.7, 2.7].map((armOffset, index) => (
+        <group key={`loading-arm-${offset}-${index}`} position={[armOffset, 0, 0.7]}>
+          <mesh position={[0, 2.1, 0]}>
+            <cylinderGeometry args={[0.18, 0.22, 4.2, 12]} />
+            <meshStandardMaterial color={palette.steelDark} metalness={0.62} roughness={0.32} />
+          </mesh>
+          <mesh position={[0.92, 3.96, -0.2]} rotation={[0, 0, Math.PI / 2]}>
+            <cylinderGeometry args={[0.14, 0.14, 2.2, 12]} />
+            <meshStandardMaterial color={palette.pipe} metalness={0.58} roughness={0.34} />
+          </mesh>
+          <mesh position={[1.82, 3.68, -0.22]} rotation={[0, 0, -Math.PI / 5]}>
+            <cylinderGeometry args={[0.1, 0.1, 1.7, 10]} />
+            <meshStandardMaterial color={palette.pipe} metalness={0.58} roughness={0.34} />
+          </mesh>
+          <mesh position={[-0.12, 4.26, 0.08]}>
+            <boxGeometry args={[0.42, 0.18, 0.36]} />
+            <meshStandardMaterial color={palette.warning} metalness={0.28} roughness={0.56} />
+          </mesh>
+        </group>
+      ))}
+    </group>
+  )
+}
+
 function LogisticsDistrict({ palette }: { palette: PlantPalette }) {
   if (!LOGISTICS_DISTRICT) return null
 
-  const bayPostInstances: StaticBoxInstanceSpec[] = BAY_OFFSETS.flatMap((offset) => [
-    {
-      key: `bay-left-${offset}`,
-      position: [offset - 5.4, 2.2, 49.2],
-    },
-    {
-      key: `bay-right-${offset}`,
-      position: [offset + 5.4, 2.2, 49.2],
-    },
-  ])
-
   return (
     <group>
-      <mesh position={[LOGISTICS_DISTRICT.center.x, 0.05, LOGISTICS_DISTRICT.center.z]} receiveShadow>
-        <boxGeometry args={[LOGISTICS_DISTRICT.size.width, 0.1, 18]} />
+      <mesh position={[LOGISTICS_DISTRICT.center.x, 0.05, LOGISTICS_MAIN_ROAD_Z]} receiveShadow>
+        <boxGeometry args={[LOGISTICS_DISTRICT.size.width, 0.1, 12]} />
         <meshStandardMaterial color={palette.road} roughness={0.9} metalness={0.06} />
       </mesh>
-      {[-84, -56, -28, 0, 28, 56, 84].map((offset) => (
-        <mesh key={`road-line-${offset}`} position={[offset, 0.12, LOGISTICS_DISTRICT.center.z]}>
+      <mesh position={[LOGISTICS_DISTRICT.center.x, 0.08, LOGISTICS_BUFFER_Z]}>
+        <boxGeometry args={[LOGISTICS_DISTRICT.size.width, 0.16, 2.2]} />
+        <meshStandardMaterial color={palette.curb} roughness={0.88} metalness={0.05} />
+      </mesh>
+      <mesh position={[LOGISTICS_DISTRICT.center.x, 0.08, LOGISTICS_LOADING_APRON_Z]}>
+        <boxGeometry args={[LOGISTICS_DISTRICT.size.width, 0.16, 10.8]} />
+        <meshStandardMaterial color={palette.slabAlt} roughness={0.92} metalness={0.05} />
+      </mesh>
+      {ROAD_LINE_OFFSETS.map((offset) => (
+        <mesh key={`road-line-${offset}`} position={[offset, 0.12, LOGISTICS_MAIN_ROAD_Z]}>
           <boxGeometry args={[3.6, 0.04, 0.32]} />
+          <meshStandardMaterial color={palette.stripe} roughness={0.92} metalness={0.02} />
+        </mesh>
+      ))}
+      {BAY_OFFSETS.map((offset) => (
+        <mesh key={`stop-line-${offset}`} position={[offset, 0.12, 60.2]}>
+          <boxGeometry args={[10.4, 0.04, 0.24]} />
           <meshStandardMaterial color={palette.stripe} roughness={0.92} metalness={0.02} />
         </mesh>
       ))}
 
       {BAY_OFFSETS.map((offset) => (
-        <group key={`bay-${offset}`} position={[offset, 0, 56]}>
-          <mesh position={[0, 0.24, -4.8]}>
-            <boxGeometry args={[12.2, 0.48, 5.4]} />
-            <meshStandardMaterial color={palette.curb} roughness={0.82} metalness={0.06} />
-          </mesh>
-          <mesh position={[0, 4.4, -4.8]}>
-            <boxGeometry args={[12.8, 0.24, 6]} />
-            <meshStandardMaterial color={palette.canopy} metalness={0.6} roughness={0.34} />
-          </mesh>
-        </group>
+        <LoadingBay key={`bay-${offset}`} offset={offset} palette={palette} />
       ))}
-      <StaticBoxInstances
-        args={[0.34, 4.4, 0.34]}
-        color={palette.canopy}
-        metalness={0.6}
-        roughness={0.34}
-        instances={bayPostInstances}
-      />
 
-      <mesh position={[-70, 2.8, 74]}>
+      <mesh position={[0, 6.6, 64.2]}>
+        <boxGeometry args={[158, 0.4, 3.2]} />
+        <meshStandardMaterial color={palette.steelDark} metalness={0.68} roughness={0.34} />
+      </mesh>
+      {[-0.8, 0, 0.8].map((offset) => (
+        <mesh key={`logistics-header-pipe-${offset}`} position={[0, 7.1 + Math.abs(offset) * 0.2, 64.2 + offset]} rotation={[0, 0, Math.PI / 2]}>
+          <cylinderGeometry args={[0.14 + Math.abs(offset) * 0.03, 0.14 + Math.abs(offset) * 0.03, 158, 14]} />
+          <meshStandardMaterial color={palette.pipe} metalness={0.58} roughness={0.34} />
+        </mesh>
+      ))}
+      {[-79, 79].map((offset) => (
+        <mesh key={`logistics-header-support-${offset}`} position={[offset, 3.32, 64.2]}>
+          <boxGeometry args={[0.42, 6.64, 0.42]} />
+          <meshStandardMaterial color={palette.steel} metalness={0.68} roughness={0.34} />
+        </mesh>
+      ))}
+
+      <mesh position={[-70, 2.8, LOGISTICS_BUILDING_Z]}>
         <boxGeometry args={[34, 5.6, 12]} />
         <meshStandardMaterial color={palette.building} metalness={0.18} roughness={0.72} />
       </mesh>
-      <mesh position={[68, 3.2, 74]}>
+      <mesh position={[68, 3.2, LOGISTICS_BUILDING_Z]}>
         <boxGeometry args={[30, 6.4, 12]} />
         <meshStandardMaterial color={palette.building} metalness={0.2} roughness={0.7} />
       </mesh>
-      <mesh position={[0, 1.8, 76]}>
+      <mesh position={[0, 1.8, 78]}>
         <boxGeometry args={[20, 3.6, 10]} />
         <meshStandardMaterial color={palette.slabAlt} metalness={0.1} roughness={0.78} />
       </mesh>
       {PARKING_OFFSETS.map((offset) => (
-        <mesh key={`parking-${offset}`} position={[offset, 0.12, 78]}>
+        <mesh key={`parking-${offset}`} position={[offset, 0.12, 81]}>
           <boxGeometry args={[1.4, 0.04, 6]} />
           <meshStandardMaterial color={palette.stripe} roughness={0.92} metalness={0.02} />
         </mesh>

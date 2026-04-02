@@ -45,6 +45,16 @@ function randomPositionAround(anchor: Vector3, spread: { x: number; z: number })
   }
 }
 
+const DEFAULT_EQUIPMENT_SPREAD = { x: 1, z: 1 }
+const SCENE_EQUIPMENT_SPREAD = { x: 1.2, z: 1.2 }
+
+function resolveEquipmentSpread(
+  anchor: { spread?: { x: number; z: number } },
+  fallback: { x: number; z: number } = DEFAULT_EQUIPMENT_SPREAD
+) {
+  return anchor.spread ?? fallback
+}
+
 function respectsMinimumDistance(position: Vector3, existingPositions: Vector3[], minDistance: number): boolean {
   return existingPositions.every(
     (existing) => Math.hypot(position.x - existing.x, position.z - existing.z) >= minDistance
@@ -1008,7 +1018,7 @@ export function generateEquipment(options?: Partial<EquipmentEntity>): Equipment
     id,
     type: 'equipment',
     name: `${anchor.name}${id.slice(-4)}`,
-    position: randomPositionAround(anchor.position, { x: 1, z: 1 }),
+    position: options?.position ?? randomPositionAround(anchor.position, resolveEquipmentSpread(anchor)),
     rotation: { x: 0, y: randomRange(0, Math.PI * 2), z: 0 },
     scale: { x: 1, y: 1, z: 1 },
     status: randomChoice(['active', 'active', 'active', 'warning', 'inactive']),
@@ -1127,12 +1137,22 @@ export function generateMockScene(options: GenerateMockSceneOptions = {}): {
   }
 
   // 生成设备
+  const repeatableEquipmentAnchors =
+    EQUIPMENT_ANCHORS.filter((anchor) => anchor.repeatable !== false)
+  const scalableEquipmentAnchors =
+    repeatableEquipmentAnchors.length > 0 ? repeatableEquipmentAnchors : EQUIPMENT_ANCHORS
+
   for (let i = 0; i < counts.equipment; i += 1) {
-    const anchor = EQUIPMENT_ANCHORS[i % EQUIPMENT_ANCHORS.length]
-    const repeatRound = Math.floor(i / EQUIPMENT_ANCHORS.length)
+    const anchorPool = i < EQUIPMENT_ANCHORS.length ? EQUIPMENT_ANCHORS : scalableEquipmentAnchors
+    const anchorIndex = i < EQUIPMENT_ANCHORS.length ? i : (i - EQUIPMENT_ANCHORS.length) % anchorPool.length
+    const anchor = anchorPool[anchorIndex]
+    const repeatRound =
+      i < EQUIPMENT_ANCHORS.length
+        ? 0
+        : Math.floor((i - EQUIPMENT_ANCHORS.length) / anchorPool.length) + 1
     equipment.push(
       generateEquipment({
-        position: randomPositionAround(anchor.position, { x: 1.2, z: 1.2 }),
+        position: randomPositionAround(anchor.position, resolveEquipmentSpread(anchor, SCENE_EQUIPMENT_SPREAD)),
         name: repeatRound === 0 ? anchor.name : `${anchor.name} #${repeatRound + 1}`,
       })
     )
