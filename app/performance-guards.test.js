@@ -88,7 +88,80 @@ describe('performance guards', () => {
     )
     expect(markers.includes('PersonInstances')).toBe(true)
     expect(markers.includes('VehicleInstances')).toBe(true)
+    expect(markers.includes('EquipmentInstances')).toBe(true)
+    expect(markers.includes('showStatusRing={false}')).toBe(true)
     expect(markers.includes("qualityProfile === 'performance'")).toBe(false)
+  })
+
+  test('equipment updates should use a throttled simulation helper instead of running every fixed tick', () => {
+    const source = readFileSync(
+      join(process.cwd(), 'lib/digital-twin/store.ts'),
+      'utf8'
+    )
+
+    expect(source.includes('getEquipmentSimulationIntervalMs')).toBe(true)
+    expect(source.includes('shouldRunEquipmentSimulation')).toBe(true)
+    expect(source.includes('lastEquipmentSimulationAt')).toBe(true)
+    expect(source.includes("snapshot.type === 'equipment' ||")).toBe(false)
+  })
+
+  test('runtime metrics should track aggregate pool activity instead of a single trajectory pool', () => {
+    const source = readFileSync(
+      join(process.cwd(), 'lib/digital-twin/store.ts'),
+      'utf8'
+    )
+    const canvas = readFileSync(
+      join(process.cwd(), 'components/digital-twin/scene/DigitalTwinCanvas.tsx'),
+      'utf8'
+    )
+
+    expect(source.includes('poolRequests')).toBe(true)
+    expect(source.includes('aggregatePoolMetrics')).toBe(true)
+    expect(source.includes('ecsWorld.pools.trajectoryPoint.stats.hitRate')).toBe(false)
+    expect(canvas.includes('getFrameDrawCallSample')).toBe(true)
+  })
+
+  test('equipment path should use instanced base rendering with detail-only overlays', () => {
+    const markers = readFileSync(
+      join(process.cwd(), 'components/digital-twin/entities/EntityMarkers.tsx'),
+      'utf8'
+    )
+    const equipment = readFileSync(
+      join(process.cwd(), 'components/digital-twin/entities/EquipmentMarker.tsx'),
+      'utf8'
+    )
+
+    expect(markers.includes('EquipmentInstances')).toBe(true)
+    expect(markers.includes('showModel={false}')).toBe(true)
+    expect(equipment.includes('showModel = true')).toBe(true)
+  })
+
+  test('store should not force equipment projection on every publish', () => {
+    const source = readFileSync(
+      join(process.cwd(), 'lib/digital-twin/store.ts'),
+      'utf8'
+    )
+
+    expect(source.includes("snapshot.type === 'equipment' ||")).toBe(false)
+  })
+
+  test('equipment telemetry should use a lower-frequency simulation interval', () => {
+    const source = readFileSync(
+      join(process.cwd(), 'lib/digital-twin/store.ts'),
+      'utf8'
+    )
+
+    expect(source.includes('getEquipmentSimulationIntervalMs')).toBe(true)
+    expect(source.includes('lastEquipmentSimulationAt')).toBe(true)
+  })
+
+  test('runtime metrics should track pool activity instead of always showing pool hit rate alone', () => {
+    const source = readFileSync(
+      join(process.cwd(), 'lib/digital-twin/store.ts'),
+      'utf8'
+    )
+
+    expect(source.includes('poolRequests')).toBe(true)
   })
 
   test('react side panels should subscribe to lightweight entity directory instead of full entities map', () => {
@@ -135,6 +208,16 @@ describe('performance guards', () => {
     expect(source.includes('resize={{ debounce: 100 }}')).toBe(true)
     expect(source.includes('advanceRuntime(')).toBe(true)
     expect(source.includes('shadow-mapSize={qualityProfile === \'performance\' ? [512, 512] : [1024, 1024]}')).toBe(true)
+  })
+
+  test('canvas should normalize renderer draw metrics to per-frame samples', () => {
+    const source = readFileSync(
+      join(process.cwd(), 'components/digital-twin/scene/DigitalTwinCanvas.tsx'),
+      'utf8'
+    )
+
+    expect(source.includes('lastDrawCallsRef')).toBe(true)
+    expect(source.includes('getFrameDrawCallSample')).toBe(true)
   })
 
   test('benchmark view should boot the production scene profile for campus-scale verification', () => {

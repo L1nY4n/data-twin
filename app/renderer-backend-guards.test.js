@@ -65,6 +65,10 @@ describe('renderer backend guards', () => {
       join(process.cwd(), 'components/digital-twin/entities/VehicleInstances.tsx'),
       'utf8'
     )
+    const equipmentInstances = readFileSync(
+      join(process.cwd(), 'components/digital-twin/entities/EquipmentInstances.tsx'),
+      'utf8'
+    )
 
     expect(personMarker.includes('userData={{ pickable: true, entityId: entity.id }}')).toBe(true)
     expect(vehicleMarker.includes('userData={{ pickable: true, entityId: entity.id }}')).toBe(true)
@@ -72,11 +76,13 @@ describe('renderer backend guards', () => {
     expect(zoneAreas.includes('userData={{ pickable: true, entityId: zone.id }}')).toBe(true)
     expect(personInstances.includes('userData={{ pickable: true, entityIds }}')).toBe(true)
     expect(vehicleInstances.includes('userData={{ pickable: true, entityIds }}')).toBe(true)
+    expect(equipmentInstances.includes('userData={{ pickable: true, entityIds }}')).toBe(true)
     expect(personInstances.includes('onClick=')).toBe(false)
     expect(vehicleInstances.includes('onClick=')).toBe(false)
+    expect(equipmentInstances.includes('onClick=')).toBe(false)
   })
 
-  test('selection overlays should not remove people and vehicles from instanced base rendering', () => {
+  test('selection overlays should not remove people, vehicles and equipment from instanced base rendering', () => {
     const source = readFileSync(
       join(process.cwd(), 'components/digital-twin/entities/EntityMarkers.tsx'),
       'utf8'
@@ -84,7 +90,20 @@ describe('renderer backend guards', () => {
 
     expect(source.includes('<PersonInstances entities={filteredEntities.persons} />')).toBe(true)
     expect(source.includes('<VehicleInstances entities={filteredEntities.vehicles} />')).toBe(true)
+    expect(source.includes('<EquipmentInstances')).toBe(true)
+    expect(source.includes('selectedEntityId={selectedEntityId}')).toBe(true)
+    expect(source.includes('hoveredEntityId={hoveredEntityId}')).toBe(true)
     expect(source.includes('showModel={false}')).toBe(true)
+  })
+
+  test('equipment instanced path should expose pickable metadata instead of per-mesh pointer handlers', () => {
+    const equipmentInstances = readFileSync(
+      join(process.cwd(), 'components/digital-twin/entities/EquipmentInstances.tsx'),
+      'utf8'
+    )
+
+    expect(equipmentInstances.includes('userData={{ pickable: true, entityIds }}')).toBe(true)
+    expect(equipmentInstances.includes('onClick=')).toBe(false)
   })
 
   test('entity detail overlays should avoid meshBasicMaterial on webgpu-sensitive paths', () => {
@@ -181,6 +200,7 @@ describe('renderer backend guards', () => {
     expect(source.includes('强制WebGPU（失败回退）')).toBe(true)
     expect(source.includes('person')).toBe(true)
     expect(source.includes('vehicle')).toBe(true)
+    expect(source.includes('equipment')).toBe(true)
     expect(source.includes('zone')).toBe(true)
   })
 

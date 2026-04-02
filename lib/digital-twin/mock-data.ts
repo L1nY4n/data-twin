@@ -1253,7 +1253,8 @@ interface EquipmentStatusLike {
 
 // 模拟设备状态变化
 export function simulateEquipmentStatus(
-  equipment: EquipmentStatusLike
+  equipment: EquipmentStatusLike,
+  elapsedMs = 1000
 ): Pick<EquipmentEntity, 'parameters' | 'status'> {
   const params = { ...equipment.parameters }
 
@@ -1274,7 +1275,7 @@ export function simulateEquipmentStatus(
 
   // 运行时间增加
   if (typeof params['运行时间'] === 'number') {
-    params['运行时间'] = params['运行时间'] + 1
+    params['运行时间'] = params['运行时间'] + elapsedMs / 1000
   }
 
   // 状态变化

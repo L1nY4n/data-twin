@@ -39,6 +39,8 @@ import {
 } from './mock-data'
 import { createTickScheduler } from './ecs/scheduler'
 import { CAMPUS_BOUNDS, CAMPUS_CAMERA_PRESETS, CAMPUS_SCENE_CONFIG } from './campus-layout'
+import { getEquipmentSimulationIntervalMs, shouldRunEquipmentSimulation } from './equipment-runtime'
+import { aggregatePoolMetrics } from './performance-runtime'
 
 export type QualityProfile = 'balanced' | 'performance'
 export type RendererMode = 'auto' | 'webgpu' | 'webgl2'
@@ -50,6 +52,7 @@ interface PerformanceMetrics {
   drawCalls: number
   visibleLabels: number
   poolHitRate: number
+  poolRequests: number
 }
 
 export interface EntityDirectoryEntry {
@@ -262,6 +265,7 @@ const initialState: DigitalTwinState = {
     drawCalls: 0,
     visibleLabels: 0,
     poolHitRate: 0,
+    poolRequests: 0,
   },
 }
 
@@ -277,6 +281,17 @@ const LABEL_MODE_TO_CODE: Record<'hidden' | 'sprite' | 'html', number> = {
 
 const ecsWorld = createEcsWorld()
 type MovingSnapshot = EcsEntitySnapshot & { type: 'person' | 'vehicle' }
+
+function getAggregatePoolMetrics() {
+  const { requests: poolRequests, hitRate: poolHitRate } = aggregatePoolMetrics(
+    Object.values(ecsWorld.pools)
+  )
+
+  return {
+    poolRequests,
+    poolHitRate,
+  }
+}
 
 function getLabelConfig(profile: QualityProfile) {
   if (profile === 'performance') {
@@ -645,7 +660,6 @@ function buildEntityMapFromWorld(options: BuildEntityMapOptions = {}): Map<strin
   const previous = options.previous
   ecsWorld.snapshotById.forEach((snapshot, id) => {
     const forceProject =
-      snapshot.type === 'equipment' ||
       snapshot.labelMode === 'html' ||
       selectedId === id ||
       hoveredId === id
@@ -789,6 +803,7 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
     let lastMetricsAt = 0
     let lastLabelLodAt = 0
     let lastEntityPublishAt = 0
+    let lastEquipmentSimulationAt = 0
     let lastHtmlLabelCount = 0
     let smoothFramesStreak = 0
     const frameTimes: number[] = []
@@ -802,6 +817,15 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
 
         const now = Date.now()
         const { selectedEntityId, hoveredEntityId, isPlayingTrajectory, qualityProfile } = get()
+        const equipmentSimulationIntervalMs = getEquipmentSimulationIntervalMs(
+          qualityProfile,
+          ecsWorld.snapshotById.size
+        )
+        const shouldSimulateEquipment = shouldRunEquipmentSimulation(
+          now,
+          lastEquipmentSimulationAt,
+          equipmentSimulationIntervalMs
+        )
         const updates: EcsCommand[] = []
         const trajectoryUpdates: Array<{ entityId: string; point: { position: Vector3; timestamp: number } }> = []
         const newAlarms: Alarm[] = []
@@ -895,11 +919,12 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
           }
 
           if (snapshot.type === 'equipment') {
+            if (!shouldSimulateEquipment) return
             const prevStatus = snapshot.status
             const next = simulateEquipmentStatus({
               status: snapshot.status,
               parameters: snapshot.parameters ?? {},
-            })
+            }, equipmentSimulationIntervalMs)
 
             updates.push({
               type: 'update',
@@ -930,6 +955,10 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
             }
           }
         })
+
+        if (shouldSimulateEquipment) {
+          lastEquipmentSimulationAt = now
+        }
 
         if (updates.length > 0) {
           flushCommands(ecsWorld, updates)
@@ -1036,7 +1065,7 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
         const avg = frameTimes.length > 0 ? frameTimes.reduce((sum, item) => sum + item, 0) / frameTimes.length : 0
         const fps = avg > 0 ? 1000 / avg : 0
 
-        const poolHitRate = ecsWorld.pools.trajectoryPoint.stats.hitRate
+        const { poolHitRate, poolRequests } = getAggregatePoolMetrics()
 
         set((state) => {
           let nextProfile = state.qualityProfile
@@ -1061,6 +1090,7 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
             state.performanceMetrics.fps !== fps ||
             state.performanceMetrics.frameTimeP95 !== p95 ||
             state.performanceMetrics.poolHitRate !== poolHitRate ||
+            state.performanceMetrics.poolRequests !== poolRequests ||
             state.performanceMetrics.drawCalls !== latestDrawCalls
 
           if (!metricsChanged && nextProfile === state.qualityProfile) {
@@ -1076,6 +1106,7 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
                     fps,
                     frameTimeP95: p95,
                     poolHitRate,
+                    poolRequests,
                     drawCalls: latestDrawCalls,
                   },
                 }
@@ -1092,6 +1123,7 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
       lastMetricsAt = 0
       lastLabelLodAt = 0
       lastEntityPublishAt = 0
+      lastEquipmentSimulationAt = 0
       lastHtmlLabelCount = 0
       smoothFramesStreak = 0
       frameTimes.length = 0

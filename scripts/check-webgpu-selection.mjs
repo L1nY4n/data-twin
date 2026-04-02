@@ -156,6 +156,17 @@ try {
     settleMs,
   })
 
+  const equipment = await selectFirstEntity({
+    page,
+    hud,
+    groups,
+    logs,
+    screenshotDir,
+    label: 'equipment',
+    groupIndex: 2,
+    settleMs,
+  })
+
   const zone = await selectFirstEntity({
     page,
     hud,
@@ -176,6 +187,7 @@ try {
     bootScreenshotPath,
     person,
     vehicle,
+    equipment,
     zone,
   }
 
@@ -185,7 +197,7 @@ try {
   }
   process.stdout.write(`${serialized}\n`)
 
-  const stageFailures = [person, vehicle, zone].flatMap((stage) => stage.unexpectedLogs)
+  const stageFailures = [person, vehicle, equipment, zone].flatMap((stage) => stage.unexpectedLogs)
   if (!finalMode.includes('webgpu') || stageFailures.length > 0) {
     process.exitCode = 1
   }

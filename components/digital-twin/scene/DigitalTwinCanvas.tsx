@@ -1,7 +1,7 @@
 'use client'
 
 import { Suspense, useEffect, useMemo, useRef } from 'react'
-import { Canvas, useFrame } from '@react-three/fiber'
+import { Canvas, useFrame, useThree, addAfterEffect } from '@react-three/fiber'
 import {
   OrbitControls,
   PerspectiveCamera,
@@ -14,6 +14,7 @@ import type * as THREE from 'three'
 import type { OrbitControls as OrbitControlsType } from 'three-stdlib'
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
 import { createPreferredRenderer } from '@/lib/digital-twin/renderer/createPreferredRenderer'
+import { getFrameDrawCallSample } from '@/lib/digital-twin/performance-runtime'
 import { SpaceGrid } from './SpaceGrid'
 import { ChemicalPlantEnvironment } from './ChemicalPlantEnvironment'
 import { EntityMarkers } from '../entities/EntityMarkers'
@@ -35,7 +36,10 @@ interface SceneContentProps {
 function SceneContent({ backgroundColor }: SceneContentProps) {
   const controlsRef = useRef<OrbitControlsType>(null)
   const pickRootRef = useRef<THREE.Group>(null)
+  const lastDrawCallsRef = useRef(0)
+  const sampledDrawCallsRef = useRef(0)
   const { resolvedTheme } = useTheme()
+  const gl = useThree((state) => state.gl)
   const sceneConfig = useDigitalTwinStore((state) => state.sceneConfig)
   const viewMode = useDigitalTwinStore((state) => state.viewMode)
   const activeCameraPreset = useDigitalTwinStore((state) => state.activeCameraPreset)
@@ -54,6 +58,25 @@ function SceneContent({ backgroundColor }: SceneContentProps) {
     return () => setSceneReady(false)
   }, [setSceneReady])
 
+  useEffect(
+    () =>
+      addAfterEffect(() => {
+        const renderInfo = (gl as unknown as {
+          info?: { render?: { calls?: number; drawCalls?: number } }
+        }).info?.render
+        const rawDrawCalls = renderInfo?.calls ?? 0
+        const sample = getFrameDrawCallSample(
+          lastDrawCallsRef.current,
+          rawDrawCalls,
+          renderInfo?.drawCalls
+        )
+
+        lastDrawCallsRef.current = sample.previousRawDrawCalls
+        sampledDrawCallsRef.current = sample.drawCalls
+      }),
+    [gl]
+  )
+
   // 应用相机预设
   useEffect(() => {
     if (!controlsRef.current || !activeCameraPreset) return
@@ -70,13 +93,12 @@ function SceneContent({ backgroundColor }: SceneContentProps) {
     controlsRef.current.update()
   }, [activeCameraPreset, cameraPresets])
 
-  useFrame(({ clock, camera, gl }, delta) => {
-    const drawCalls = (gl as unknown as { info?: { render?: { calls?: number } } }).info?.render?.calls ?? 0
+  useFrame(({ clock, camera }, delta) => {
     advanceRuntime(
       clock.elapsedTime * 1000,
       delta * 1000,
       { x: camera.position.x, y: camera.position.y, z: camera.position.z },
-      drawCalls
+      sampledDrawCallsRef.current
     )
   })
 
@@ -212,7 +234,9 @@ export function DigitalTwinCanvas({ showStats = false }: DigitalTwinCanvasProps)
       <div className="pointer-events-none absolute left-3 top-3 z-20 rounded-md border bg-background/80 px-2.5 py-1.5 text-[10px] backdrop-blur">
         <div>FPS {metrics.fps.toFixed(0)} | P95 {metrics.frameTimeP95.toFixed(1)}ms</div>
         <div>Draw {metrics.drawCalls} | Labels {metrics.visibleLabels}</div>
-        <div>Pool {(metrics.poolHitRate * 100).toFixed(0)}% | {qualityProfile}</div>
+        <div>
+          {metrics.poolRequests > 0 ? `Pool ${(metrics.poolHitRate * 100).toFixed(0)}%` : 'Pool idle'} | {qualityProfile}
+        </div>
         <div>Renderer {rendererBackend} ({rendererMode})</div>
       </div>
     </div>

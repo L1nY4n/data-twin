@@ -8,6 +8,7 @@ import { VehicleMarker } from './VehicleMarker'
 import { EquipmentMarker } from './EquipmentMarker'
 import { PersonInstances } from './PersonInstances'
 import { VehicleInstances } from './VehicleInstances'
+import { EquipmentInstances } from './EquipmentInstances'
 
 export function EntityMarkers() {
   const entities = useDigitalTwinStore((state) => state.entities)
@@ -86,6 +87,20 @@ export function EntityMarkers() {
     return detailIds
   }, [filteredEntities.vehicles, hoveredEntityId, selectedEntityId])
 
+  const shouldRenderEquipmentDetail = useMemo(() => {
+    const detailIds = new Set<string>()
+    filteredEntities.equipment.forEach((equipment) => {
+      if (
+        equipment.id === selectedEntityId ||
+        equipment.id === hoveredEntityId ||
+        equipment.labelMode !== 'hidden'
+      ) {
+        detailIds.add(equipment.id)
+      }
+    })
+    return detailIds
+  }, [filteredEntities.equipment, hoveredEntityId, selectedEntityId])
+
   return (
     <group>
       <PersonInstances entities={filteredEntities.persons} />
@@ -115,14 +130,23 @@ export function EntityMarkers() {
         ))}
 
       {/* 设备标记 */}
-      {filteredEntities.equipment.map((equip) => (
-        <EquipmentMarker
-          key={equip.id}
-          entity={equip}
-          isSelected={selectedEntityId === equip.id}
-          isHovered={hoveredEntityId === equip.id}
-        />
-      ))}
+      <EquipmentInstances
+        entities={filteredEntities.equipment}
+        selectedEntityId={selectedEntityId}
+        hoveredEntityId={hoveredEntityId}
+      />
+      {filteredEntities.equipment
+        .filter((equip) => shouldRenderEquipmentDetail.has(equip.id))
+        .map((equip) => (
+          <EquipmentMarker
+            key={equip.id}
+            entity={equip}
+            isSelected={selectedEntityId === equip.id}
+            isHovered={hoveredEntityId === equip.id}
+            showModel={false}
+            showStatusRing={false}
+          />
+        ))}
     </group>
   )
 }
