@@ -4,6 +4,9 @@ import type {
   AccessRule,
   Entity,
   ZoneEntity,
+  PersonEntity,
+  VehicleEntity,
+  EquipmentEntity,
   EntityType,
   EntityStatus,
   TimeRange,
@@ -55,6 +58,13 @@ interface PerformanceMetrics {
   poolRequests: number
 }
 
+interface EntityBuckets {
+  persons: PersonEntity[]
+  vehicles: VehicleEntity[]
+  equipment: EquipmentEntity[]
+  zones: ZoneEntity[]
+}
+
 export interface EntityDirectoryEntry {
   id: string
   type: EntityType
@@ -90,6 +100,7 @@ interface DigitalTwinState {
 
   // 实体状态（UI层消费）
   entities: Map<string, Entity>
+  entityBuckets: EntityBuckets
   entityDirectory: Map<string, EntityDirectoryEntry>
   selectedEntityId: string | null
   hoveredEntityId: string | null
@@ -223,6 +234,12 @@ const initialState: DigitalTwinState = {
   isSceneReady: false,
 
   entities: new Map(),
+  entityBuckets: {
+    persons: [],
+    vehicles: [],
+    equipment: [],
+    zones: [],
+  },
   entityDirectory: new Map(),
   selectedEntityId: null,
   hoveredEntityId: null,
@@ -651,6 +668,30 @@ interface BuildEntityDirectoryOptions {
   previous?: Map<string, EntityDirectoryEntry>
 }
 
+function sameEntityArray<T extends Entity>(
+  previous: T[] | undefined,
+  next: T[]
+): previous is T[] {
+  if (!previous || previous.length !== next.length) return false
+  for (let index = 0; index < next.length; index += 1) {
+    if (previous[index] !== next[index]) return false
+  }
+  return true
+}
+
+function getBucketKey(entity: Entity): keyof EntityBuckets {
+  switch (entity.type) {
+    case 'person':
+      return 'persons'
+    case 'vehicle':
+      return 'vehicles'
+    case 'equipment':
+      return 'equipment'
+    case 'zone':
+      return 'zones'
+  }
+}
+
 function projectEntitySnapshot(
   snapshot: EcsEntitySnapshot,
   previousEntity?: Entity,
@@ -742,14 +783,144 @@ function buildEntityDirectoryFromWorld(
   return previous
 }
 
+function buildEntityBucketsFromEntities(
+  entities: Map<string, Entity>,
+  previous?: EntityBuckets
+): EntityBuckets {
+  const nextPersons: PersonEntity[] = []
+  const nextVehicles: VehicleEntity[] = []
+  const nextEquipment: EquipmentEntity[] = []
+  const nextZones: ZoneEntity[] = []
+
+  entities.forEach((entity) => {
+    switch (entity.type) {
+      case 'person':
+        nextPersons.push(entity)
+        break
+      case 'vehicle':
+        nextVehicles.push(entity)
+        break
+      case 'equipment':
+        nextEquipment.push(entity)
+        break
+      case 'zone':
+        nextZones.push(entity)
+        break
+    }
+  })
+
+  if (!previous) {
+    return {
+      persons: nextPersons,
+      vehicles: nextVehicles,
+      equipment: nextEquipment,
+      zones: nextZones,
+    }
+  }
+
+  const persons = sameEntityArray(previous.persons, nextPersons) ? previous.persons : nextPersons
+  const vehicles = sameEntityArray(previous.vehicles, nextVehicles) ? previous.vehicles : nextVehicles
+  const equipment = sameEntityArray(previous.equipment, nextEquipment) ? previous.equipment : nextEquipment
+  const zones = sameEntityArray(previous.zones, nextZones) ? previous.zones : nextZones
+
+  if (
+    persons === previous.persons &&
+    vehicles === previous.vehicles &&
+    equipment === previous.equipment &&
+    zones === previous.zones
+  ) {
+    return previous
+  }
+
+  return {
+    persons,
+    vehicles,
+    equipment,
+    zones,
+  }
+}
+
+function patchEntityBuckets(
+  previousBuckets: EntityBuckets,
+  previousEntities: Map<string, Entity>,
+  nextEntities: Map<string, Entity>,
+  ids: Array<string | null | undefined>
+): EntityBuckets {
+  const uniqueIds = [...new Set(ids.filter((id): id is string => typeof id === 'string' && id.length > 0))]
+  if (uniqueIds.length === 0 || nextEntities === previousEntities) return previousBuckets
+
+  let nextBuckets = previousBuckets
+
+  for (const id of uniqueIds) {
+    const previousEntity = previousEntities.get(id)
+    const nextEntity = nextEntities.get(id)
+
+    if (!previousEntity || !nextEntity || previousEntity.type !== nextEntity.type) {
+      return buildEntityBucketsFromEntities(nextEntities, previousBuckets)
+    }
+
+    const bucketKey = getBucketKey(nextEntity)
+    const previousBucket = nextBuckets[bucketKey]
+    const entityIndex = previousBucket.findIndex((entity) => entity.id === id)
+
+    if (entityIndex === -1) {
+      return buildEntityBucketsFromEntities(nextEntities, previousBuckets)
+    }
+
+    if (previousBucket[entityIndex] === nextEntity) continue
+
+    if (nextBuckets === previousBuckets) {
+      nextBuckets = {
+        persons: previousBuckets.persons,
+        vehicles: previousBuckets.vehicles,
+        equipment: previousBuckets.equipment,
+        zones: previousBuckets.zones,
+      }
+    }
+
+    switch (bucketKey) {
+      case 'persons': {
+        const nextBucket = previousBucket.slice() as PersonEntity[]
+        nextBucket[entityIndex] = nextEntity as PersonEntity
+        nextBuckets.persons = nextBucket
+        break
+      }
+      case 'vehicles': {
+        const nextBucket = previousBucket.slice() as VehicleEntity[]
+        nextBucket[entityIndex] = nextEntity as VehicleEntity
+        nextBuckets.vehicles = nextBucket
+        break
+      }
+      case 'equipment': {
+        const nextBucket = previousBucket.slice() as EquipmentEntity[]
+        nextBucket[entityIndex] = nextEntity as EquipmentEntity
+        nextBuckets.equipment = nextBucket
+        break
+      }
+      case 'zones': {
+        const nextBucket = previousBucket.slice() as ZoneEntity[]
+        nextBucket[entityIndex] = nextEntity as ZoneEntity
+        nextBuckets.zones = nextBucket
+        break
+      }
+    }
+  }
+
+  return nextBuckets
+}
+
 function buildPublishedEntityState(options: {
   previousEntities?: Map<string, Entity>
+  previousBuckets?: EntityBuckets
   previousDirectory?: Map<string, EntityDirectoryEntry>
 }) {
+  const entities = buildEntityMapFromWorld({
+    previous: options.previousEntities,
+  })
+
   return {
-    entities: buildEntityMapFromWorld({
-      previous: options.previousEntities,
-    }),
+    entities,
+    entityBuckets: buildEntityBucketsFromEntities(entities, options.previousBuckets),
     entityDirectory: buildEntityDirectoryFromWorld({
       previous: options.previousDirectory,
     }),
@@ -1071,6 +1242,7 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
             ...(shouldPublishEntities
               ? buildPublishedEntityState({
                   previousEntities: state.entities,
+                  previousBuckets: state.entityBuckets,
                   previousDirectory: state.entityDirectory,
                 })
               : {}),
@@ -1185,6 +1357,7 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
         set((state) => ({
           ...buildPublishedEntityState({
             previousEntities: state.entities,
+            previousBuckets: state.entityBuckets,
             previousDirectory: state.entityDirectory,
           }),
         }))
@@ -1203,6 +1376,7 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
         set((state) => ({
           ...buildPublishedEntityState({
             previousEntities: state.entities,
+            previousBuckets: state.entityBuckets,
             previousDirectory: state.entityDirectory,
           }),
         }))
@@ -1214,6 +1388,7 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
         set((state) => ({
           ...buildPublishedEntityState({
             previousEntities: state.entities,
+            previousBuckets: state.entityBuckets,
             previousDirectory: state.entityDirectory,
           }),
         }))
@@ -1225,6 +1400,7 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
         set((state) => ({
           ...buildPublishedEntityState({
             previousEntities: state.entities,
+            previousBuckets: state.entityBuckets,
             previousDirectory: state.entityDirectory,
           }),
           selectedEntityId: state.selectedEntityId === id ? null : state.selectedEntityId,
@@ -1237,25 +1413,33 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
         enqueueEcsCommands(ecsWorld, [{ type: 'select', payload: { id } }])
         flushBufferedCommands(ecsWorld)
         const labelState = syncImmediateLabelLod()
-        set((state) => ({
-          selectedEntityId: ecsWorld.selectedId,
-          hoveredEntityId: ecsWorld.hoveredId,
-          entities: patchProjectedEntities(state.entities, [
+        set((state) => {
+          const changedIds = [
             ...labelState.changedIds,
             state.selectedEntityId,
-            state.hoveredEntityId,
             ecsWorld.selectedId,
-            ecsWorld.hoveredId,
-          ]),
-          ...(state.performanceMetrics.visibleLabels !== labelState.visibleLabels
-            ? {
-                performanceMetrics: {
-                  ...state.performanceMetrics,
-                  visibleLabels: labelState.visibleLabels,
-                },
-              }
-            : {}),
-        }))
+          ]
+          const nextEntities = patchProjectedEntities(state.entities, changedIds)
+          return {
+            selectedEntityId: ecsWorld.selectedId,
+            hoveredEntityId: ecsWorld.hoveredId,
+            entities: nextEntities,
+            entityBuckets: patchEntityBuckets(
+              state.entityBuckets,
+              state.entities,
+              nextEntities,
+              changedIds
+            ),
+            ...(state.performanceMetrics.visibleLabels !== labelState.visibleLabels
+              ? {
+                  performanceMetrics: {
+                    ...state.performanceMetrics,
+                    visibleLabels: labelState.visibleLabels,
+                  },
+                }
+              : {}),
+          }
+        })
       },
 
       setHoveredEntity: (id) => {
@@ -1263,23 +1447,33 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
         enqueueEcsCommands(ecsWorld, [{ type: 'hover', payload: { id } }])
         flushBufferedCommands(ecsWorld)
         const labelState = syncImmediateLabelLod()
-        set((state) => ({
-          selectedEntityId: ecsWorld.selectedId,
-          hoveredEntityId: ecsWorld.hoveredId,
-          entities: patchProjectedEntities(state.entities, [
+        set((state) => {
+          const changedIds = [
             ...labelState.changedIds,
             state.hoveredEntityId,
             ecsWorld.hoveredId,
-          ]),
-          ...(state.performanceMetrics.visibleLabels !== labelState.visibleLabels
-            ? {
-                performanceMetrics: {
-                  ...state.performanceMetrics,
-                  visibleLabels: labelState.visibleLabels,
-                },
-              }
-            : {}),
-        }))
+          ]
+          const nextEntities = patchProjectedEntities(state.entities, changedIds)
+          return {
+            selectedEntityId: ecsWorld.selectedId,
+            hoveredEntityId: ecsWorld.hoveredId,
+            entities: nextEntities,
+            entityBuckets: patchEntityBuckets(
+              state.entityBuckets,
+              state.entities,
+              nextEntities,
+              changedIds
+            ),
+            ...(state.performanceMetrics.visibleLabels !== labelState.visibleLabels
+              ? {
+                  performanceMetrics: {
+                    ...state.performanceMetrics,
+                    visibleLabels: labelState.visibleLabels,
+                  },
+                }
+              : {}),
+          }
+        })
       },
 
       setEntityFilters: (filters) =>
@@ -1304,6 +1498,7 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
         set((state) => ({
           ...buildPublishedEntityState({
             previousEntities: state.entities,
+            previousBuckets: state.entityBuckets,
             previousDirectory: state.entityDirectory,
           }),
         }))
@@ -1322,6 +1517,7 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
         set((state) => ({
           ...buildPublishedEntityState({
             previousEntities: state.entities,
+            previousBuckets: state.entityBuckets,
             previousDirectory: state.entityDirectory,
           }),
         }))
@@ -1348,6 +1544,7 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
           return {
             ...buildPublishedEntityState({
               previousEntities: state.entities,
+              previousBuckets: state.entityBuckets,
               previousDirectory: state.entityDirectory,
             }),
             trajectories: nextTrajectories,
@@ -1372,6 +1569,7 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
             hoveredEntityId: ecsWorld.hoveredId,
             ...buildPublishedEntityState({
               previousEntities: state.entities,
+              previousBuckets: state.entityBuckets,
               previousDirectory: state.entityDirectory,
             }),
           }))

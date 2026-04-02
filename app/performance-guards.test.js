@@ -28,10 +28,24 @@ describe('performance guards', () => {
     expect(source.includes('enqueueEcsCommands(ecsWorld, [{ type: \'select\'')).toBe(true)
     expect(source.includes('enqueueEcsCommands(ecsWorld, [{ type: \'hover\'')).toBe(true)
     expect(source.includes('patchProjectedEntities')).toBe(true)
+    expect(source.includes('patchEntityBuckets')).toBe(true)
     expect(interactionSection.includes('buildPublishedEntityState')).toBe(false)
     expect(interactionSection.includes('patchProjectedEntities')).toBe(true)
+    expect(interactionSection.includes('patchEntityBuckets')).toBe(true)
     expect(source.includes('set({ selectedEntityId: id, entities: buildEntityMapFromWorld() })')).toBe(false)
     expect(source.includes('set({ hoveredEntityId: id, entities: buildEntityMapFromWorld() })')).toBe(false)
+  })
+
+  test('entity markers should subscribe to typed entity buckets instead of the full entities map', () => {
+    const source = readFileSync(
+      join(process.cwd(), 'components/digital-twin/entities/EntityMarkers.tsx'),
+      'utf8'
+    )
+
+    expect(source.includes('state.entityBuckets.persons')).toBe(true)
+    expect(source.includes('state.entityBuckets.vehicles')).toBe(true)
+    expect(source.includes('state.entityBuckets.equipment')).toBe(true)
+    expect(source.includes('state.entities')).toBe(false)
   })
 
   test('scene picking should coalesce pointer events without layout reads on the hover hot path', () => {

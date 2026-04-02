@@ -11,102 +11,70 @@ import { VehicleInstances } from './VehicleInstances'
 import { EquipmentInstances } from './EquipmentInstances'
 
 export function EntityMarkers() {
-  const entities = useDigitalTwinStore((state) => state.entities)
+  const persons = useDigitalTwinStore((state) => state.entityBuckets.persons)
+  const vehicles = useDigitalTwinStore((state) => state.entityBuckets.vehicles)
+  const equipment = useDigitalTwinStore((state) => state.entityBuckets.equipment)
   const entityFilters = useDigitalTwinStore((state) => state.entityFilters)
   const selectedEntityId = useDigitalTwinStore((state) => state.selectedEntityId)
   const hoveredEntityId = useDigitalTwinStore((state) => state.hoveredEntityId)
 
-  const filteredEntities = useMemo(() => {
-    const result: {
-      persons: PersonEntity[]
-      vehicles: VehicleEntity[]
-      equipment: EquipmentEntity[]
-    } = {
-      persons: [],
-      vehicles: [],
-      equipment: [],
-    }
+  const searchQuery = entityFilters.searchQuery.toLowerCase()
+  const matchesBaseFilter = (entity: PersonEntity | VehicleEntity | EquipmentEntity) => {
+    if (!entityFilters.types.includes(entity.type)) return false
+    if (!entityFilters.statuses.includes(entity.status)) return false
+    if (!entity.visible) return false
+    if (!searchQuery) return true
+    return entity.name.toLowerCase().includes(searchQuery)
+  }
 
-    entities.forEach((entity) => {
-      // 跳过区域类型（单独渲染）
-      if (entity.type === 'zone') return
-      
-      // 应用过滤器
-      if (!entityFilters.types.includes(entity.type)) return
-      if (!entityFilters.statuses.includes(entity.status)) return
-      if (!entity.visible) return
-      
-      // 搜索过滤
-      if (entityFilters.searchQuery) {
-        const query = entityFilters.searchQuery.toLowerCase()
-        if (!entity.name.toLowerCase().includes(query)) return
-      }
+  const filteredPersons = useMemo(
+    () => persons.filter((entity) => matchesBaseFilter(entity)),
+    [persons, entityFilters, searchQuery]
+  )
+  const filteredVehicles = useMemo(
+    () => vehicles.filter((entity) => matchesBaseFilter(entity)),
+    [vehicles, entityFilters, searchQuery]
+  )
+  const filteredEquipment = useMemo(
+    () => equipment.filter((entity) => matchesBaseFilter(entity)),
+    [equipment, entityFilters, searchQuery]
+  )
 
-      // 分类
-      switch (entity.type) {
-        case 'person':
-          result.persons.push(entity as PersonEntity)
-          break
-        case 'vehicle':
-          result.vehicles.push(entity as VehicleEntity)
-          break
-        case 'equipment':
-          result.equipment.push(entity as EquipmentEntity)
-          break
-      }
-    })
-
-    return result
-  }, [entities, entityFilters])
-
-  const shouldRenderPersonDetail = useMemo(() => {
-    const detailIds = new Set<string>()
-    filteredEntities.persons.forEach((person) => {
-      if (
-        person.id === selectedEntityId ||
-        person.id === hoveredEntityId ||
-        person.labelMode === 'html'
-      ) {
-        detailIds.add(person.id)
-      }
-    })
-    return detailIds
-  }, [filteredEntities.persons, hoveredEntityId, selectedEntityId])
-
-  const shouldRenderVehicleDetail = useMemo(() => {
-    const detailIds = new Set<string>()
-    filteredEntities.vehicles.forEach((vehicle) => {
-      if (
-        vehicle.id === selectedEntityId ||
-        vehicle.id === hoveredEntityId ||
-        vehicle.labelMode === 'html'
-      ) {
-        detailIds.add(vehicle.id)
-      }
-    })
-    return detailIds
-  }, [filteredEntities.vehicles, hoveredEntityId, selectedEntityId])
-
-  const shouldRenderEquipmentDetail = useMemo(() => {
-    const detailIds = new Set<string>()
-    filteredEntities.equipment.forEach((equipment) => {
-      if (
-        equipment.id === selectedEntityId ||
-        equipment.id === hoveredEntityId ||
-        equipment.labelMode !== 'hidden'
-      ) {
-        detailIds.add(equipment.id)
-      }
-    })
-    return detailIds
-  }, [filteredEntities.equipment, hoveredEntityId, selectedEntityId])
+  const detailPersons = useMemo(
+    () =>
+      filteredPersons.filter(
+        (entity) =>
+          entity.id === selectedEntityId ||
+          entity.id === hoveredEntityId ||
+          entity.labelMode === 'html'
+      ),
+    [filteredPersons, hoveredEntityId, selectedEntityId]
+  )
+  const detailVehicles = useMemo(
+    () =>
+      filteredVehicles.filter(
+        (entity) =>
+          entity.id === selectedEntityId ||
+          entity.id === hoveredEntityId ||
+          entity.labelMode === 'html'
+      ),
+    [filteredVehicles, hoveredEntityId, selectedEntityId]
+  )
+  const detailEquipment = useMemo(
+    () =>
+      filteredEquipment.filter(
+        (entity) =>
+          entity.id === selectedEntityId ||
+          entity.id === hoveredEntityId ||
+          entity.labelMode !== 'hidden'
+      ),
+    [filteredEquipment, hoveredEntityId, selectedEntityId]
+  )
 
   return (
     <group>
-      <PersonInstances entities={filteredEntities.persons} />
-      {filteredEntities.persons
-        .filter((person) => shouldRenderPersonDetail.has(person.id))
-        .map((person) => (
+      <PersonInstances entities={filteredPersons} />
+      {detailPersons.map((person) => (
           <PersonMarker
             key={person.id}
             entity={person}
@@ -116,10 +84,8 @@ export function EntityMarkers() {
           />
         ))}
 
-      <VehicleInstances entities={filteredEntities.vehicles} />
-      {filteredEntities.vehicles
-        .filter((vehicle) => shouldRenderVehicleDetail.has(vehicle.id))
-        .map((vehicle) => (
+      <VehicleInstances entities={filteredVehicles} />
+      {detailVehicles.map((vehicle) => (
           <VehicleMarker
             key={vehicle.id}
             entity={vehicle}
@@ -131,13 +97,11 @@ export function EntityMarkers() {
 
       {/* 设备标记 */}
       <EquipmentInstances
-        entities={filteredEntities.equipment}
+        entities={filteredEquipment}
         selectedEntityId={selectedEntityId}
         hoveredEntityId={hoveredEntityId}
       />
-      {filteredEntities.equipment
-        .filter((equip) => shouldRenderEquipmentDetail.has(equip.id))
-        .map((equip) => (
+      {detailEquipment.map((equip) => (
           <EquipmentMarker
             key={equip.id}
             entity={equip}

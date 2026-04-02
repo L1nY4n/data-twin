@@ -88,8 +88,9 @@ describe('renderer backend guards', () => {
       'utf8'
     )
 
-    expect(source.includes('<PersonInstances entities={filteredEntities.persons} />')).toBe(true)
-    expect(source.includes('<VehicleInstances entities={filteredEntities.vehicles} />')).toBe(true)
+    expect(source.includes('<PersonInstances entities={filteredPersons} />')).toBe(true)
+    expect(source.includes('<VehicleInstances entities={filteredVehicles} />')).toBe(true)
+    expect(source.includes('entities={filteredEquipment}')).toBe(true)
     expect(source.includes('<EquipmentInstances')).toBe(true)
     expect(source.includes('selectedEntityId={selectedEntityId}')).toBe(true)
     expect(source.includes('hoveredEntityId={hoveredEntityId}')).toBe(true)
