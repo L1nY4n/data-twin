@@ -645,38 +645,66 @@ function canReuseProjectedEntity(previous: Entity, snapshot: EcsEntitySnapshot):
 
 interface BuildEntityMapOptions {
   previous?: Map<string, Entity>
-  selectedId?: string | null
-  hoveredId?: string | null
 }
 
 interface BuildEntityDirectoryOptions {
   previous?: Map<string, EntityDirectoryEntry>
 }
 
+function projectEntitySnapshot(
+  snapshot: EcsEntitySnapshot,
+  previousEntity?: Entity,
+  forceProject = false
+) {
+  if (!forceProject && previousEntity && canReuseProjectedEntity(previousEntity, snapshot)) {
+    return previousEntity
+  }
+
+  return snapshotToEntity(snapshot)
+}
+
 function buildEntityMapFromWorld(options: BuildEntityMapOptions = {}): Map<string, Entity> {
   const next = new Map<string, Entity>()
-  const selectedId = options.selectedId ?? null
-  const hoveredId = options.hoveredId ?? null
   const previous = options.previous
   ecsWorld.snapshotById.forEach((snapshot, id) => {
-    const forceProject =
-      snapshot.labelMode === 'html' ||
-      selectedId === id ||
-      hoveredId === id
+    const forceProject = snapshot.labelMode === 'html'
     const previousEntity = previous?.get(id)
 
-    if (!forceProject && previousEntity && canReuseProjectedEntity(previousEntity, snapshot)) {
-      next.set(id, previousEntity)
-      return
-    }
-
-    next.set(id, snapshotToEntity(snapshot))
+    next.set(id, projectEntitySnapshot(snapshot, previousEntity, forceProject))
   })
   if (!previous || previous.size !== next.size) return next
   for (const [id, entity] of next) {
     if (previous.get(id) !== entity) return next
   }
   return previous
+}
+
+function patchProjectedEntities(
+  previous: Map<string, Entity>,
+  ids: Array<string | null | undefined>
+): Map<string, Entity> {
+  const uniqueIds = new Set(ids.filter((id): id is string => typeof id === 'string' && id.length > 0))
+  if (uniqueIds.size === 0) return previous
+
+  let next = previous
+
+  uniqueIds.forEach((id) => {
+    const snapshot = ecsWorld.snapshotById.get(id)
+    const previousEntity = previous.get(id)
+
+    if (!snapshot) {
+      if (!previous.has(id)) return
+      if (next === previous) next = new Map(previous)
+      next.delete(id)
+      return
+    }
+
+    const projected = projectEntitySnapshot(snapshot, previousEntity, true)
+    if (next === previous) next = new Map(previous)
+    next.set(id, projected)
+  })
+
+  return next
 }
 
 function buildEntityDirectoryFromWorld(
@@ -717,14 +745,10 @@ function buildEntityDirectoryFromWorld(
 function buildPublishedEntityState(options: {
   previousEntities?: Map<string, Entity>
   previousDirectory?: Map<string, EntityDirectoryEntry>
-  selectedId?: string | null
-  hoveredId?: string | null
 }) {
   return {
     entities: buildEntityMapFromWorld({
       previous: options.previousEntities,
-      selectedId: options.selectedId,
-      hoveredId: options.hoveredId,
     }),
     entityDirectory: buildEntityDirectoryFromWorld({
       previous: options.previousDirectory,
@@ -760,11 +784,13 @@ function appendTrajectoryPoint(
 function applyLabelLod(profile: QualityProfile, cameraPosition: Vector3): {
   visibleLabels: number
   htmlLabels: number
+  changedIds: string[]
 } {
   const config = getLabelConfig(profile)
 
   let htmlIndex = 0
   let visibleLabels = 0
+  const changedIds: string[] = []
 
   for (const snapshot of ecsWorld.snapshotById.values()) {
     const distance = Math.hypot(
@@ -789,12 +815,14 @@ function applyLabelLod(profile: QualityProfile, cameraPosition: Vector3): {
     if (snapshot.labelMode !== mode) {
       snapshot.labelMode = mode
       LabelComponent.mode[snapshot.eid] = LABEL_MODE_TO_CODE[mode]
+      changedIds.push(snapshot.id)
     }
   }
 
   return {
     visibleLabels,
     htmlLabels: htmlIndex,
+    changedIds,
   }
 }
 
@@ -809,6 +837,13 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
     const frameTimes: number[] = []
     let latestCamera: Vector3 = { x: 0, y: 0, z: 0 }
     let latestDrawCalls = 0
+
+    function syncImmediateLabelLod() {
+      const labelState = applyLabelLod(get().qualityProfile, latestCamera)
+      lastLabelLodAt = Date.now()
+      lastHtmlLabelCount = labelState.htmlLabels
+      return labelState
+    }
 
     const scheduler = createTickScheduler({
       fixedHz: 30,
@@ -974,6 +1009,7 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
           : {
               visibleLabels: get().performanceMetrics.visibleLabels,
               htmlLabels: lastHtmlLabelCount,
+              changedIds: [],
             }
         const visibleLabels = labelState.visibleLabels
 
@@ -1036,8 +1072,6 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
               ? buildPublishedEntityState({
                   previousEntities: state.entities,
                   previousDirectory: state.entityDirectory,
-                  selectedId: state.selectedEntityId,
-                  hoveredId: state.hoveredEntityId,
                 })
               : {}),
             ...(trajectoriesChanged ? { trajectories: nextTrajectories } : {}),
@@ -1152,8 +1186,6 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
           ...buildPublishedEntityState({
             previousEntities: state.entities,
             previousDirectory: state.entityDirectory,
-            selectedId: state.selectedEntityId,
-            hoveredId: state.hoveredEntityId,
           }),
         }))
       },
@@ -1172,8 +1204,6 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
           ...buildPublishedEntityState({
             previousEntities: state.entities,
             previousDirectory: state.entityDirectory,
-            selectedId: state.selectedEntityId,
-            hoveredId: state.hoveredEntityId,
           }),
         }))
       },
@@ -1185,8 +1215,6 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
           ...buildPublishedEntityState({
             previousEntities: state.entities,
             previousDirectory: state.entityDirectory,
-            selectedId: state.selectedEntityId,
-            hoveredId: state.hoveredEntityId,
           }),
         }))
       },
@@ -1198,8 +1226,6 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
           ...buildPublishedEntityState({
             previousEntities: state.entities,
             previousDirectory: state.entityDirectory,
-            selectedId: state.selectedEntityId === id ? null : state.selectedEntityId,
-            hoveredId: state.hoveredEntityId === id ? null : state.hoveredEntityId,
           }),
           selectedEntityId: state.selectedEntityId === id ? null : state.selectedEntityId,
           hoveredEntityId: state.hoveredEntityId === id ? null : state.hoveredEntityId,
@@ -1210,15 +1236,25 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
         if (get().selectedEntityId === id) return
         enqueueEcsCommands(ecsWorld, [{ type: 'select', payload: { id } }])
         flushBufferedCommands(ecsWorld)
+        const labelState = syncImmediateLabelLod()
         set((state) => ({
           selectedEntityId: ecsWorld.selectedId,
           hoveredEntityId: ecsWorld.hoveredId,
-          ...buildPublishedEntityState({
-            previousEntities: state.entities,
-            previousDirectory: state.entityDirectory,
-            selectedId: ecsWorld.selectedId,
-            hoveredId: ecsWorld.hoveredId,
-          }),
+          entities: patchProjectedEntities(state.entities, [
+            ...labelState.changedIds,
+            state.selectedEntityId,
+            state.hoveredEntityId,
+            ecsWorld.selectedId,
+            ecsWorld.hoveredId,
+          ]),
+          ...(state.performanceMetrics.visibleLabels !== labelState.visibleLabels
+            ? {
+                performanceMetrics: {
+                  ...state.performanceMetrics,
+                  visibleLabels: labelState.visibleLabels,
+                },
+              }
+            : {}),
         }))
       },
 
@@ -1226,15 +1262,23 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
         if (get().hoveredEntityId === id) return
         enqueueEcsCommands(ecsWorld, [{ type: 'hover', payload: { id } }])
         flushBufferedCommands(ecsWorld)
+        const labelState = syncImmediateLabelLod()
         set((state) => ({
           selectedEntityId: ecsWorld.selectedId,
           hoveredEntityId: ecsWorld.hoveredId,
-          ...buildPublishedEntityState({
-            previousEntities: state.entities,
-            previousDirectory: state.entityDirectory,
-            selectedId: ecsWorld.selectedId,
-            hoveredId: ecsWorld.hoveredId,
-          }),
+          entities: patchProjectedEntities(state.entities, [
+            ...labelState.changedIds,
+            state.hoveredEntityId,
+            ecsWorld.hoveredId,
+          ]),
+          ...(state.performanceMetrics.visibleLabels !== labelState.visibleLabels
+            ? {
+                performanceMetrics: {
+                  ...state.performanceMetrics,
+                  visibleLabels: labelState.visibleLabels,
+                },
+              }
+            : {}),
         }))
       },
 
@@ -1261,8 +1305,6 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
           ...buildPublishedEntityState({
             previousEntities: state.entities,
             previousDirectory: state.entityDirectory,
-            selectedId: state.selectedEntityId,
-            hoveredId: state.hoveredEntityId,
           }),
         }))
       },
@@ -1281,8 +1323,6 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
           ...buildPublishedEntityState({
             previousEntities: state.entities,
             previousDirectory: state.entityDirectory,
-            selectedId: state.selectedEntityId,
-            hoveredId: state.hoveredEntityId,
           }),
         }))
       },
@@ -1309,8 +1349,6 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
             ...buildPublishedEntityState({
               previousEntities: state.entities,
               previousDirectory: state.entityDirectory,
-              selectedId: state.selectedEntityId,
-              hoveredId: state.hoveredEntityId,
             }),
             trajectories: nextTrajectories,
             alarms: mergedAlarms,
@@ -1335,8 +1373,6 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
             ...buildPublishedEntityState({
               previousEntities: state.entities,
               previousDirectory: state.entityDirectory,
-              selectedId: ecsWorld.selectedId,
-              hoveredId: ecsWorld.hoveredId,
             }),
           }))
         }

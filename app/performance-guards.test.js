@@ -20,11 +20,16 @@ describe('performance guards', () => {
       join(process.cwd(), 'lib/digital-twin/store.ts'),
       'utf8'
     )
+    const interactionSection =
+      source.match(/setSelectedEntity: \(id\) => \{[\s\S]*?setEntityFilters: \(filters\) =>/)?.[0] ?? ''
 
     expect(source.includes('selectedEntityId: ecsWorld.selectedId')).toBe(true)
     expect(source.includes('hoveredEntityId: ecsWorld.hoveredId')).toBe(true)
     expect(source.includes('enqueueEcsCommands(ecsWorld, [{ type: \'select\'')).toBe(true)
     expect(source.includes('enqueueEcsCommands(ecsWorld, [{ type: \'hover\'')).toBe(true)
+    expect(source.includes('patchProjectedEntities')).toBe(true)
+    expect(interactionSection.includes('buildPublishedEntityState')).toBe(false)
+    expect(interactionSection.includes('patchProjectedEntities')).toBe(true)
     expect(source.includes('set({ selectedEntityId: id, entities: buildEntityMapFromWorld() })')).toBe(false)
     expect(source.includes('set({ hoveredEntityId: id, entities: buildEntityMapFromWorld() })')).toBe(false)
   })
@@ -237,6 +242,17 @@ describe('performance guards', () => {
 
     expect(source.includes('Bvh')).toBe(true)
     expect(source.includes('<Bvh')).toBe(true)
+  })
+
+  test('chemical plant environment should batch repeated static supports with one-shot instancing', () => {
+    const source = readFileSync(
+      join(process.cwd(), 'components/digital-twin/scene/ChemicalPlantEnvironment.tsx'),
+      'utf8'
+    )
+
+    expect(source.includes('StaticBoxInstances')).toBe(true)
+    expect(source.includes('<Instances limit={instances.length} frames={1}')).toBe(true)
+    expect(source.includes('<Instance')).toBe(true)
   })
 
   test('projection benchmark script should target production-campus counts and include separation benchmarking', () => {

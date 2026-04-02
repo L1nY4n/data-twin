@@ -10,6 +10,7 @@ const PRODUCTION_SCENARIO = {
   equipmentCount: 96,
   movingEntities: 180,
   separationTicks: 2200,
+  interactionEvents: 4000,
   occupancyCellSize: 8,
 }
 
@@ -185,6 +186,83 @@ function runIncrementalProjection(snapshots) {
   return { ms: performance.now() - started, allocations, reused }
 }
 
+function buildProjectedMap(snapshots) {
+  const now = Date.now()
+  const projected = new Map()
+  for (const snapshot of snapshots) {
+    projected.set(snapshot.id, projectOld(snapshot, now))
+  }
+  return projected
+}
+
+function createInteractionTargets(snapshots) {
+  return snapshots
+    .filter((snapshot) => snapshot.type !== 'equipment')
+    .slice(0, Math.min(120, snapshots.length))
+}
+
+function runFullInteractionProjection(snapshots) {
+  let allocations = 0
+  let previous = buildProjectedMap(snapshots)
+  const hoverTargets = createInteractionTargets(snapshots)
+  const started = performance.now()
+  let previousHoveredId = null
+
+  for (let event = 0; event < PRODUCTION_SCENARIO.interactionEvents; event += 1) {
+    const hoveredId = hoverTargets[event % hoverTargets.length]?.id
+    const now = Date.now()
+    const next = new Map()
+
+    for (const snapshot of snapshots) {
+      const forceProject =
+        snapshot.labelMode === 'html' ||
+        snapshot.id === hoveredId ||
+        snapshot.id === previousHoveredId
+      const { reused: wasReused, entity } = projectIncremental(
+        snapshot,
+        previous.get(snapshot.id),
+        now,
+        forceProject
+      )
+      next.set(snapshot.id, entity)
+      if (!wasReused) allocations += 1
+    }
+
+    previous = next
+    previousHoveredId = hoveredId ?? null
+  }
+
+  return { ms: performance.now() - started, allocations }
+}
+
+function runFocusedInteractionPatch(snapshots) {
+  let allocations = 0
+  let previous = buildProjectedMap(snapshots)
+  const hoverTargets = createInteractionTargets(snapshots)
+  const snapshotIndex = new Map(snapshots.map((snapshot) => [snapshot.id, snapshot]))
+  const started = performance.now()
+  let previousHoveredId = null
+
+  for (let event = 0; event < PRODUCTION_SCENARIO.interactionEvents; event += 1) {
+    const hovered = hoverTargets[event % hoverTargets.length]
+    const hoveredId = hovered?.id ?? null
+    if (!hoveredId) break
+
+    const next = new Map(previous)
+    for (const id of [previousHoveredId, hoveredId]) {
+      if (!id) continue
+      const snapshot = snapshotIndex.get(id)
+      if (!snapshot) continue
+      next.set(snapshot.id, projectOld(snapshot, Date.now()))
+      allocations += 1
+    }
+    previous = next
+    previousHoveredId = hoveredId
+  }
+
+  return { ms: performance.now() - started, allocations }
+}
+
 function createMovingEntities() {
   const entities = []
   for (let i = 0; i < PRODUCTION_SCENARIO.movingEntities; i += 1) {
@@ -312,6 +390,21 @@ const projectionReduction = {
   ),
 }
 
+const fullInteractionProjection = runFullInteractionProjection(createSnapshots())
+const focusedInteractionPatch = runFocusedInteractionPatch(createSnapshots())
+const interactionReduction = {
+  interactionTimePercent: Number(
+    (((fullInteractionProjection.ms - focusedInteractionPatch.ms) / fullInteractionProjection.ms) * 100).toFixed(2)
+  ),
+  interactionAllocationPercent: Number(
+    (
+      ((fullInteractionProjection.allocations - focusedInteractionPatch.allocations) /
+        fullInteractionProjection.allocations) *
+      100
+    ).toFixed(2)
+  ),
+}
+
 const naiveSeparation = runNaiveSeparation(createMovingEntities())
 const spatialSeparation = runSpatialSeparation(createMovingEntities())
 const separationReduction = {
@@ -329,12 +422,18 @@ console.log(
         htmlLabels: PRODUCTION_SCENARIO.hotLabelCount,
         equipment: PRODUCTION_SCENARIO.equipmentCount,
         separationTicks: PRODUCTION_SCENARIO.separationTicks,
+        interactionEvents: PRODUCTION_SCENARIO.interactionEvents,
         occupancyCellSize: PRODUCTION_SCENARIO.occupancyCellSize,
       },
       projection: {
         old: oldProjection,
         incremental: incrementalProjection,
         reduction: projectionReduction,
+      },
+      interactionProjection: {
+        fullRebuild: fullInteractionProjection,
+        focusedPatch: focusedInteractionPatch,
+        reduction: interactionReduction,
       },
       separation: {
         naive: naiveSeparation,

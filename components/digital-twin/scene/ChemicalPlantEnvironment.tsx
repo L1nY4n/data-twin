@@ -1,6 +1,7 @@
 'use client'
 
 import { memo } from 'react'
+import { Instance, Instances } from '@react-three/drei'
 import {
   CAMPUS_DISTRICTS,
   PROCESS_WEST_LAYOUT_BLUEPRINTS,
@@ -45,6 +46,13 @@ interface PipeBridgeProps {
   palette: PlantPalette
 }
 
+interface StaticBoxInstanceSpec {
+  key: string
+  position: [number, number, number]
+  rotation?: [number, number, number]
+  scale?: [number, number, number]
+}
+
 const BAY_OFFSETS = [-70, -36, -2, 32, 66] as const
 const PARKING_OFFSETS = [-82, -70, -58, 48, 60, 72, 84] as const
 const COOLING_TOWER_OFFSETS = [-14, 0, 14] as const
@@ -75,6 +83,41 @@ const TANK_MANIFOLD_BLUEPRINT =
   TANK_EAST_LAYOUT_BLUEPRINTS.find((item) => item.kind === 'pump-manifold') ?? null
 const TANK_METERING_BLUEPRINT =
   TANK_EAST_LAYOUT_BLUEPRINTS.find((item) => item.kind === 'service-building') ?? null
+
+function StaticBoxInstances({
+  args,
+  color,
+  metalness,
+  roughness,
+  instances,
+  castShadow = false,
+  receiveShadow = false,
+}: {
+  args: [number, number, number]
+  color: string
+  metalness: number
+  roughness: number
+  instances: StaticBoxInstanceSpec[]
+  castShadow?: boolean
+  receiveShadow?: boolean
+}) {
+  if (instances.length === 0) return null
+
+  return (
+    <Instances limit={instances.length} frames={1} castShadow={castShadow} receiveShadow={receiveShadow}>
+      <boxGeometry args={args} />
+      <meshStandardMaterial color={color} metalness={metalness} roughness={roughness} />
+      {instances.map((item) => (
+        <Instance
+          key={item.key}
+          position={item.position}
+          rotation={item.rotation}
+          scale={item.scale}
+        />
+      ))}
+    </Instances>
+  )
+}
 
 function resolveProcessTowerHeights(blueprint: LayoutBlueprint): number[] {
   switch (blueprint.variant) {
@@ -169,24 +212,32 @@ function PipeBridge({ from, to, supportHeight, palette }: PipeBridgeProps) {
   const yaw = Math.atan2(dx, dz)
   const supportCount = Math.max(2, Math.floor(length / 14))
   const step = length / supportCount
+  const supportInstances: StaticBoxInstanceSpec[] = Array.from(
+    { length: supportCount + 1 },
+    (_value, index) => {
+      const localZ = index * step
+      return [
+        {
+          key: `support-left-${index}`,
+          position: [-1.2, supportHeight / 2, localZ] as [number, number, number],
+        },
+        {
+          key: `support-right-${index}`,
+          position: [1.2, supportHeight / 2, localZ] as [number, number, number],
+        },
+      ]
+    }
+  ).flat()
 
   return (
     <group position={[from[0], 0, from[2]]} rotation={[0, yaw, 0]}>
-      {Array.from({ length: supportCount + 1 }, (_value, index) => {
-        const localZ = index * step
-        return (
-          <group key={`support-${from.join('-')}-${to.join('-')}-${index}`} position={[0, 0, localZ]}>
-            <mesh position={[-1.2, supportHeight / 2, 0]}>
-              <boxGeometry args={[0.38, supportHeight, 0.38]} />
-              <meshStandardMaterial color={palette.steel} metalness={0.68} roughness={0.34} />
-            </mesh>
-            <mesh position={[1.2, supportHeight / 2, 0]}>
-              <boxGeometry args={[0.38, supportHeight, 0.38]} />
-              <meshStandardMaterial color={palette.steel} metalness={0.68} roughness={0.34} />
-            </mesh>
-          </group>
-        )
-      })}
+      <StaticBoxInstances
+        args={[0.38, supportHeight, 0.38]}
+        color={palette.steel}
+        metalness={0.68}
+        roughness={0.34}
+        instances={supportInstances}
+      />
 
       <mesh position={[0, supportHeight + 0.18, length / 2]}>
         <boxGeometry args={[3.4, 0.36, length]} />
@@ -216,6 +267,22 @@ function LinearPipeRack({ blueprint, palette }: { blueprint: LayoutBlueprint; pa
   const supportCount = Math.max(2, Math.floor(blueprint.width / 12))
   const step = blueprint.width / supportCount
   const startX = -blueprint.width / 2
+  const supportInstances: StaticBoxInstanceSpec[] = Array.from(
+    { length: supportCount + 1 },
+    (_value, index) => {
+      const localX = startX + index * step
+      return [
+        {
+          key: `${blueprint.id}-left-${index}`,
+          position: [localX - 0.8, blueprint.height / 2, 0] as [number, number, number],
+        },
+        {
+          key: `${blueprint.id}-right-${index}`,
+          position: [localX + 0.8, blueprint.height / 2, 0] as [number, number, number],
+        },
+      ]
+    }
+  ).flat()
 
   return (
     <group position={[blueprint.center.x, 0, blueprint.center.z]}>
@@ -223,21 +290,13 @@ function LinearPipeRack({ blueprint, palette }: { blueprint: LayoutBlueprint; pa
         <boxGeometry args={[blueprint.width, 0.44, blueprint.depth]} />
         <meshStandardMaterial color={palette.slabAlt} roughness={0.94} metalness={0.06} />
       </mesh>
-      {Array.from({ length: supportCount + 1 }, (_value, index) => {
-        const localX = startX + index * step
-        return (
-          <group key={`${blueprint.id}-support-${index}`} position={[localX, 0, 0]}>
-            <mesh position={[-0.8, blueprint.height / 2, 0]}>
-              <boxGeometry args={[0.34, blueprint.height, 0.34]} />
-              <meshStandardMaterial color={palette.steel} metalness={0.68} roughness={0.34} />
-            </mesh>
-            <mesh position={[0.8, blueprint.height / 2, 0]}>
-              <boxGeometry args={[0.34, blueprint.height, 0.34]} />
-              <meshStandardMaterial color={palette.steel} metalness={0.68} roughness={0.34} />
-            </mesh>
-          </group>
-        )
-      })}
+      <StaticBoxInstances
+        args={[0.34, blueprint.height, 0.34]}
+        color={palette.steel}
+        metalness={0.68}
+        roughness={0.34}
+        instances={supportInstances}
+      />
       <mesh position={[0, blueprint.height + 0.2, 0]}>
         <boxGeometry args={[blueprint.width, 0.32, blueprint.depth]} />
         <meshStandardMaterial color={palette.steelDark} metalness={0.66} roughness={0.36} />
@@ -261,6 +320,16 @@ function ProcessTrain({ blueprint, palette }: { blueprint: LayoutBlueprint; pale
       ? [-halfWidth + 3.2, 0, halfWidth - 3.2]
       : [-halfWidth + 4, halfWidth - 4]
   const frameOffsets = [-halfWidth + 2.4, 0, halfWidth - 2.4]
+  const frameInstances: StaticBoxInstanceSpec[] = frameOffsets.flatMap((offset) => [
+    {
+      key: `${blueprint.id}-frame-front-${offset}`,
+      position: [offset, 4.6, -1.6],
+    },
+    {
+      key: `${blueprint.id}-frame-rear-${offset}`,
+      position: [offset, 4.6, 3.2],
+    },
+  ])
 
   return (
     <group position={[blueprint.center.x, 0, blueprint.center.z]}>
@@ -269,18 +338,13 @@ function ProcessTrain({ blueprint, palette }: { blueprint: LayoutBlueprint; pale
         <meshStandardMaterial color={palette.slab} roughness={0.94} metalness={0.06} />
       </mesh>
 
-      {frameOffsets.map((offset) => (
-        <group key={`${blueprint.id}-frame-${offset}`} position={[offset, 0, 0]}>
-          <mesh position={[0, 4.6, -1.6]}>
-            <boxGeometry args={[0.58, 9.2, 0.58]} />
-            <meshStandardMaterial color={palette.steel} metalness={0.68} roughness={0.36} />
-          </mesh>
-          <mesh position={[0, 4.6, 3.2]}>
-            <boxGeometry args={[0.58, 9.2, 0.58]} />
-            <meshStandardMaterial color={palette.steel} metalness={0.68} roughness={0.36} />
-          </mesh>
-        </group>
-      ))}
+      <StaticBoxInstances
+        args={[0.58, 9.2, 0.58]}
+        color={palette.steel}
+        metalness={0.68}
+        roughness={0.36}
+        instances={frameInstances}
+      />
 
       {[4.4, 8.2].map((level) => (
         <group key={`${blueprint.id}-deck-${level}`}>
@@ -451,6 +515,10 @@ function VerticalTankCompound({ blueprint, palette }: { blueprint: LayoutBluepri
 function SphereTank({ blueprint, palette }: { blueprint: LayoutBlueprint; palette: PlantPalette }) {
   const radius = blueprint.width * 0.42
   const sphereY = radius + 2.8
+  const legInstances: StaticBoxInstanceSpec[] = SPHERE_SUPPORT_OFFSETS.map((offset, index) => ({
+    key: `${blueprint.id}-leg-${index}`,
+    position: [offset[0], sphereY / 2, offset[1]],
+  }))
 
   return (
     <group position={[blueprint.center.x, 0, blueprint.center.z]}>
@@ -458,12 +526,13 @@ function SphereTank({ blueprint, palette }: { blueprint: LayoutBlueprint; palett
         <sphereGeometry args={[radius, 24, 24]} />
         <meshStandardMaterial color={palette.vessel} metalness={0.56} roughness={0.28} />
       </mesh>
-      {SPHERE_SUPPORT_OFFSETS.map((offset, index) => (
-        <mesh key={`${blueprint.id}-leg-${index}`} position={[offset[0], sphereY / 2, offset[1]]}>
-          <boxGeometry args={[0.24, sphereY - 1.2, 0.24]} />
-          <meshStandardMaterial color={palette.steel} metalness={0.68} roughness={0.34} />
-        </mesh>
-      ))}
+      <StaticBoxInstances
+        args={[0.24, sphereY - 1.2, 0.24]}
+        color={palette.steel}
+        metalness={0.68}
+        roughness={0.34}
+        instances={legInstances}
+      />
       <mesh position={[0, 0.32, 0]}>
         <cylinderGeometry args={[radius + 0.56, radius + 0.56, 0.24, 24]} />
         <meshStandardMaterial color={palette.curb} roughness={0.78} metalness={0.04} />
@@ -567,6 +636,17 @@ function TankFarmDistrict({ palette }: { palette: PlantPalette }) {
 function LogisticsDistrict({ palette }: { palette: PlantPalette }) {
   if (!LOGISTICS_DISTRICT) return null
 
+  const bayPostInstances: StaticBoxInstanceSpec[] = BAY_OFFSETS.flatMap((offset) => [
+    {
+      key: `bay-left-${offset}`,
+      position: [offset - 5.4, 2.2, 49.2],
+    },
+    {
+      key: `bay-right-${offset}`,
+      position: [offset + 5.4, 2.2, 49.2],
+    },
+  ])
+
   return (
     <group>
       <mesh position={[LOGISTICS_DISTRICT.center.x, 0.05, LOGISTICS_DISTRICT.center.z]} receiveShadow>
@@ -590,16 +670,15 @@ function LogisticsDistrict({ palette }: { palette: PlantPalette }) {
             <boxGeometry args={[12.8, 0.24, 6]} />
             <meshStandardMaterial color={palette.canopy} metalness={0.6} roughness={0.34} />
           </mesh>
-          <mesh position={[-5.4, 2.2, -6.8]}>
-            <boxGeometry args={[0.34, 4.4, 0.34]} />
-            <meshStandardMaterial color={palette.canopy} metalness={0.6} roughness={0.34} />
-          </mesh>
-          <mesh position={[5.4, 2.2, -6.8]}>
-            <boxGeometry args={[0.34, 4.4, 0.34]} />
-            <meshStandardMaterial color={palette.canopy} metalness={0.6} roughness={0.34} />
-          </mesh>
         </group>
       ))}
+      <StaticBoxInstances
+        args={[0.34, 4.4, 0.34]}
+        color={palette.canopy}
+        metalness={0.6}
+        roughness={0.34}
+        instances={bayPostInstances}
+      />
 
       <mesh position={[-70, 2.8, 74]}>
         <boxGeometry args={[34, 5.6, 12]} />
