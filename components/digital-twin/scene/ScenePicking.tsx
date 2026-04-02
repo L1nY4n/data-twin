@@ -8,20 +8,26 @@ import { resolveEntityIdFromIntersection } from '@/lib/digital-twin/renderer/int
 
 const POINTER = new THREE.Vector2()
 
+interface PointerSample {
+  offsetX: number
+  offsetY: number
+}
+
 function pickEntityId(
-  event: MouseEvent | PointerEvent,
+  pointer: PointerSample,
   domElement: HTMLCanvasElement,
   camera: THREE.Camera,
   raycaster: THREE.Raycaster,
   pickRoot: THREE.Object3D | null
 ): string | null {
   if (!pickRoot) return null
-  const rect = domElement.getBoundingClientRect()
-  if (rect.width <= 0 || rect.height <= 0) return null
+  const width = domElement.clientWidth || domElement.width
+  const height = domElement.clientHeight || domElement.height
+  if (width <= 0 || height <= 0) return null
 
   POINTER.set(
-    ((event.clientX - rect.left) / rect.width) * 2 - 1,
-    -((event.clientY - rect.top) / rect.height) * 2 + 1
+    (pointer.offsetX / width) * 2 - 1,
+    -(pointer.offsetY / height) * 2 + 1
   )
 
   raycaster.setFromCamera(POINTER, camera)
@@ -44,24 +50,34 @@ export function ScenePicking({ pickRootRef }: ScenePickingProps) {
   const setSelectedEntity = useDigitalTwinStore((state) => state.setSelectedEntity)
   const setHoveredEntity = useDigitalTwinStore((state) => state.setHoveredEntity)
   const rafRef = useRef<number | null>(null)
-  const lastPointerRef = useRef<PointerEvent | null>(null)
+  const lastPointerRef = useRef<PointerSample | null>(null)
+  const selectedEntityIdRef = useRef<string | null>(selectedEntityId)
+  const measurementModeRef = useRef(measurementMode)
+
+  useEffect(() => {
+    selectedEntityIdRef.current = selectedEntityId
+  }, [selectedEntityId])
+
+  useEffect(() => {
+    measurementModeRef.current = measurementMode
+  }, [measurementMode])
 
   useEffect(() => {
     const domElement = gl.domElement
 
-    const resolve = (event: MouseEvent | PointerEvent) =>
-      pickEntityId(event, domElement, camera, raycaster, pickRootRef.current)
+    const resolve = (pointer: PointerSample) =>
+      pickEntityId(pointer, domElement, camera, raycaster, pickRootRef.current)
 
     const handlePointerMove = (event: PointerEvent) => {
-      if (measurementMode !== 'none') return
-      lastPointerRef.current = event
+      if (measurementModeRef.current !== 'none') return
+      lastPointerRef.current = { offsetX: event.offsetX, offsetY: event.offsetY }
       if (rafRef.current !== null) return
 
       rafRef.current = window.requestAnimationFrame(() => {
         rafRef.current = null
-        const currentEvent = lastPointerRef.current
-        if (!currentEvent) return
-        const entityId = resolve(currentEvent)
+        const currentPointer = lastPointerRef.current
+        if (!currentPointer) return
+        const entityId = resolve(currentPointer)
         setHoveredEntity(entityId)
         domElement.style.cursor = entityId ? 'pointer' : 'auto'
       })
@@ -78,13 +94,19 @@ export function ScenePicking({ pickRootRef }: ScenePickingProps) {
     }
 
     const handleClick = (event: MouseEvent) => {
-      if (measurementMode !== 'none') return
-      const entityId = pickEntityId(event, domElement, camera, raycaster, pickRootRef.current)
+      if (measurementModeRef.current !== 'none') return
+      const entityId = pickEntityId(
+        { offsetX: event.offsetX, offsetY: event.offsetY },
+        domElement,
+        camera,
+        raycaster,
+        pickRootRef.current
+      )
       if (!entityId) {
         setSelectedEntity(null)
         return
       }
-      setSelectedEntity(entityId === selectedEntityId ? null : entityId)
+      setSelectedEntity(entityId === selectedEntityIdRef.current ? null : entityId)
     }
 
     domElement.addEventListener('pointermove', handlePointerMove, { passive: true })
@@ -104,10 +126,8 @@ export function ScenePicking({ pickRootRef }: ScenePickingProps) {
   }, [
     camera,
     gl.domElement,
-    measurementMode,
     pickRootRef,
     raycaster,
-    selectedEntityId,
     setHoveredEntity,
     setSelectedEntity,
   ])

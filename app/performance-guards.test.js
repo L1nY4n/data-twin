@@ -34,6 +34,19 @@ describe('performance guards', () => {
     expect(source.includes('set({ hoveredEntityId: id, entities: buildEntityMapFromWorld() })')).toBe(false)
   })
 
+  test('scene picking should coalesce pointer events without layout reads on the hover hot path', () => {
+    const source = readFileSync(
+      join(process.cwd(), 'components/digital-twin/scene/ScenePicking.tsx'),
+      'utf8'
+    )
+
+    expect(source.includes('window.requestAnimationFrame')).toBe(true)
+    expect(source.includes('lastPointerRef.current = { offsetX: event.offsetX, offsetY: event.offsetY }')).toBe(true)
+    expect(source.includes('selectedEntityIdRef.current')).toBe(true)
+    expect(source.includes('measurementModeRef.current')).toBe(true)
+    expect(source.includes('getBoundingClientRect')).toBe(false)
+  })
+
   test('runtime publish cadence should be adaptive under higher entity counts', () => {
     const source = readFileSync(
       join(process.cwd(), 'lib/digital-twin/store.ts'),
