@@ -13,7 +13,7 @@ export const LogicNode = memo(function LogicNode({
   data, 
   selected 
 }: NodeProps) {
-  const nodeData = data as LogicNodeData
+  const nodeData = data as unknown as LogicNodeData
 
   return (
     <div

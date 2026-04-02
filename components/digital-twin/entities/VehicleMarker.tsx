@@ -1,17 +1,22 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { memo, useRef } from 'react'
 import { Html } from '@react-three/drei'
-import * as THREE from 'three'
-import { useDigitalTwinStore } from '@/lib/digital-twin/store'
+import type * as THREE from 'three'
 import type { VehicleEntity } from '@/lib/digital-twin/types'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
+import {
+  OVERLAY_RENDER_ORDER,
+  STABLE_DOUBLE_SIDED_OVERLAY,
+} from '@/lib/digital-twin/renderer/material-stability'
+import { SpriteTextLabel } from '@/components/digital-twin/scene/SpriteTextLabel'
 
 interface VehicleMarkerProps {
   entity: VehicleEntity
   isSelected: boolean
   isHovered: boolean
+  showModel?: boolean
 }
 
 const STATUS_COLORS = {
@@ -37,114 +42,132 @@ const VEHICLE_COLORS = {
   other: '#6b7280',
 }
 
-export function VehicleMarker({ entity, isSelected, isHovered }: VehicleMarkerProps) {
+export const VehicleMarker = memo(function VehicleMarker({
+  entity,
+  isSelected,
+  isHovered,
+  showModel = true,
+}: VehicleMarkerProps) {
   const meshRef = useRef<THREE.Group>(null)
-  const [localHover, setLocalHover] = useState(false)
-  const setSelectedEntity = useDigitalTwinStore((state) => state.setSelectedEntity)
-  const setHoveredEntity = useDigitalTwinStore((state) => state.setHoveredEntity)
 
   const statusColor = STATUS_COLORS[entity.status]
   const vehicleColor = VEHICLE_COLORS[entity.vehicleType]
   const size = VEHICLE_SIZES[entity.vehicleType]
-  const showLabel = isSelected || isHovered || localHover
+  const labelMode = entity.labelMode ?? 'html'
+  const showLabel = isSelected || isHovered || labelMode !== 'hidden'
 
   return (
-    <group position={[entity.position.x, 0, entity.position.z]}>
-      <group 
-        ref={meshRef}
-        rotation={[0, entity.rotation.y, 0]}
-        onPointerEnter={(e) => {
-          e.stopPropagation()
-          setLocalHover(true)
-          setHoveredEntity(entity.id)
-          document.body.style.cursor = 'pointer'
-        }}
-        onPointerLeave={() => {
-          setLocalHover(false)
-          setHoveredEntity(null)
-          document.body.style.cursor = 'auto'
-        }}
-        onClick={(e) => {
-          e.stopPropagation()
-          setSelectedEntity(isSelected ? null : entity.id)
-        }}
-      >
-        {/* 车身 */}
-        <mesh position={[0, size.height / 2, 0]} castShadow>
-          <boxGeometry args={[size.width, size.height, size.depth]} />
-          <meshStandardMaterial 
-            color={isSelected ? '#60a5fa' : isHovered || localHover ? '#94a3b8' : vehicleColor}
-            metalness={0.6}
-            roughness={0.4}
-          />
-        </mesh>
-
-        {/* 车轮 - 简化表示 */}
-        {entity.vehicleType !== 'agv' && (
-          <>
-            <mesh position={[-size.width / 2 - 0.1, 0.3, size.depth / 3]} rotation={[0, 0, Math.PI / 2]}>
-              <cylinderGeometry args={[0.3, 0.3, 0.2, 16]} />
-              <meshStandardMaterial color="#1f2937" />
-            </mesh>
-            <mesh position={[size.width / 2 + 0.1, 0.3, size.depth / 3]} rotation={[0, 0, Math.PI / 2]}>
-              <cylinderGeometry args={[0.3, 0.3, 0.2, 16]} />
-              <meshStandardMaterial color="#1f2937" />
-            </mesh>
-            <mesh position={[-size.width / 2 - 0.1, 0.3, -size.depth / 3]} rotation={[0, 0, Math.PI / 2]}>
-              <cylinderGeometry args={[0.3, 0.3, 0.2, 16]} />
-              <meshStandardMaterial color="#1f2937" />
-            </mesh>
-            <mesh position={[size.width / 2 + 0.1, 0.3, -size.depth / 3]} rotation={[0, 0, Math.PI / 2]}>
-              <cylinderGeometry args={[0.3, 0.3, 0.2, 16]} />
-              <meshStandardMaterial color="#1f2937" />
-            </mesh>
-          </>
-        )}
-
-        {/* AGV特殊标记 */}
-        {entity.vehicleType === 'agv' && (
-          <mesh position={[0, size.height + 0.1, 0]}>
-            <sphereGeometry args={[0.15, 16, 16]} />
-            <meshStandardMaterial 
-              color={statusColor} 
-              emissive={statusColor} 
-              emissiveIntensity={0.8}
+    <group
+      position={[entity.position.x, 0, entity.position.z]}
+      userData={{ pickable: true, entityId: entity.id }}
+    >
+      {showModel && (
+        <group
+          ref={meshRef}
+          rotation={[0, entity.rotation.y, 0]}
+        >
+          <mesh position={[0, size.height / 2, 0]} castShadow>
+            <boxGeometry args={[size.width, size.height, size.depth]} />
+            <meshStandardMaterial
+              color={isSelected ? '#60a5fa' : isHovered ? '#94a3b8' : vehicleColor}
+              metalness={0.6}
+              roughness={0.4}
             />
           </mesh>
-        )}
 
-        {/* 前方向指示 */}
-        <mesh position={[0, size.height / 2, size.depth / 2 + 0.2]}>
-          <coneGeometry args={[0.2, 0.4, 8]} />
-          <meshStandardMaterial 
-            color={statusColor} 
-            emissive={statusColor} 
-            emissiveIntensity={0.5}
-          />
-        </mesh>
-      </group>
+          {entity.vehicleType !== 'agv' && (
+            <>
+              <mesh position={[-size.width / 2 - 0.1, 0.3, size.depth / 3]} rotation={[0, 0, Math.PI / 2]}>
+                <cylinderGeometry args={[0.3, 0.3, 0.2, 16]} />
+                <meshStandardMaterial color="#1f2937" />
+              </mesh>
+              <mesh position={[size.width / 2 + 0.1, 0.3, size.depth / 3]} rotation={[0, 0, Math.PI / 2]}>
+                <cylinderGeometry args={[0.3, 0.3, 0.2, 16]} />
+                <meshStandardMaterial color="#1f2937" />
+              </mesh>
+              <mesh position={[-size.width / 2 - 0.1, 0.3, -size.depth / 3]} rotation={[0, 0, Math.PI / 2]}>
+                <cylinderGeometry args={[0.3, 0.3, 0.2, 16]} />
+                <meshStandardMaterial color="#1f2937" />
+              </mesh>
+              <mesh position={[size.width / 2 + 0.1, 0.3, -size.depth / 3]} rotation={[0, 0, Math.PI / 2]}>
+                <cylinderGeometry args={[0.3, 0.3, 0.2, 16]} />
+                <meshStandardMaterial color="#1f2937" />
+              </mesh>
+            </>
+          )}
+
+          {entity.vehicleType === 'agv' && (
+            <mesh position={[0, size.height + 0.1, 0]}>
+              <sphereGeometry args={[0.15, 16, 16]} />
+              <meshStandardMaterial
+                color={statusColor}
+                emissive={statusColor}
+                emissiveIntensity={0.8}
+              />
+            </mesh>
+          )}
+
+          <mesh position={[0, size.height / 2, size.depth / 2 + 0.2]}>
+            <coneGeometry args={[0.2, 0.4, 8]} />
+            <meshStandardMaterial
+              color={statusColor}
+              emissive={statusColor}
+              emissiveIntensity={0.5}
+            />
+          </mesh>
+        </group>
+      )}
 
       {/* 状态光环 */}
-      <mesh position={[0, 0.02, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <ringGeometry args={[Math.max(size.width, size.depth) / 2 + 0.3, Math.max(size.width, size.depth) / 2 + 0.5, 32]} />
-        <meshBasicMaterial 
+      <mesh
+        position={[0, 0.02, 0]}
+        rotation={[-Math.PI / 2, 0, 0]}
+        renderOrder={OVERLAY_RENDER_ORDER.entityRing}
+      >
+        <ringGeometry
+          args={[Math.max(size.width, size.depth) / 2 + 0.3, Math.max(size.width, size.depth) / 2 + 0.5, 32]}
+          onUpdate={(geometry) => {
+            if (geometry.index) geometry.setDrawRange(0, geometry.index.count)
+          }}
+        />
+        <meshStandardMaterial
           color={statusColor} 
-          transparent 
+          emissive={statusColor}
+          emissiveIntensity={0.2}
+          metalness={0}
+          roughness={0.95}
           opacity={isSelected ? 0.6 : 0.3}
-          side={THREE.DoubleSide}
+          {...STABLE_DOUBLE_SIDED_OVERLAY}
         />
       </mesh>
 
       {/* 选中高亮环 */}
       {isSelected && (
-        <mesh position={[0, 0.03, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-          <ringGeometry args={[Math.max(size.width, size.depth) / 2 + 0.6, Math.max(size.width, size.depth) / 2 + 0.7, 32]} />
-          <meshBasicMaterial color="#3b82f6" transparent opacity={0.8} side={THREE.DoubleSide} />
+        <mesh
+          position={[0, 0.03, 0]}
+          rotation={[-Math.PI / 2, 0, 0]}
+          renderOrder={OVERLAY_RENDER_ORDER.entitySelectionRing}
+        >
+          <ringGeometry
+            args={[Math.max(size.width, size.depth) / 2 + 0.6, Math.max(size.width, size.depth) / 2 + 0.7, 32]}
+            onUpdate={(geometry) => {
+              if (geometry.index) geometry.setDrawRange(0, geometry.index.count)
+            }}
+          />
+          <meshStandardMaterial
+            color="#3b82f6"
+            emissive="#3b82f6"
+            emissiveIntensity={0.24}
+            metalness={0}
+            roughness={0.95}
+            opacity={0.8}
+            {...STABLE_DOUBLE_SIDED_OVERLAY}
+          />
         </mesh>
       )}
 
       {/* 标签 */}
-      {showLabel && (
+      {showLabel && labelMode === 'html' && (
         <Html
           position={[0, size.height + 1.5, 0]}
           center
@@ -176,6 +199,18 @@ export function VehicleMarker({ entity, isSelected, isHovered }: VehicleMarkerPr
           </div>
         </Html>
       )}
+
+      {showLabel && labelMode === 'sprite' && (
+        <SpriteTextLabel
+          position={[0, size.height + 1.1, 0]}
+          text={entity.name}
+          color="#dbeafe"
+          outlineColor="#0f172a"
+          scale={1}
+        />
+      )}
     </group>
   )
-}
+})
+
+VehicleMarker.displayName = 'VehicleMarker'

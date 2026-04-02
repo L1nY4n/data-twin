@@ -1,11 +1,16 @@
 'use client'
 
 import { useMemo } from 'react'
-import { Line, Html } from '@react-three/drei'
+import { Html } from '@react-three/drei'
 import * as THREE from 'three'
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
 import { calculateDistance, formatDistance } from '@/lib/digital-twin/spatial-utils'
 import type { Entity } from '@/lib/digital-twin/types'
+import { SceneLine } from '@/components/digital-twin/scene/SceneLine'
+import {
+  OVERLAY_RENDER_ORDER,
+  STABLE_TRANSPARENT_OVERLAY,
+} from '@/lib/digital-twin/renderer/material-stability'
 
 interface DistanceIndicatorProps {
   entityA: Entity
@@ -35,16 +40,21 @@ export function DistanceIndicator({
     new THREE.Vector3(entityA.position.x, entityA.position.y + 0.5, entityA.position.z),
     new THREE.Vector3(entityB.position.x, entityB.position.y + 0.5, entityB.position.z),
   ], [entityA.position, entityB.position])
+  const linePositionArray = useMemo(
+    () => new Float32Array(points.flatMap((p) => [p.x, p.y, p.z])),
+    [points]
+  )
 
   return (
     <group>
-      <Line
-        points={points}
+      <SceneLine
+        positions={linePositionArray}
+        renderOrder={OVERLAY_RENDER_ORDER.distance}
         color={color}
-        lineWidth={1.5}
-        dashed
-        dashSize={0.3}
-        gapSize={0.15}
+        opacity={0.9}
+        depthWrite={STABLE_TRANSPARENT_OVERLAY.depthWrite}
+        depthTest={STABLE_TRANSPARENT_OVERLAY.depthTest}
+        toneMapped={STABLE_TRANSPARENT_OVERLAY.toneMapped}
       />
       {showLabel && (
         <Html position={midpoint} center style={{ pointerEvents: 'none' }}>

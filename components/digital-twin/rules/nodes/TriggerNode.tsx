@@ -22,7 +22,7 @@ export const TriggerNode = memo(function TriggerNode({
   data, 
   selected 
 }: NodeProps) {
-  const nodeData = data as TriggerNodeData
+  const nodeData = data as unknown as TriggerNodeData
   const Icon = TRIGGER_ICONS[nodeData.triggerType] || MapPin
 
   return (

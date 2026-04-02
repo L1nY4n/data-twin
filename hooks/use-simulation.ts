@@ -1,136 +1,51 @@
 'use client'
 
-import { useEffect, useRef, useCallback } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
-import {
-  generateMockScene,
-  simulateEntityMovement,
-  simulateEquipmentStatus,
-  generateId,
-} from '@/lib/digital-twin/mock-data'
-import type { EquipmentEntity, Alarm } from '@/lib/digital-twin/types'
+import { generateMockScene } from '@/lib/digital-twin/mock-data'
 
 interface UseSimulationOptions {
   autoStart?: boolean
-  updateInterval?: number
+  profile?: 'default' | 'production'
 }
 
 export function useSimulation(options: UseSimulationOptions = {}) {
-  const { autoStart = true, updateInterval = 100 } = options
+  const { autoStart = true, profile = 'default' } = options
 
-  const isRunning = useRef(false)
-  const intervalRef = useRef<NodeJS.Timeout | null>(null)
   const initialized = useRef(false)
+  const isRunning = useRef(false)
 
-  // 初始化场景数据
   const initializeScene = useCallback(() => {
     if (initialized.current) return
 
-    const { persons, vehicles, equipment, zones } = generateMockScene()
-    const { addEntity, setConnectionStatus } = useDigitalTwinStore.getState()
+    const { persons, vehicles, equipment, zones } = generateMockScene({ profile })
+    const { addEntities, setConnectionStatus, resetRuntimeClock } = useDigitalTwinStore.getState()
 
-    // 添加所有实体
-    zones.forEach(addEntity)
-    persons.forEach(addEntity)
-    vehicles.forEach(addEntity)
-    equipment.forEach(addEntity)
-
+    addEntities([...zones, ...persons, ...vehicles, ...equipment])
+    setConnectionStatus(true, 'simulation://ecs-runtime')
+    resetRuntimeClock()
     initialized.current = true
-    setConnectionStatus(true, 'simulation://local')
-  }, [])
+  }, [profile])
 
-  // 更新实体位置和状态
-  const updateEntities = useCallback(() => {
-    const now = Date.now()
-    const { entities, updateEntity, addTrajectoryPoint, addAlarm } = useDigitalTwinStore.getState()
-
-    entities.forEach((entity) => {
-      if (entity.type === 'zone') return
-
-      if (entity.type === 'person' || entity.type === 'vehicle') {
-        // 模拟移动
-        const { position, rotationY } = simulateEntityMovement(entity)
-
-        updateEntity(entity.id, {
-          position,
-          rotation: {
-            ...entity.rotation,
-            y: rotationY,
-          },
-        })
-
-        // 记录轨迹
-        addTrajectoryPoint(entity.id, {
-          position,
-          timestamp: now,
-        })
-      }
-
-      if (entity.type === 'equipment') {
-        // 模拟设备状态变化
-        const updates = simulateEquipmentStatus(entity as EquipmentEntity)
-        const prevStatus = entity.status
-        
-        updateEntity(entity.id, updates)
-
-        // 生成告警
-        if (updates.status === 'warning' && prevStatus !== 'warning') {
-          const alarm: Alarm = {
-            id: generateId(),
-            level: 'warning',
-            message: `设备 ${entity.name} 温度过高`,
-            timestamp: now,
-            acknowledged: false,
-          }
-          addAlarm(alarm)
-        }
-
-        if (updates.status === 'error' && prevStatus !== 'error') {
-          const alarm: Alarm = {
-            id: generateId(),
-            level: 'error',
-            message: `设备 ${entity.name} 发生故障`,
-            timestamp: now,
-            acknowledged: false,
-          }
-          addAlarm(alarm)
-        }
-      }
-    })
-  }, [])
-
-  // 启动模拟
   const start = useCallback(() => {
     if (isRunning.current) return
-
     initializeScene()
     isRunning.current = true
+    useDigitalTwinStore.getState().setRuntimeRunning(true)
+  }, [initializeScene])
 
-    intervalRef.current = setInterval(() => {
-      updateEntities()
-    }, updateInterval)
-  }, [initializeScene, updateEntities, updateInterval])
-
-  // 停止模拟
   const stop = useCallback(() => {
     isRunning.current = false
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current)
-      intervalRef.current = null
-    }
+    useDigitalTwinStore.getState().setRuntimeRunning(false)
   }, [])
 
-  // 重置场景
   const reset = useCallback(() => {
     stop()
     initialized.current = false
     useDigitalTwinStore.getState().reset()
-    if (autoStart) {
-      start()
-    }
-  }, [stop, autoStart, start])
+    if (autoStart) start()
+  }, [autoStart, start, stop])
 
-  // 自动启动
   useEffect(() => {
     if (autoStart) {
       start()
@@ -140,6 +55,26 @@ export function useSimulation(options: UseSimulationOptions = {}) {
       stop()
     }
   }, [autoStart, start, stop])
+
+  useEffect(() => {
+    const resetRuntimeClock = () => {
+      useDigitalTwinStore.getState().resetRuntimeClock()
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        resetRuntimeClock()
+      }
+    }
+
+    window.addEventListener('focus', resetRuntimeClock)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    return () => {
+      window.removeEventListener('focus', resetRuntimeClock)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [])
 
   return {
     start,

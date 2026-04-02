@@ -1,9 +1,13 @@
 'use client'
 
 import { useMemo } from 'react'
-import { Line } from '@react-three/drei'
 import * as THREE from 'three'
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
+import { SceneLine } from '@/components/digital-twin/scene/SceneLine'
+import {
+  OVERLAY_RENDER_ORDER,
+  STABLE_TRANSPARENT_OVERLAY,
+} from '@/lib/digital-twin/renderer/material-stability'
 
 interface TrajectoryLineProps {
   entityId: string
@@ -34,26 +38,32 @@ export function TrajectoryLine({
   const colors = useMemo(() => {
     if (!points || !fadeOut) return undefined
 
-    const gradient: THREE.Color[] = []
+    const gradient: number[] = []
     for (let i = 0; i < points.length; i++) {
       const t = i / (points.length - 1)
       const c = new THREE.Color(color)
       c.multiplyScalar(0.3 + t * 0.7)
-      gradient.push(c)
+      gradient.push(c.r, c.g, c.b)
     }
-    return gradient
+    return new Float32Array(gradient)
   }, [points, color, fadeOut])
+  const positions = useMemo(
+    () => (points ? new Float32Array(points.flatMap((point) => [point.x, point.y, point.z])) : null),
+    [points]
+  )
 
-  if (!points || points.length < 2) return null
+  if (!points || points.length < 2 || !positions) return null
 
   return (
-    <Line
-      points={points}
-      color={fadeOut ? undefined : color}
-      vertexColors={fadeOut ? colors : undefined}
-      lineWidth={2}
-      transparent
+    <SceneLine
+      positions={positions}
+      colors={fadeOut ? colors : undefined}
+      renderOrder={OVERLAY_RENDER_ORDER.trajectory}
+      color={fadeOut ? '#ffffff' : color}
       opacity={0.8}
+      depthWrite={STABLE_TRANSPARENT_OVERLAY.depthWrite}
+      depthTest={STABLE_TRANSPARENT_OVERLAY.depthTest}
+      toneMapped={STABLE_TRANSPARENT_OVERLAY.toneMapped}
     />
   )
 }

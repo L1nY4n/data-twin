@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { 
   Clock, 
   GitBranch, 
@@ -43,12 +43,32 @@ const ALARM_COLOR_MAP = {
   critical: '#dc2626',
 }
 
+function createChartPoint(
+  now: number,
+  stats: { persons: number; vehicles: number; activeEquipment: number }
+) {
+  return {
+    time: new Date(now).toLocaleTimeString('zh-CN', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    }),
+    persons: stats.persons + Math.floor(Math.random() * 3) - 1,
+    vehicles: stats.vehicles + Math.floor(Math.random() * 2) - 1,
+    equipment: stats.activeEquipment + Math.floor(Math.random() * 2),
+  }
+}
+
 export function BottomPanel() {
   const bottomPanelTab = useDigitalTwinStore((state) => state.bottomPanelTab)
   const setBottomPanelTab = useDigitalTwinStore((state) => state.setBottomPanelTab)
   const alarms = useDigitalTwinStore((state) => state.alarms)
   const acknowledgeAlarm = useDigitalTwinStore((state) => state.acknowledgeAlarm)
-  const entities = useDigitalTwinStore((state) => state.entities)
+  const entityDirectory = useDigitalTwinStore((state) => state.entityDirectory)
+  const unacknowledgedAlarmCount = useMemo(
+    () => alarms.reduce((count, alarm) => (alarm.acknowledged ? count : count + 1), 0),
+    [alarms]
+  )
 
   // 统计数据
   const stats = useMemo(() => {
@@ -58,7 +78,7 @@ export function BottomPanel() {
     let activeEquipment = 0
     let warningEquipment = 0
 
-    entities.forEach((entity) => {
+    entityDirectory.forEach((entity) => {
       switch (entity.type) {
         case 'person':
           persons++
@@ -75,22 +95,27 @@ export function BottomPanel() {
     })
 
     return { persons, vehicles, equipment, activeEquipment, warningEquipment }
-  }, [entities])
+  }, [entityDirectory])
 
-  // 模拟实时数据
-  const chartData = useMemo(() => {
-    const now = Date.now()
-    return Array.from({ length: 20 }, (_, i) => ({
-      time: new Date(now - (19 - i) * 5000).toLocaleTimeString('zh-CN', { 
-        hour: '2-digit', 
-        minute: '2-digit',
-        second: '2-digit',
-      }),
-      persons: stats.persons + Math.floor(Math.random() * 3) - 1,
-      vehicles: stats.vehicles + Math.floor(Math.random() * 2) - 1,
-      equipment: stats.activeEquipment + Math.floor(Math.random() * 2),
-    }))
+  const statsRef = useRef(stats)
+  useEffect(() => {
+    statsRef.current = stats
   }, [stats])
+
+  const [chartData, setChartData] = useState(() => {
+    const now = Date.now()
+    return Array.from({ length: 20 }, (_, i) => createChartPoint(now - (19 - i) * 5000, stats))
+  })
+
+  // 图表单独降频刷新，避免随实体高频更新重绘
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const point = createChartPoint(Date.now(), statsRef.current)
+      setChartData((prev) => [...prev.slice(-19), point])
+    }, 1000)
+
+    return () => clearInterval(timer)
+  }, [])
 
   return (
     <div className="flex h-full flex-col">
@@ -117,10 +142,10 @@ export function BottomPanel() {
 
           {/* 告警摘要 */}
           <div className="flex items-center gap-2">
-            {alarms.filter((a) => !a.acknowledged).length > 0 && (
+            {unacknowledgedAlarmCount > 0 && (
               <Badge variant="destructive" className="gap-1">
                 <AlertTriangle className="h-3 w-3" />
-                {alarms.filter((a) => !a.acknowledged).length} 条未处理告警
+                {unacknowledgedAlarmCount} 条未处理告警
               </Badge>
             )}
           </div>

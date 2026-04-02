@@ -17,7 +17,7 @@ import {
   BackgroundVariant,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import { Plus, Save, Trash2, Play, Square } from 'lucide-react'
+import { Plus, Save, Trash2, Play } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { TriggerNode } from './nodes/TriggerNode'
@@ -108,24 +108,24 @@ const initialEdges: Edge[] = [
 
 // 节点模板
 const nodeTemplates = [
-  { type: 'trigger', label: '触发器', icon: '⚡', variants: [
+  { type: 'trigger', label: '触发器', variants: [
     { label: '位置触发', triggerType: 'location' },
     { label: '设备触发', triggerType: 'device' },
     { label: '时间触发', triggerType: 'time' },
     { label: '手动触发', triggerType: 'manual' },
   ]},
-  { type: 'condition', label: '条件', icon: '❓', variants: [
+  { type: 'condition', label: '条件', variants: [
     { label: '阈值判断', conditionType: 'threshold' },
     { label: '时间窗口', conditionType: 'time' },
     { label: '角色判断', conditionType: 'role' },
     { label: '空间判断', conditionType: 'spatial' },
   ]},
-  { type: 'logic', label: '逻辑', icon: '🔗', variants: [
+  { type: 'logic', label: '逻辑', variants: [
     { label: 'AND', logicType: 'and' },
     { label: 'OR', logicType: 'or' },
     { label: 'NOT', logicType: 'not' },
   ]},
-  { type: 'action', label: '动作', icon: '🎯', variants: [
+  { type: 'action', label: '动作', variants: [
     { label: '发送告警', actionType: 'alert' },
     { label: '通知人员', actionType: 'notify' },
     { label: '设备控制', actionType: 'control' },
@@ -268,10 +268,7 @@ export function RuleEditor({ ruleId, ruleName = '新建规则', onSave }: RuleEd
                       variant="outline"
                       size="sm"
                       className="h-7 w-full text-[10px]"
-                      onClick={() => addNode(template.type, { 
-                        label: variant.label,
-                        ...variant,
-                      })}
+                      onClick={() => addNode(template.type, { ...variant })}
                     >
                       <Plus className="mr-0.5 h-3 w-3" />
                       {variant.label}

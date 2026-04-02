@@ -8,6 +8,7 @@ describe('theme setup', () => {
     const source = readFileSync(layoutPath, 'utf8')
 
     expect(source.includes('ThemeProvider')).toBe(true)
+    expect(source.includes('suppressHydrationWarning')).toBe(true)
     expect(source.includes('className="dark"')).toBe(false)
   })
 
