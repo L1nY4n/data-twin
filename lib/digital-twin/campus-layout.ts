@@ -31,6 +31,11 @@ export interface ZoneBlueprint {
 export interface EquipmentPlacement {
   name: string
   position: Vector3
+  repeatable?: boolean
+  spread?: {
+    x: number
+    z: number
+  }
 }
 
 export interface SceneEntityCounts {
@@ -112,6 +117,8 @@ export const CAMPUS_DISTRICTS: CampusDistrict[] = [
     size: { width: 160, depth: 34 },
   },
 ]
+
+export const LOGISTICS_BAY_OFFSETS = [-44, -22, 0, 22, 44] as const
 
 export const PROCESS_WEST_LAYOUT_BLUEPRINTS: LayoutBlueprint[] = [
   {
@@ -489,6 +496,8 @@ export const CAMPUS_EQUIPMENT_PLACEMENTS: EquipmentPlacement[] = [
   { name: '换热器组 E-301', position: point(-67, -18) },
   { name: '分馏塔 T-201', position: point(-58, -33) },
   { name: '吸收塔 T-202', position: point(-58, -28) },
+  { name: '再生塔 T-203', position: point(-46, -30) },
+  { name: '火炬气压缩机 C-402', position: point(-31, -24) },
   { name: '蒸汽分配撬 U-101', position: point(-45, -18) },
   { name: '原料罐 TK-101', position: point(42, -31) },
   { name: '原料罐 TK-102', position: point(42, -26) },
@@ -496,17 +505,45 @@ export const CAMPUS_EQUIPMENT_PLACEMENTS: EquipmentPlacement[] = [
   { name: '成品罐 TK-301', position: point(66, -34) },
   { name: '成品罐 TK-302', position: point(78, -22) },
   { name: '计量撬 M-601', position: point(59, -17) },
+  { name: '装车气相回收撬 VRU-101', position: point(10, 74) },
   { name: '装车泵房 P-501', position: point(74, -17) },
-  { name: '装车鹤管 LD-101', position: point(-48, 56) },
-  { name: '装车鹤管 LD-102', position: point(-18, 56) },
-  { name: '装车鹤管 LD-103', position: point(14, 56) },
-  { name: '装车鹤管 LD-104', position: point(46, 56) },
+  {
+    name: '装车鹤管 LD-101',
+    position: point(LOGISTICS_BAY_OFFSETS[0], 70),
+    repeatable: false,
+    spread: { x: 0.35, z: 0.35 },
+  },
+  {
+    name: '装车鹤管 LD-102',
+    position: point(LOGISTICS_BAY_OFFSETS[1], 70),
+    repeatable: false,
+    spread: { x: 0.35, z: 0.35 },
+  },
+  {
+    name: '装车鹤管 LD-103',
+    position: point(LOGISTICS_BAY_OFFSETS[2], 70),
+    repeatable: false,
+    spread: { x: 0.35, z: 0.35 },
+  },
+  {
+    name: '装车鹤管 LD-104',
+    position: point(LOGISTICS_BAY_OFFSETS[3], 70),
+    repeatable: false,
+    spread: { x: 0.35, z: 0.35 },
+  },
+  {
+    name: '装车鹤管 LD-105',
+    position: point(LOGISTICS_BAY_OFFSETS[4], 70),
+    repeatable: false,
+    spread: { x: 0.35, z: 0.35 },
+  },
   { name: '仓储分拣站 WH-101', position: point(-72, 74) },
   { name: '发运调度中心 LG-201', position: point(68, 74) },
   { name: '循环水塔 CT-101', position: point(-60, -72) },
   { name: '冷却水泵房 CW-201', position: point(-36, -74) },
   { name: '污水调节池 WW-101', position: point(12, -72) },
   { name: '生化处理池 WW-201', position: point(34, -72) },
+  { name: '污水提升泵 WW-301', position: point(48, -74) },
   { name: '变电站 SS-101', position: point(72, -72) },
   { name: '火炬分液罐 FL-101', position: point(92, -50) },
   { name: '氮气站 UT-401', position: point(-6, -72) },
@@ -543,11 +580,11 @@ export const VEHICLE_ANCHORS: Record<VehicleEntity['vehicleType'], Vector3[]> = 
     point(72, -4),
   ],
   truck: [
-    point(-52, 54),
-    point(-18, 54),
-    point(18, 54),
-    point(52, 54),
-    point(86, 54),
+    point(LOGISTICS_BAY_OFFSETS[0], 54),
+    point(LOGISTICS_BAY_OFFSETS[1], 54),
+    point(LOGISTICS_BAY_OFFSETS[2], 54),
+    point(LOGISTICS_BAY_OFFSETS[3], 54),
+    point(LOGISTICS_BAY_OFFSETS[4], 54),
   ],
   forklift: [
     point(-72, 72),
