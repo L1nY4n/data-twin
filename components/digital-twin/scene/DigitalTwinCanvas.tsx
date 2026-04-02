@@ -1,30 +1,40 @@
 'use client'
 
-import { Suspense, useEffect, useRef } from 'react'
-import { Canvas } from '@react-three/fiber'
+import { Suspense, useEffect, useMemo, useRef } from 'react'
+import { Canvas, useFrame } from '@react-three/fiber'
 import {
   OrbitControls,
   PerspectiveCamera,
   Environment,
   Stats,
+  Bvh,
 } from '@react-three/drei'
 import { useTheme } from 'next-themes'
+import type * as THREE from 'three'
 import type { OrbitControls as OrbitControlsType } from 'three-stdlib'
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
+import { createPreferredRenderer } from '@/lib/digital-twin/renderer/createPreferredRenderer'
 import { SpaceGrid } from './SpaceGrid'
+import { ChemicalPlantEnvironment } from './ChemicalPlantEnvironment'
 import { EntityMarkers } from '../entities/EntityMarkers'
 import { ZoneAreas } from '../entities/ZoneAreas'
 import { MeasurementTool } from '../overlays/MeasurementTool'
 import { TrajectoryOverlay } from '../overlays/TrajectoryLine'
 import { NearbyDistanceOverlay } from '../overlays/DistanceIndicator'
 import { SceneLoading } from './SceneLoading'
+import { ScenePicking } from './ScenePicking'
 
 interface DigitalTwinCanvasProps {
   showStats?: boolean
 }
 
-function SceneContent() {
+interface SceneContentProps {
+  backgroundColor: string
+}
+
+function SceneContent({ backgroundColor }: SceneContentProps) {
   const controlsRef = useRef<OrbitControlsType>(null)
+  const pickRootRef = useRef<THREE.Group>(null)
   const { resolvedTheme } = useTheme()
   const sceneConfig = useDigitalTwinStore((state) => state.sceneConfig)
   const viewMode = useDigitalTwinStore((state) => state.viewMode)
@@ -32,6 +42,8 @@ function SceneContent() {
   const cameraPresets = useDigitalTwinStore((state) => state.cameraPresets)
   const setSceneReady = useDigitalTwinStore((state) => state.setSceneReady)
   const measurementMode = useDigitalTwinStore((state) => state.measurementMode)
+  const advanceRuntime = useDigitalTwinStore((state) => state.advanceRuntime)
+  const qualityProfile = useDigitalTwinStore((state) => state.qualityProfile)
   const isDark = resolvedTheme === 'dark'
   const environmentFile = isDark
     ? '/hdr/dikhololo_night_1k.hdr'
@@ -58,15 +70,36 @@ function SceneContent() {
     controlsRef.current.update()
   }, [activeCameraPreset, cameraPresets])
 
+  useFrame(({ clock, camera, gl }, delta) => {
+    const drawCalls = (gl as unknown as { info?: { render?: { calls?: number } } }).info?.render?.calls ?? 0
+    advanceRuntime(
+      clock.elapsedTime * 1000,
+      delta * 1000,
+      { x: camera.position.x, y: camera.position.y, z: camera.position.z },
+      drawCalls
+    )
+  })
+
   return (
     <>
+      {/* 用 scene.background 兜底，避免 WebGPU 清屏色异常导致场景外出现黑幕 */}
+      <color attach="background" args={[backgroundColor]} />
+
       {/* 环境光 */}
       <ambientLight intensity={isDark ? sceneConfig.ambientLightIntensity : 0.75} />
       <directionalLight
         position={[50, 100, 50]}
         intensity={isDark ? 0.8 : 1}
-        castShadow
-        shadow-mapSize={[2048, 2048]}
+        castShadow={qualityProfile !== 'performance'}
+        shadow-mapSize={qualityProfile === 'performance' ? [512, 512] : [1024, 1024]}
+        shadow-bias={-0.0005}
+        shadow-normalBias={0.04}
+        shadow-camera-near={10}
+        shadow-camera-far={320}
+        shadow-camera-left={-170}
+        shadow-camera-right={170}
+        shadow-camera-top={170}
+        shadow-camera-bottom={-170}
       />
       <directionalLight position={[-50, 50, -50]} intensity={isDark ? 0.3 : 0.45} />
 
@@ -75,8 +108,7 @@ function SceneContent() {
 
       {/* 本地兜底环境光，避免外部HDR资源加载失败导致场景报错 */}
       <hemisphereLight
-        skyColor={isDark ? '#4b5563' : '#dbeafe'}
-        groundColor={isDark ? '#111827' : '#cbd5e1'}
+        args={[isDark ? '#4b5563' : '#dbeafe', isDark ? '#111827' : '#cbd5e1', 1]}
         intensity={isDark ? 0.25 : 0.4}
       />
 
@@ -91,10 +123,11 @@ function SceneContent() {
         enableDamping
         dampingFactor={0.05}
         minDistance={5}
-        maxDistance={200}
+        maxDistance={280}
         maxPolarAngle={viewMode === 'topdown' ? 0 : Math.PI / 2.1}
         target={[sceneConfig.cameraTarget.x, sceneConfig.cameraTarget.y, sceneConfig.cameraTarget.z]}
       />
+      <ScenePicking pickRootRef={pickRootRef} />
 
       {/* 空间网格 */}
       <SpaceGrid
@@ -105,11 +138,16 @@ function SceneContent() {
         isDark={isDark}
       />
 
-      {/* 区域 */}
-      <ZoneAreas />
+      {/* 静态化工厂环境，不参与拾取，避免拖慢射线遍历 */}
+      <ChemicalPlantEnvironment isDark={isDark} />
 
-      {/* 实体标记 */}
-      <EntityMarkers />
+      {/* BVH 只包裹可拾取对象，降低拾取和构建成本 */}
+      <Bvh firstHitOnly>
+        <group ref={pickRootRef}>
+          <ZoneAreas />
+          <EntityMarkers />
+        </group>
+      </Bvh>
 
       {/* 测量工具 */}
       {measurementMode !== 'none' && <MeasurementTool />}
@@ -126,27 +164,57 @@ function SceneContent() {
 export function DigitalTwinCanvas({ showStats = false }: DigitalTwinCanvasProps) {
   const { resolvedTheme } = useTheme()
   const sceneConfig = useDigitalTwinStore((state) => state.sceneConfig)
+  const qualityProfile = useDigitalTwinStore((state) => state.qualityProfile)
+  const rendererMode = useDigitalTwinStore((state) => state.rendererMode)
+  const rendererBackend = useDigitalTwinStore((state) => state.rendererBackend)
+  const setRendererBackend = useDigitalTwinStore((state) => state.setRendererBackend)
+  const metrics = useDigitalTwinStore((state) => state.performanceMetrics)
   const isDark = resolvedTheme === 'dark'
   const canvasBackground = isDark ? sceneConfig.backgroundColor : '#eaf1fb'
+  const dprRange: [number, number] = qualityProfile === 'performance' ? [1, 1.2] : [1, 1.35]
+  const createRenderer = useMemo(
+    () =>
+      async (defaults: { canvas: HTMLCanvasElement | OffscreenCanvas }) =>
+        createPreferredRenderer(defaults, {
+          mode: rendererMode,
+          antialias: qualityProfile !== 'performance',
+          alpha: false,
+        }),
+    [qualityProfile, rendererMode]
+  )
 
   return (
     <div className="relative h-full w-full">
       <Canvas
-        shadows
-        gl={{ 
-          antialias: true,
-          alpha: false,
-        }}
+        key={`renderer-${rendererMode}`}
+        shadows={qualityProfile !== 'performance'}
+        dpr={dprRange}
+        resize={{ debounce: 100 }}
+        gl={createRenderer as unknown as never}
         style={{ background: canvasBackground }}
         onCreated={({ gl }) => {
-          gl.setClearColor(canvasBackground)
+          const unknownRenderer = gl as unknown as {
+            setClearColor?: (color: string) => void
+            __backend?: 'webgpu' | 'webgl2'
+          }
+          if (typeof unknownRenderer.setClearColor === 'function') {
+            unknownRenderer.setClearColor(canvasBackground)
+          }
+          setRendererBackend(unknownRenderer.__backend ?? 'unknown')
         }}
       >
         <Suspense fallback={<SceneLoading />}>
-          <SceneContent />
+          <SceneContent backgroundColor={canvasBackground} />
         </Suspense>
         {showStats && <Stats />}
       </Canvas>
+
+      <div className="pointer-events-none absolute left-3 top-3 z-20 rounded-md border bg-background/80 px-2.5 py-1.5 text-[10px] backdrop-blur">
+        <div>FPS {metrics.fps.toFixed(0)} | P95 {metrics.frameTimeP95.toFixed(1)}ms</div>
+        <div>Draw {metrics.drawCalls} | Labels {metrics.visibleLabels}</div>
+        <div>Pool {(metrics.poolHitRate * 100).toFixed(0)}% | {qualityProfile}</div>
+        <div>Renderer {rendererBackend} ({rendererMode})</div>
+      </div>
     </div>
   )
 }

@@ -2,15 +2,37 @@
 
 import { useMemo } from 'react'
 import { useThree } from '@react-three/fiber'
-import { Html, Line } from '@react-three/drei'
+import { Html } from '@react-three/drei'
 import * as THREE from 'three'
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
+import { SceneLine } from '@/components/digital-twin/scene/SceneLine'
 import { 
   calculateDistance, 
   formatDistance,
   calculateAngleDegrees,
   formatAngle,
 } from '@/lib/digital-twin/spatial-utils'
+import {
+  OVERLAY_RENDER_ORDER,
+  STABLE_TRANSPARENT_OVERLAY,
+} from '@/lib/digital-twin/renderer/material-stability'
+
+type MeasurementSummary =
+  | {
+      type: 'distance'
+      distances: Array<{
+        from: number
+        to: number
+        distance: number
+        midpoint: THREE.Vector3
+      }>
+      total: number
+    }
+  | {
+      type: 'angle'
+      angle: number
+      vertex: { x: number; y: number; z: number }
+    }
 
 export function MeasurementTool() {
   const measurementMode = useDigitalTwinStore((state) => state.measurementMode)
@@ -42,7 +64,7 @@ export function MeasurementTool() {
   }
 
   // 计算测量结果
-  const measurements = useMemo(() => {
+  const measurements = useMemo<MeasurementSummary | null>(() => {
     if (measurementMode === 'distance' && measurementPoints.length >= 2) {
       const distances: { from: number; to: number; distance: number; midpoint: THREE.Vector3 }[] = []
       let total = 0
@@ -81,6 +103,32 @@ export function MeasurementTool() {
     return null
   }, [measurementMode, measurementPoints])
 
+  const distancePositionArray = useMemo(() => {
+    if (measurementMode !== 'distance' || measurementPoints.length < 2) return null
+    return new Float32Array(
+      measurementPoints.flatMap((point) => [point.x, 0.2, point.z])
+    )
+  }, [measurementMode, measurementPoints])
+
+  const anglePositionArray = useMemo(() => {
+    if (measurementMode !== 'angle' || measurementPoints.length < 3) return null
+    return new Float32Array([
+      measurementPoints[0].x,
+      0.2,
+      measurementPoints[0].z,
+      measurementPoints[1].x,
+      0.2,
+      measurementPoints[1].z,
+      measurementPoints[2].x,
+      0.2,
+      measurementPoints[2].z,
+    ])
+  }, [measurementMode, measurementPoints])
+
+  const distanceMeasurement = measurements?.type === 'distance' ? measurements : null
+  const angleMeasurement = measurements?.type === 'angle' ? measurements : null
+  const lastMeasurementPoint = measurementPoints.at(-1) ?? null
+
   return (
     <group onClick={handleClick as never}>
       {/* 点击检测平面（不可见） */}
@@ -107,16 +155,19 @@ export function MeasurementTool() {
       {/* 距离测量线 */}
       {measurementMode === 'distance' && measurementPoints.length >= 2 && (
         <>
-          <Line
-            points={measurementPoints.map((p) => [p.x, 0.2, p.z])}
-            color="#f59e0b"
-            lineWidth={2}
-            dashed
-            dashSize={0.5}
-            gapSize={0.2}
-          />
-          {measurements?.type === 'distance' &&
-            measurements.distances.map((seg, i) => (
+          {distancePositionArray ? (
+            <SceneLine
+              positions={distancePositionArray}
+              renderOrder={OVERLAY_RENDER_ORDER.measurement}
+              color="#f59e0b"
+              opacity={0.95}
+              depthWrite={STABLE_TRANSPARENT_OVERLAY.depthWrite}
+              depthTest={STABLE_TRANSPARENT_OVERLAY.depthTest}
+              toneMapped={STABLE_TRANSPARENT_OVERLAY.toneMapped}
+            />
+          ) : null}
+          {distanceMeasurement &&
+            distanceMeasurement.distances.map((seg, i) => (
               <Html
                 key={i}
                 position={[seg.midpoint.x, seg.midpoint.y, seg.midpoint.z]}
@@ -132,42 +183,44 @@ export function MeasurementTool() {
       )}
 
       {/* 角度测量 */}
-      {measurementMode === 'angle' && measurementPoints.length >= 3 && measurements?.type === 'angle' && (
+      {measurementMode === 'angle' && measurementPoints.length >= 3 && angleMeasurement && (
         <>
-          <Line
-            points={[
-              [measurementPoints[0].x, 0.2, measurementPoints[0].z],
-              [measurementPoints[1].x, 0.2, measurementPoints[1].z],
-              [measurementPoints[2].x, 0.2, measurementPoints[2].z],
-            ]}
-            color="#f59e0b"
-            lineWidth={2}
-          />
+          {anglePositionArray ? (
+            <SceneLine
+              positions={anglePositionArray}
+              renderOrder={OVERLAY_RENDER_ORDER.measurement}
+              color="#f59e0b"
+              opacity={0.95}
+              depthWrite={STABLE_TRANSPARENT_OVERLAY.depthWrite}
+              depthTest={STABLE_TRANSPARENT_OVERLAY.depthTest}
+              toneMapped={STABLE_TRANSPARENT_OVERLAY.toneMapped}
+            />
+          ) : null}
           <Html
-            position={[measurements.vertex.x, 1, measurements.vertex.z]}
+            position={[angleMeasurement.vertex.x, 1, angleMeasurement.vertex.z]}
             center
             style={{ pointerEvents: 'none' }}
           >
             <div className="rounded-lg border bg-background/95 px-2 py-1 text-xs font-medium text-foreground shadow-lg">
-              {formatAngle(measurements.angle)}
+              {formatAngle(angleMeasurement.angle)}
             </div>
           </Html>
         </>
       )}
 
       {/* 总距离显示 */}
-      {measurements?.type === 'distance' && measurements.total > 0 && (
+      {distanceMeasurement && lastMeasurementPoint && distanceMeasurement.total > 0 && (
         <Html
           position={[
-            measurementPoints[measurementPoints.length - 1].x,
+            lastMeasurementPoint.x,
             2,
-            measurementPoints[measurementPoints.length - 1].z,
+            lastMeasurementPoint.z,
           ]}
           center
           style={{ pointerEvents: 'none' }}
         >
           <div className="rounded-lg border-2 border-amber-500 bg-background/95 px-3 py-1.5 font-medium text-foreground shadow-lg">
-            总距离: {formatDistance(measurements.total)}
+            总距离: {formatDistance(distanceMeasurement.total)}
           </div>
         </Html>
       )}

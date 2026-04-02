@@ -40,7 +40,7 @@ const BottomPanel = dynamic(
 
 export default function DigitalTwinPage() {
   // 启动数据模拟
-  useSimulation({ autoStart: true, updateInterval: 100 })
+  useSimulation({ autoStart: true })
 
   const leftPanelOpen = useDigitalTwinStore((state) => state.leftPanelOpen)
   const rightPanelOpen = useDigitalTwinStore((state) => state.rightPanelOpen)

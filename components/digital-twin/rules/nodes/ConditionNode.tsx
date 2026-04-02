@@ -22,7 +22,7 @@ export const ConditionNode = memo(function ConditionNode({
   data, 
   selected 
 }: NodeProps) {
-  const nodeData = data as ConditionNodeData
+  const nodeData = data as unknown as ConditionNodeData
   const Icon = CONDITION_ICONS[nodeData.conditionType] || Gauge
 
   return (

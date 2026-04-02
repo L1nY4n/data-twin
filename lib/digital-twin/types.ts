@@ -24,6 +24,8 @@ export interface BaseEntity {
   status: EntityStatus
   visible: boolean
   metadata: Record<string, unknown>
+  // 渲染提示（由ECS渲染系统写入）
+  labelMode?: 'hidden' | 'sprite' | 'html'
   createdAt: number
   updatedAt: number
 }

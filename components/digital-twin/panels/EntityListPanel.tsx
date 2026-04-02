@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { 
+import {
   User, 
   Car, 
   Cog, 
@@ -13,7 +13,7 @@ import {
   XCircle,
 } from 'lucide-react'
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
-import type { Entity, EntityType, EntityStatus } from '@/lib/digital-twin/types'
+import type { EntityType, EntityStatus } from '@/lib/digital-twin/types'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -38,7 +38,7 @@ const STATUS_CONFIG: Record<EntityStatus, { icon: typeof Circle; label: string; 
 }
 
 export function EntityListPanel() {
-  const entities = useDigitalTwinStore((state) => state.entities)
+  const entityDirectory = useDigitalTwinStore((state) => state.entityDirectory)
   const entityFilters = useDigitalTwinStore((state) => state.entityFilters)
   const setEntityFilters = useDigitalTwinStore((state) => state.setEntityFilters)
   const selectedEntityId = useDigitalTwinStore((state) => state.selectedEntityId)
@@ -49,17 +49,21 @@ export function EntityListPanel() {
 
   // 按类型分组实体
   const groupedEntities = useMemo(() => {
-    const groups: Record<EntityType, Entity[]> = {
+    const groups: Record<
+      EntityType,
+      Array<{ id: string; name: string; status: EntityStatus; type: EntityType; visible: boolean }>
+    > = {
       person: [],
       vehicle: [],
       equipment: [],
       zone: [],
     }
 
-    entities.forEach((entity) => {
+    entityDirectory.forEach((entity) => {
       // 应用过滤器
       if (!entityFilters.types.includes(entity.type)) return
       if (!entityFilters.statuses.includes(entity.status)) return
+      if (!entity.visible) return
       if (entityFilters.searchQuery) {
         const query = entityFilters.searchQuery.toLowerCase()
         if (!entity.name.toLowerCase().includes(query)) return
@@ -69,7 +73,7 @@ export function EntityListPanel() {
     })
 
     return groups
-  }, [entities, entityFilters])
+  }, [entityDirectory, entityFilters])
 
   // 统计数量
   const counts = useMemo(() => {
@@ -80,7 +84,7 @@ export function EntityListPanel() {
       zone: { total: 0, active: 0, warning: 0, error: 0 },
     }
 
-    entities.forEach((entity) => {
+    entityDirectory.forEach((entity) => {
       result[entity.type].total++
       if (entity.status === 'active') result[entity.type].active++
       if (entity.status === 'warning') result[entity.type].warning++
@@ -88,7 +92,7 @@ export function EntityListPanel() {
     })
 
     return result
-  }, [entities])
+  }, [entityDirectory])
 
   const toggleType = (type: EntityType) => {
     setExpandedTypes((prev) =>
@@ -250,7 +254,7 @@ export function EntityListPanel() {
 }
 
 interface EntityListItemProps {
-  entity: Entity
+  entity: { id: string; name: string; status: EntityStatus }
   isSelected: boolean
   onSelect: () => void
 }

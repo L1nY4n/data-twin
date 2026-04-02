@@ -66,6 +66,13 @@ export function Toolbar() {
   const toggleBottomPanel = useDigitalTwinStore((state) => state.toggleBottomPanel)
   const isPlayingTrajectory = useDigitalTwinStore((state) => state.isPlayingTrajectory)
   const setTrajectoryPlayback = useDigitalTwinStore((state) => state.setTrajectoryPlayback)
+  const qualityProfile = useDigitalTwinStore((state) => state.qualityProfile)
+  const setQualityProfile = useDigitalTwinStore((state) => state.setQualityProfile)
+  const autoQuality = useDigitalTwinStore((state) => state.autoQuality)
+  const setAutoQuality = useDigitalTwinStore((state) => state.setAutoQuality)
+  const rendererMode = useDigitalTwinStore((state) => state.rendererMode)
+  const rendererBackend = useDigitalTwinStore((state) => state.rendererBackend)
+  const setRendererMode = useDigitalTwinStore((state) => state.setRendererMode)
   const isDarkTheme = resolvedTheme === 'dark'
 
   return (
@@ -233,7 +240,7 @@ export function Toolbar() {
 
         {/* 中间：标题 */}
         <div className="absolute left-1/2 -translate-x-1/2">
-          <h1 className="text-sm font-medium">数字孪生平台</h1>
+          <h1 className="text-sm font-medium">化工厂数字孪生</h1>
         </div>
 
         {/* 右侧：状态和控制 */}
@@ -311,6 +318,64 @@ export function Toolbar() {
               </Button>
             </TooltipTrigger>
             <TooltipContent>设置</TooltipContent>
+          </Tooltip>
+
+          {/* 性能档位 */}
+          <DropdownMenu>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="sm" className="h-8 gap-1.5 px-2 text-[11px]">
+                    <span>GPU:{rendererMode}</span>
+                    <ChevronDown className="h-3 w-3" />
+                  </Button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent>渲染后端模式（当前: {rendererBackend}）</TooltipContent>
+            </Tooltip>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>渲染后端</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => setRendererMode('auto')}>
+                自动（优先WebGPU）
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setRendererMode('webgpu')}>
+                强制WebGPU（失败回退）
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setRendererMode('webgl2')}>
+                强制WebGL2
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant={qualityProfile === 'performance' ? 'secondary' : 'ghost'}
+                size="sm"
+                className="h-8 px-2 text-[11px]"
+                onClick={() =>
+                  setQualityProfile(qualityProfile === 'balanced' ? 'performance' : 'balanced')
+                }
+              >
+                {qualityProfile === 'balanced' ? 'Balanced' : 'Performance'}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>切换渲染质量档位</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant={autoQuality ? 'secondary' : 'ghost'}
+                size="sm"
+                className="h-8 px-2 text-[11px]"
+                onClick={() => setAutoQuality(!autoQuality)}
+              >
+                Auto
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>自动降级</TooltipContent>
           </Tooltip>
 
           {/* 主题切换 */}

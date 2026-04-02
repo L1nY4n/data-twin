@@ -22,7 +22,7 @@ export const ActionNode = memo(function ActionNode({
   data, 
   selected 
 }: NodeProps) {
-  const nodeData = data as ActionNodeData
+  const nodeData = data as unknown as ActionNodeData
   const Icon = ACTION_ICONS[nodeData.actionType] || Bell
 
   return (

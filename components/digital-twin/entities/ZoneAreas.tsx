@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { Html } from '@react-three/drei'
 import * as THREE from 'three'
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
@@ -8,6 +8,12 @@ import type { ZoneEntity } from '@/lib/digital-twin/types'
 import { calculatePolygonCenter } from '@/lib/digital-twin/spatial-utils'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
+import { SceneLine } from '@/components/digital-twin/scene/SceneLine'
+import { SpriteTextLabel } from '@/components/digital-twin/scene/SpriteTextLabel'
+import {
+  OVERLAY_RENDER_ORDER,
+  STABLE_DOUBLE_SIDED_OVERLAY,
+} from '@/lib/digital-twin/renderer/material-stability'
 
 export function ZoneAreas() {
   const entities = useDigitalTwinStore((state) => state.entities)
@@ -37,12 +43,11 @@ interface ZoneAreaProps {
 }
 
 function ZoneArea({ zone }: ZoneAreaProps) {
-  const [isHovered, setIsHovered] = useState(false)
   const selectedEntityId = useDigitalTwinStore((state) => state.selectedEntityId)
-  const setSelectedEntity = useDigitalTwinStore((state) => state.setSelectedEntity)
-  const setHoveredEntity = useDigitalTwinStore((state) => state.setHoveredEntity)
+  const hoveredEntityId = useDigitalTwinStore((state) => state.hoveredEntityId)
 
   const isSelected = selectedEntityId === zone.id
+  const isHovered = hoveredEntityId === zone.id
   const showLabel = isSelected || isHovered
 
   // 创建区域形状
@@ -69,71 +74,65 @@ function ZoneArea({ zone }: ZoneAreaProps) {
     }
     return points
   }, [zone.boundary])
+  const boundaryPositionArray = useMemo(
+    () => new Float32Array(boundaryPoints.flatMap((p) => [p.x, p.y, p.z])),
+    [boundaryPoints]
+  )
+  const boundaryHighlightArray = useMemo(
+    () => new Float32Array(boundaryPoints.flatMap((p) => [p.x, p.y + 0.02, p.z])),
+    [boundaryPoints]
+  )
 
   if (!shape) return null
 
-  const color = new THREE.Color(zone.color)
-
   return (
-    <group>
+    <group userData={{ pickable: true, entityId: zone.id }}>
       {/* 区域填充 */}
-      <mesh 
-        rotation={[-Math.PI / 2, 0, 0]} 
-        position={[0, 0.05, 0]}
-        onPointerEnter={(e) => {
-          e.stopPropagation()
-          setIsHovered(true)
-          setHoveredEntity(zone.id)
-        }}
-        onPointerLeave={() => {
-          setIsHovered(false)
-          setHoveredEntity(null)
-        }}
-        onClick={(e) => {
-          e.stopPropagation()
-          setSelectedEntity(isSelected ? null : zone.id)
-        }}
-      >
-        <shapeGeometry args={[shape]} />
-        <meshBasicMaterial 
-          color={zone.color} 
-          transparent 
-          opacity={isSelected ? 0.4 : isHovered ? 0.3 : 0.15}
-          side={THREE.DoubleSide}
-        />
-      </mesh>
+      {/* Selected zones rely on boundary/label overlays because WebGPU is unstable with
+          the translucent shape fill on this interaction path. */}
+      {!isSelected && (
+        <mesh 
+          rotation={[-Math.PI / 2, 0, 0]} 
+          position={[0, 0.05, 0]}
+          renderOrder={OVERLAY_RENDER_ORDER.zoneFill}
+        >
+          <shapeGeometry
+            args={[shape]}
+            onUpdate={(geometry) => {
+              if (geometry.index) geometry.setDrawRange(0, geometry.index.count)
+            }}
+          />
+          <meshStandardMaterial
+            color={zone.color}
+            emissive={zone.color}
+            emissiveIntensity={0.05}
+            metalness={0.02}
+            roughness={0.96}
+            opacity={0.18}
+            {...STABLE_DOUBLE_SIDED_OVERLAY}
+          />
+        </mesh>
+      )}
 
       {/* 边界线 */}
-      <line>
-        <bufferGeometry>
-          <bufferAttribute
-            attach="attributes-position"
-            count={boundaryPoints.length}
-            array={new Float32Array(boundaryPoints.flatMap((p) => [p.x, p.y, p.z]))}
-            itemSize={3}
-          />
-        </bufferGeometry>
-        <lineBasicMaterial 
-          color={zone.color} 
-          linewidth={2}
-          transparent
-          opacity={isSelected ? 1 : 0.7}
-        />
-      </line>
+      <SceneLine
+        positions={boundaryPositionArray}
+        renderOrder={OVERLAY_RENDER_ORDER.zoneBoundary}
+        color={zone.color}
+        opacity={isSelected ? 1 : 0.7}
+        depthWrite={false}
+        depthTest={false}
+      />
 
       {/* 边界高亮（选中时） */}
       {isSelected && (
-        <line>
-          <bufferGeometry>
-            <bufferAttribute
-              attach="attributes-position"
-              count={boundaryPoints.length}
-              array={new Float32Array(boundaryPoints.flatMap((p) => [p.x, p.y + 0.02, p.z]))}
-              itemSize={3}
-            />
-          </bufferGeometry>
-          <lineBasicMaterial color="#ffffff" linewidth={1} />
-        </line>
+        <SceneLine
+          positions={boundaryHighlightArray}
+          renderOrder={OVERLAY_RENDER_ORDER.zoneBoundary + 1}
+          color="#ffffff"
+          depthWrite={false}
+          depthTest={false}
+        />
       )}
 
       {/* 区域标签 */}
@@ -172,20 +171,14 @@ function ZoneArea({ zone }: ZoneAreaProps) {
 
       {/* 区域名称（始终显示） */}
       {!showLabel && (
-        <Html
-          position={[center.x, 0.5, center.z]}
-          center
-          distanceFactor={40}
-          occlude={false}
-          style={{ pointerEvents: 'none' }}
-        >
-          <span 
-            className="text-[10px] font-medium opacity-60"
-            style={{ color: zone.color }}
-          >
-            {zone.name}
-          </span>
-        </Html>
+        <SpriteTextLabel
+          position={[center.x, 0.9, center.z]}
+          text={zone.name}
+          color={zone.color}
+          outlineColor="#0f172a"
+          scale={0.95}
+          opacity={0.72}
+        />
       )}
     </group>
   )

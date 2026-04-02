@@ -1,8 +1,8 @@
 'use client'
 
 import { Suspense, useRef, useState } from 'react'
-import { useFrame } from '@react-three/fiber'
-import { useGLTF, Html, Center, useBounds } from '@react-three/drei'
+import { useFrame, type ThreeEvent } from '@react-three/fiber'
+import { useGLTF, Html, Center } from '@react-three/drei'
 import * as THREE from 'three'
 import { Spinner } from '@/components/ui/spinner'
 
@@ -84,8 +84,8 @@ function LoadedModel({
     document.body.style.cursor = 'auto'
   }
 
-  const handleClick = (e: THREE.Event) => {
-    e.stopPropagation?.()
+  const handleClick = (e: ThreeEvent<MouseEvent>) => {
+    e.stopPropagation()
     onClick?.()
   }
 
