@@ -1,9 +1,12 @@
 'use client'
 
-import { memo, useEffect, useMemo, useRef } from 'react'
+import { memo, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
-import { CAMPUS_INTERACTION_HEIGHT, CAMPUS_INTERACTION_RADIUS } from '@/lib/digital-twin/campus-layout'
+import {
+  createInstancedInteractionBounds,
+  type InstancedInteractionBounds,
+} from '@/lib/digital-twin/renderer/instanced-bounds'
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
 import type { PersonEntity } from '@/lib/digital-twin/types'
 
@@ -13,14 +16,8 @@ interface PersonInstancesProps {
 
 const BODY_TEMP = new THREE.Object3D()
 const HEAD_TEMP = new THREE.Object3D()
-const INTERACTION_BOUNDS_SPHERE = new THREE.Sphere(
-  new THREE.Vector3(0, 2, 0),
-  CAMPUS_INTERACTION_RADIUS
-)
-const INTERACTION_BOUNDS_BOX = new THREE.Box3(
-  new THREE.Vector3(-CAMPUS_INTERACTION_RADIUS, -2, -CAMPUS_INTERACTION_RADIUS),
-  new THREE.Vector3(CAMPUS_INTERACTION_RADIUS, CAMPUS_INTERACTION_HEIGHT, CAMPUS_INTERACTION_RADIUS)
-)
+const CAMERA_PROJECTION_MATRIX = new THREE.Matrix4()
+const CAMERA_FRUSTUM = new THREE.Frustum()
 
 interface PersonRuntimeState {
   x: number
@@ -93,11 +90,20 @@ function getStatusColor(status: PersonEntity['status']) {
   }
 }
 
-function applyInteractionBounds(mesh: THREE.InstancedMesh | null) {
+function applyInteractionBounds(
+  mesh: THREE.InstancedMesh | null,
+  interactionBounds: InstancedInteractionBounds
+) {
   if (!mesh) return
-  mesh.frustumCulled = false
-  mesh.boundingSphere = INTERACTION_BOUNDS_SPHERE.clone()
-  mesh.boundingBox = INTERACTION_BOUNDS_BOX.clone()
+  mesh.frustumCulled = true
+  mesh.boundingSphere = interactionBounds.sphere.clone()
+  mesh.boundingBox = interactionBounds.box.clone()
+}
+
+function isInteractionBoundsVisible(camera: THREE.Camera, sphere: THREE.Sphere) {
+  CAMERA_PROJECTION_MATRIX.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse)
+  CAMERA_FRUSTUM.setFromProjectionMatrix(CAMERA_PROJECTION_MATRIX)
+  return CAMERA_FRUSTUM.intersectsSphere(sphere)
 }
 
 export const PersonInstances = memo(function PersonInstances({ entities }: PersonInstancesProps) {
@@ -107,47 +113,72 @@ export const PersonInstances = memo(function PersonInstances({ entities }: Perso
   const statusRef = useRef<Map<string, PersonEntity['status']>>(new Map())
   const forceMatrixSyncRef = useRef(true)
   const forceColorSyncRef = useRef(true)
+  const batchVisibleRef = useRef(true)
   const colorRef = useRef({
     body: new THREE.Color(),
     head: new THREE.Color(),
   })
   const entityIds = useMemo(() => entities.map((entity) => entity.id), [entities])
+  const entityIdSignature = useMemo(() => entityIds.join('|'), [entityIds])
+  const interactionBounds = useMemo(
+    () =>
+      createInstancedInteractionBounds(
+        entities.map((entity) => entity.position),
+        {
+          paddingXz: 28,
+          paddingTop: 6,
+          paddingBottom: 2,
+        }
+      ),
+    [entities]
+  )
 
   useEffect(() => {
-    const nextIds = new Set(entities.map((entity) => entity.id))
+    const nextIds = new Set(entityIdSignature ? entityIdSignature.split('|') : [])
     runtimeRef.current.forEach((_state, id) => {
       if (!nextIds.has(id)) runtimeRef.current.delete(id)
     })
     statusRef.current.forEach((_status, id) => {
       if (!nextIds.has(id)) statusRef.current.delete(id)
     })
-  }, [entities])
+  }, [entityIdSignature])
 
   useEffect(() => {
     forceMatrixSyncRef.current = true
     forceColorSyncRef.current = true
-  }, [entityIds])
+  }, [entityIdSignature])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (bodyRef.current) {
       bodyRef.current.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
       bodyRef.current.instanceColor?.setUsage(THREE.DynamicDrawUsage)
-      applyInteractionBounds(bodyRef.current)
+      applyInteractionBounds(bodyRef.current, interactionBounds)
     }
     if (headRef.current) {
       headRef.current.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
       headRef.current.instanceColor?.setUsage(THREE.DynamicDrawUsage)
-      applyInteractionBounds(headRef.current)
+      applyInteractionBounds(headRef.current, interactionBounds)
     }
-  }, [entities.length])
+  }, [interactionBounds])
 
-  useFrame((_state, delta) => {
+  useFrame(({ camera }, delta) => {
     if (!bodyRef.current || !headRef.current || entities.length === 0) return
+    if (!isInteractionBoundsVisible(camera, interactionBounds.sphere)) {
+      batchVisibleRef.current = false
+      return
+    }
 
     const store = useDigitalTwinStore.getState()
     const getSnapshotById = store.getEcsSnapshotById
     const runtimeStates = runtimeRef.current
     const statusStates = statusRef.current
+    if (!batchVisibleRef.current) {
+      runtimeStates.clear()
+      statusStates.clear()
+      forceMatrixSyncRef.current = true
+      forceColorSyncRef.current = true
+      batchVisibleRef.current = true
+    }
     const bodyColor = colorRef.current.body
     const headColor = colorRef.current.head
     const dt = Math.min(delta, 0.05)

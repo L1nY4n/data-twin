@@ -42,9 +42,11 @@ import {
   updateDynamicOccupancyIndex,
 } from './mock-data'
 import { createTickScheduler } from './ecs/scheduler'
-import { CAMPUS_BOUNDS, CAMPUS_CAMERA_PRESETS, CAMPUS_SCENE_CONFIG } from './campus-layout'
+import { CAMPUS_BOUNDS } from './campus-layout'
 import { getEquipmentSimulationIntervalMs, shouldRunEquipmentSimulation } from './equipment-runtime'
 import { aggregatePoolMetrics } from './performance-runtime'
+import { DEFAULT_PUBLISHED_SCENE_PACKAGE } from './publish'
+import { getRuntimePublishedStaticFeature } from './runtime/static/features'
 
 export type QualityProfile = 'balanced' | 'performance'
 export type RendererMode = 'auto' | 'webgpu' | 'webgl2'
@@ -75,21 +77,10 @@ export interface EntityDirectoryEntry {
 }
 
 // 默认场景配置
-const defaultSceneConfig: SceneConfig = {
-  id: 'default',
-  name: '化工园区数字孪生',
-  gridSize: CAMPUS_SCENE_CONFIG.gridSize,
-  gridDivisions: CAMPUS_SCENE_CONFIG.gridDivisions,
-  backgroundColor: '#09131d',
-  ambientLightIntensity: 0.52,
-  showAxes: false,
-  showGrid: true,
-  cameraPosition: CAMPUS_SCENE_CONFIG.cameraPosition,
-  cameraTarget: CAMPUS_SCENE_CONFIG.cameraTarget,
-}
+const defaultSceneConfig: SceneConfig = DEFAULT_PUBLISHED_SCENE_PACKAGE.sceneConfig
 
 // 默认相机预设
-const defaultCameraPresets: CameraPreset[] = CAMPUS_CAMERA_PRESETS
+const defaultCameraPresets: CameraPreset[] = DEFAULT_PUBLISHED_SCENE_PACKAGE.cameraPresets
 
 interface DigitalTwinState {
   // 场景状态
@@ -105,6 +96,8 @@ interface DigitalTwinState {
   entityDirectory: Map<string, EntityDirectoryEntry>
   selectedEntityId: string | null
   hoveredEntityId: string | null
+  selectedStaticFeatureId: string | null
+  hoveredStaticFeatureId: string | null
   entityFilters: {
     types: EntityType[]
     statuses: EntityStatus[]
@@ -170,6 +163,8 @@ interface DigitalTwinActions {
   removeEntity: (id: string) => void
   setSelectedEntity: (id: string | null) => void
   setHoveredEntity: (id: string | null) => void
+  setSelectedStaticFeature: (id: string | null) => void
+  setHoveredStaticFeature: (id: string | null) => void
   setEntityFilters: (filters: Partial<DigitalTwinState['entityFilters']>) => void
   updateEntityPosition: (id: string, position: Vector3, rotation?: Vector3) => void
   batchUpdateEntities: (updates: Array<{ id: string; updates: Partial<Entity> }>) => void
@@ -244,6 +239,8 @@ const initialState: DigitalTwinState = {
   entityDirectory: new Map(),
   selectedEntityId: null,
   hoveredEntityId: null,
+  selectedStaticFeatureId: null,
+  hoveredStaticFeatureId: null,
   entityFilters: {
     types: ['person', 'vehicle', 'equipment', 'zone'],
     statuses: ['active', 'inactive', 'warning', 'error'],
@@ -1108,7 +1105,14 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
         if (!get().runtimeRunning) return
 
         const now = Date.now()
-        const { selectedEntityId, hoveredEntityId, isPlayingTrajectory, qualityProfile } = get()
+        const {
+          selectedEntityId,
+          hoveredEntityId,
+          selectedStaticFeatureId,
+          hoveredStaticFeatureId,
+          isPlayingTrajectory,
+          qualityProfile,
+        } = get()
         const equipmentSimulationIntervalMs = getEquipmentSimulationIntervalMs(
           qualityProfile,
           ecsWorld.snapshotById.size
@@ -1281,7 +1285,11 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
         const publishIntervalMs = getEntityPublishIntervalMs(
           qualityProfile,
           ecsWorld.snapshotById.size,
-          selectedEntityId !== null || hoveredEntityId !== null || lastHtmlLabelCount > 0
+          selectedEntityId !== null ||
+            hoveredEntityId !== null ||
+            selectedStaticFeatureId !== null ||
+            hoveredStaticFeatureId !== null ||
+            lastHtmlLabelCount > 0
         )
         const shouldPublishEntities = now - lastEntityPublishAt >= publishIntervalMs
         if (shouldPublishEntities) {
@@ -1503,7 +1511,8 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
       },
 
       setSelectedEntity: (id) => {
-        if (get().selectedEntityId === id) return
+        const state = get()
+        if (state.selectedEntityId === id && state.selectedStaticFeatureId === null) return
         enqueueEcsCommands(ecsWorld, [{ type: 'select', payload: { id } }])
         flushBufferedCommands(ecsWorld)
         const labelState = syncImmediateLabelLod()
@@ -1517,6 +1526,7 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
           return {
             selectedEntityId: ecsWorld.selectedId,
             hoveredEntityId: ecsWorld.hoveredId,
+            selectedStaticFeatureId: null,
             entities: nextEntities,
             entityBuckets: patchEntityBuckets(
               state.entityBuckets,
@@ -1537,7 +1547,8 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
       },
 
       setHoveredEntity: (id) => {
-        if (get().hoveredEntityId === id) return
+        const state = get()
+        if (state.hoveredEntityId === id && state.hoveredStaticFeatureId === null) return
         enqueueEcsCommands(ecsWorld, [{ type: 'hover', payload: { id } }])
         flushBufferedCommands(ecsWorld)
         const labelState = syncImmediateLabelLod()
@@ -1551,6 +1562,7 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
           return {
             selectedEntityId: ecsWorld.selectedId,
             hoveredEntityId: ecsWorld.hoveredId,
+            hoveredStaticFeatureId: null,
             entities: nextEntities,
             entityBuckets: patchEntityBuckets(
               state.entityBuckets,
@@ -1569,6 +1581,44 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
           }
         })
       },
+
+      setSelectedStaticFeature: (id) =>
+        set((state) => {
+          if (state.selectedStaticFeatureId === id && state.selectedEntityId === null) {
+            return state
+          }
+
+          if (state.selectedEntityId !== null || state.hoveredEntityId !== null) {
+            enqueueEcsCommands(ecsWorld, [
+              { type: 'select', payload: { id: null } },
+              { type: 'hover', payload: { id: null } },
+            ])
+            flushBufferedCommands(ecsWorld)
+          }
+
+          return {
+            selectedEntityId: null,
+            hoveredEntityId: null,
+            selectedStaticFeatureId: id,
+          }
+        }),
+
+      setHoveredStaticFeature: (id) =>
+        set((state) => {
+          if (state.hoveredStaticFeatureId === id && state.hoveredEntityId === null) {
+            return state
+          }
+
+          if (state.hoveredEntityId !== null) {
+            enqueueEcsCommands(ecsWorld, [{ type: 'hover', payload: { id: null } }])
+            flushBufferedCommands(ecsWorld)
+          }
+
+          return {
+            hoveredEntityId: null,
+            hoveredStaticFeatureId: id,
+          }
+        }),
 
       setEntityFilters: (filters) =>
         set((state) => ({
@@ -1861,6 +1911,10 @@ export const useSelectedEntity = () => {
   const selectedId = useDigitalTwinStore((state) => state.selectedEntityId)
   const entities = useDigitalTwinStore((state) => state.entities)
   return selectedId ? entities.get(selectedId) : null
+}
+export const useSelectedStaticFeature = () => {
+  const selectedId = useDigitalTwinStore((state) => state.selectedStaticFeatureId)
+  return selectedId ? getRuntimePublishedStaticFeature(selectedId) : null
 }
 export const useSceneConfig = () => useDigitalTwinStore((state) => state.sceneConfig)
 export const useViewMode = () => useDigitalTwinStore((state) => state.viewMode)

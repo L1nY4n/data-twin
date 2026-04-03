@@ -2,11 +2,15 @@
 
 import { useCallback, useEffect, useRef } from 'react'
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
-import { generateMockScene } from '@/lib/digital-twin/mock-data'
+import {
+  createPublishedCampusScenePackage,
+  hydratePublishedScenePackage,
+  type PublishedSceneProfile,
+} from '@/lib/digital-twin/publish'
 
 interface UseSimulationOptions {
   autoStart?: boolean
-  profile?: 'default' | 'production'
+  profile?: PublishedSceneProfile
 }
 
 export function useSimulation(options: UseSimulationOptions = {}) {
@@ -18,7 +22,8 @@ export function useSimulation(options: UseSimulationOptions = {}) {
   const initializeScene = useCallback(() => {
     if (initialized.current) return
 
-    const { persons, vehicles, equipment, zones } = generateMockScene({ profile })
+    const publishedScene = createPublishedCampusScenePackage(profile)
+    const { persons, vehicles, equipment, zones } = hydratePublishedScenePackage(publishedScene)
     const { addEntities, setConnectionStatus, resetRuntimeClock } = useDigitalTwinStore.getState()
 
     addEntities([...zones, ...persons, ...vehicles, ...equipment])

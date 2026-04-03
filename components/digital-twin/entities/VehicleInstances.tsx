@@ -1,9 +1,12 @@
 'use client'
 
-import { memo, useEffect, useMemo, useRef } from 'react'
+import { memo, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
-import { CAMPUS_INTERACTION_HEIGHT, CAMPUS_INTERACTION_RADIUS } from '@/lib/digital-twin/campus-layout'
+import {
+  createInstancedInteractionBounds,
+  type InstancedInteractionBounds,
+} from '@/lib/digital-twin/renderer/instanced-bounds'
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
 import type { VehicleEntity } from '@/lib/digital-twin/types'
 
@@ -15,14 +18,8 @@ const BODY_TEMP = new THREE.Object3D()
 const CABIN_TEMP = new THREE.Object3D()
 const ARROW_TEMP = new THREE.Object3D()
 const WHEEL_TEMP = new THREE.Object3D()
-const INTERACTION_BOUNDS_SPHERE = new THREE.Sphere(
-  new THREE.Vector3(0, 3, 0),
-  CAMPUS_INTERACTION_RADIUS
-)
-const INTERACTION_BOUNDS_BOX = new THREE.Box3(
-  new THREE.Vector3(-CAMPUS_INTERACTION_RADIUS, -2, -CAMPUS_INTERACTION_RADIUS),
-  new THREE.Vector3(CAMPUS_INTERACTION_RADIUS, CAMPUS_INTERACTION_HEIGHT, CAMPUS_INTERACTION_RADIUS)
-)
+const CAMERA_PROJECTION_MATRIX = new THREE.Matrix4()
+const CAMERA_FRUSTUM = new THREE.Frustum()
 
 interface VehicleRuntimeState {
   x: number
@@ -124,11 +121,20 @@ function getStatusColor(status: VehicleEntity['status']) {
   }
 }
 
-function applyInteractionBounds(mesh: THREE.InstancedMesh | null) {
+function applyInteractionBounds(
+  mesh: THREE.InstancedMesh | null,
+  interactionBounds: InstancedInteractionBounds
+) {
   if (!mesh) return
-  mesh.frustumCulled = false
-  mesh.boundingSphere = INTERACTION_BOUNDS_SPHERE.clone()
-  mesh.boundingBox = INTERACTION_BOUNDS_BOX.clone()
+  mesh.frustumCulled = true
+  mesh.boundingSphere = interactionBounds.sphere.clone()
+  mesh.boundingBox = interactionBounds.box.clone()
+}
+
+function isInteractionBoundsVisible(camera: THREE.Camera, sphere: THREE.Sphere) {
+  CAMERA_PROJECTION_MATRIX.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse)
+  CAMERA_FRUSTUM.setFromProjectionMatrix(CAMERA_PROJECTION_MATRIX)
+  return CAMERA_FRUSTUM.intersectsSphere(sphere)
 }
 
 function setWheelMatrix(
@@ -162,6 +168,7 @@ export const VehicleInstances = memo(function VehicleInstances({ entities }: Veh
   const statusRef = useRef<Map<string, VehicleEntity['status']>>(new Map())
   const forceMatrixSyncRef = useRef(true)
   const forceColorSyncRef = useRef(true)
+  const batchVisibleRef = useRef(true)
   const colorRef = useRef({
     body: new THREE.Color(),
     cabin: new THREE.Color(),
@@ -169,50 +176,63 @@ export const VehicleInstances = memo(function VehicleInstances({ entities }: Veh
     wheel: new THREE.Color('#111827'),
   })
   const entityIds = useMemo(() => entities.map((entity) => entity.id), [entities])
+  const entityIdSignature = useMemo(() => entityIds.join('|'), [entityIds])
   const wheelEntityIds = useMemo(
     () => entities.flatMap((entity) => [entity.id, entity.id, entity.id, entity.id]),
     [entities]
   )
+  const interactionBounds = useMemo(
+    () =>
+      createInstancedInteractionBounds(
+        entities.map((entity) => entity.position),
+        {
+          paddingXz: 44,
+          paddingTop: 8,
+          paddingBottom: 2,
+        }
+      ),
+    [entities]
+  )
 
   useEffect(() => {
-    const nextIds = new Set(entities.map((entity) => entity.id))
+    const nextIds = new Set(entityIdSignature ? entityIdSignature.split('|') : [])
     runtimeRef.current.forEach((_state, id) => {
       if (!nextIds.has(id)) runtimeRef.current.delete(id)
     })
     statusRef.current.forEach((_status, id) => {
       if (!nextIds.has(id)) statusRef.current.delete(id)
     })
-  }, [entities])
+  }, [entityIdSignature])
 
   useEffect(() => {
     forceMatrixSyncRef.current = true
     forceColorSyncRef.current = true
-  }, [entityIds])
+  }, [entityIdSignature])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (bodyRef.current) {
       bodyRef.current.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
       bodyRef.current.instanceColor?.setUsage(THREE.DynamicDrawUsage)
-      applyInteractionBounds(bodyRef.current)
+      applyInteractionBounds(bodyRef.current, interactionBounds)
     }
     if (cabinRef.current) {
       cabinRef.current.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
       cabinRef.current.instanceColor?.setUsage(THREE.DynamicDrawUsage)
-      applyInteractionBounds(cabinRef.current)
+      applyInteractionBounds(cabinRef.current, interactionBounds)
     }
     if (arrowRef.current) {
       arrowRef.current.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
       arrowRef.current.instanceColor?.setUsage(THREE.DynamicDrawUsage)
-      applyInteractionBounds(arrowRef.current)
+      applyInteractionBounds(arrowRef.current, interactionBounds)
     }
     if (wheelRef.current) {
       wheelRef.current.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
       wheelRef.current.instanceColor?.setUsage(THREE.DynamicDrawUsage)
-      applyInteractionBounds(wheelRef.current)
+      applyInteractionBounds(wheelRef.current, interactionBounds)
     }
-  }, [entities.length])
+  }, [interactionBounds])
 
-  useFrame((_state, delta) => {
+  useFrame(({ camera }, delta) => {
     if (
       !bodyRef.current ||
       !cabinRef.current ||
@@ -222,11 +242,22 @@ export const VehicleInstances = memo(function VehicleInstances({ entities }: Veh
     ) {
       return
     }
+    if (!isInteractionBoundsVisible(camera, interactionBounds.sphere)) {
+      batchVisibleRef.current = false
+      return
+    }
 
     const store = useDigitalTwinStore.getState()
     const getSnapshotById = store.getEcsSnapshotById
     const runtimeStates = runtimeRef.current
     const statusStates = statusRef.current
+    if (!batchVisibleRef.current) {
+      runtimeStates.clear()
+      statusStates.clear()
+      forceMatrixSyncRef.current = true
+      forceColorSyncRef.current = true
+      batchVisibleRef.current = true
+    }
     const bodyColor = colorRef.current.body
     const cabinColor = colorRef.current.cabin
     const statusColor = colorRef.current.status
@@ -404,7 +435,7 @@ export const VehicleInstances = memo(function VehicleInstances({ entities }: Veh
       wheelRef.current.setColorAt(index, wheelColor)
     }
     wheelRef.current.instanceColor.needsUpdate = true
-  }, [entityIds, entities.length])
+  }, [entityIdSignature, entities.length])
 
   const bodyMaterial = useMemo(
     () =>

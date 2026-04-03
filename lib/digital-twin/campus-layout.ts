@@ -71,23 +71,58 @@ export interface LayoutBlueprint {
 
 export type PlantMobilityType = 'person' | 'vehicle'
 
+export interface CampusSector {
+  id: string
+  name: string
+  offset: Vector3
+}
+
 function point(x: number, z: number, y = 0): Vector3 {
   return { x, y, z }
 }
 
+export const CAMPUS_SECTORS: CampusSector[] = [
+  { id: 'sector-core', name: '核心炼化园', offset: point(0, 0) },
+  { id: 'sector-east', name: '东部新材料园', offset: point(260, 0) },
+  { id: 'sector-west', name: '西部储运园', offset: point(-260, 0) },
+  { id: 'sector-south', name: '南部公辅园', offset: point(0, 260) },
+]
+
+function offsetPoint(value: Vector3, offset: Vector3): Vector3 {
+  return {
+    x: value.x + offset.x,
+    y: value.y + offset.y,
+    z: value.z + offset.z,
+  }
+}
+
+function offsetLaneRect(lane: LaneRect, offset: Vector3): LaneRect {
+  return {
+    minX: lane.minX + offset.x,
+    maxX: lane.maxX + offset.x,
+    minZ: lane.minZ + offset.z,
+    maxZ: lane.maxZ + offset.z,
+  }
+}
+
+function withSectorName(name: string, sector: CampusSector): string {
+  if (sector.id === 'sector-core') return name
+  return `${sector.name} · ${name}`
+}
+
 export const CAMPUS_BOUNDS = {
-  min: point(-110, -110),
-  max: point(110, 110),
+  min: point(-400, -180),
+  max: point(400, 400),
 } as const
 
-export const CAMPUS_GRID_SIZE = 240
-export const CAMPUS_GRID_DIVISIONS = 120
-export const CAMPUS_INTERACTION_RADIUS = 176
-export const CAMPUS_INTERACTION_HEIGHT = 22
+export const CAMPUS_GRID_SIZE = 860
+export const CAMPUS_GRID_DIVISIONS = 430
+export const CAMPUS_INTERACTION_RADIUS = 520
+export const CAMPUS_INTERACTION_HEIGHT = 28
 export const CAMPUS_SCENE_CONFIG = {
   gridSize: CAMPUS_GRID_SIZE,
   gridDivisions: CAMPUS_GRID_DIVISIONS,
-  cameraPosition: point(142, 138, 86),
+  cameraPosition: point(318, 250, 314),
   cameraTarget: point(0, 0, 0),
 } as const
 
@@ -366,7 +401,7 @@ export const CAMPUS_CAMERA_PRESETS: CameraPreset[] = [
   {
     id: 'top',
     name: '全域俯视',
-    position: point(0, 192, 0),
+    position: point(0, 360, 0),
     target: point(0, 0, 0),
     fov: 50,
   },
@@ -487,9 +522,60 @@ export const CAMPUS_ZONE_BLUEPRINTS: ZoneBlueprint[] = [
   },
 ]
 
-export const CAMPUS_ZONES = CAMPUS_ZONE_BLUEPRINTS
+const INTER_SECTOR_VEHICLE_LANE_RECTS: LaneRect[] = [
+  { minX: -388, maxX: 388, minZ: -8, maxZ: 8 },
+  { minX: -8, maxX: 8, minZ: -118, maxZ: 388 },
+]
 
-export const CAMPUS_EQUIPMENT_PLACEMENTS: EquipmentPlacement[] = [
+const INTER_SECTOR_PERSON_LANE_RECTS: LaneRect[] = [
+  { minX: -388, maxX: 388, minZ: -16, maxZ: -12 },
+  { minX: -388, maxX: 388, minZ: 12, maxZ: 16 },
+  { minX: -16, maxX: -12, minZ: -118, maxZ: 388 },
+  { minX: 12, maxX: 16, minZ: -118, maxZ: 388 },
+]
+
+const INTER_SECTOR_VEHICLE_ROUTE_GOALS: Vector3[] = [
+  point(-356, 0),
+  point(-260, 0),
+  point(-130, 0),
+  point(0, 0),
+  point(130, 0),
+  point(260, 0),
+  point(356, 0),
+  point(0, -112),
+  point(0, 130),
+  point(0, 260),
+  point(0, 356),
+]
+
+const INTER_SECTOR_PERSON_ROUTE_GOALS: Vector3[] = [
+  point(-356, -14),
+  point(-260, -14),
+  point(-130, -14),
+  point(0, -14),
+  point(130, -14),
+  point(260, -14),
+  point(356, -14),
+  point(-356, 14),
+  point(-260, 14),
+  point(-130, 14),
+  point(0, 14),
+  point(130, 14),
+  point(260, 14),
+  point(356, 14),
+  point(-14, -112),
+  point(-14, 0),
+  point(-14, 130),
+  point(-14, 260),
+  point(-14, 356),
+  point(14, -112),
+  point(14, 0),
+  point(14, 130),
+  point(14, 260),
+  point(14, 356),
+]
+
+const BASE_CAMPUS_EQUIPMENT_PLACEMENTS: EquipmentPlacement[] = [
   { name: '加氢反应器 R-101', position: point(-80, -33) },
   { name: '加氢反应器 R-102', position: point(-74, -31) },
   { name: '循环压缩机撬 C-401', position: point(-39, -31) },
@@ -549,9 +635,7 @@ export const CAMPUS_EQUIPMENT_PLACEMENTS: EquipmentPlacement[] = [
   { name: '氮气站 UT-401', position: point(-6, -72) },
 ]
 
-export const EQUIPMENT_ANCHORS = CAMPUS_EQUIPMENT_PLACEMENTS
-
-export const PERSON_ANCHORS: Vector3[] = [
+const BASE_PERSON_ANCHORS: Vector3[] = [
   point(-88, -30),
   point(-70, -14),
   point(-50, -14),
@@ -570,7 +654,7 @@ export const PERSON_ANCHORS: Vector3[] = [
 
 export const VEHICLE_TYPES: Array<VehicleEntity['vehicleType']> = ['car', 'truck', 'forklift', 'agv']
 
-export const VEHICLE_ANCHORS: Record<VehicleEntity['vehicleType'], Vector3[]> = {
+const BASE_VEHICLE_ANCHORS: Record<VehicleEntity['vehicleType'], Vector3[]> = {
   car: [
     point(-88, 54),
     point(-24, 54),
@@ -601,7 +685,7 @@ export const VEHICLE_ANCHORS: Record<VehicleEntity['vehicleType'], Vector3[]> = 
   other: [point(0, 54)],
 }
 
-export const VEHICLE_LANE_RECTS: LaneRect[] = [
+const BASE_VEHICLE_LANE_RECTS: LaneRect[] = [
   { minX: -100, maxX: 100, minZ: 48, maxZ: 62 },
   { minX: -6, maxX: 6, minZ: -86, maxZ: 62 },
   { minX: -92, maxX: -84, minZ: -42, maxZ: 62 },
@@ -612,7 +696,7 @@ export const VEHICLE_LANE_RECTS: LaneRect[] = [
   { minX: 46, maxX: 90, minZ: 66, maxZ: 80 },
 ]
 
-export const PERSON_LANE_RECTS: LaneRect[] = [
+const BASE_PERSON_LANE_RECTS: LaneRect[] = [
   { minX: -100, maxX: 100, minZ: 42, maxZ: 46 },
   { minX: -100, maxX: 100, minZ: 64, maxZ: 68 },
   { minX: -10, maxX: -6, minZ: -86, maxZ: 62 },
@@ -632,7 +716,7 @@ export const PERSON_LANE_RECTS: LaneRect[] = [
   { minX: 48, maxX: 90, minZ: 80, maxZ: 84 },
 ]
 
-export const VEHICLE_ROUTE_GOALS: Vector3[] = [
+const BASE_VEHICLE_ROUTE_GOALS: Vector3[] = [
   point(-92, 54),
   point(-60, 54),
   point(-28, 54),
@@ -660,7 +744,7 @@ export const VEHICLE_ROUTE_GOALS: Vector3[] = [
   point(68, 72),
 ]
 
-export const PERSON_ROUTE_GOALS: Vector3[] = [
+const BASE_PERSON_ROUTE_GOALS: Vector3[] = [
   point(-92, 44),
   point(-64, 44),
   point(-28, 44),
@@ -705,14 +789,140 @@ export const PERSON_ROUTE_GOALS: Vector3[] = [
   point(68, 82),
 ]
 
+const BASE_VEHICLE_ROUTE_LOOPS: Vector3[][] = [
+  [
+    point(-92, 54),
+    point(-28, 54),
+    point(36, 54),
+    point(96, 54),
+    point(86, 30),
+    point(86, 2),
+    point(86, -72),
+    point(0, -72),
+    point(-88, -72),
+    point(-88, 2),
+    point(-88, 30),
+  ],
+  [
+    point(-68, 72),
+    point(68, 72),
+    point(96, 54),
+    point(68, 54),
+    point(4, 54),
+    point(-60, 54),
+    point(-92, 54),
+    point(-88, 30),
+    point(-88, 2),
+  ],
+  [
+    point(-84, -4),
+    point(-36, -4),
+    point(32, -4),
+    point(86, -4),
+    point(86, -26),
+    point(86, -72),
+    point(0, -72),
+    point(-88, -72),
+    point(-88, -26),
+  ],
+  [
+    point(0, 32),
+    point(0, 4),
+    point(0, -24),
+    point(0, -72),
+    point(86, -72),
+    point(86, 2),
+    point(68, 54),
+    point(4, 54),
+    point(-60, 54),
+    point(-88, 30),
+  ],
+]
+
+export const CAMPUS_ZONES: ZoneBlueprint[] = CAMPUS_SECTORS.flatMap((sector) =>
+  CAMPUS_ZONE_BLUEPRINTS.map((zone) => ({
+    ...zone,
+    name: withSectorName(zone.name, sector),
+    center: offsetPoint(zone.center, sector.offset),
+  }))
+)
+
+export const CAMPUS_EQUIPMENT_PLACEMENTS: EquipmentPlacement[] = CAMPUS_SECTORS.flatMap((sector) =>
+  BASE_CAMPUS_EQUIPMENT_PLACEMENTS.map((placement) => ({
+    ...placement,
+    name: withSectorName(placement.name, sector),
+    position: offsetPoint(placement.position, sector.offset),
+  }))
+)
+
+export const EQUIPMENT_ANCHORS = CAMPUS_EQUIPMENT_PLACEMENTS
+
+export const PERSON_ANCHORS: Vector3[] = CAMPUS_SECTORS.flatMap((sector) =>
+  BASE_PERSON_ANCHORS.map((anchor) => offsetPoint(anchor, sector.offset))
+)
+
+export const VEHICLE_ANCHORS: Record<VehicleEntity['vehicleType'], Vector3[]> = {
+  car: CAMPUS_SECTORS.flatMap((sector) =>
+    BASE_VEHICLE_ANCHORS.car.map((anchor) => offsetPoint(anchor, sector.offset))
+  ),
+  truck: CAMPUS_SECTORS.flatMap((sector) =>
+    BASE_VEHICLE_ANCHORS.truck.map((anchor) => offsetPoint(anchor, sector.offset))
+  ),
+  forklift: CAMPUS_SECTORS.flatMap((sector) =>
+    BASE_VEHICLE_ANCHORS.forklift.map((anchor) => offsetPoint(anchor, sector.offset))
+  ),
+  agv: CAMPUS_SECTORS.flatMap((sector) =>
+    BASE_VEHICLE_ANCHORS.agv.map((anchor) => offsetPoint(anchor, sector.offset))
+  ),
+  other: CAMPUS_SECTORS.flatMap((sector) =>
+    BASE_VEHICLE_ANCHORS.other.map((anchor) => offsetPoint(anchor, sector.offset))
+  ),
+}
+
+export const VEHICLE_LANE_RECTS: LaneRect[] = [
+  ...CAMPUS_SECTORS.flatMap((sector) =>
+    BASE_VEHICLE_LANE_RECTS.map((lane) => offsetLaneRect(lane, sector.offset))
+  ),
+  ...INTER_SECTOR_VEHICLE_LANE_RECTS,
+]
+
+export const PERSON_LANE_RECTS: LaneRect[] = [
+  ...CAMPUS_SECTORS.flatMap((sector) =>
+    BASE_PERSON_LANE_RECTS.map((lane) => offsetLaneRect(lane, sector.offset))
+  ),
+  ...INTER_SECTOR_PERSON_LANE_RECTS,
+]
+
+export const VEHICLE_ROUTE_GOALS: Vector3[] = [
+  ...CAMPUS_SECTORS.flatMap((sector) =>
+    BASE_VEHICLE_ROUTE_GOALS.map((goal) => offsetPoint(goal, sector.offset))
+  ),
+  ...INTER_SECTOR_VEHICLE_ROUTE_GOALS,
+]
+
+export const PERSON_ROUTE_GOALS: Vector3[] = [
+  ...CAMPUS_SECTORS.flatMap((sector) =>
+    BASE_PERSON_ROUTE_GOALS.map((goal) => offsetPoint(goal, sector.offset))
+  ),
+  ...INTER_SECTOR_PERSON_ROUTE_GOALS,
+]
+
+export const VEHICLE_ROUTE_LOOPS: Vector3[][] = [
+  ...CAMPUS_SECTORS.flatMap((sector) =>
+    BASE_VEHICLE_ROUTE_LOOPS.map((loop) =>
+      loop.map((waypoint) => offsetPoint(waypoint, sector.offset))
+    )
+  ),
+]
+
 export const DEFAULT_SCENE_COUNTS: SceneEntityCounts = {
-  persons: 36,
-  vehicles: 18,
-  equipment: CAMPUS_EQUIPMENT_PLACEMENTS.length,
+  persons: 24 * CAMPUS_SECTORS.length,
+  vehicles: 11 * CAMPUS_SECTORS.length,
+  equipment: EQUIPMENT_ANCHORS.length,
 }
 
 export const PRODUCTION_SCENE_COUNTS: SceneEntityCounts = {
-  persons: 72,
-  vehicles: 32,
-  equipment: CAMPUS_EQUIPMENT_PLACEMENTS.length * 2,
+  persons: 48 * CAMPUS_SECTORS.length,
+  vehicles: 22 * CAMPUS_SECTORS.length,
+  equipment: EQUIPMENT_ANCHORS.length * 2,
 }

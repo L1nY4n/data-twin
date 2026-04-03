@@ -8,12 +8,10 @@ import type {
 import {
   CAMPUS_BOUNDS,
   CAMPUS_ZONES,
-  DEFAULT_SCENE_COUNTS,
   EQUIPMENT_ANCHORS,
   PERSON_ANCHORS,
   PERSON_LANE_RECTS,
   PERSON_ROUTE_GOALS,
-  PRODUCTION_SCENE_COUNTS,
   VEHICLE_ANCHORS,
   VEHICLE_LANE_RECTS,
   VEHICLE_ROUTE_GOALS,
@@ -21,6 +19,7 @@ import {
   type LaneRect,
   type PlantMobilityType,
 } from './campus-layout'
+import { createPublishedCampusScenePackage, hydratePublishedScenePackage } from './publish'
 
 // 生成唯一ID
 export function generateId(): string {
@@ -33,7 +32,7 @@ function randomRange(min: number, max: number): number {
 }
 
 // 随机选择
-function randomChoice<T>(array: T[]): T {
+function randomChoice<T>(array: readonly T[]): T {
   return array[Math.floor(Math.random() * array.length)]
 }
 
@@ -46,7 +45,6 @@ function randomPositionAround(anchor: Vector3, spread: { x: number; z: number })
 }
 
 const DEFAULT_EQUIPMENT_SPREAD = { x: 1, z: 1 }
-const SCENE_EQUIPMENT_SPREAD = { x: 1.2, z: 1.2 }
 
 function resolveEquipmentSpread(
   anchor: { spread?: { x: number; z: number } },
@@ -69,16 +67,121 @@ function distanceToClosestPosition(position: Vector3, existingPositions: Vector3
 }
 
 // 人员角色
-const ROLES = ['外操', '内操', '巡检工程师', '仪表技术员', '设备维修工', 'HSE监督员']
-const DEPARTMENTS = ['生产运行部', '设备维护部', '仪表自动化部', '储运部', '公用工程部', 'HSE部']
-const ACTIVITIES = ['巡检中', '切换流程中', '装车监护', '采样分析', '设备点检', '通行中']
+const PERSON_ROLE_PROFILES = [
+  {
+    role: '外操',
+    department: '生产运行部',
+    employeePrefix: 'OPR',
+    activities: ['巡检中', '切换流程中', '现场核对'],
+  },
+  {
+    role: '内操',
+    department: '生产运行部',
+    employeePrefix: 'CCR',
+    activities: ['DCS监盘', '工艺切换监护', '参数复核'],
+  },
+  {
+    role: '巡检工程师',
+    department: '设备维护部',
+    employeePrefix: 'INS',
+    activities: ['设备点检', '状态确认', '缺陷复查'],
+  },
+  {
+    role: '仪表技术员',
+    department: '仪表自动化部',
+    employeePrefix: 'IAC',
+    activities: ['仪表校验', '联锁核查', '回路测试'],
+  },
+  {
+    role: '设备维修工',
+    department: '设备维护部',
+    employeePrefix: 'MNT',
+    activities: ['维修作业', '备件核对', '作业许可办理'],
+  },
+  {
+    role: 'HSE监督员',
+    department: 'HSE部',
+    employeePrefix: 'HSE',
+    activities: ['作业监护', '风险巡查', '现场抽查'],
+  },
+] as const
+const PERSON_SHIFTS = ['甲班', '乙班', '丙班', '常白班']
+const PERSON_FAMILY_NAMES = [
+  '赵', '钱', '孙', '李', '周', '吴', '郑', '王', '冯', '陈',
+  '褚', '卫', '蒋', '沈', '韩', '杨', '朱', '秦', '尤', '许',
+  '何', '吕', '施', '张', '孔', '曹', '严', '华', '金', '魏',
+  '陶', '姜', '谢', '邹', '喻', '柏', '水', '窦', '章', '云',
+]
+const PERSON_GIVEN_NAME_PREFIXES = [
+  '建', '志', '文', '晓', '明', '国', '海', '天', '博', '承',
+  '嘉', '宇', '思', '俊', '维', '安', '晨', '宏', '泽', '景',
+]
+const PERSON_GIVEN_NAME_SUFFIXES = [
+  '伟', '磊', '涛', '鹏', '超', '峰', '杰', '斌', '凯', '洋',
+  '宁', '辰', '轩', '豪', '瑞', '阳', '琳', '静', '颖', '婷',
+]
 const PLATE_PREFIXES = ['京', '沪', '粤', '苏', '浙']
-const VEHICLE_DISPLAY_NAMES: Record<VehicleEntity['vehicleType'], string> = {
-  car: '巡检车',
-  truck: '液体槽车',
-  forklift: '叉车',
-  agv: '采样AGV',
-  other: '维护皮卡',
+const VEHICLE_NAME_STANDARDS: Record<
+  VehicleEntity['vehicleType'],
+  { label: string; assetPrefix: string }
+> = {
+  car: { label: '厂内巡检车', assetPrefix: 'IP' },
+  truck: { label: '危化品槽车', assetPrefix: 'HT' },
+  forklift: { label: '电动叉车', assetPrefix: 'FL' },
+  agv: { label: '采样AGV', assetPrefix: 'AGV' },
+  other: { label: '运维保障车', assetPrefix: 'MT' },
+}
+
+function hashSeed(seed: string): number {
+  let hash = 0
+  for (let index = 0; index < seed.length; index += 1) {
+    hash = (hash * 131 + seed.charCodeAt(index)) >>> 0
+  }
+  return hash
+}
+
+function buildSeededCode(seed: string, width: number, min: number, span: number): string {
+  const numeric = min + (hashSeed(seed) % span)
+  return String(numeric).padStart(width, '0')
+}
+
+function readMetadataString(
+  metadata: Record<string, unknown> | undefined,
+  key: string
+): string | null {
+  const value = metadata?.[key]
+  return typeof value === 'string' && value.length > 0 ? value : null
+}
+
+function resolvePersonRoleProfile(role?: string) {
+  return PERSON_ROLE_PROFILES.find((profile) => profile.role === role) ?? null
+}
+
+function buildPersonDisplayName(seed: string) {
+  const hash = hashSeed(seed)
+  const familyName = PERSON_FAMILY_NAMES[hash % PERSON_FAMILY_NAMES.length]
+  const givenPrefix =
+    PERSON_GIVEN_NAME_PREFIXES[Math.floor(hash / PERSON_FAMILY_NAMES.length) % PERSON_GIVEN_NAME_PREFIXES.length]
+  const givenSuffix =
+    PERSON_GIVEN_NAME_SUFFIXES[
+      Math.floor(hash / (PERSON_FAMILY_NAMES.length * PERSON_GIVEN_NAME_PREFIXES.length)) %
+        PERSON_GIVEN_NAME_SUFFIXES.length
+    ]
+  return `${familyName}${givenPrefix}${givenSuffix}`
+}
+
+function buildEmployeeNo(seed: string, prefix: string) {
+  return `${prefix}-${buildSeededCode(seed, 4, 1000, 9000)}`
+}
+
+function buildVehicleAssetCode(seed: string, vehicleType: VehicleEntity['vehicleType']) {
+  const standard = VEHICLE_NAME_STANDARDS[vehicleType]
+  return `${standard.assetPrefix}-${buildSeededCode(seed, 3, 101, 899)}`
+}
+
+export function formatRepeatedEquipmentName(name: string, instanceNumber: number) {
+  if (instanceNumber <= 1) return name
+  return `${name}-${String(instanceNumber).padStart(2, '0')}`
 }
 
 // 默认场景边界
@@ -937,39 +1040,53 @@ function readMoveTarget(
 // 生成人员实体
 export function generatePerson(options?: Partial<PersonEntity>): PersonEntity {
   const id = generateId()
-  const role = randomChoice(ROLES)
-  const department = randomChoice(DEPARTMENTS)
+  const roleProfile = resolvePersonRoleProfile(options?.role) ?? randomChoice(PERSON_ROLE_PROFILES)
+  const role = options?.role ?? roleProfile.role
+  const department = options?.department ?? roleProfile.department
   const anchor = randomChoice(PERSON_ANCHORS)
+  const employeeNo =
+    readMetadataString(options?.metadata, 'employeeNo') ??
+    buildEmployeeNo(`${role}:${department}:${id}`, roleProfile.employeePrefix)
+  const shift = readMetadataString(options?.metadata, 'shift') ?? randomChoice(PERSON_SHIFTS)
 
   return {
     id,
     type: 'person',
-    name: `${role}${id.slice(-4)}`,
-    position: randomPositionAround(anchor, { x: 2.4, z: 2 }),
-    rotation: { x: 0, y: randomRange(0, Math.PI * 2), z: 0 },
-    scale: { x: 1, y: 1, z: 1 },
-    status: 'active',
-    visible: true,
-    metadata: {},
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
+    name: options?.name ?? buildPersonDisplayName(`${role}:${department}:${id}`),
+    position: options?.position ?? randomPositionAround(anchor, { x: 2.4, z: 2 }),
+    rotation: options?.rotation ?? { x: 0, y: randomRange(0, Math.PI * 2), z: 0 },
+    scale: options?.scale ?? { x: 1, y: 1, z: 1 },
+    status: options?.status ?? 'active',
+    visible: options?.visible ?? true,
+    metadata: {
+      employeeNo,
+      shift,
+      ...(options?.metadata ?? {}),
+    },
+    createdAt: options?.createdAt ?? Date.now(),
+    updatedAt: options?.updatedAt ?? Date.now(),
     role,
     department,
-    schedule: [],
-    currentActivity: randomChoice(ACTIVITIES),
-    ...options,
+    schedule: options?.schedule ?? [],
+    currentActivity: options?.currentActivity ?? randomChoice(roleProfile.activities),
+    avatar: options?.avatar,
+    labelMode: options?.labelMode,
   }
 }
 
 // 生成车辆实体
 export function generateVehicle(options?: Partial<VehicleEntity>): VehicleEntity {
   const id = generateId()
-  const vehicleType = randomChoice(VEHICLE_TYPES)
+  const vehicleType = options?.vehicleType ?? randomChoice(VEHICLE_TYPES)
   const prefix = randomChoice(PLATE_PREFIXES)
+  const vehicleStandard = VEHICLE_NAME_STANDARDS[vehicleType]
   const cruiseSpeedRange = getVehicleCruiseSpeedRange(vehicleType)
   const cruiseSpeed =
     readMetadataNumber(options?.metadata, 'cruiseSpeed') ??
     randomRange(cruiseSpeedRange.min, cruiseSpeedRange.max)
+  const assetCode =
+    readMetadataString(options?.metadata, 'assetCode') ??
+    buildVehicleAssetCode(`${vehicleType}:${id}`, vehicleType)
   const plateNumber = `${prefix}${String.fromCharCode(65 + Math.floor(Math.random() * 26))}${Math.floor(
     10000 + Math.random() * 90000
   )}`
@@ -985,27 +1102,28 @@ export function generateVehicle(options?: Partial<VehicleEntity>): VehicleEntity
   return {
     id,
     type: 'vehicle',
-    name: `${VEHICLE_DISPLAY_NAMES[vehicleType]}${id.slice(-4)}`,
+    name: options?.name ?? `${vehicleStandard.label} ${assetCode}`,
     position,
     rotation,
-    scale: { x: 1, y: 1, z: 1 },
-    status: 'active',
-    visible: true,
+    scale: options?.scale ?? { x: 1, y: 1, z: 1 },
+    status: options?.status ?? 'active',
+    visible: options?.visible ?? true,
     metadata: {
+      assetCode,
       cruiseSpeed,
       routeLoop,
       routeLoopIndex,
       ...(options?.metadata ?? {}),
     },
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-    plateNumber,
+    createdAt: options?.createdAt ?? Date.now(),
+    updatedAt: options?.updatedAt ?? Date.now(),
+    plateNumber: options?.plateNumber ?? plateNumber,
     vehicleType,
-    speed: 0,
-    heading,
-    capacity: vehicleType === 'truck' ? 5000 : vehicleType === 'forklift' ? 2000 : 100,
-    currentLoad: 0,
-    ...options,
+    speed: options?.speed ?? 0,
+    heading: options?.heading ?? heading,
+    capacity: options?.capacity ?? (vehicleType === 'truck' ? 5000 : vehicleType === 'forklift' ? 2000 : 100),
+    currentLoad: options?.currentLoad ?? 0,
+    labelMode: options?.labelMode,
   }
 }
 
@@ -1013,27 +1131,34 @@ export function generateVehicle(options?: Partial<VehicleEntity>): VehicleEntity
 export function generateEquipment(options?: Partial<EquipmentEntity>): EquipmentEntity {
   const id = generateId()
   const anchor = randomChoice(EQUIPMENT_ANCHORS)
+  const equipmentName = options?.name ?? anchor.name
 
   return {
     id,
     type: 'equipment',
-    name: `${anchor.name}${id.slice(-4)}`,
+    name: equipmentName,
     position: options?.position ?? randomPositionAround(anchor.position, resolveEquipmentSpread(anchor)),
-    rotation: { x: 0, y: randomRange(0, Math.PI * 2), z: 0 },
-    scale: { x: 1, y: 1, z: 1 },
-    status: randomChoice(['active', 'active', 'active', 'warning', 'inactive']),
-    visible: true,
-    metadata: {},
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-    parameters: {
+    rotation: options?.rotation ?? { x: 0, y: randomRange(0, Math.PI * 2), z: 0 },
+    scale: options?.scale ?? { x: 1, y: 1, z: 1 },
+    status: options?.status ?? randomChoice(['active', 'active', 'active', 'warning', 'inactive']),
+    visible: options?.visible ?? true,
+    metadata: {
+      assetTag: equipmentName.split(' ').at(-1) ?? equipmentName,
+      ...(options?.metadata ?? {}),
+    },
+    createdAt: options?.createdAt ?? Date.now(),
+    updatedAt: options?.updatedAt ?? Date.now(),
+    parameters: options?.parameters ?? {
       温度: randomRange(38, 92),
       压力: randomRange(0.2, 2.8),
       流量: randomRange(18, 180),
       运行时间: Math.floor(randomRange(800, 16000)),
     },
-    alarms: [],
-    ...options,
+    alarms: options?.alarms ?? [],
+    modelId: options?.modelId,
+    modelUrl: options?.modelUrl,
+    maintenanceSchedule: options?.maintenanceSchedule,
+    labelMode: options?.labelMode,
   }
 }
 
@@ -1081,31 +1206,6 @@ export interface GenerateMockSceneOptions {
   profile?: 'default' | 'production'
 }
 
-function generateSeparatedVehicle(existingVehicles: VehicleEntity[]): VehicleEntity {
-  const existingVehiclePositions = existingVehicles.map((vehicle) => vehicle.position)
-  let bestCandidate = generateVehicle()
-  let bestDistance = distanceToClosestPosition(bestCandidate.position, existingVehiclePositions)
-
-  if (!Number.isFinite(bestDistance)) {
-    return bestCandidate
-  }
-
-  for (let attempt = 0; attempt < VEHICLE_SPAWN_MAX_ATTEMPTS; attempt += 1) {
-    const candidate = attempt === 0 ? bestCandidate : generateVehicle()
-    if (respectsMinimumDistance(candidate.position, existingVehiclePositions, VEHICLE_SPAWN_MIN_DISTANCE)) {
-      return candidate
-    }
-
-    const candidateDistance = distanceToClosestPosition(candidate.position, existingVehiclePositions)
-    if (candidateDistance > bestDistance) {
-      bestCandidate = candidate
-      bestDistance = candidateDistance
-    }
-  }
-
-  return bestCandidate
-}
-
 // 生成完整的模拟场景
 export function generateMockScene(options: GenerateMockSceneOptions = {}): {
   persons: PersonEntity[]
@@ -1114,51 +1214,8 @@ export function generateMockScene(options: GenerateMockSceneOptions = {}): {
   zones: ZoneEntity[]
 } {
   const { profile = 'default' } = options
-  const counts = profile === 'production' ? PRODUCTION_SCENE_COUNTS : DEFAULT_SCENE_COUNTS
-  const persons: PersonEntity[] = []
-  const vehicles: VehicleEntity[] = []
-  const equipment: EquipmentEntity[] = []
-  const zones = CAMPUS_ZONES.map((zone) =>
-    generateZone(zone.center, zone.size, {
-      name: zone.name,
-      zoneType: zone.zoneType,
-      color: zone.color,
-    })
-  )
-
-  // 生成人员
-  for (let i = 0; i < counts.persons; i += 1) {
-    persons.push(generatePerson())
-  }
-
-  // 生成车辆
-  for (let i = 0; i < counts.vehicles; i += 1) {
-    vehicles.push(generateSeparatedVehicle(vehicles))
-  }
-
-  // 生成设备
-  const repeatableEquipmentAnchors =
-    EQUIPMENT_ANCHORS.filter((anchor) => anchor.repeatable !== false)
-  const scalableEquipmentAnchors =
-    repeatableEquipmentAnchors.length > 0 ? repeatableEquipmentAnchors : EQUIPMENT_ANCHORS
-
-  for (let i = 0; i < counts.equipment; i += 1) {
-    const anchorPool = i < EQUIPMENT_ANCHORS.length ? EQUIPMENT_ANCHORS : scalableEquipmentAnchors
-    const anchorIndex = i < EQUIPMENT_ANCHORS.length ? i : (i - EQUIPMENT_ANCHORS.length) % anchorPool.length
-    const anchor = anchorPool[anchorIndex]
-    const repeatRound =
-      i < EQUIPMENT_ANCHORS.length
-        ? 0
-        : Math.floor((i - EQUIPMENT_ANCHORS.length) / anchorPool.length) + 1
-    equipment.push(
-      generateEquipment({
-        position: randomPositionAround(anchor.position, resolveEquipmentSpread(anchor, SCENE_EQUIPMENT_SPREAD)),
-        name: repeatRound === 0 ? anchor.name : `${anchor.name} #${repeatRound + 1}`,
-      })
-    )
-  }
-
-  return { persons, vehicles, equipment, zones }
+  const publishedScene = createPublishedCampusScenePackage(profile)
+  return hydratePublishedScenePackage(publishedScene)
 }
 
 interface MovementEntityLike {

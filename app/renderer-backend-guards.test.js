@@ -31,11 +31,17 @@ describe('renderer backend guards', () => {
       join(process.cwd(), 'components/digital-twin/scene/ScenePicking.tsx'),
       'utf8'
     )
+    const staticPicking = readFileSync(
+      join(process.cwd(), 'components/digital-twin/scene/PublishedStaticFeaturePickingLayer.tsx'),
+      'utf8'
+    )
 
     expect(source.includes('ScenePicking')).toBe(true)
     expect(picking.includes('pickRootRef')).toBe(true)
     expect(picking.includes('raycaster.intersectObject')).toBe(true)
-    expect(picking.includes('resolveEntityIdFromIntersection')).toBe(true)
+    expect(picking.includes('resolvePickTargetFromIntersection')).toBe(true)
+    expect(source.includes('PublishedStaticFeaturePickingLayer')).toBe(true)
+    expect(staticPicking.includes('staticFeatureIds')).toBe(true)
     expect(source.includes('pickRootRef')).toBe(true)
     expect(picking.includes('scene.children')).toBe(false)
   })
@@ -88,9 +94,9 @@ describe('renderer backend guards', () => {
       'utf8'
     )
 
-    expect(source.includes('<PersonInstances entities={filteredPersons} />')).toBe(true)
-    expect(source.includes('<VehicleInstances entities={filteredVehicles} />')).toBe(true)
-    expect(source.includes('entities={filteredEquipment}')).toBe(true)
+    expect(source.includes('personBatches.map')).toBe(true)
+    expect(source.includes('vehicleBatches.map')).toBe(true)
+    expect(source.includes('equipmentBatches.map')).toBe(true)
     expect(source.includes('<EquipmentInstances')).toBe(true)
     expect(source.includes('selectedEntityId={selectedEntityId}')).toBe(true)
     expect(source.includes('hoveredEntityId={hoveredEntityId}')).toBe(true)

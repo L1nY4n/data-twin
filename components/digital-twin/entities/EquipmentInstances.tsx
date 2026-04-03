@@ -2,7 +2,7 @@
 
 import { memo, useLayoutEffect, useMemo, useRef } from 'react'
 import * as THREE from 'three'
-import { CAMPUS_INTERACTION_HEIGHT, CAMPUS_INTERACTION_RADIUS } from '@/lib/digital-twin/campus-layout'
+import { createInstancedInteractionBounds } from '@/lib/digital-twin/renderer/instanced-bounds'
 import {
   OVERLAY_RENDER_ORDER,
   STABLE_DOUBLE_SIDED_OVERLAY,
@@ -35,14 +35,6 @@ const GLOW_TEMP = new THREE.Object3D()
 const HALO_TEMP = new THREE.Object3D()
 const RING_TEMP = new THREE.Object3D()
 const VENT_TEMP = new THREE.Object3D()
-const INTERACTION_BOUNDS_SPHERE = new THREE.Sphere(
-  new THREE.Vector3(0, 2, 0),
-  CAMPUS_INTERACTION_RADIUS
-)
-const INTERACTION_BOUNDS_BOX = new THREE.Box3(
-  new THREE.Vector3(-CAMPUS_INTERACTION_RADIUS, -2, -CAMPUS_INTERACTION_RADIUS),
-  new THREE.Vector3(CAMPUS_INTERACTION_RADIUS, CAMPUS_INTERACTION_HEIGHT, CAMPUS_INTERACTION_RADIUS)
-)
 const VENT_OFFSETS = [1, 1.4, 1.8, 2.2] as const
 
 function getStatusColor(status: EquipmentEntity['status']) {
@@ -67,11 +59,19 @@ function getBodyColor(
   return '#374151'
 }
 
-function applyInteractionBounds(mesh: THREE.InstancedMesh | null) {
+function applyInteractionBounds(mesh: THREE.InstancedMesh | null, entities: EquipmentEntity[]) {
   if (!mesh) return
-  mesh.frustumCulled = false
-  mesh.boundingSphere = INTERACTION_BOUNDS_SPHERE.clone()
-  mesh.boundingBox = INTERACTION_BOUNDS_BOX.clone()
+  const { sphere, box } = createInstancedInteractionBounds(
+    entities.map((entity) => entity.position),
+    {
+      paddingXz: 18,
+      paddingTop: 7,
+      paddingBottom: 2,
+    }
+  )
+  mesh.frustumCulled = true
+  mesh.boundingSphere = sphere
+  mesh.boundingBox = box
 }
 
 function ensureInstanceColor(mesh: THREE.InstancedMesh | null) {
@@ -120,6 +120,7 @@ export const EquipmentInstances = memo(function EquipmentInstances({
     status: new THREE.Color(),
   })
   const entityIds = useMemo(() => entities.map((entity) => entity.id), [entities])
+  const entityIdSignature = useMemo(() => entityIds.join('|'), [entityIds])
   const bodyInstanceColors = useMemo(() => new Float32Array(entities.length * 3), [entities.length])
   const glowInstanceColors = useMemo(() => new Float32Array(entities.length * 3), [entities.length])
   const haloInstanceColors = useMemo(() => new Float32Array(entities.length * 3), [entities.length])
@@ -130,7 +131,7 @@ export const EquipmentInstances = memo(function EquipmentInstances({
   )
 
   useLayoutEffect(() => {
-    const nextIds = new Set(entities.map((entity) => entity.id))
+    const nextIds = new Set(entityIdSignature ? entityIdSignature.split('|') : [])
     transformRef.current.forEach((_value, id) => {
       if (!nextIds.has(id)) transformRef.current.delete(id)
     })
@@ -139,7 +140,7 @@ export const EquipmentInstances = memo(function EquipmentInstances({
     })
     forceMatrixSyncRef.current = true
     forceColorSyncRef.current = true
-  }, [entityIds])
+  }, [entityIdSignature])
 
   useLayoutEffect(() => {
     ;[
@@ -154,7 +155,7 @@ export const EquipmentInstances = memo(function EquipmentInstances({
       if (!mesh) return
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
       mesh.instanceColor?.setUsage(THREE.DynamicDrawUsage)
-      applyInteractionBounds(mesh)
+      applyInteractionBounds(mesh, entities)
     })
 
     ensureInstanceColor(bodyRef.current)
@@ -166,7 +167,7 @@ export const EquipmentInstances = memo(function EquipmentInstances({
     glowRef.current?.instanceColor?.setUsage(THREE.DynamicDrawUsage)
     haloRef.current?.instanceColor?.setUsage(THREE.DynamicDrawUsage)
     ringRef.current?.instanceColor?.setUsage(THREE.DynamicDrawUsage)
-  }, [entities.length])
+  }, [entities])
 
   useLayoutEffect(() => {
     if (
@@ -272,7 +273,7 @@ export const EquipmentInstances = memo(function EquipmentInstances({
     }
 
     if (forceMatrixSync) forceMatrixSyncRef.current = false
-  }, [entities, entityIds])
+  }, [entities])
 
   useLayoutEffect(() => {
     if (!bodyRef.current || !glowRef.current || !haloRef.current || !ringRef.current) {

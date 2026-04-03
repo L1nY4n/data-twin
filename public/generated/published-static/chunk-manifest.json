@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "sceneId": "chemical-plant-campus",
+  "generatedAt": "2026-04-03T13:49:44.391Z",
+  "chunks": {
+    "chunk:sector-core:static": {
+      "chunkId": "chunk:sector-core:static",
+      "detailed": {
+        "url": "/generated/published-static/chunk-sector-core-static.detailed.glb",
+        "format": "glb",
+        "compression": "none"
+      },
+      "proxy": {
+        "url": "/generated/published-static/chunk-sector-core-static.proxy.glb",
+        "format": "glb",
+        "compression": "none"
+      }
+    },
+    "chunk:sector-east:static": {
+      "chunkId": "chunk:sector-east:static",
+      "detailed": {
+        "url": "/generated/published-static/chunk-sector-east-static.detailed.glb",
+        "format": "glb",
+        "compression": "none"
+      },
+      "proxy": {
+        "url": "/generated/published-static/chunk-sector-east-static.proxy.glb",
+        "format": "glb",
+        "compression": "none"
+      }
+    },
+    "chunk:sector-west:static": {
+      "chunkId": "chunk:sector-west:static",
+      "detailed": {
+        "url": "/generated/published-static/chunk-sector-west-static.detailed.glb",
+        "format": "glb",
+        "compression": "none"
+      },
+      "proxy": {
+        "url": "/generated/published-static/chunk-sector-west-static.proxy.glb",
+        "format": "glb",
+        "compression": "none"
+      }
+    },
+    "chunk:sector-south:static": {
+      "chunkId": "chunk:sector-south:static",
+      "detailed": {
+        "url": "/generated/published-static/chunk-sector-south-static.detailed.glb",
+        "format": "glb",
+        "compression": "none"
+      },
+      "proxy": {
+        "url": "/generated/published-static/chunk-sector-south-static.proxy.glb",
+        "format": "glb",
+        "compression": "none"
+      }
+    },
+    "chunk:campus:inter-sector": {
+      "chunkId": "chunk:campus:inter-sector",
+      "detailed": {
+        "url": "/generated/published-static/chunk-campus-inter-sector.detailed.glb",
+        "format": "glb",
+        "compression": "none"
+      }
+    }
+  }
+}

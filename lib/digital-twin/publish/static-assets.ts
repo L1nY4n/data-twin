@@ -1,0 +1,101 @@
+import type { PublishedStaticChunk, PublishedStaticMaterialRef } from './types'
+
+export const PUBLISHED_STATIC_ASSET_SCHEMA_VERSION = 1 as const
+export const PUBLISHED_STATIC_ASSET_BASE_URL = '/generated/published-static'
+export const PUBLISHED_STATIC_ASSET_MANIFEST_URL = `${PUBLISHED_STATIC_ASSET_BASE_URL}/chunk-manifest.json`
+
+export type PublishedStaticAssetCompression = 'none' | 'meshopt'
+
+export interface PublishedStaticAssetVariant {
+  url: string
+  format: 'glb'
+  compression: PublishedStaticAssetCompression
+}
+
+export interface PublishedStaticChunkAssetEntry {
+  chunkId: string
+  detailed: PublishedStaticAssetVariant
+  proxy?: PublishedStaticAssetVariant
+}
+
+export interface PublishedStaticAssetManifest {
+  schemaVersion: 1
+  sceneId: string
+  generatedAt: string
+  chunks: Record<string, PublishedStaticChunkAssetEntry>
+}
+
+function sanitizeChunkIdForFilename(chunkId: string) {
+  return chunkId.replace(/[^a-zA-Z0-9_-]+/g, '-')
+}
+
+function createAssetVariant(
+  chunkId: string,
+  variant: 'detailed' | 'proxy',
+  compression: PublishedStaticAssetCompression
+): PublishedStaticAssetVariant {
+  const safeChunkId = sanitizeChunkIdForFilename(chunkId)
+  return {
+    url: `${PUBLISHED_STATIC_ASSET_BASE_URL}/${safeChunkId}.${variant}.glb`,
+    format: 'glb',
+    compression,
+  }
+}
+
+export function createPublishedStaticChunkAssetEntry(
+  chunk: Pick<PublishedStaticChunk, 'id' | 'renderRecipe'>,
+  compression: PublishedStaticAssetCompression = 'none'
+): PublishedStaticChunkAssetEntry {
+  return {
+    chunkId: chunk.id,
+    detailed: createAssetVariant(chunk.id, 'detailed', compression),
+    ...(chunk.renderRecipe.proxy ? { proxy: createAssetVariant(chunk.id, 'proxy', compression) } : {}),
+  }
+}
+
+export function createPublishedStaticAssetManifest(
+  sceneId: string,
+  generatedAt: string,
+  chunks: PublishedStaticChunk[],
+  compression: PublishedStaticAssetCompression = 'none'
+): PublishedStaticAssetManifest {
+  return {
+    schemaVersion: PUBLISHED_STATIC_ASSET_SCHEMA_VERSION,
+    sceneId,
+    generatedAt,
+    chunks: Object.fromEntries(
+      chunks.map((chunk) => [chunk.id, createPublishedStaticChunkAssetEntry(chunk, compression)])
+    ),
+  }
+}
+
+export function encodePublishedStaticMaterialName(material: PublishedStaticMaterialRef) {
+  return `dtmat:${encodeURIComponent(JSON.stringify(material))}`
+}
+
+export function decodePublishedStaticMaterialName(name: string) {
+  if (!name.startsWith('dtmat:')) return null
+
+  try {
+    return JSON.parse(decodeURIComponent(name.slice('dtmat:'.length))) as PublishedStaticMaterialRef
+  } catch {
+    return null
+  }
+}
+
+export function encodePublishedStaticMeshName(options: {
+  castShadow: boolean
+  receiveShadow: boolean
+}) {
+  return `dtmesh:${options.castShadow ? '1' : '0'}:${options.receiveShadow ? '1' : '0'}`
+}
+
+export function decodePublishedStaticMeshName(name: string) {
+  if (!name.startsWith('dtmesh:')) return null
+
+  const [_prefix, castShadow, receiveShadow] = name.split(':')
+  return {
+    castShadow: castShadow === '1',
+    receiveShadow: receiveShadow === '1',
+  }
+}

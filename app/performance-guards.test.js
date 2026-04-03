@@ -48,6 +48,33 @@ describe('performance guards', () => {
     expect(source.includes('state.entities')).toBe(false)
   })
 
+  test('runtime architecture should route camera presets and sector batching through the published scene package seam', () => {
+    const store = readFileSync(join(process.cwd(), 'lib/digital-twin/store.ts'), 'utf8')
+    const markers = readFileSync(
+      join(process.cwd(), 'components/digital-twin/entities/EntityMarkers.tsx'),
+      'utf8'
+    )
+    const environment = readFileSync(
+      join(process.cwd(), 'components/digital-twin/scene/ChemicalPlantEnvironment.tsx'),
+      'utf8'
+    )
+
+    expect(store.includes('DEFAULT_PUBLISHED_SCENE_PACKAGE.sceneConfig')).toBe(true)
+    expect(store.includes('DEFAULT_PUBLISHED_SCENE_PACKAGE.cameraPresets')).toBe(true)
+    expect(markers.includes('DEFAULT_PUBLISHED_SCENE_PACKAGE.sectors')).toBe(true)
+    expect(environment.includes('DEFAULT_PUBLISHED_SCENE_PACKAGE')).toBe(true)
+    expect(environment.includes('createRuntimeStaticChunkRegistry')).toBe(true)
+    expect(environment.includes('staticChunkRegistry.map')).toBe(true)
+    expect(environment.includes('isRuntimeStaticChunkVisible')).toBe(true)
+    expect(environment.includes('hasRuntimeStaticViewChanged')).toBe(true)
+    expect(environment.includes('loadPublishedStaticAssetManifest')).toBe(true)
+    expect(environment.includes('PublishedStaticAssetMount')).toBe(true)
+    expect(environment.includes('PublishedStaticRecipeMount')).toBe(true)
+    expect(environment.includes('entry.chunk.renderRecipe')).toBe(true)
+    expect(environment.includes('chunkGroupRefs')).toBe(true)
+    expect(environment.includes('lastProjectionMatrixRef')).toBe(true)
+  })
+
   test('zone and nearby-distance overlays should avoid subscribing to the full entities map', () => {
     const zoneAreas = readFileSync(
       join(process.cwd(), 'components/digital-twin/entities/ZoneAreas.tsx'),
@@ -71,11 +98,28 @@ describe('performance guards', () => {
       join(process.cwd(), 'components/digital-twin/scene/ScenePicking.tsx'),
       'utf8'
     )
+    const canvas = readFileSync(
+      join(process.cwd(), 'components/digital-twin/scene/DigitalTwinCanvas.tsx'),
+      'utf8'
+    )
+    const layer = readFileSync(
+      join(process.cwd(), 'components/digital-twin/scene/PublishedStaticFeaturePickingLayer.tsx'),
+      'utf8'
+    )
 
     expect(source.includes('window.requestAnimationFrame')).toBe(true)
     expect(source.includes('lastPointerRef.current = { offsetX: event.offsetX, offsetY: event.offsetY }')).toBe(true)
     expect(source.includes('selectedEntityIdRef.current')).toBe(true)
+    expect(source.includes('selectedStaticFeatureIdRef.current')).toBe(true)
     expect(source.includes('measurementModeRef.current')).toBe(true)
+    expect(source.includes('resolvePickTargetFromIntersection')).toBe(true)
+    expect(source.includes('setSelectedStaticFeature')).toBe(true)
+    expect(source.includes('setHoveredStaticFeature')).toBe(true)
+    expect(canvas.includes('PublishedStaticFeaturePickingLayer')).toBe(true)
+    expect(layer.includes('staticFeatureIds')).toBe(true)
+    expect(layer.includes('getRuntimePublishedStaticFeature')).toBe(true)
+    expect(layer.includes('new MeshBasicMaterial')).toBe(false)
+    expect(layer.includes('new MeshStandardMaterial')).toBe(false)
     expect(source.includes('getBoundingClientRect')).toBe(false)
   })
 
@@ -156,6 +200,8 @@ describe('performance guards', () => {
     expect(markers.includes('PersonInstances')).toBe(true)
     expect(markers.includes('VehicleInstances')).toBe(true)
     expect(markers.includes('EquipmentInstances')).toBe(true)
+    expect(markers.includes('createSectorEntityBatches')).toBe(true)
+    expect(markers.includes('DEFAULT_PUBLISHED_SCENE_PACKAGE')).toBe(true)
     expect(markers.includes('showStatusRing={false}')).toBe(true)
     expect(markers.includes("qualityProfile === 'performance'")).toBe(false)
   })
@@ -278,6 +324,8 @@ describe('performance guards', () => {
     expect(source.includes('resetRuntimeClock')).toBe(true)
     expect(source.includes('visibilitychange')).toBe(true)
     expect(source.includes("visibilityState === 'visible'")).toBe(true)
+    expect(source.includes('createPublishedCampusScenePackage')).toBe(true)
+    expect(source.includes('hydratePublishedScenePackage')).toBe(true)
   })
 
   test('canvas should enforce bounded dpr, runtime tick bridge and moderate shadow map size', () => {
@@ -309,6 +357,9 @@ describe('performance guards', () => {
     )
 
     expect(source.includes("useSimulation({ autoStart: true, profile: 'production' })")).toBe(true)
+    expect(source.includes("useState<'balanced' | 'performance'>('balanced')")).toBe(true)
+    expect(source.includes("setQualityProfile('performance')")).toBe(false)
+    expect(source.includes('setActiveCameraPreset')).toBe(true)
   })
 
   test('canvas should use BVH wrapper to accelerate raycasting on scene meshes', () => {
@@ -321,15 +372,27 @@ describe('performance guards', () => {
     expect(source.includes('<Bvh')).toBe(true)
   })
 
-  test('chemical plant environment should batch repeated static supports with one-shot instancing', () => {
-    const source = readFileSync(
+  test('chemical plant environment should batch repeated static supports and freeze static transforms', () => {
+    const environment = readFileSync(
       join(process.cwd(), 'components/digital-twin/scene/ChemicalPlantEnvironment.tsx'),
       'utf8'
     )
+    const mount = readFileSync(
+      join(process.cwd(), 'components/digital-twin/scene/PublishedStaticRecipeMount.tsx'),
+      'utf8'
+    )
+    const batches = readFileSync(
+      join(process.cwd(), 'lib/digital-twin/runtime/static/render-batches.ts'),
+      'utf8'
+    )
 
-    expect(source.includes('StaticBoxInstances')).toBe(true)
-    expect(source.includes('<Instances limit={instances.length} frames={1}')).toBe(true)
-    expect(source.includes('<Instance')).toBe(true)
+    expect(environment.includes('PublishedStaticRecipeMount')).toBe(true)
+    expect(environment.includes('entry.chunk.renderRecipe')).toBe(true)
+    expect(environment.includes('matrixWorldAutoUpdate = false')).toBe(true)
+    expect(mount.includes('buildPublishedStaticRenderBatches')).toBe(true)
+    expect(mount.includes('PublishedStaticMergedBatches')).toBe(true)
+    expect(mount.includes('recipe.proxy ?? recipe.detailed')).toBe(true)
+    expect(batches.includes('mergeGeometries')).toBe(true)
   })
 
   test('projection benchmark script should target production-campus counts and include separation benchmarking', () => {
@@ -342,6 +405,28 @@ describe('performance guards', () => {
     expect(source.includes('movingEntities')).toBe(true)
     expect(source.includes('runSpatialSeparation')).toBe(true)
     expect(source.includes('occupancyCellSize')).toBe(true)
+  })
+
+  test('repo should ship a published scene export script for offline package inspection', () => {
+    const source = readFileSync(
+      join(process.cwd(), 'scripts/export-published-scene-package.ts'),
+      'utf8'
+    )
+
+    expect(source.includes('createPublishedCampusScenePackage')).toBe(true)
+    expect(source.includes('published-scene-package.json')).toBe(true)
+  })
+
+  test('repo should ship a static chunk asset export script for offline glb generation', () => {
+    const source = readFileSync(
+      join(process.cwd(), 'scripts/export-published-static-assets.ts'),
+      'utf8'
+    )
+
+    expect(source.includes('GLTFExporter')).toBe(true)
+    expect(source.includes('createPublishedStaticAssetManifest')).toBe(true)
+    expect(source.includes('buildPublishedStaticRenderBatches')).toBe(true)
+    expect(source.includes('PUBLISHED_STATIC_ASSET_MANIFEST_URL')).toBe(true)
   })
 
   test('sprite text labels should release cached textures when refs drop to zero', () => {
@@ -406,7 +491,7 @@ describe('performance guards', () => {
     expect(vehicleInstances.includes('if (!isSettled(state))')).toBe(true)
   })
 
-  test('instanced entity picking should apply explicit interaction bounds', () => {
+  test('instanced moving entities should skip offscreen sector updates and resync on re-entry', () => {
     const personInstances = readFileSync(
       join(process.cwd(), 'components/digital-twin/entities/PersonInstances.tsx'),
       'utf8'
@@ -416,11 +501,39 @@ describe('performance guards', () => {
       'utf8'
     )
 
+    expect(personInstances.includes('isInteractionBoundsVisible')).toBe(true)
+    expect(personInstances.includes('batchVisibleRef')).toBe(true)
+    expect(personInstances.includes('runtimeStates.clear()')).toBe(true)
+    expect(vehicleInstances.includes('isInteractionBoundsVisible')).toBe(true)
+    expect(vehicleInstances.includes('batchVisibleRef')).toBe(true)
+    expect(vehicleInstances.includes('runtimeStates.clear()')).toBe(true)
+  })
+
+  test('instanced entity picking should apply explicit interaction bounds', () => {
+    const personInstances = readFileSync(
+      join(process.cwd(), 'components/digital-twin/entities/PersonInstances.tsx'),
+      'utf8'
+    )
+    const vehicleInstances = readFileSync(
+      join(process.cwd(), 'components/digital-twin/entities/VehicleInstances.tsx'),
+      'utf8'
+    )
+    const equipmentInstances = readFileSync(
+      join(process.cwd(), 'components/digital-twin/entities/EquipmentInstances.tsx'),
+      'utf8'
+    )
+
     expect(personInstances.includes('applyInteractionBounds')).toBe(true)
     expect(vehicleInstances.includes('applyInteractionBounds')).toBe(true)
-    expect(personInstances.includes('mesh.frustumCulled = false')).toBe(true)
-    expect(vehicleInstances.includes('mesh.frustumCulled = false')).toBe(true)
+    expect(equipmentInstances.includes('applyInteractionBounds')).toBe(true)
+    expect(personInstances.includes('createInstancedInteractionBounds')).toBe(true)
+    expect(vehicleInstances.includes('createInstancedInteractionBounds')).toBe(true)
+    expect(equipmentInstances.includes('createInstancedInteractionBounds')).toBe(true)
+    expect(personInstances.includes('mesh.frustumCulled = true')).toBe(true)
+    expect(vehicleInstances.includes('mesh.frustumCulled = true')).toBe(true)
+    expect(equipmentInstances.includes('mesh.frustumCulled = true')).toBe(true)
     expect(personInstances.includes('mesh.boundingSphere')).toBe(true)
     expect(vehicleInstances.includes('mesh.boundingSphere')).toBe(true)
+    expect(equipmentInstances.includes('mesh.boundingSphere')).toBe(true)
   })
 })

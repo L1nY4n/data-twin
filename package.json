@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "export:static-chunks": "bun scripts/export-published-static-assets.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",

@@ -14,6 +14,8 @@ const DigitalTwinCanvas = dynamic(
 
 interface BenchmarkResult {
   mode: 'webgpu' | 'webgl2'
+  quality: 'balanced' | 'performance'
+  cameraPreset: string
   avgFps: number
   p95FrameTime: number
   samples: number
@@ -32,16 +34,20 @@ function average(values: number[]) {
 export default function BenchmarkPage() {
   useSimulation({ autoStart: true, profile: 'production' })
 
+  const cameraPresets = useDigitalTwinStore((state) => state.cameraPresets)
+  const activeCameraPreset = useDigitalTwinStore((state) => state.activeCameraPreset)
+  const setActiveCameraPreset = useDigitalTwinStore((state) => state.setActiveCameraPreset)
   const setRendererMode = useDigitalTwinStore((state) => state.setRendererMode)
   const setQualityProfile = useDigitalTwinStore((state) => state.setQualityProfile)
   const setAutoQuality = useDigitalTwinStore((state) => state.setAutoQuality)
+  const [benchmarkQuality, setBenchmarkQuality] = useState<'balanced' | 'performance'>('balanced')
   const [running, setRunning] = useState(false)
   const [results, setResults] = useState<Record<string, BenchmarkResult>>({})
 
   const runBenchmark = useCallback(async (mode: 'webgpu' | 'webgl2') => {
     setRunning(true)
     setAutoQuality(false)
-    setQualityProfile('performance')
+    setQualityProfile(benchmarkQuality)
     setRendererMode(mode)
 
     // 等待重建renderer与场景稳定
@@ -61,6 +67,8 @@ export default function BenchmarkPage() {
     const finalState = useDigitalTwinStore.getState()
     const result: BenchmarkResult = {
       mode,
+      quality: benchmarkQuality,
+      cameraPreset: finalState.activeCameraPreset ?? 'manual',
       avgFps: average(fpsSamples),
       p95FrameTime: average(p95Samples),
       samples: fpsSamples.length,
@@ -70,7 +78,7 @@ export default function BenchmarkPage() {
     setResults((prev) => ({ ...prev, [mode]: result }))
     setRunning(false)
     return result
-  }, [setAutoQuality, setQualityProfile, setRendererMode])
+  }, [benchmarkQuality, setAutoQuality, setQualityProfile, setRendererMode])
 
   const runCompare = useCallback(async () => {
     if (running) return
@@ -84,7 +92,7 @@ export default function BenchmarkPage() {
         <div className="space-y-0.5">
           <h1 className="text-sm font-semibold">Renderer Benchmark</h1>
           <p className="text-xs text-muted-foreground">
-            以生产级园区实体密度对比 WebGL2 与 WebGPU 的实测帧率
+            以生产级园区实体密度对比当前画质档位下 WebGL2 与 WebGPU 的实测帧率
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -103,6 +111,38 @@ export default function BenchmarkPage() {
         </div>
       </div>
 
+      <div className="flex flex-wrap items-center gap-2 border-b px-4 py-2 text-xs">
+        <span className="font-medium">质量</span>
+        <Button
+          size="sm"
+          variant={benchmarkQuality === 'balanced' ? 'default' : 'outline'}
+          onClick={() => setBenchmarkQuality('balanced')}
+          disabled={running}
+        >
+          Balanced
+        </Button>
+        <Button
+          size="sm"
+          variant={benchmarkQuality === 'performance' ? 'default' : 'outline'}
+          onClick={() => setBenchmarkQuality('performance')}
+          disabled={running}
+        >
+          Performance
+        </Button>
+        <span className="ml-4 font-medium">机位</span>
+        {cameraPresets.map((preset) => (
+          <Button
+            key={preset.id}
+            size="sm"
+            variant={activeCameraPreset === preset.id ? 'default' : 'outline'}
+            onClick={() => setActiveCameraPreset(preset.id)}
+            disabled={running}
+          >
+            {preset.name}
+          </Button>
+        ))}
+      </div>
+
       <div className="grid grid-cols-2 gap-3 border-b px-4 py-2 text-xs">
         <div className="rounded border p-2">
           <div className="font-medium">WebGL2</div>
@@ -110,6 +150,8 @@ export default function BenchmarkPage() {
           <div>P95(ms): {results.webgl2?.p95FrameTime.toFixed(1) ?? '-'}</div>
           <div>Samples: {results.webgl2?.samples ?? '-'}</div>
           <div>Backend: {results.webgl2?.backend ?? '-'}</div>
+          <div>Preset: {results.webgl2?.cameraPreset ?? '-'}</div>
+          <div>Quality: {results.webgl2?.quality ?? '-'}</div>
         </div>
         <div className="rounded border p-2">
           <div className="font-medium">WebGPU</div>
@@ -117,6 +159,8 @@ export default function BenchmarkPage() {
           <div>P95(ms): {results.webgpu?.p95FrameTime.toFixed(1) ?? '-'}</div>
           <div>Samples: {results.webgpu?.samples ?? '-'}</div>
           <div>Backend: {results.webgpu?.backend ?? '-'}</div>
+          <div>Preset: {results.webgpu?.cameraPreset ?? '-'}</div>
+          <div>Quality: {results.webgpu?.quality ?? '-'}</div>
         </div>
       </div>
 

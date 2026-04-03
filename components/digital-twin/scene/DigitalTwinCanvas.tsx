@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, useEffect, useMemo, useRef } from 'react'
+import { Suspense, memo, useEffect, useMemo, useRef } from 'react'
 import { Canvas, useFrame, useThree, addAfterEffect } from '@react-three/fiber'
 import {
   OrbitControls,
@@ -24,6 +24,7 @@ import { TrajectoryOverlay } from '../overlays/TrajectoryLine'
 import { NearbyDistanceOverlay } from '../overlays/DistanceIndicator'
 import { SceneLoading } from './SceneLoading'
 import { ScenePicking } from './ScenePicking'
+import { PublishedStaticFeaturePickingLayer } from './PublishedStaticFeaturePickingLayer'
 
 interface DigitalTwinCanvasProps {
   showStats?: boolean
@@ -33,7 +34,7 @@ interface SceneContentProps {
   backgroundColor: string
 }
 
-function SceneContent({ backgroundColor }: SceneContentProps) {
+const SceneContent = memo(function SceneContent({ backgroundColor }: SceneContentProps) {
   const controlsRef = useRef<OrbitControlsType>(null)
   const pickRootRef = useRef<THREE.Group>(null)
   const lastDrawCallsRef = useRef(0)
@@ -163,13 +164,16 @@ function SceneContent({ backgroundColor }: SceneContentProps) {
       {/* 静态化工厂环境，不参与拾取，避免拖慢射线遍历 */}
       <ChemicalPlantEnvironment isDark={isDark} />
 
-      {/* BVH 只包裹可拾取对象，降低拾取和构建成本 */}
-      <Bvh firstHitOnly>
-        <group ref={pickRootRef}>
-          <ZoneAreas />
-          <EntityMarkers />
-        </group>
-      </Bvh>
+      {/* 静态语义代理负责固定资产拾取，动态实体/区域继续走 BVH */}
+      <group ref={pickRootRef}>
+        <PublishedStaticFeaturePickingLayer />
+        <Bvh firstHitOnly>
+          <group>
+            <ZoneAreas />
+            <EntityMarkers />
+          </group>
+        </Bvh>
+      </group>
 
       {/* 测量工具 */}
       {measurementMode !== 'none' && <MeasurementTool />}
@@ -181,7 +185,30 @@ function SceneContent({ backgroundColor }: SceneContentProps) {
       <NearbyDistanceOverlay />
     </>
   )
-}
+})
+
+const PerformanceHud = memo(function PerformanceHud({
+  qualityProfile,
+  rendererBackend,
+  rendererMode,
+}: {
+  qualityProfile: string
+  rendererBackend: string
+  rendererMode: string
+}) {
+  const metrics = useDigitalTwinStore((state) => state.performanceMetrics)
+
+  return (
+    <div className="pointer-events-none absolute left-3 top-3 z-20 rounded-md border bg-background/80 px-2.5 py-1.5 text-[10px] backdrop-blur">
+      <div>FPS {metrics.fps.toFixed(0)} | P95 {metrics.frameTimeP95.toFixed(1)}ms</div>
+      <div>Draw {metrics.drawCalls} | Labels {metrics.visibleLabels}</div>
+      <div>
+        {metrics.poolRequests > 0 ? `Pool ${(metrics.poolHitRate * 100).toFixed(0)}%` : 'Pool idle'} | {qualityProfile}
+      </div>
+      <div>Renderer {rendererBackend} ({rendererMode})</div>
+    </div>
+  )
+})
 
 export function DigitalTwinCanvas({ showStats = false }: DigitalTwinCanvasProps) {
   const { resolvedTheme } = useTheme()
@@ -190,7 +217,6 @@ export function DigitalTwinCanvas({ showStats = false }: DigitalTwinCanvasProps)
   const rendererMode = useDigitalTwinStore((state) => state.rendererMode)
   const rendererBackend = useDigitalTwinStore((state) => state.rendererBackend)
   const setRendererBackend = useDigitalTwinStore((state) => state.setRendererBackend)
-  const metrics = useDigitalTwinStore((state) => state.performanceMetrics)
   const isDark = resolvedTheme === 'dark'
   const canvasBackground = isDark ? sceneConfig.backgroundColor : '#eaf1fb'
   const dprRange: [number, number] = qualityProfile === 'performance' ? [1, 1.2] : [1, 1.35]
@@ -231,14 +257,11 @@ export function DigitalTwinCanvas({ showStats = false }: DigitalTwinCanvasProps)
         {showStats && <Stats />}
       </Canvas>
 
-      <div className="pointer-events-none absolute left-3 top-3 z-20 rounded-md border bg-background/80 px-2.5 py-1.5 text-[10px] backdrop-blur">
-        <div>FPS {metrics.fps.toFixed(0)} | P95 {metrics.frameTimeP95.toFixed(1)}ms</div>
-        <div>Draw {metrics.drawCalls} | Labels {metrics.visibleLabels}</div>
-        <div>
-          {metrics.poolRequests > 0 ? `Pool ${(metrics.poolHitRate * 100).toFixed(0)}%` : 'Pool idle'} | {qualityProfile}
-        </div>
-        <div>Renderer {rendererBackend} ({rendererMode})</div>
-      </div>
+      <PerformanceHud
+        qualityProfile={qualityProfile}
+        rendererBackend={rendererBackend}
+        rendererMode={rendererMode}
+      />
     </div>
   )
 }
