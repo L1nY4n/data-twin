@@ -16,6 +16,18 @@ interface EquipmentInstancesProps {
   hoveredEntityId: string | null
 }
 
+interface EquipmentTransformState {
+  x: number
+  y: number
+  z: number
+  yaw: number
+}
+
+interface EquipmentAppearanceState {
+  bodyState: 'selected' | 'hovered' | 'idle'
+  status: EquipmentEntity['status']
+}
+
 const BODY_TEMP = new THREE.Object3D()
 const BASE_TEMP = new THREE.Object3D()
 const PANEL_TEMP = new THREE.Object3D()
@@ -99,6 +111,10 @@ export const EquipmentInstances = memo(function EquipmentInstances({
   const haloRef = useRef<THREE.InstancedMesh>(null)
   const ringRef = useRef<THREE.InstancedMesh>(null)
   const ventRef = useRef<THREE.InstancedMesh>(null)
+  const transformRef = useRef<Map<string, EquipmentTransformState>>(new Map())
+  const appearanceRef = useRef<Map<string, EquipmentAppearanceState>>(new Map())
+  const forceMatrixSyncRef = useRef(true)
+  const forceColorSyncRef = useRef(true)
   const colorRef = useRef({
     body: new THREE.Color(),
     status: new THREE.Color(),
@@ -112,6 +128,18 @@ export const EquipmentInstances = memo(function EquipmentInstances({
     () => entities.flatMap((entity) => [entity.id, entity.id, entity.id, entity.id]),
     [entities]
   )
+
+  useLayoutEffect(() => {
+    const nextIds = new Set(entities.map((entity) => entity.id))
+    transformRef.current.forEach((_value, id) => {
+      if (!nextIds.has(id)) transformRef.current.delete(id)
+    })
+    appearanceRef.current.forEach((_value, id) => {
+      if (!nextIds.has(id)) appearanceRef.current.delete(id)
+    })
+    forceMatrixSyncRef.current = true
+    forceColorSyncRef.current = true
+  }, [entityIds])
 
   useLayoutEffect(() => {
     ;[
@@ -153,24 +181,38 @@ export const EquipmentInstances = memo(function EquipmentInstances({
       return
     }
 
-    const bodyColor = colorRef.current.body
-    const statusColor = colorRef.current.status
+    const transformStates = transformRef.current
+    const forceMatrixSync = forceMatrixSyncRef.current
+    let matrixDirty = false
 
     for (let index = 0; index < entities.length; index += 1) {
       const entity = entities[index]
-      const isSelected = entity.id === selectedEntityId
-      const isHovered = entity.id === hoveredEntityId
       const yaw = entity.rotation.y
       const cosYaw = Math.cos(yaw)
       const sinYaw = Math.sin(yaw)
+      const previous = transformStates.get(entity.id)
+      const transformChanged =
+        forceMatrixSync ||
+        !previous ||
+        previous.x !== entity.position.x ||
+        previous.y !== entity.position.y ||
+        previous.z !== entity.position.z ||
+        previous.yaw !== yaw
+
+      if (!transformChanged) continue
+
+      transformStates.set(entity.id, {
+        x: entity.position.x,
+        y: entity.position.y,
+        z: entity.position.z,
+        yaw,
+      })
 
       BODY_TEMP.position.set(entity.position.x, entity.position.y + 1.5, entity.position.z)
       BODY_TEMP.rotation.set(0, yaw, 0)
       BODY_TEMP.scale.set(2, 3, 2)
       BODY_TEMP.updateMatrix()
       bodyRef.current.setMatrixAt(index, BODY_TEMP.matrix)
-      bodyColor.set(getBodyColor(isSelected, isHovered))
-      bodyRef.current.setColorAt(index, bodyColor)
 
       BASE_TEMP.position.set(entity.position.x, entity.position.y + 0.15, entity.position.z)
       BASE_TEMP.rotation.set(0, yaw, 0)
@@ -204,11 +246,6 @@ export const EquipmentInstances = memo(function EquipmentInstances({
       RING_TEMP.updateMatrix()
       ringRef.current.setMatrixAt(index, RING_TEMP.matrix)
 
-      statusColor.set(getStatusColor(entity.status))
-      glowRef.current.setColorAt(index, statusColor)
-      haloRef.current.setColorAt(index, statusColor)
-      ringRef.current.setColorAt(index, statusColor)
-
       const ventBaseIndex = index * VENT_OFFSETS.length
       for (let ventIndex = 0; ventIndex < VENT_OFFSETS.length; ventIndex += 1) {
         setVentMatrix(
@@ -220,20 +257,76 @@ export const EquipmentInstances = memo(function EquipmentInstances({
           ventBaseIndex + ventIndex
         )
       }
+
+      matrixDirty = true
     }
 
-    bodyRef.current.instanceMatrix.needsUpdate = true
-    baseRef.current.instanceMatrix.needsUpdate = true
-    panelRef.current.instanceMatrix.needsUpdate = true
-    glowRef.current.instanceMatrix.needsUpdate = true
-    haloRef.current.instanceMatrix.needsUpdate = true
-    ringRef.current.instanceMatrix.needsUpdate = true
-    ventRef.current.instanceMatrix.needsUpdate = true
+    if (matrixDirty) {
+      bodyRef.current.instanceMatrix.needsUpdate = true
+      baseRef.current.instanceMatrix.needsUpdate = true
+      panelRef.current.instanceMatrix.needsUpdate = true
+      glowRef.current.instanceMatrix.needsUpdate = true
+      haloRef.current.instanceMatrix.needsUpdate = true
+      ringRef.current.instanceMatrix.needsUpdate = true
+      ventRef.current.instanceMatrix.needsUpdate = true
+    }
 
-    if (bodyRef.current.instanceColor) bodyRef.current.instanceColor.needsUpdate = true
-    if (glowRef.current.instanceColor) glowRef.current.instanceColor.needsUpdate = true
-    if (haloRef.current.instanceColor) haloRef.current.instanceColor.needsUpdate = true
-    if (ringRef.current.instanceColor) ringRef.current.instanceColor.needsUpdate = true
+    if (forceMatrixSync) forceMatrixSyncRef.current = false
+  }, [entities, entityIds])
+
+  useLayoutEffect(() => {
+    if (!bodyRef.current || !glowRef.current || !haloRef.current || !ringRef.current) {
+      return
+    }
+
+    const appearanceStates = appearanceRef.current
+    const bodyColor = colorRef.current.body
+    const statusColor = colorRef.current.status
+    const forceColorSync = forceColorSyncRef.current
+    let bodyColorDirty = false
+    let statusColorDirty = false
+
+    for (let index = 0; index < entities.length; index += 1) {
+      const entity = entities[index]
+      const bodyState =
+        entity.id === selectedEntityId ? 'selected' : entity.id === hoveredEntityId ? 'hovered' : 'idle'
+      const previous = appearanceStates.get(entity.id)
+
+      if (forceColorSync || !previous || previous.bodyState !== bodyState) {
+        bodyColor.set(getBodyColor(bodyState === 'selected', bodyState === 'hovered'))
+        bodyRef.current.setColorAt(index, bodyColor)
+        bodyColorDirty = true
+      }
+
+      if (forceColorSync || !previous || previous.status !== entity.status) {
+        statusColor.set(getStatusColor(entity.status))
+        glowRef.current.setColorAt(index, statusColor)
+        haloRef.current.setColorAt(index, statusColor)
+        ringRef.current.setColorAt(index, statusColor)
+        statusColorDirty = true
+      }
+
+      if (forceColorSync || !previous || previous.bodyState !== bodyState || previous.status !== entity.status) {
+        appearanceStates.set(entity.id, {
+          bodyState,
+          status: entity.status,
+        })
+      }
+    }
+
+    if (bodyColorDirty && bodyRef.current.instanceColor) {
+      bodyRef.current.instanceColor.needsUpdate = true
+    }
+    if (statusColorDirty && glowRef.current.instanceColor) {
+      glowRef.current.instanceColor.needsUpdate = true
+    }
+    if (statusColorDirty && haloRef.current.instanceColor) {
+      haloRef.current.instanceColor.needsUpdate = true
+    }
+    if (statusColorDirty && ringRef.current.instanceColor) {
+      ringRef.current.instanceColor.needsUpdate = true
+    }
+    if (forceColorSync) forceColorSyncRef.current = false
   }, [entities, hoveredEntityId, selectedEntityId])
 
   const bodyMaterial = useMemo(

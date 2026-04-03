@@ -28,6 +28,7 @@ import {
   type EcsCommand,
   type EcsEntitySnapshot,
   type EcsCreatePayload,
+  type EcsWorld,
 } from './ecs'
 import {
   applyDynamicSeparation,
@@ -298,6 +299,23 @@ const LABEL_MODE_TO_CODE: Record<'hidden' | 'sprite' | 'html', number> = {
 
 const ecsWorld = createEcsWorld()
 type MovingSnapshot = EcsEntitySnapshot & { type: 'person' | 'vehicle' }
+
+function collectVisibleSnapshotsByTypes<T extends EntityType>(
+  world: EcsWorld,
+  types: readonly T[]
+): Array<EcsEntitySnapshot & { type: T }> {
+  const snapshots: Array<EcsEntitySnapshot & { type: T }> = []
+  for (const type of types) {
+    for (const id of world.byType[type]) {
+      const snapshot = world.snapshotById.get(id)
+      if (snapshot?.visible) {
+        snapshots.push(snapshot as EcsEntitySnapshot & { type: T })
+      }
+    }
+  }
+
+  return snapshots
+}
 
 function getAggregatePoolMetrics() {
   const { requests: poolRequests, hitRate: poolHitRate } = aggregatePoolMetrics(
@@ -722,7 +740,8 @@ function buildEntityMapFromWorld(options: BuildEntityMapOptions = {}): Map<strin
 
 function patchProjectedEntities(
   previous: Map<string, Entity>,
-  ids: Array<string | null | undefined>
+  ids: Array<string | null | undefined>,
+  forceProject = false
 ): Map<string, Entity> {
   const uniqueIds = new Set(ids.filter((id): id is string => typeof id === 'string' && id.length > 0))
   if (uniqueIds.size === 0) return previous
@@ -740,7 +759,11 @@ function patchProjectedEntities(
       return
     }
 
-    const projected = projectEntitySnapshot(snapshot, previousEntity, true)
+    const projected = projectEntitySnapshot(
+      snapshot,
+      previousEntity,
+      forceProject || snapshot.labelMode === 'html'
+    )
     if (next === previous) next = new Map(previous)
     next.set(id, projected)
   })
@@ -909,6 +932,69 @@ function patchEntityBuckets(
   return nextBuckets
 }
 
+function patchEntityDirectory(
+  previous: Map<string, EntityDirectoryEntry>,
+  ids: Array<string | null | undefined>
+): Map<string, EntityDirectoryEntry> {
+  const uniqueIds = [...new Set(ids.filter((id): id is string => typeof id === 'string' && id.length > 0))]
+  if (uniqueIds.length === 0) return previous
+
+  let next = previous
+
+  for (const id of uniqueIds) {
+    const snapshot = ecsWorld.snapshotById.get(id)
+    const previousEntry = previous.get(id)
+
+    if (!snapshot) {
+      if (!previousEntry) continue
+      if (next === previous) next = new Map(previous)
+      next.delete(id)
+      continue
+    }
+
+    if (
+      previousEntry &&
+      previousEntry.type === snapshot.type &&
+      previousEntry.name === snapshot.name &&
+      previousEntry.status === snapshot.status &&
+      previousEntry.visible === snapshot.visible
+    ) {
+      continue
+    }
+
+    if (next === previous) next = new Map(previous)
+    next.set(id, {
+      id: snapshot.id,
+      type: snapshot.type,
+      name: snapshot.name,
+      status: snapshot.status,
+      visible: snapshot.visible,
+    })
+  }
+
+  return next
+}
+
+function patchPublishedEntityState(options: {
+  previousEntities: Map<string, Entity>
+  previousBuckets: EntityBuckets
+  previousDirectory: Map<string, EntityDirectoryEntry>
+  ids: Array<string | null | undefined>
+}) {
+  const entities = patchProjectedEntities(options.previousEntities, options.ids)
+
+  return {
+    entities,
+    entityBuckets: patchEntityBuckets(
+      options.previousBuckets,
+      options.previousEntities,
+      entities,
+      options.ids
+    ),
+    entityDirectory: patchEntityDirectory(options.previousDirectory, options.ids),
+  }
+}
+
 function buildPublishedEntityState(options: {
   previousEntities?: Map<string, Entity>
   previousBuckets?: EntityBuckets
@@ -1035,10 +1121,10 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
         const updates: EcsCommand[] = []
         const trajectoryUpdates: Array<{ entityId: string; point: { position: Vector3; timestamp: number } }> = []
         const newAlarms: Alarm[] = []
-        const movingSnapshots = Array.from(ecsWorld.snapshotById.values()).filter(
-          (snapshot): snapshot is MovingSnapshot =>
-            snapshot.visible && (snapshot.type === 'person' || snapshot.type === 'vehicle')
-        )
+        const movingSnapshots = collectVisibleSnapshotsByTypes(ecsWorld, [
+          'person',
+          'vehicle',
+        ]) as MovingSnapshot[]
         const occupancyIndex = createDynamicOccupancyIndex(
           movingSnapshots.map((snapshot) => ({
             id: snapshot.id,
@@ -1047,90 +1133,93 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
           }))
         )
 
-        ecsWorld.snapshotById.forEach((snapshot) => {
-          if (!snapshot.visible || snapshot.type === 'zone') return
-
-          if (snapshot.type === 'person' || snapshot.type === 'vehicle') {
-            const movement = simulateEntityMovement(
-              {
-                type: snapshot.type,
-                position: snapshot.position,
-                rotation: snapshot.rotation,
-                metadata: snapshot.metadata,
-                speed: snapshot.speed,
-              },
-              ECS_BOUNDS
-            )
-            const separation = applyDynamicSeparation(
-              snapshot.id,
-              snapshot.type,
-              snapshot.position,
+        for (const snapshot of movingSnapshots) {
+          const movement = simulateEntityMovement(
+            {
+              type: snapshot.type,
+              position: snapshot.position,
+              rotation: snapshot.rotation,
+              metadata: snapshot.metadata,
+              speed: snapshot.speed,
+            },
+            ECS_BOUNDS
+          )
+          const separation = applyDynamicSeparation(
+            snapshot.id,
+            snapshot.type,
+            snapshot.position,
+            movement.position,
+            queryDynamicOccupants(
+              occupancyIndex,
               movement.position,
-              queryDynamicOccupants(
-                occupancyIndex,
-                movement.position,
-                DYNAMIC_NEIGHBOR_QUERY_RADIUS,
-                snapshot.id
-              )
+              DYNAMIC_NEIGHBOR_QUERY_RADIUS,
+              snapshot.id
             )
-            const nextPosition = separation.position
+          )
+          const nextPosition = separation.position
 
-            const nextUpdates: Record<string, unknown> = {
-              position: nextPosition,
-              rotation: {
-                x: snapshot.rotation.x,
-                y: movement.rotationY,
-                z: snapshot.rotation.z,
-              },
-            }
+          const nextUpdates: Record<string, unknown> = {
+            position: nextPosition,
+            rotation: {
+              x: snapshot.rotation.x,
+              y: movement.rotationY,
+              z: snapshot.rotation.z,
+            },
+          }
 
-            if (snapshot.type === 'vehicle') {
-              const nextMetadata = resolveVehicleBlockedMetadata(movement.metadata, separation.blocked)
-              if (nextMetadata) nextUpdates.metadata = nextMetadata
-            } else if (movement.metadata) {
-              nextUpdates.metadata = movement.metadata
-            }
-            if (typeof movement.heading === 'number') nextUpdates.heading = movement.heading
-            if (typeof movement.speed === 'number') {
-              nextUpdates.speed = separation.blocked ? 0 : movement.speed
-            }
+          if (snapshot.type === 'vehicle') {
+            const nextMetadata = resolveVehicleBlockedMetadata(movement.metadata, separation.blocked)
+            if (nextMetadata) nextUpdates.metadata = nextMetadata
+          } else if (movement.metadata) {
+            nextUpdates.metadata = movement.metadata
+          }
+          if (typeof movement.heading === 'number') nextUpdates.heading = movement.heading
+          if (typeof movement.speed === 'number') {
+            nextUpdates.speed = separation.blocked ? 0 : movement.speed
+          }
 
-            updateDynamicOccupancyIndex(occupancyIndex, snapshot.id, nextPosition)
+          updateDynamicOccupancyIndex(occupancyIndex, snapshot.id, nextPosition)
 
-            updates.push({
-              type: 'update',
-              payload: {
-                id: snapshot.id,
-                updates: nextUpdates as never,
+          updates.push({
+            type: 'update',
+            payload: {
+              id: snapshot.id,
+              updates: nextUpdates as never,
+            },
+          })
+
+          if (isPlayingTrajectory && selectedEntityId === snapshot.id) {
+            const pooled = ecsWorld.pools.trajectoryPoint.acquire()
+            pooled.x = nextPosition.x
+            pooled.y = nextPosition.y
+            pooled.z = nextPosition.z
+            pooled.t = now
+
+            trajectoryUpdates.push({
+              entityId: snapshot.id,
+              point: {
+                position: { x: nextPosition.x, y: nextPosition.y, z: nextPosition.z },
+                timestamp: pooled.t,
               },
             })
 
-            if (isPlayingTrajectory && selectedEntityId === snapshot.id) {
-              const pooled = ecsWorld.pools.trajectoryPoint.acquire()
-              pooled.x = nextPosition.x
-              pooled.y = nextPosition.y
-              pooled.z = nextPosition.z
-              pooled.t = now
-
-              trajectoryUpdates.push({
-                entityId: snapshot.id,
-                point: {
-                  position: { x: nextPosition.x, y: nextPosition.y, z: nextPosition.z },
-                  timestamp: pooled.t,
-                },
-              })
-
-              ecsWorld.pools.trajectoryPoint.release(pooled)
-            }
+            ecsWorld.pools.trajectoryPoint.release(pooled)
           }
+        }
 
-          if (snapshot.type === 'equipment') {
-            if (!shouldSimulateEquipment) return
+        if (shouldSimulateEquipment) {
+          for (const equipmentId of ecsWorld.byType.equipment) {
+            const snapshot = ecsWorld.snapshotById.get(equipmentId)
+            if (!snapshot?.visible) continue
+
             const prevStatus = snapshot.status
-            const next = simulateEquipmentStatus({
-              status: snapshot.status,
-              parameters: snapshot.parameters ?? {},
-            }, equipmentSimulationIntervalMs)
+            const next = simulateEquipmentStatus(
+              {
+                status: snapshot.status,
+                parameters: snapshot.parameters ?? {},
+              },
+              equipmentSimulationIntervalMs
+            )
 
             updates.push({
               type: 'update',
@@ -1160,7 +1249,7 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
               })
             }
           }
-        })
+        }
 
         if (shouldSimulateEquipment) {
           lastEquipmentSimulationAt = now
@@ -1209,6 +1298,9 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
         }
 
         set((state) => {
+          const changedIds = shouldPublishEntities
+            ? [...labelState.changedIds, ...updates.map((command) => command.payload.id)]
+            : []
           let nextTrajectories = state.trajectories
           let trajectoriesChanged = false
           if (trajectoryUpdates.length > 0) {
@@ -1240,10 +1332,11 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
 
           return {
             ...(shouldPublishEntities
-              ? buildPublishedEntityState({
+              ? patchPublishedEntityState({
                   previousEntities: state.entities,
                   previousBuckets: state.entityBuckets,
                   previousDirectory: state.entityDirectory,
+                  ids: changedIds,
                 })
               : {}),
             ...(trajectoriesChanged ? { trajectories: nextTrajectories } : {}),
@@ -1386,10 +1479,11 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
         enqueueEcsCommands(ecsWorld, [{ type: 'update', payload: { id, updates: updates as never } }])
         flushBufferedCommands(ecsWorld)
         set((state) => ({
-          ...buildPublishedEntityState({
+          ...patchPublishedEntityState({
             previousEntities: state.entities,
             previousBuckets: state.entityBuckets,
             previousDirectory: state.entityDirectory,
+            ids: [id],
           }),
         }))
       },
@@ -1419,7 +1513,7 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
             state.selectedEntityId,
             ecsWorld.selectedId,
           ]
-          const nextEntities = patchProjectedEntities(state.entities, changedIds)
+          const nextEntities = patchProjectedEntities(state.entities, changedIds, true)
           return {
             selectedEntityId: ecsWorld.selectedId,
             hoveredEntityId: ecsWorld.hoveredId,
@@ -1453,7 +1547,7 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
             state.hoveredEntityId,
             ecsWorld.hoveredId,
           ]
-          const nextEntities = patchProjectedEntities(state.entities, changedIds)
+          const nextEntities = patchProjectedEntities(state.entities, changedIds, true)
           return {
             selectedEntityId: ecsWorld.selectedId,
             hoveredEntityId: ecsWorld.hoveredId,
@@ -1496,10 +1590,11 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
         ])
         flushBufferedCommands(ecsWorld)
         set((state) => ({
-          ...buildPublishedEntityState({
+          ...patchPublishedEntityState({
             previousEntities: state.entities,
             previousBuckets: state.entityBuckets,
             previousDirectory: state.entityDirectory,
+            ids: [id],
           }),
         }))
       },
@@ -1515,10 +1610,11 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
         )
         flushBufferedCommands(ecsWorld)
         set((state) => ({
-          ...buildPublishedEntityState({
+          ...patchPublishedEntityState({
             previousEntities: state.entities,
             previousBuckets: state.entityBuckets,
             previousDirectory: state.entityDirectory,
+            ids: updates.map(({ id }) => id),
           }),
         }))
       },
@@ -1542,10 +1638,11 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
           const mergedAlarms = newAlarms.length > 0 ? [...newAlarms, ...state.alarms].slice(0, 100) : state.alarms
 
           return {
-            ...buildPublishedEntityState({
+            ...patchPublishedEntityState({
               previousEntities: state.entities,
               previousBuckets: state.entityBuckets,
               previousDirectory: state.entityDirectory,
+              ids: entityUpdates.map(({ id }) => id),
             }),
             trajectories: nextTrajectories,
             alarms: mergedAlarms,
@@ -1726,6 +1823,7 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
         ecsWorld.byExternalId.clear()
         ecsWorld.externalIdByEid.clear()
         ecsWorld.snapshotById.clear()
+        Object.values(ecsWorld.byType).forEach((ids) => ids.clear())
         ecsWorld.commandBuffer.length = 0
         ecsWorld.selectedId = null
         ecsWorld.hoveredId = null

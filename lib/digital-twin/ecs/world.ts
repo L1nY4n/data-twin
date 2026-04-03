@@ -163,11 +163,14 @@ export interface FlushResult {
   applied: number
 }
 
+type EcsTypeIndex = Record<EntityType, Set<string>>
+
 export interface EcsWorld {
   world: IWorld
   byExternalId: Map<string, number>
   externalIdByEid: Map<number, string>
   snapshotById: Map<string, EcsEntitySnapshot>
+  byType: EcsTypeIndex
   commandBuffer: EcsCommand[]
   selectedId: string | null
   hoveredId: string | null
@@ -183,6 +186,7 @@ export function createEcsWorld(): EcsWorld {
     byExternalId: new Map(),
     externalIdByEid: new Map(),
     snapshotById: new Map(),
+    byType: createTypeIndex(),
     commandBuffer: [],
     selectedId: null,
     hoveredId: null,
@@ -243,6 +247,7 @@ export function flushCommands(world: EcsWorld, commands: EcsCommand[]): FlushRes
     if (command.type === 'remove') {
       const eid = world.byExternalId.get(command.payload.id)
       if (eid === undefined) continue
+      const snapshot = world.snapshotById.get(command.payload.id)
       if (world.selectedId === command.payload.id) {
         setSelectedId(world, null)
       }
@@ -252,6 +257,9 @@ export function flushCommands(world: EcsWorld, commands: EcsCommand[]): FlushRes
       removeEntity(world.world, eid)
       world.byExternalId.delete(command.payload.id)
       world.externalIdByEid.delete(eid)
+      if (snapshot) {
+        world.byType[snapshot.type].delete(command.payload.id)
+      }
       world.snapshotById.delete(command.payload.id)
       applied += 1
       continue
@@ -335,6 +343,7 @@ function applyCreate(world: EcsWorld, eid: number, payload: EcsCreatePayload) {
     accessRules: cloneAccessRules(payload.accessRules),
     currentOccupancy: payload.currentOccupancy,
   })
+  world.byType[payload.entityType].add(payload.id)
 }
 
 function applyUpdate(world: EcsWorld, eid: number, payload: EcsUpdatePayload) {
@@ -479,4 +488,13 @@ function cloneAccessRules(rules: AccessRule[] | undefined): AccessRule[] | undef
         timeRanges: cloneTimeRanges(rule.timeRanges) ?? [],
       }))
     : undefined
+}
+
+function createTypeIndex(): EcsTypeIndex {
+  return {
+    person: new Set(),
+    vehicle: new Set(),
+    equipment: new Set(),
+    zone: new Set(),
+  }
 }

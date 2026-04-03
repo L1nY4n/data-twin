@@ -214,6 +214,86 @@ describe('ecs world command buffer', () => {
     expect(zone?.currentOccupancy).toBe(8)
   })
 
+  test('maintains type indexes as entities are created and removed', () => {
+    const world = createEcsWorld()
+
+    flushCommands(world, [
+      {
+        type: 'create',
+        payload: {
+          id: 'person-1',
+          entityType: 'person',
+          name: '人员1',
+          position: { x: 0, y: 0, z: 0 },
+          rotation: { x: 0, y: 0, z: 0 },
+          scale: { x: 1, y: 1, z: 1 },
+          status: 'active',
+          visible: true,
+          metadata: {},
+        },
+      },
+      {
+        type: 'create',
+        payload: {
+          id: 'vehicle-1',
+          entityType: 'vehicle',
+          name: '车辆1',
+          position: { x: 1, y: 0, z: 1 },
+          rotation: { x: 0, y: 0, z: 0 },
+          scale: { x: 1, y: 1, z: 1 },
+          status: 'active',
+          visible: true,
+          metadata: {},
+        },
+      },
+      {
+        type: 'create',
+        payload: {
+          id: 'equipment-1',
+          entityType: 'equipment',
+          name: '设备1',
+          position: { x: 2, y: 0, z: 2 },
+          rotation: { x: 0, y: 0, z: 0 },
+          scale: { x: 1, y: 1, z: 1 },
+          status: 'active',
+          visible: true,
+          metadata: {},
+        },
+      },
+      {
+        type: 'create',
+        payload: {
+          id: 'zone-1',
+          entityType: 'zone',
+          name: '区域1',
+          position: { x: 3, y: 0, z: 3 },
+          rotation: { x: 0, y: 0, z: 0 },
+          scale: { x: 1, y: 1, z: 1 },
+          status: 'active',
+          visible: true,
+          metadata: {},
+          boundary: [
+            { x: 2, y: 0, z: 2 },
+            { x: 4, y: 0, z: 2 },
+            { x: 4, y: 0, z: 4 },
+          ],
+        },
+      },
+    ])
+
+    expect(world.byType.person.has('person-1')).toBe(true)
+    expect(world.byType.vehicle.has('vehicle-1')).toBe(true)
+    expect(world.byType.equipment.has('equipment-1')).toBe(true)
+    expect(world.byType.zone.has('zone-1')).toBe(true)
+
+    flushCommands(world, [{ type: 'remove', payload: { id: 'vehicle-1' } }])
+
+    expect(world.byType.vehicle.has('vehicle-1')).toBe(false)
+    expect(world.byType.person.has('person-1')).toBe(true)
+    expect(world.byType.equipment.has('equipment-1')).toBe(true)
+    expect(world.byType.zone.has('zone-1')).toBe(true)
+  })
+
   test('clears selected and hovered ids when removing selected entity', () => {
     const world = createEcsWorld()
     flushCommands(world, [

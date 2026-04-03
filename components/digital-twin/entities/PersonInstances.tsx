@@ -27,7 +27,14 @@ interface PersonRuntimeState {
   y: number
   z: number
   yaw: number
+  targetX: number
+  targetY: number
+  targetZ: number
+  targetYaw: number
 }
+
+const POSITION_EPSILON = 0.001
+const ROTATION_EPSILON = 0.001
 
 function normalizeRadians(value: number): number {
   let angle = value
@@ -39,6 +46,38 @@ function normalizeRadians(value: number): number {
 
 function lerpAngle(current: number, target: number, alpha: number): number {
   return current + normalizeRadians(target - current) * alpha
+}
+
+function hasTargetChanged(state: PersonRuntimeState, targetPosition: PersonEntity['position'], targetYaw: number) {
+  return (
+    Math.abs(targetPosition.x - state.targetX) > POSITION_EPSILON ||
+    Math.abs(targetPosition.y - state.targetY) > POSITION_EPSILON ||
+    Math.abs(targetPosition.z - state.targetZ) > POSITION_EPSILON ||
+    Math.abs(normalizeRadians(targetYaw - state.targetYaw)) > ROTATION_EPSILON
+  )
+}
+
+function isSettled(state: PersonRuntimeState) {
+  return (
+    Math.abs(state.targetX - state.x) <= POSITION_EPSILON &&
+    Math.abs(state.targetY - state.y) <= POSITION_EPSILON &&
+    Math.abs(state.targetZ - state.z) <= POSITION_EPSILON &&
+    Math.abs(normalizeRadians(state.targetYaw - state.yaw)) <= ROTATION_EPSILON
+  )
+}
+
+function stepRuntimeState(state: PersonRuntimeState, smoothing: number) {
+  state.x += (state.targetX - state.x) * smoothing
+  state.y += (state.targetY - state.y) * smoothing
+  state.z += (state.targetZ - state.z) * smoothing
+  state.yaw = lerpAngle(state.yaw, state.targetYaw, smoothing)
+
+  if (Math.abs(state.targetX - state.x) <= POSITION_EPSILON) state.x = state.targetX
+  if (Math.abs(state.targetY - state.y) <= POSITION_EPSILON) state.y = state.targetY
+  if (Math.abs(state.targetZ - state.z) <= POSITION_EPSILON) state.z = state.targetZ
+  if (Math.abs(normalizeRadians(state.targetYaw - state.yaw)) <= ROTATION_EPSILON) {
+    state.yaw = state.targetYaw
+  }
 }
 
 function getStatusColor(status: PersonEntity['status']) {
@@ -66,6 +105,7 @@ export const PersonInstances = memo(function PersonInstances({ entities }: Perso
   const headRef = useRef<THREE.InstancedMesh>(null)
   const runtimeRef = useRef<Map<string, PersonRuntimeState>>(new Map())
   const statusRef = useRef<Map<string, PersonEntity['status']>>(new Map())
+  const forceMatrixSyncRef = useRef(true)
   const forceColorSyncRef = useRef(true)
   const colorRef = useRef({
     body: new THREE.Color(),
@@ -84,6 +124,7 @@ export const PersonInstances = memo(function PersonInstances({ entities }: Perso
   }, [entities])
 
   useEffect(() => {
+    forceMatrixSyncRef.current = true
     forceColorSyncRef.current = true
   }, [entityIds])
 
@@ -111,7 +152,9 @@ export const PersonInstances = memo(function PersonInstances({ entities }: Perso
     const headColor = colorRef.current.head
     const dt = Math.min(delta, 0.05)
     const smoothing = 1 - Math.exp(-14 * dt)
+    const forceMatrixSync = forceMatrixSyncRef.current
     const forceColorSync = forceColorSyncRef.current
+    let matrixDirty = false
     let colorDirty = false
 
     for (let index = 0; index < entities.length; index += 1) {
@@ -122,32 +165,49 @@ export const PersonInstances = memo(function PersonInstances({ entities }: Perso
       const targetStatus = (snapshot?.status as PersonEntity['status'] | undefined) ?? entity.status
 
       let state = runtimeStates.get(entity.id)
+      let shouldSyncMatrix = forceMatrixSync
       if (!state) {
         state = {
           x: targetPosition.x,
           y: targetPosition.y,
           z: targetPosition.z,
           yaw: targetYaw,
+          targetX: targetPosition.x,
+          targetY: targetPosition.y,
+          targetZ: targetPosition.z,
+          targetYaw,
         }
         runtimeStates.set(entity.id, state)
+        shouldSyncMatrix = true
       } else {
-        state.x += (targetPosition.x - state.x) * smoothing
-        state.y += (targetPosition.y - state.y) * smoothing
-        state.z += (targetPosition.z - state.z) * smoothing
-        state.yaw = lerpAngle(state.yaw, targetYaw, smoothing)
+        if (hasTargetChanged(state, targetPosition, targetYaw)) {
+          state.targetX = targetPosition.x
+          state.targetY = targetPosition.y
+          state.targetZ = targetPosition.z
+          state.targetYaw = targetYaw
+          shouldSyncMatrix = true
+        }
       }
 
-      BODY_TEMP.position.set(state.x, state.y + 0.55, state.z)
-      BODY_TEMP.rotation.set(0, state.yaw, 0)
-      BODY_TEMP.scale.set(1, 1, 1)
-      BODY_TEMP.updateMatrix()
-      bodyRef.current.setMatrixAt(index, BODY_TEMP.matrix)
+      if (!isSettled(state)) {
+        stepRuntimeState(state, smoothing)
+        shouldSyncMatrix = true
+      }
 
-      HEAD_TEMP.position.set(state.x, state.y + 1.24, state.z)
-      HEAD_TEMP.rotation.set(0, state.yaw, 0)
-      HEAD_TEMP.scale.set(1, 1, 1)
-      HEAD_TEMP.updateMatrix()
-      headRef.current.setMatrixAt(index, HEAD_TEMP.matrix)
+      if (shouldSyncMatrix) {
+        BODY_TEMP.position.set(state.x, state.y + 0.55, state.z)
+        BODY_TEMP.rotation.set(0, state.yaw, 0)
+        BODY_TEMP.scale.set(1, 1, 1)
+        BODY_TEMP.updateMatrix()
+        bodyRef.current.setMatrixAt(index, BODY_TEMP.matrix)
+
+        HEAD_TEMP.position.set(state.x, state.y + 1.24, state.z)
+        HEAD_TEMP.rotation.set(0, state.yaw, 0)
+        HEAD_TEMP.scale.set(1, 1, 1)
+        HEAD_TEMP.updateMatrix()
+        headRef.current.setMatrixAt(index, HEAD_TEMP.matrix)
+        matrixDirty = true
+      }
 
       const prevStatus = statusStates.get(entity.id)
       if (forceColorSync || prevStatus !== targetStatus) {
@@ -160,10 +220,13 @@ export const PersonInstances = memo(function PersonInstances({ entities }: Perso
       }
     }
 
-    bodyRef.current.instanceMatrix.needsUpdate = true
-    headRef.current.instanceMatrix.needsUpdate = true
+    if (matrixDirty) {
+      bodyRef.current.instanceMatrix.needsUpdate = true
+      headRef.current.instanceMatrix.needsUpdate = true
+    }
     if (colorDirty && bodyRef.current.instanceColor) bodyRef.current.instanceColor.needsUpdate = true
     if (colorDirty && headRef.current.instanceColor) headRef.current.instanceColor.needsUpdate = true
+    if (forceMatrixSync) forceMatrixSyncRef.current = false
     if (forceColorSync) forceColorSyncRef.current = false
   })
 

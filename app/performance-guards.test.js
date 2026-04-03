@@ -89,15 +89,32 @@ describe('performance guards', () => {
     expect(source.includes("qualityProfile === 'performance' ? 280 : 160")).toBe(false)
   })
 
+  test('hot update paths should patch published entities by changed ids instead of full rebuilds', () => {
+    const source = readFileSync(
+      join(process.cwd(), 'lib/digital-twin/store.ts'),
+      'utf8'
+    )
+
+    expect(source.includes('function patchPublishedEntityState')).toBe(true)
+    expect(source.includes('function patchEntityDirectory')).toBe(true)
+    expect(source.includes('ids: changedIds')).toBe(true)
+    expect(source.includes("ids: updates.map(({ id }) => id)")).toBe(true)
+    expect(source.includes("ids: entityUpdates.map(({ id }) => id)")).toBe(true)
+  })
+
   test('moving-entity separation should use occupancy buckets instead of per-entity full scans', () => {
     const source = readFileSync(
       join(process.cwd(), 'lib/digital-twin/store.ts'),
       'utf8'
     )
 
+    expect(source.includes('collectVisibleSnapshotsByTypes')).toBe(true)
+    expect(source.includes("'person'")).toBe(true)
+    expect(source.includes("'vehicle'")).toBe(true)
     expect(source.includes('createDynamicOccupancyIndex')).toBe(true)
     expect(source.includes('queryDynamicOccupants')).toBe(true)
     expect(source.includes('updateDynamicOccupancyIndex')).toBe(true)
+    expect(source.includes('Array.from(ecsWorld.snapshotById.values()).filter')).toBe(false)
     expect(source.includes('movingSnapshots.filter(')).toBe(false)
   })
 
@@ -149,6 +166,7 @@ describe('performance guards', () => {
       'utf8'
     )
 
+    expect(source.includes('ecsWorld.byType.equipment')).toBe(true)
     expect(source.includes('getEquipmentSimulationIntervalMs')).toBe(true)
     expect(source.includes('shouldRunEquipmentSimulation')).toBe(true)
     expect(source.includes('lastEquipmentSimulationAt')).toBe(true)
@@ -184,6 +202,20 @@ describe('performance guards', () => {
     expect(markers.includes('EquipmentInstances')).toBe(true)
     expect(markers.includes('showModel={false}')).toBe(true)
     expect(equipment.includes('showModel = true')).toBe(true)
+  })
+
+  test('equipment instances should split static matrix uploads from interaction/status color updates', () => {
+    const source = readFileSync(
+      join(process.cwd(), 'components/digital-twin/entities/EquipmentInstances.tsx'),
+      'utf8'
+    )
+
+    expect(source.includes('transformRef')).toBe(true)
+    expect(source.includes('appearanceRef')).toBe(true)
+    expect(source.includes('forceMatrixSyncRef')).toBe(true)
+    expect(source.includes('let matrixDirty = false')).toBe(true)
+    expect(source.includes('let bodyColorDirty = false')).toBe(true)
+    expect(source.includes('let statusColorDirty = false')).toBe(true)
   })
 
   test('store should not force equipment projection on every publish', () => {
@@ -354,6 +386,24 @@ describe('performance guards', () => {
     ).toBe(true)
     expect(personInstances.includes('lerpAngle(')).toBe(true)
     expect(vehicleInstances.includes('lerpAngle(')).toBe(true)
+  })
+
+  test('instanced moving entities should only upload matrices while dirty or unsettled', () => {
+    const personInstances = readFileSync(
+      join(process.cwd(), 'components/digital-twin/entities/PersonInstances.tsx'),
+      'utf8'
+    )
+    const vehicleInstances = readFileSync(
+      join(process.cwd(), 'components/digital-twin/entities/VehicleInstances.tsx'),
+      'utf8'
+    )
+
+    expect(personInstances.includes('forceMatrixSyncRef')).toBe(true)
+    expect(personInstances.includes('let matrixDirty = false')).toBe(true)
+    expect(personInstances.includes('if (!isSettled(state))')).toBe(true)
+    expect(vehicleInstances.includes('forceMatrixSyncRef')).toBe(true)
+    expect(vehicleInstances.includes('let matrixDirty = false')).toBe(true)
+    expect(vehicleInstances.includes('if (!isSettled(state))')).toBe(true)
   })
 
   test('instanced entity picking should apply explicit interaction bounds', () => {

@@ -29,7 +29,14 @@ interface VehicleRuntimeState {
   y: number
   z: number
   yaw: number
+  targetX: number
+  targetY: number
+  targetZ: number
+  targetYaw: number
 }
+
+const POSITION_EPSILON = 0.001
+const ROTATION_EPSILON = 0.001
 
 function normalizeRadians(value: number): number {
   let angle = value
@@ -41,6 +48,42 @@ function normalizeRadians(value: number): number {
 
 function lerpAngle(current: number, target: number, alpha: number): number {
   return current + normalizeRadians(target - current) * alpha
+}
+
+function hasTargetChanged(
+  state: VehicleRuntimeState,
+  targetPosition: VehicleEntity['position'],
+  targetYaw: number
+) {
+  return (
+    Math.abs(targetPosition.x - state.targetX) > POSITION_EPSILON ||
+    Math.abs(targetPosition.y - state.targetY) > POSITION_EPSILON ||
+    Math.abs(targetPosition.z - state.targetZ) > POSITION_EPSILON ||
+    Math.abs(normalizeRadians(targetYaw - state.targetYaw)) > ROTATION_EPSILON
+  )
+}
+
+function isSettled(state: VehicleRuntimeState) {
+  return (
+    Math.abs(state.targetX - state.x) <= POSITION_EPSILON &&
+    Math.abs(state.targetY - state.y) <= POSITION_EPSILON &&
+    Math.abs(state.targetZ - state.z) <= POSITION_EPSILON &&
+    Math.abs(normalizeRadians(state.targetYaw - state.yaw)) <= ROTATION_EPSILON
+  )
+}
+
+function stepRuntimeState(state: VehicleRuntimeState, smoothing: number) {
+  state.x += (state.targetX - state.x) * smoothing
+  state.y += (state.targetY - state.y) * smoothing
+  state.z += (state.targetZ - state.z) * smoothing
+  state.yaw = lerpAngle(state.yaw, state.targetYaw, smoothing)
+
+  if (Math.abs(state.targetX - state.x) <= POSITION_EPSILON) state.x = state.targetX
+  if (Math.abs(state.targetY - state.y) <= POSITION_EPSILON) state.y = state.targetY
+  if (Math.abs(state.targetZ - state.z) <= POSITION_EPSILON) state.z = state.targetZ
+  if (Math.abs(normalizeRadians(state.targetYaw - state.yaw)) <= ROTATION_EPSILON) {
+    state.yaw = state.targetYaw
+  }
 }
 
 const VEHICLE_SIZES: Record<VehicleEntity['vehicleType'], { width: number; height: number; depth: number }> = {
@@ -117,6 +160,7 @@ export const VehicleInstances = memo(function VehicleInstances({ entities }: Veh
   const wheelRef = useRef<THREE.InstancedMesh>(null)
   const runtimeRef = useRef<Map<string, VehicleRuntimeState>>(new Map())
   const statusRef = useRef<Map<string, VehicleEntity['status']>>(new Map())
+  const forceMatrixSyncRef = useRef(true)
   const forceColorSyncRef = useRef(true)
   const colorRef = useRef({
     body: new THREE.Color(),
@@ -141,6 +185,7 @@ export const VehicleInstances = memo(function VehicleInstances({ entities }: Veh
   }, [entities])
 
   useEffect(() => {
+    forceMatrixSyncRef.current = true
     forceColorSyncRef.current = true
   }, [entityIds])
 
@@ -187,7 +232,9 @@ export const VehicleInstances = memo(function VehicleInstances({ entities }: Veh
     const statusColor = colorRef.current.status
     const dt = Math.min(delta, 0.05)
     const smoothing = 1 - Math.exp(-14 * dt)
+    const forceMatrixSync = forceMatrixSyncRef.current
     const forceColorSync = forceColorSyncRef.current
+    let matrixDirty = false
     let colorDirty = false
 
     for (let index = 0; index < entities.length; index += 1) {
@@ -199,19 +246,33 @@ export const VehicleInstances = memo(function VehicleInstances({ entities }: Veh
       const targetStatus = (snapshot?.status as VehicleEntity['status'] | undefined) ?? entity.status
 
       let state = runtimeStates.get(entity.id)
+      let shouldSyncMatrix = forceMatrixSync
       if (!state) {
         state = {
           x: targetPosition.x,
           y: targetPosition.y,
           z: targetPosition.z,
           yaw: targetYaw,
+          targetX: targetPosition.x,
+          targetY: targetPosition.y,
+          targetZ: targetPosition.z,
+          targetYaw,
         }
         runtimeStates.set(entity.id, state)
+        shouldSyncMatrix = true
       } else {
-        state.x += (targetPosition.x - state.x) * smoothing
-        state.y += (targetPosition.y - state.y) * smoothing
-        state.z += (targetPosition.z - state.z) * smoothing
-        state.yaw = lerpAngle(state.yaw, targetYaw, smoothing)
+        if (hasTargetChanged(state, targetPosition, targetYaw)) {
+          state.targetX = targetPosition.x
+          state.targetY = targetPosition.y
+          state.targetZ = targetPosition.z
+          state.targetYaw = targetYaw
+          shouldSyncMatrix = true
+        }
+      }
+
+      if (!isSettled(state)) {
+        stepRuntimeState(state, smoothing)
+        shouldSyncMatrix = true
       }
 
       const prevStatus = statusStates.get(entity.id)
@@ -223,113 +284,116 @@ export const VehicleInstances = memo(function VehicleInstances({ entities }: Veh
         colorDirty = true
       }
 
-      BODY_TEMP.position.set(state.x, state.y + size.height * 0.5, state.z)
-      BODY_TEMP.rotation.set(0, state.yaw, 0)
-      BODY_TEMP.scale.set(size.width, size.height, size.depth)
-      BODY_TEMP.updateMatrix()
-      bodyRef.current.setMatrixAt(index, BODY_TEMP.matrix)
+      if (shouldSyncMatrix) {
+        BODY_TEMP.position.set(state.x, state.y + size.height * 0.5, state.z)
+        BODY_TEMP.rotation.set(0, state.yaw, 0)
+        BODY_TEMP.scale.set(size.width, size.height, size.depth)
+        BODY_TEMP.updateMatrix()
+        bodyRef.current.setMatrixAt(index, BODY_TEMP.matrix)
+
+        CABIN_TEMP.position.set(state.x, state.y + size.height * 0.92, state.z - size.depth * 0.12)
+        CABIN_TEMP.rotation.set(0, state.yaw, 0)
+        CABIN_TEMP.scale.set(size.width * 0.58, size.height * 0.5, size.depth * 0.45)
+        CABIN_TEMP.updateMatrix()
+        cabinRef.current.setMatrixAt(index, CABIN_TEMP.matrix)
+
+        ARROW_TEMP.position.set(state.x, state.y + size.height * 0.68, state.z + size.depth * 0.52)
+        ARROW_TEMP.rotation.set(0, state.yaw, 0)
+        ARROW_TEMP.scale.set(0.22, 0.22, 0.38)
+        ARROW_TEMP.updateMatrix()
+        arrowRef.current.setMatrixAt(index, ARROW_TEMP.matrix)
+
+        const wheelRadius =
+          entity.vehicleType === 'truck'
+            ? 0.28
+            : entity.vehicleType === 'forklift'
+              ? 0.24
+              : entity.vehicleType === 'agv'
+                ? 0.001
+                : 0.22
+        const wheelThickness = entity.vehicleType === 'truck' ? 0.2 : 0.16
+        const wheelY = state.y + Math.max(0.24, size.height * 0.24)
+        const sideX = size.width * 0.56
+        const frontZ = size.depth * 0.34
+        const rearZ = -size.depth * 0.34
+        const cosYaw = Math.cos(state.yaw)
+        const sinYaw = Math.sin(state.yaw)
+        const wheelScale = entity.vehicleType === 'agv' ? 0.001 : 1
+
+        const wheelBaseIndex = index * 4
+        setWheelMatrix(
+          wheelRef.current,
+          state,
+          cosYaw,
+          sinYaw,
+          -sideX,
+          frontZ,
+          wheelY,
+          wheelRadius,
+          wheelThickness,
+          wheelScale,
+          wheelBaseIndex
+        )
+        setWheelMatrix(
+          wheelRef.current,
+          state,
+          cosYaw,
+          sinYaw,
+          sideX,
+          frontZ,
+          wheelY,
+          wheelRadius,
+          wheelThickness,
+          wheelScale,
+          wheelBaseIndex + 1
+        )
+        setWheelMatrix(
+          wheelRef.current,
+          state,
+          cosYaw,
+          sinYaw,
+          -sideX,
+          rearZ,
+          wheelY,
+          wheelRadius,
+          wheelThickness,
+          wheelScale,
+          wheelBaseIndex + 2
+        )
+        setWheelMatrix(
+          wheelRef.current,
+          state,
+          cosYaw,
+          sinYaw,
+          sideX,
+          rearZ,
+          wheelY,
+          wheelRadius,
+          wheelThickness,
+          wheelScale,
+          wheelBaseIndex + 3
+        )
+        matrixDirty = true
+      }
+
       if (statusChanged) {
         bodyRef.current.setColorAt(index, bodyColor)
-      }
-
-      CABIN_TEMP.position.set(state.x, state.y + size.height * 0.92, state.z - size.depth * 0.12)
-      CABIN_TEMP.rotation.set(0, state.yaw, 0)
-      CABIN_TEMP.scale.set(size.width * 0.58, size.height * 0.5, size.depth * 0.45)
-      CABIN_TEMP.updateMatrix()
-      cabinRef.current.setMatrixAt(index, CABIN_TEMP.matrix)
-      if (statusChanged) {
         cabinColor.copy(bodyColor).offsetHSL(0, -0.02, 0.12)
         cabinRef.current.setColorAt(index, cabinColor)
-      }
-
-      ARROW_TEMP.position.set(state.x, state.y + size.height * 0.68, state.z + size.depth * 0.52)
-      ARROW_TEMP.rotation.set(0, state.yaw, 0)
-      ARROW_TEMP.scale.set(0.22, 0.22, 0.38)
-      ARROW_TEMP.updateMatrix()
-      arrowRef.current.setMatrixAt(index, ARROW_TEMP.matrix)
-      if (statusChanged) {
         arrowRef.current.setColorAt(index, statusColor)
       }
-
-      const wheelRadius =
-        entity.vehicleType === 'truck'
-          ? 0.28
-          : entity.vehicleType === 'forklift'
-            ? 0.24
-            : entity.vehicleType === 'agv'
-              ? 0.001
-              : 0.22
-      const wheelThickness = entity.vehicleType === 'truck' ? 0.2 : 0.16
-      const wheelY = state.y + Math.max(0.24, size.height * 0.24)
-      const sideX = size.width * 0.56
-      const frontZ = size.depth * 0.34
-      const rearZ = -size.depth * 0.34
-      const cosYaw = Math.cos(state.yaw)
-      const sinYaw = Math.sin(state.yaw)
-      const wheelScale = entity.vehicleType === 'agv' ? 0.001 : 1
-
-      const wheelBaseIndex = index * 4
-      setWheelMatrix(
-        wheelRef.current,
-        state,
-        cosYaw,
-        sinYaw,
-        -sideX,
-        frontZ,
-        wheelY,
-        wheelRadius,
-        wheelThickness,
-        wheelScale,
-        wheelBaseIndex
-      )
-      setWheelMatrix(
-        wheelRef.current,
-        state,
-        cosYaw,
-        sinYaw,
-        sideX,
-        frontZ,
-        wheelY,
-        wheelRadius,
-        wheelThickness,
-        wheelScale,
-        wheelBaseIndex + 1
-      )
-      setWheelMatrix(
-        wheelRef.current,
-        state,
-        cosYaw,
-        sinYaw,
-        -sideX,
-        rearZ,
-        wheelY,
-        wheelRadius,
-        wheelThickness,
-        wheelScale,
-        wheelBaseIndex + 2
-      )
-      setWheelMatrix(
-        wheelRef.current,
-        state,
-        cosYaw,
-        sinYaw,
-        sideX,
-        rearZ,
-        wheelY,
-        wheelRadius,
-        wheelThickness,
-        wheelScale,
-        wheelBaseIndex + 3
-      )
     }
 
-    bodyRef.current.instanceMatrix.needsUpdate = true
-    cabinRef.current.instanceMatrix.needsUpdate = true
-    arrowRef.current.instanceMatrix.needsUpdate = true
-    wheelRef.current.instanceMatrix.needsUpdate = true
+    if (matrixDirty) {
+      bodyRef.current.instanceMatrix.needsUpdate = true
+      cabinRef.current.instanceMatrix.needsUpdate = true
+      arrowRef.current.instanceMatrix.needsUpdate = true
+      wheelRef.current.instanceMatrix.needsUpdate = true
+    }
     if (colorDirty && bodyRef.current.instanceColor) bodyRef.current.instanceColor.needsUpdate = true
     if (colorDirty && cabinRef.current.instanceColor) cabinRef.current.instanceColor.needsUpdate = true
     if (colorDirty && arrowRef.current.instanceColor) arrowRef.current.instanceColor.needsUpdate = true
+    if (forceMatrixSync) forceMatrixSyncRef.current = false
     if (forceColorSync) forceColorSyncRef.current = false
   })
 
