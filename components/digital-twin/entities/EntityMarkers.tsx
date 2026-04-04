@@ -1,12 +1,21 @@
 'use client'
 
 import { useMemo } from 'react'
-import { DEFAULT_PUBLISHED_SCENE_PACKAGE } from '@/lib/digital-twin/publish'
+import type { PublishedSceneSector } from '@/lib/digital-twin/publish'
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
-import type { EquipmentEntity, PersonEntity, VehicleEntity, Vector3 } from '@/lib/digital-twin/types'
+import type {
+  CameraEntity,
+  EquipmentEntity,
+  PersonEntity,
+  SensorEntity,
+  VehicleEntity,
+  Vector3,
+} from '@/lib/digital-twin/types'
 import { PersonMarker } from './PersonMarker'
 import { VehicleMarker } from './VehicleMarker'
 import { EquipmentMarker } from './EquipmentMarker'
+import { SensorMarker } from './SensorMarker'
+import { CameraMarker } from './CameraMarker'
 import { PersonInstances } from './PersonInstances'
 import { VehicleInstances } from './VehicleInstances'
 import { EquipmentInstances } from './EquipmentInstances'
@@ -16,11 +25,11 @@ interface SectorEntityBatch<T> {
   entities: T[]
 }
 
-function resolveNearestSectorId(position: Vector3) {
-  let nearestSectorId = DEFAULT_PUBLISHED_SCENE_PACKAGE.sectors[0]?.id ?? 'sector-core'
+function resolveNearestSectorId(position: Vector3, sectors: PublishedSceneSector[]) {
+  let nearestSectorId = sectors[0]?.id ?? 'sector-core'
   let nearestDistance = Number.POSITIVE_INFINITY
 
-  for (const sector of DEFAULT_PUBLISHED_SCENE_PACKAGE.sectors) {
+  for (const sector of sectors) {
     const dx = position.x - sector.offset.x
     const dz = position.z - sector.offset.z
     const distance = dx * dx + dz * dz
@@ -33,19 +42,22 @@ function resolveNearestSectorId(position: Vector3) {
   return nearestSectorId
 }
 
-function createSectorEntityBatches<T extends { position: Vector3 }>(entities: T[]): SectorEntityBatch<T>[] {
+function createSectorEntityBatches<T extends { position: Vector3 }>(
+  entities: T[],
+  sectors: PublishedSceneSector[]
+): SectorEntityBatch<T>[] {
   const sectorBuckets = new Map<string, T[]>()
-  DEFAULT_PUBLISHED_SCENE_PACKAGE.sectors.forEach((sector) => {
+  sectors.forEach((sector) => {
     sectorBuckets.set(sector.id, [])
   })
 
   // Keep instanced batches localized so offscreen sectors can cull independently.
   entities.forEach((entity) => {
-    const sectorId = resolveNearestSectorId(entity.position)
+    const sectorId = resolveNearestSectorId(entity.position, sectors)
     sectorBuckets.get(sectorId)?.push(entity)
   })
 
-  return DEFAULT_PUBLISHED_SCENE_PACKAGE.sectors.map((sector) => ({
+  return sectors.map((sector) => ({
     sectorId: sector.id,
     entities: sectorBuckets.get(sector.id) ?? [],
   })).filter((batch) => batch.entities.length > 0)
@@ -55,42 +67,50 @@ export function EntityMarkers() {
   const persons = useDigitalTwinStore((state) => state.entityBuckets.persons)
   const vehicles = useDigitalTwinStore((state) => state.entityBuckets.vehicles)
   const equipment = useDigitalTwinStore((state) => state.entityBuckets.equipment)
+  const sensors = useDigitalTwinStore((state) => state.entityBuckets.sensors)
+  const cameras = useDigitalTwinStore((state) => state.entityBuckets.cameras)
   const entityFilters = useDigitalTwinStore((state) => state.entityFilters)
   const selectedEntityId = useDigitalTwinStore((state) => state.selectedEntityId)
   const hoveredEntityId = useDigitalTwinStore((state) => state.hoveredEntityId)
+  const publishedSectors = useDigitalTwinStore((state) => state.publishedScenePackage.sectors)
 
   const searchQuery = entityFilters.searchQuery.toLowerCase()
-  const matchesBaseFilter = (entity: PersonEntity | VehicleEntity | EquipmentEntity) => {
-    if (!entityFilters.types.includes(entity.type)) return false
-    if (!entityFilters.statuses.includes(entity.status)) return false
-    if (!entity.visible) return false
-    if (!searchQuery) return true
-    return entity.name.toLowerCase().includes(searchQuery)
-  }
+  const {
+    filteredPersons,
+    filteredVehicles,
+    filteredEquipment,
+    filteredSensors,
+    filteredCameras,
+  } = useMemo(() => {
+    const matchesBaseFilter = (
+      entity: PersonEntity | VehicleEntity | EquipmentEntity | SensorEntity | CameraEntity
+    ) => {
+      if (!entityFilters.types.includes(entity.type)) return false
+      if (!entityFilters.statuses.includes(entity.status)) return false
+      if (!entity.visible) return false
+      if (!searchQuery) return true
+      return entity.name.toLowerCase().includes(searchQuery)
+    }
 
-  const filteredPersons = useMemo(
-    () => persons.filter((entity) => matchesBaseFilter(entity)),
-    [persons, entityFilters, searchQuery]
-  )
-  const filteredVehicles = useMemo(
-    () => vehicles.filter((entity) => matchesBaseFilter(entity)),
-    [vehicles, entityFilters, searchQuery]
-  )
-  const filteredEquipment = useMemo(
-    () => equipment.filter((entity) => matchesBaseFilter(entity)),
-    [equipment, entityFilters, searchQuery]
-  )
+    return {
+      filteredPersons: persons.filter((entity) => matchesBaseFilter(entity)),
+      filteredVehicles: vehicles.filter((entity) => matchesBaseFilter(entity)),
+      filteredEquipment: equipment.filter((entity) => matchesBaseFilter(entity)),
+      filteredSensors: sensors.filter((entity) => matchesBaseFilter(entity)),
+      filteredCameras: cameras.filter((entity) => matchesBaseFilter(entity)),
+    }
+  }, [persons, vehicles, equipment, sensors, cameras, entityFilters, searchQuery])
   const personBatches = useMemo(
-    () => createSectorEntityBatches(filteredPersons),
-    [filteredPersons]
+    () => createSectorEntityBatches(filteredPersons, publishedSectors),
+    [filteredPersons, publishedSectors]
   )
   const vehicleBatches = useMemo(
-    () => createSectorEntityBatches(filteredVehicles),
-    [filteredVehicles]
+    () => createSectorEntityBatches(filteredVehicles, publishedSectors),
+    [filteredVehicles, publishedSectors]
   )
   const equipmentBatches = useMemo(
-    () => createSectorEntityBatches(filteredEquipment),
-    [filteredEquipment]
+    () => createSectorEntityBatches(filteredEquipment, publishedSectors),
+    [filteredEquipment, publishedSectors]
   )
 
   const detailPersons = useMemo(
@@ -169,6 +189,24 @@ export function EntityMarkers() {
           isHovered={hoveredEntityId === equip.id}
           showModel={false}
           showStatusRing={false}
+        />
+      ))}
+
+      {filteredSensors.map((sensor) => (
+        <SensorMarker
+          key={sensor.id}
+          entity={sensor}
+          isSelected={selectedEntityId === sensor.id}
+          isHovered={hoveredEntityId === sensor.id}
+        />
+      ))}
+
+      {filteredCameras.map((camera) => (
+        <CameraMarker
+          key={camera.id}
+          entity={camera}
+          isSelected={selectedEntityId === camera.id}
+          isHovered={hoveredEntityId === camera.id}
         />
       ))}
     </group>

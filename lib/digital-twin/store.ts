@@ -2,11 +2,13 @@ import { create } from 'zustand'
 import { subscribeWithSelector } from 'zustand/middleware'
 import type {
   AccessRule,
+  CameraEntity,
   Entity,
   ZoneEntity,
   PersonEntity,
   VehicleEntity,
   EquipmentEntity,
+  SensorEntity,
   EntityType,
   EntityStatus,
   TimeRange,
@@ -17,6 +19,7 @@ import type {
   RuleConfig,
   EntityTrajectory,
   Alarm,
+  StaticAssetInstance,
 } from './types'
 import {
   createEcsWorld,
@@ -45,8 +48,17 @@ import { createTickScheduler } from './ecs/scheduler'
 import { CAMPUS_BOUNDS } from './campus-layout'
 import { getEquipmentSimulationIntervalMs, shouldRunEquipmentSimulation } from './equipment-runtime'
 import { aggregatePoolMetrics } from './performance-runtime'
+import type { PublishedScenePackage } from './publish'
 import { DEFAULT_PUBLISHED_SCENE_PACKAGE } from './publish'
-import { getRuntimePublishedStaticFeature } from './runtime/static/features'
+import {
+  createRuntimeStaticChunkRegistry,
+  type RuntimeStaticChunkRegistration,
+} from './runtime/static/chunk-registry'
+import {
+  createRuntimePublishedStaticFeatureRegistry,
+  getRuntimePublishedStaticFeature,
+  type RuntimePublishedStaticFeatureRegistry,
+} from './runtime/static/features'
 
 export type QualityProfile = 'balanced' | 'performance'
 export type RendererMode = 'auto' | 'webgpu' | 'webgl2'
@@ -61,10 +73,17 @@ interface PerformanceMetrics {
   poolRequests: number
 }
 
+interface CameraFocusRequest {
+  position: Vector3
+  target: Vector3
+}
+
 interface EntityBuckets {
   persons: PersonEntity[]
   vehicles: VehicleEntity[]
   equipment: EquipmentEntity[]
+  sensors: SensorEntity[]
+  cameras: CameraEntity[]
   zones: ZoneEntity[]
 }
 
@@ -76,18 +95,29 @@ export interface EntityDirectoryEntry {
   visible: boolean
 }
 
+const defaultPublishedScenePackage = DEFAULT_PUBLISHED_SCENE_PACKAGE
+const defaultStaticChunkRegistry = createRuntimeStaticChunkRegistry(defaultPublishedScenePackage)
+const defaultStaticFeatureRegistry =
+  createRuntimePublishedStaticFeatureRegistry(defaultPublishedScenePackage)
+
 // 默认场景配置
-const defaultSceneConfig: SceneConfig = DEFAULT_PUBLISHED_SCENE_PACKAGE.sceneConfig
+const defaultSceneConfig: SceneConfig = defaultPublishedScenePackage.sceneConfig
 
 // 默认相机预设
-const defaultCameraPresets: CameraPreset[] = DEFAULT_PUBLISHED_SCENE_PACKAGE.cameraPresets
+const defaultCameraPresets: CameraPreset[] = defaultPublishedScenePackage.cameraPresets
 
 interface DigitalTwinState {
+  publishedScenePackage: PublishedScenePackage
+  staticChunkRegistry: RuntimeStaticChunkRegistration[]
+  staticFeatureRegistry: RuntimePublishedStaticFeatureRegistry
+  authoredStaticAssets: Map<string, StaticAssetInstance>
+
   // 场景状态
   sceneConfig: SceneConfig
   viewMode: ViewMode
   cameraPresets: CameraPreset[]
   activeCameraPreset: string | null
+  cameraFocusRequest: CameraFocusRequest | null
   isSceneReady: boolean
 
   // 实体状态（UI层消费）
@@ -150,10 +180,14 @@ interface SimulationTickPayload {
 }
 
 interface DigitalTwinActions {
+  setPublishedScenePackage: (pkg: PublishedScenePackage) => void
+  setAuthoredStaticAssets: (assets: StaticAssetInstance[]) => void
+
   // 场景操作
   setSceneConfig: (config: Partial<SceneConfig>) => void
   setViewMode: (mode: ViewMode) => void
   setActiveCameraPreset: (presetId: string | null) => void
+  focusCameraOnEntity: (id: string) => void
   setSceneReady: (ready: boolean) => void
 
   // 实体操作
@@ -223,10 +257,15 @@ interface DigitalTwinActions {
 }
 
 const initialState: DigitalTwinState = {
+  publishedScenePackage: defaultPublishedScenePackage,
+  staticChunkRegistry: defaultStaticChunkRegistry,
+  staticFeatureRegistry: defaultStaticFeatureRegistry,
+  authoredStaticAssets: new Map(),
   sceneConfig: defaultSceneConfig,
   viewMode: 'orbit',
   cameraPresets: defaultCameraPresets,
   activeCameraPreset: 'iso',
+  cameraFocusRequest: null,
   isSceneReady: false,
 
   entities: new Map(),
@@ -234,6 +273,8 @@ const initialState: DigitalTwinState = {
     persons: [],
     vehicles: [],
     equipment: [],
+    sensors: [],
+    cameras: [],
     zones: [],
   },
   entityDirectory: new Map(),
@@ -242,7 +283,7 @@ const initialState: DigitalTwinState = {
   selectedStaticFeatureId: null,
   hoveredStaticFeatureId: null,
   entityFilters: {
-    types: ['person', 'vehicle', 'equipment', 'zone'],
+    types: ['person', 'vehicle', 'equipment', 'sensor', 'camera', 'zone'],
     statuses: ['active', 'inactive', 'warning', 'error'],
     searchQuery: '',
   },
@@ -364,6 +405,22 @@ function cloneBoundary(boundary: Vector3[] | undefined): Vector3[] | undefined {
   return boundary ? boundary.map((point) => ({ ...point })) : undefined
 }
 
+function cloneSceneConfigValue(sceneConfig: SceneConfig): SceneConfig {
+  return {
+    ...sceneConfig,
+    cameraPosition: { ...sceneConfig.cameraPosition },
+    cameraTarget: { ...sceneConfig.cameraTarget },
+  }
+}
+
+function cloneCameraPresetsValue(cameraPresets: CameraPreset[]): CameraPreset[] {
+  return cameraPresets.map((preset) => ({
+    ...preset,
+    position: { ...preset.position },
+    target: { ...preset.target },
+  }))
+}
+
 function cloneTimeRanges(schedule: TimeRange[] | undefined): TimeRange[] | undefined {
   return schedule
     ? schedule.map((range) => ({
@@ -431,6 +488,25 @@ function toCreatePayload(entity: Entity): EcsCreatePayload {
     payload.parameters = { ...entity.parameters }
     payload.alarms = cloneAlarms(entity.alarms)
     payload.maintenanceSchedule = cloneTimeRanges(entity.maintenanceSchedule)
+    return payload
+  }
+
+  if (entity.type === 'sensor') {
+    payload.sensorType = entity.sensorType
+    payload.unit = entity.unit
+    payload.reading = entity.reading
+    payload.thresholdMin = entity.thresholdMin
+    payload.thresholdMax = entity.thresholdMax
+    return payload
+  }
+
+  if (entity.type === 'camera') {
+    payload.cameraType = entity.cameraType
+    payload.streamUrl = entity.streamUrl
+    payload.fov = entity.fov
+    payload.heading = entity.heading
+    payload.range = entity.range
+    payload.recording = entity.recording
     return payload
   }
 
@@ -509,6 +585,51 @@ function snapshotToEntity(snapshot: EcsEntitySnapshot): Entity {
       parameters: { ...(snapshot.parameters ?? {}) },
       alarms: cloneAlarms(snapshot.alarms) ?? [],
       maintenanceSchedule: cloneTimeRanges(snapshot.maintenanceSchedule),
+      labelMode: snapshot.labelMode,
+    }
+  }
+
+  if (snapshot.type === 'sensor') {
+    return {
+      id: snapshot.id,
+      type: 'sensor',
+      name: snapshot.name,
+      position: snapshot.position,
+      rotation: snapshot.rotation,
+      scale: snapshot.scale,
+      status: snapshot.status,
+      visible: snapshot.visible,
+      metadata: { ...snapshot.metadata },
+      createdAt,
+      updatedAt,
+      sensorType: snapshot.sensorType ?? 'other',
+      unit: snapshot.unit ?? '',
+      reading: snapshot.reading ?? 0,
+      thresholdMin: snapshot.thresholdMin,
+      thresholdMax: snapshot.thresholdMax,
+      labelMode: snapshot.labelMode,
+    }
+  }
+
+  if (snapshot.type === 'camera') {
+    return {
+      id: snapshot.id,
+      type: 'camera',
+      name: snapshot.name,
+      position: snapshot.position,
+      rotation: snapshot.rotation,
+      scale: snapshot.scale,
+      status: snapshot.status,
+      visible: snapshot.visible,
+      metadata: { ...snapshot.metadata },
+      createdAt,
+      updatedAt,
+      cameraType: snapshot.cameraType ?? 'fixed',
+      streamUrl: snapshot.streamUrl,
+      fov: snapshot.fov ?? 75,
+      heading: snapshot.heading ?? 0,
+      range: snapshot.range,
+      recording: snapshot.recording ?? true,
       labelMode: snapshot.labelMode,
     }
   }
@@ -622,6 +743,25 @@ function canReuseProjectedEntity(previous: Entity, snapshot: EcsEntitySnapshot):
     return true
   }
 
+  if (snapshot.type === 'sensor') {
+    return previous.type === 'sensor'
+      && previous.sensorType === (snapshot.sensorType ?? previous.sensorType)
+      && previous.unit === (snapshot.unit ?? previous.unit)
+      && previous.reading === (snapshot.reading ?? previous.reading)
+      && previous.thresholdMin === snapshot.thresholdMin
+      && previous.thresholdMax === snapshot.thresholdMax
+  }
+
+  if (snapshot.type === 'camera') {
+    return previous.type === 'camera'
+      && previous.cameraType === (snapshot.cameraType ?? previous.cameraType)
+      && previous.streamUrl === snapshot.streamUrl
+      && previous.fov === (snapshot.fov ?? previous.fov)
+      && previous.heading === (snapshot.heading ?? previous.heading)
+      && previous.range === snapshot.range
+      && previous.recording === (snapshot.recording ?? previous.recording)
+  }
+
   const entity = previous
   if (entity.type !== 'zone') return false
   if (entity.zoneType !== ((snapshot.zoneType as ZoneEntity['zoneType']) ?? entity.zoneType)) return false
@@ -702,6 +842,10 @@ function getBucketKey(entity: Entity): keyof EntityBuckets {
       return 'vehicles'
     case 'equipment':
       return 'equipment'
+    case 'sensor':
+      return 'sensors'
+    case 'camera':
+      return 'cameras'
     case 'zone':
       return 'zones'
   }
@@ -810,6 +954,8 @@ function buildEntityBucketsFromEntities(
   const nextPersons: PersonEntity[] = []
   const nextVehicles: VehicleEntity[] = []
   const nextEquipment: EquipmentEntity[] = []
+  const nextSensors: SensorEntity[] = []
+  const nextCameras: CameraEntity[] = []
   const nextZones: ZoneEntity[] = []
 
   entities.forEach((entity) => {
@@ -823,6 +969,12 @@ function buildEntityBucketsFromEntities(
       case 'equipment':
         nextEquipment.push(entity)
         break
+      case 'sensor':
+        nextSensors.push(entity)
+        break
+      case 'camera':
+        nextCameras.push(entity)
+        break
       case 'zone':
         nextZones.push(entity)
         break
@@ -834,6 +986,8 @@ function buildEntityBucketsFromEntities(
       persons: nextPersons,
       vehicles: nextVehicles,
       equipment: nextEquipment,
+      sensors: nextSensors,
+      cameras: nextCameras,
       zones: nextZones,
     }
   }
@@ -841,12 +995,16 @@ function buildEntityBucketsFromEntities(
   const persons = sameEntityArray(previous.persons, nextPersons) ? previous.persons : nextPersons
   const vehicles = sameEntityArray(previous.vehicles, nextVehicles) ? previous.vehicles : nextVehicles
   const equipment = sameEntityArray(previous.equipment, nextEquipment) ? previous.equipment : nextEquipment
+  const sensors = sameEntityArray(previous.sensors, nextSensors) ? previous.sensors : nextSensors
+  const cameras = sameEntityArray(previous.cameras, nextCameras) ? previous.cameras : nextCameras
   const zones = sameEntityArray(previous.zones, nextZones) ? previous.zones : nextZones
 
   if (
     persons === previous.persons &&
     vehicles === previous.vehicles &&
     equipment === previous.equipment &&
+    sensors === previous.sensors &&
+    cameras === previous.cameras &&
     zones === previous.zones
   ) {
     return previous
@@ -856,6 +1014,8 @@ function buildEntityBucketsFromEntities(
     persons,
     vehicles,
     equipment,
+    sensors,
+    cameras,
     zones,
   }
 }
@@ -894,6 +1054,8 @@ function patchEntityBuckets(
         persons: previousBuckets.persons,
         vehicles: previousBuckets.vehicles,
         equipment: previousBuckets.equipment,
+        sensors: previousBuckets.sensors,
+        cameras: previousBuckets.cameras,
         zones: previousBuckets.zones,
       }
     }
@@ -915,6 +1077,18 @@ function patchEntityBuckets(
         const nextBucket = previousBucket.slice() as EquipmentEntity[]
         nextBucket[entityIndex] = nextEntity as EquipmentEntity
         nextBuckets.equipment = nextBucket
+        break
+      }
+      case 'sensors': {
+        const nextBucket = previousBucket.slice() as SensorEntity[]
+        nextBucket[entityIndex] = nextEntity as SensorEntity
+        nextBuckets.sensors = nextBucket
+        break
+      }
+      case 'cameras': {
+        const nextBucket = previousBucket.slice() as CameraEntity[]
+        nextBucket[entityIndex] = nextEntity as CameraEntity
+        nextBuckets.cameras = nextBucket
         break
       }
       case 'zones': {
@@ -1077,6 +1251,61 @@ function applyLabelLod(profile: QualityProfile, cameraPosition: Vector3): {
     visibleLabels,
     htmlLabels: htmlIndex,
     changedIds,
+  }
+}
+
+const CAMERA_FOCUS_HORIZONTAL_DISTANCE = 18
+const CAMERA_FOCUS_VERTICAL_DISTANCE = 10
+const CAMERA_FOCUS_MIN_HORIZONTAL_DISTANCE = 8
+const CAMERA_FOCUS_MIN_VERTICAL_DISTANCE = 6
+
+function isZeroVector(vector: Vector3) {
+  return vector.x === 0 && vector.y === 0 && vector.z === 0
+}
+
+function buildCameraFocusRequest(
+  entity: Entity,
+  currentCamera: Vector3,
+  fallbackCamera: Vector3
+): CameraFocusRequest {
+  const targetHeight = entity.type === 'zone'
+    ? 1.5
+    : Math.max(entity.scale.y * 0.9, 1.8)
+  const target = {
+    x: entity.position.x,
+    y: entity.position.y + targetHeight,
+    z: entity.position.z,
+  }
+  const sourceCamera = isZeroVector(currentCamera) ? fallbackCamera : currentCamera
+  let offsetX = sourceCamera.x - target.x
+  let offsetZ = sourceCamera.z - target.z
+  const horizontalDistance = Math.hypot(offsetX, offsetZ)
+
+  if (horizontalDistance < CAMERA_FOCUS_MIN_HORIZONTAL_DISTANCE) {
+    offsetX = CAMERA_FOCUS_HORIZONTAL_DISTANCE * 0.72
+    offsetZ = CAMERA_FOCUS_HORIZONTAL_DISTANCE * 0.72
+  } else {
+    const scale = CAMERA_FOCUS_HORIZONTAL_DISTANCE / horizontalDistance
+    offsetX *= scale
+    offsetZ *= scale
+  }
+
+  const sourceVerticalDistance = sourceCamera.y - target.y
+  const verticalDistance = Math.max(
+    CAMERA_FOCUS_MIN_VERTICAL_DISTANCE,
+    Math.min(
+      CAMERA_FOCUS_VERTICAL_DISTANCE,
+      sourceVerticalDistance > 0 ? sourceVerticalDistance : CAMERA_FOCUS_VERTICAL_DISTANCE
+    )
+  )
+
+  return {
+    position: {
+      x: target.x + offsetX,
+      y: target.y + verticalDistance,
+      z: target.z + offsetZ,
+    },
+    target,
   }
 }
 
@@ -1439,6 +1668,38 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
     return {
       ...initialState,
 
+      setPublishedScenePackage: (pkg) =>
+        set((state) => {
+          const staticFeatureRegistry = createRuntimePublishedStaticFeatureRegistry(pkg)
+          return {
+            publishedScenePackage: pkg,
+            staticChunkRegistry: createRuntimeStaticChunkRegistry(pkg),
+            staticFeatureRegistry,
+            sceneConfig: cloneSceneConfigValue(pkg.sceneConfig),
+            cameraPresets: cloneCameraPresetsValue(pkg.cameraPresets),
+            activeCameraPreset: pkg.cameraPresets.some(
+              (preset) => preset.id === state.activeCameraPreset
+            )
+              ? state.activeCameraPreset
+              : pkg.cameraPresets[0]?.id ?? null,
+            selectedStaticFeatureId:
+              state.selectedStaticFeatureId &&
+              staticFeatureRegistry.byId.has(state.selectedStaticFeatureId)
+                ? state.selectedStaticFeatureId
+                : null,
+            hoveredStaticFeatureId:
+              state.hoveredStaticFeatureId &&
+              staticFeatureRegistry.byId.has(state.hoveredStaticFeatureId)
+                ? state.hoveredStaticFeatureId
+                : null,
+          }
+        }),
+
+      setAuthoredStaticAssets: (assets) =>
+        set({
+          authoredStaticAssets: new Map(assets.map((asset) => [asset.id, asset])),
+        }),
+
       // 场景操作
       setSceneConfig: (config) =>
         set((state) => ({
@@ -1448,6 +1709,26 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
       setViewMode: (mode) => set({ viewMode: mode }),
 
       setActiveCameraPreset: (presetId) => set({ activeCameraPreset: presetId }),
+
+      focusCameraOnEntity: (id) => {
+        const state = get()
+        if (state.selectedEntityId !== id || state.selectedStaticFeatureId !== null) {
+          state.setSelectedEntity(id)
+        }
+
+        const focusedState = get()
+        const entity = focusedState.entities.get(id)
+        if (!entity) return
+
+        set({
+          activeCameraPreset: null,
+          cameraFocusRequest: buildCameraFocusRequest(
+            entity,
+            latestCamera,
+            focusedState.sceneConfig.cameraPosition
+          ),
+        })
+      },
 
       setSceneReady: (ready) => set({ isSceneReady: ready }),
 
@@ -1914,7 +2195,8 @@ export const useSelectedEntity = () => {
 }
 export const useSelectedStaticFeature = () => {
   const selectedId = useDigitalTwinStore((state) => state.selectedStaticFeatureId)
-  return selectedId ? getRuntimePublishedStaticFeature(selectedId) : null
+  const staticFeatureRegistry = useDigitalTwinStore((state) => state.staticFeatureRegistry)
+  return selectedId ? getRuntimePublishedStaticFeature(selectedId, staticFeatureRegistry) : null
 }
 export const useSceneConfig = () => useDigitalTwinStore((state) => state.sceneConfig)
 export const useViewMode = () => useDigitalTwinStore((state) => state.viewMode)

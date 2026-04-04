@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { 
   Clock, 
@@ -26,7 +27,6 @@ import {
   AreaChart,
   Area,
 } from 'recharts'
-import { RuleEditor } from '../rules/RuleEditor'
 import { cn } from '@/lib/utils'
 
 const ALARM_ICON_MAP = {
@@ -65,6 +65,7 @@ export function BottomPanel() {
   const alarms = useDigitalTwinStore((state) => state.alarms)
   const acknowledgeAlarm = useDigitalTwinStore((state) => state.acknowledgeAlarm)
   const entityDirectory = useDigitalTwinStore((state) => state.entityDirectory)
+  const rules = useDigitalTwinStore((state) => Array.from(state.rules.values()))
   const unacknowledgedAlarmCount = useMemo(
     () => alarms.reduce((count, alarm) => (alarm.acknowledged ? count : count + 1), 0),
     [alarms]
@@ -87,6 +88,8 @@ export function BottomPanel() {
           vehicles++
           break
         case 'equipment':
+        case 'sensor':
+        case 'camera':
           equipment++
           if (entity.status === 'active') activeEquipment++
           if (entity.status === 'warning' || entity.status === 'error') warningEquipment++
@@ -132,7 +135,7 @@ export function BottomPanel() {
             </TabsTrigger>
             <TabsTrigger value="rules" className="gap-1.5 text-xs">
               <GitBranch className="h-3.5 w-3.5" />
-              规则引擎
+              规则摘要
             </TabsTrigger>
             <TabsTrigger value="charts" className="gap-1.5 text-xs">
               <BarChart3 className="h-3.5 w-3.5" />
@@ -240,14 +243,68 @@ export function BottomPanel() {
             </div>
           </TabsContent>
 
-          {/* 规则引擎 */}
+          {/* 规则摘要 */}
           <TabsContent value="rules" className="m-0 h-full">
-            <RuleEditor 
-              ruleName="访客危险区域告警规则"
-              onSave={(nodes, edges) => {
-                console.log('[v0] Rule saved:', { nodes, edges })
-              }}
-            />
+            <div className="flex h-full flex-col gap-4 p-4">
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h4 className="text-sm font-medium text-amber-950">规则配置已迁移到后台管理中心</h4>
+                    <p className="mt-1 text-xs text-amber-900">
+                      运行态仅展示规则摘要和告警结果，规则作者入口、保存与校验统一在后台完成。
+                    </p>
+                  </div>
+                  <Button asChild size="sm">
+                    <Link href="/admin/rules">前往管理中心</Link>
+                  </Button>
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-3">
+                <StatCard label="规则总数" value={rules.length} color="#8b5cf6" />
+                <StatCard
+                  label="启用规则"
+                  value={rules.filter((rule) => rule.enabled).length}
+                  color="#22c55e"
+                />
+                <StatCard
+                  label="停用规则"
+                  value={rules.filter((rule) => !rule.enabled).length}
+                  color="#f59e0b"
+                />
+              </div>
+
+              <ScrollArea className="flex-1 rounded-lg border">
+                <div className="space-y-3 p-4">
+                  {rules.length === 0 ? (
+                    <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+                      当前未加载规则配置。
+                    </div>
+                  ) : (
+                    rules.map((rule) => (
+                      <div key={rule.id} className="rounded-lg border p-4">
+                        <div className="flex items-start justify-between gap-4">
+                          <div>
+                            <div className="text-sm font-medium">{rule.name}</div>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {rule.description || '未填写规则描述'}
+                            </p>
+                          </div>
+                          <Badge variant={rule.enabled ? 'secondary' : 'outline'}>
+                            {rule.enabled ? '启用中' : '已停用'}
+                          </Badge>
+                        </div>
+                        <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                          <span>{rule.nodes.length} 个节点</span>
+                          <span>{rule.edges.length} 条连线</span>
+                          <span>version {rule.version ?? 1}</span>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </ScrollArea>
+            </div>
           </TabsContent>
 
           {/* 数据图表 */}

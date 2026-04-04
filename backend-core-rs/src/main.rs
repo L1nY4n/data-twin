@@ -10,9 +10,10 @@ async fn main() -> io::Result<()> {
 
     let host = env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
     let port = env::var("PORT").unwrap_or_else(|_| "4000".to_string());
-    let allowed_origin =
-        env::var("BACKEND_ALLOWED_ORIGIN").unwrap_or_else(|_| "http://localhost:3000".to_string());
+    let allowed_origin = env::var("BACKEND_ALLOWED_ORIGIN")
+        .unwrap_or_else(|_| "http://localhost:3000,http://localhost:3001".to_string());
     let app = build_app(&allowed_origin)
+        .await
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
     let bind_address = format!("{host}:{port}");
     let listener = TcpListener::bind(&bind_address).await?;

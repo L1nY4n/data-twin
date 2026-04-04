@@ -1,0 +1,365 @@
+@layer base {
+  .editor-surface {
+    --editor-surface-modal: rgba(13, 17, 23, 0.78);
+    --editor-surface-toolbar: rgba(13, 17, 23, 0.8);
+    --editor-surface-soft: rgba(255, 255, 255, 0.04);
+    --editor-surface-soft-hover: rgba(255, 255, 255, 0.075);
+    --editor-surface-strong: rgba(255, 255, 255, 0.06);
+    --editor-outline-soft: rgba(255, 255, 255, 0.1);
+    --editor-outline-strong: rgba(255, 255, 255, 0.15);
+    --editor-text-primary: rgba(255, 255, 255, 0.96);
+    --editor-text-secondary: rgba(255, 255, 255, 0.72);
+    --editor-text-tertiary: rgba(255, 255, 255, 0.54);
+    --editor-text-quaternary: rgba(255, 255, 255, 0.36);
+    --editor-accent: #7aa4ff;
+    --editor-accent-strong: #8cb3ff;
+    --editor-accent-soft: rgba(125, 167, 255, 0.18);
+    --editor-danger-soft: rgba(255, 158, 158, 0.08);
+    --editor-danger-text: #ffd0d0;
+    --editor-shadow-panel: 0 24px 80px rgba(9, 14, 24, 0.42);
+    --editor-shadow-toolbar: 0 24px 80px rgba(9, 14, 24, 0.45);
+    --editor-shadow-canvas: 0 30px 120px rgba(12, 19, 34, 0.18);
+    --editor-radius-panel: 28px;
+    --editor-radius-block: 20px;
+    --editor-radius-toolbar: 30px;
+    --editor-radius-pill: 999px;
+    color-scheme: dark;
+    font-family: 'Geist', 'Geist Fallback', sans-serif;
+    letter-spacing: -0.01em;
+    text-rendering: optimizeLegibility;
+  }
+
+  .editor-surface .font-mono,
+  .editor-surface [data-editor-mono='true'] {
+    font-family: 'Geist Mono', 'Geist Mono Fallback', monospace;
+  }
+
+  .editor-surface ::selection {
+    background: rgba(37, 137, 255, 0.24);
+  }
+}
+
+@layer components {
+  .editor-surface .editor-panel {
+    border: 1px solid var(--editor-outline-soft) !important;
+    border-radius: var(--editor-radius-panel);
+    background: var(--editor-surface-modal) !important;
+    box-shadow: var(--editor-shadow-panel);
+    -webkit-backdrop-filter: blur(32px);
+    backdrop-filter: blur(32px);
+  }
+
+  .editor-surface .editor-panel--soft {
+    background: rgba(13, 17, 23, 0.74) !important;
+  }
+
+  .editor-surface .editor-panel--accent {
+    background:
+      linear-gradient(135deg, rgba(125, 167, 255, 0.22), rgba(255, 255, 255, 0.04)),
+      var(--editor-surface-modal);
+  }
+
+  .editor-surface .editor-group {
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border-radius: 24px;
+    background: rgba(255, 255, 255, 0.03) !important;
+  }
+
+  .editor-surface .editor-block {
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border-radius: var(--editor-radius-block);
+    background: rgba(255, 255, 255, 0.03) !important;
+  }
+
+  .editor-surface .editor-toolbar {
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+    border-radius: var(--editor-radius-toolbar);
+    background: var(--editor-surface-toolbar) !important;
+    box-shadow: var(--editor-shadow-toolbar);
+    -webkit-backdrop-filter: blur(32px);
+    backdrop-filter: blur(32px);
+  }
+
+  .editor-surface .editor-canvas-frame {
+    border: 1px solid rgba(255, 255, 255, 0.6) !important;
+    border-radius: 34px;
+    background: rgba(255, 255, 255, 0.18) !important;
+    box-shadow:
+      0 30px 120px rgba(12, 19, 34, 0.18),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.5);
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+  }
+
+  .editor-surface .editor-dock {
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+    border-radius: 28px;
+    background: rgba(13, 17, 23, 0.76) !important;
+    box-shadow: 0 24px 80px rgba(8, 12, 20, 0.38);
+    -webkit-backdrop-filter: blur(32px);
+    backdrop-filter: blur(32px);
+  }
+
+  .editor-surface .editor-pill {
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+    border-radius: var(--editor-radius-pill);
+    background: rgba(255, 255, 255, 0.05) !important;
+    color: var(--editor-text-secondary) !important;
+    box-shadow: none;
+    padding: 4px 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    font-size: 10px;
+    font-weight: 500;
+    line-height: 1;
+  }
+
+  .editor-surface .editor-pill.is-floating {
+    background: rgba(13, 17, 23, 0.72) !important;
+    box-shadow: 0 18px 50px rgba(8, 12, 20, 0.28);
+    -webkit-backdrop-filter: blur(24px);
+    backdrop-filter: blur(24px);
+  }
+
+  .editor-surface .editor-pill.is-soft {
+    text-transform: none;
+    letter-spacing: 0.01em;
+    font-size: 11px;
+  }
+
+  .editor-surface .editor-mini-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--editor-radius-pill);
+    background: rgba(255, 255, 255, 0.04);
+    color: rgba(255, 255, 255, 0.4);
+    padding: 2px 8px;
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    line-height: 1;
+  }
+
+  .editor-surface .editor-control {
+    border: 1px solid transparent !important;
+    border-radius: var(--editor-radius-pill);
+    background: var(--editor-surface-soft) !important;
+    color: var(--editor-text-secondary) !important;
+    box-shadow: none;
+    min-height: 32px;
+    padding-inline: 12px;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+  }
+
+  .editor-surface .editor-control:hover:enabled {
+    background: var(--editor-surface-soft-hover) !important;
+    color: var(--editor-text-primary) !important;
+  }
+
+  .editor-surface .editor-control.is-active,
+  .editor-surface .editor-control.is-primary {
+    border-color: rgba(140, 179, 255, 0.35) !important;
+    background: var(--editor-accent) !important;
+    color: #08111f !important;
+  }
+
+  .editor-surface .editor-control.is-active:hover:enabled,
+  .editor-surface .editor-control.is-primary:hover:enabled {
+    background: var(--editor-accent-strong) !important;
+    color: #08111f !important;
+  }
+
+  .editor-surface .editor-control.is-danger {
+    border-color: rgba(255, 158, 158, 0.2) !important;
+    background: var(--editor-danger-soft) !important;
+    color: var(--editor-danger-text) !important;
+  }
+
+  .editor-surface .editor-control.is-danger:hover:enabled {
+    background: rgba(255, 158, 158, 0.14) !important;
+    color: var(--editor-text-primary) !important;
+  }
+
+  .editor-surface .editor-separator {
+    width: 1px;
+    height: 24px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 999px;
+  }
+
+  .editor-surface .editor-kicker {
+    font-size: 10px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.22em;
+    color: var(--editor-text-quaternary);
+  }
+
+  .editor-surface .editor-note {
+    color: var(--editor-text-tertiary);
+    font-size: 12px;
+    line-height: 1.45;
+  }
+
+  /* Override shadcn sidebar tokens only inside the editor surface theme. */
+  .editor-surface .editor-sidebar [data-sidebar='sidebar'],
+  .editor-surface .editor-sidebar [data-slot='sidebar-inner'] {
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border-radius: 30px;
+    background: rgba(13, 17, 23, 0.82) !important;
+    color: var(--editor-text-primary) !important;
+    box-shadow: 0 28px 80px rgba(8, 12, 20, 0.42);
+    -webkit-backdrop-filter: blur(32px);
+    backdrop-filter: blur(32px);
+  }
+
+  .editor-surface .editor-menu-button {
+    border: 1px solid transparent !important;
+    border-radius: 20px;
+    background: transparent !important;
+    color: var(--editor-text-secondary) !important;
+  }
+
+  .editor-surface .editor-menu-button:hover {
+    border-color: rgba(255, 255, 255, 0.1) !important;
+    background: rgba(255, 255, 255, 0.06) !important;
+    color: var(--editor-text-primary) !important;
+  }
+
+  .editor-surface .editor-menu-button[data-active='true'] {
+    border-color: rgba(125, 167, 255, 0.45) !important;
+    background: var(--editor-accent-soft) !important;
+    color: var(--editor-text-primary) !important;
+  }
+
+  .editor-surface .editor-tab-list {
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.04);
+    padding: 4px;
+    width: 100%;
+    height: auto;
+  }
+
+  .editor-surface .editor-tab-trigger {
+    min-height: 32px;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--editor-text-secondary);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+
+  .editor-surface .editor-tab-trigger[data-state='active'] {
+    border-color: rgba(125, 167, 255, 0.45);
+    background: rgba(125, 167, 255, 0.2);
+    color: var(--editor-text-primary);
+    box-shadow: none;
+  }
+
+  .editor-surface .editor-field-grid {
+    display: grid;
+    gap: 12px;
+  }
+
+  .editor-surface .editor-inline-field {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .editor-surface .editor-field-copy {
+    display: grid;
+    gap: 4px;
+  }
+
+  .editor-surface .editor-field-label {
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--editor-text-secondary);
+  }
+
+  .editor-surface .editor-field-hint {
+    color: var(--editor-text-quaternary);
+    font-size: 11px;
+    line-height: 1.5;
+  }
+
+  .editor-surface .editor-input {
+    min-height: 38px;
+    border-color: rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--editor-text-primary);
+    box-shadow: none;
+  }
+
+  .editor-surface .editor-input::placeholder {
+    color: var(--editor-text-quaternary);
+  }
+
+  .editor-surface .editor-input:focus-visible {
+    border-color: rgba(125, 167, 255, 0.5);
+    box-shadow: 0 0 0 3px rgba(125, 167, 255, 0.14);
+  }
+
+  .editor-surface .editor-axis-grid {
+    display: grid;
+    gap: 8px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .editor-surface .editor-axis-field {
+    display: grid;
+    gap: 6px;
+  }
+
+  .editor-surface .editor-axis-chip {
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--editor-text-quaternary);
+  }
+
+  .editor-surface .editor-empty {
+    border: 1px dashed rgba(255, 255, 255, 0.08);
+    border-radius: 18px;
+    padding: 12px;
+    color: var(--editor-text-tertiary);
+    font-size: 12px;
+    line-height: 1.6;
+  }
+
+  .editor-surface .editor-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+  }
+
+  .editor-surface .editor-scroll::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  .editor-surface .editor-scroll::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.16);
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+
+  .editor-surface .editor-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}

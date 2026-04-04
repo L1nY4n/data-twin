@@ -1,0 +1,3147 @@
+use std::{
+    collections::{BTreeMap, HashMap, HashSet},
+    env, fs,
+    path::Path,
+    sync::Arc,
+    time::{SystemTime, UNIX_EPOCH},
+};
+
+use sqlx::{
+    postgres::PgPoolOptions, sqlite::SqlitePoolOptions, Executor, PgPool, Postgres, Row, Sqlite,
+    SqlitePool, Transaction,
+};
+use tokio::sync::RwLock;
+use uuid::Uuid;
+
+use crate::{
+    contracts::{
+        Alarm, AuditEventRecord, BootstrapResponse, DataConnector, Entity, EntityBinding,
+        EntityStatus, RuleConfig, RuleValidationResponse, SceneConfig, SceneResponse,
+        StaticAssetInstance, Vector3,
+    },
+    seed_scene,
+};
+
+const DEFAULT_SQLITE_URL: &str = "sqlite://./data/digital-twin.db?mode=rwc";
+
+#[derive(Debug)]
+pub enum StoreError {
+    Database(sqlx::Error),
+    Serialization(serde_json::Error),
+    Validation(String),
+    NotFound(String),
+}
+
+impl std::fmt::Display for StoreError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Database(error) => write!(f, "database error: {error}"),
+            Self::Serialization(error) => write!(f, "serialization error: {error}"),
+            Self::Validation(message) => write!(f, "validation error: {message}"),
+            Self::NotFound(message) => write!(f, "not found: {message}"),
+        }
+    }
+}
+
+impl std::error::Error for StoreError {}
+
+impl From<sqlx::Error> for StoreError {
+    fn from(value: sqlx::Error) -> Self {
+        Self::Database(value)
+    }
+}
+
+impl From<serde_json::Error> for StoreError {
+    fn from(value: serde_json::Error) -> Self {
+        Self::Serialization(value)
+    }
+}
+
+#[derive(Clone)]
+pub struct Store {
+    backend: StoreBackend,
+}
+
+#[derive(Clone)]
+enum StoreBackend {
+    Memory(Arc<RwLock<MemoryStore>>),
+    Postgres(Arc<PostgresStore>),
+    Sqlite(Arc<SqliteStore>),
+}
+
+#[derive(Clone)]
+struct PostgresStore {
+    pool: PgPool,
+}
+
+#[derive(Clone)]
+struct SqliteStore {
+    pool: SqlitePool,
+}
+
+#[derive(Debug, Clone)]
+struct MemoryStore {
+    scene_version: u64,
+    scene_config: SceneConfig,
+    entities: BTreeMap<String, Entity>,
+    static_assets: BTreeMap<String, StaticAssetInstance>,
+    rules: BTreeMap<String, RuleConfig>,
+    alarms: Vec<Alarm>,
+    connectors: BTreeMap<String, DataConnector>,
+    bindings: BTreeMap<String, Vec<EntityBinding>>,
+    audit_events: Vec<serde_json::Value>,
+}
+
+impl MemoryStore {
+    fn seeded() -> Self {
+        let snapshot = seed_scene::seed_snapshot();
+
+        Self {
+            scene_version: snapshot.scene_version,
+            scene_config: snapshot.scene_config,
+            entities: snapshot
+                .entities
+                .into_iter()
+                .map(|entity| (entity.id().to_string(), entity))
+                .collect(),
+            static_assets: BTreeMap::new(),
+            rules: snapshot
+                .rules
+                .into_iter()
+                .map(|rule| (rule.id.clone(), rule))
+                .collect(),
+            alarms: Vec::new(),
+            connectors: BTreeMap::new(),
+            bindings: BTreeMap::new(),
+            audit_events: Vec::new(),
+        }
+    }
+}
+
+impl Store {
+    pub async fn from_env() -> Result<Self, StoreError> {
+        if let Ok(url) = env::var("DATABASE_URL") {
+            if !url.trim().is_empty() {
+                return Self::from_database_url(url.trim()).await;
+            }
+        }
+
+        let default_sqlite_url = env::var("DEFAULT_SQLITE_URL")
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| DEFAULT_SQLITE_URL.to_string());
+        Self::from_database_url(&default_sqlite_url).await
+    }
+
+    async fn from_database_url(url: &str) -> Result<Self, StoreError> {
+        if is_memory_backend_url(url) {
+            return Ok(Self::memory_backend());
+        }
+
+        if is_sqlite_url(url) {
+            ensure_sqlite_parent_dir(url)?;
+            let pool = SqlitePoolOptions::new()
+                .max_connections(1)
+                .connect(url)
+                .await?;
+            setup_sqlite(&pool).await?;
+
+            Ok(Self {
+                backend: StoreBackend::Sqlite(Arc::new(SqliteStore { pool })),
+            })
+        } else {
+            let pool = PgPoolOptions::new()
+                .max_connections(10)
+                .connect(url)
+                .await?;
+            setup_postgres(&pool).await?;
+
+            Ok(Self {
+                backend: StoreBackend::Postgres(Arc::new(PostgresStore { pool })),
+            })
+        }
+    }
+
+    fn memory_backend() -> Self {
+        Self {
+            backend: StoreBackend::Memory(Arc::new(RwLock::new(MemoryStore::seeded()))),
+        }
+    }
+
+    pub async fn bootstrap(&self) -> Result<BootstrapResponse, StoreError> {
+        let scene = self.get_scene().await?;
+        let entities = self.list_entities().await?;
+        let static_assets = self.list_static_assets().await?;
+        let rules = self.list_rules().await?;
+        let alarms = self.list_alarms().await?;
+
+        Ok(BootstrapResponse {
+            site_id: seed_scene::SITE_ID.to_string(),
+            scene_version: scene.scene_version,
+            scene_config: scene.scene_config,
+            entities,
+            static_assets,
+            rules,
+            alarms,
+            published_scene: None,
+            issued_at: now_millis(),
+        })
+    }
+
+    pub async fn get_scene(&self) -> Result<SceneResponse, StoreError> {
+        match &self.backend {
+            StoreBackend::Memory(store) => {
+                let snapshot = store.read().await;
+                Ok(SceneResponse {
+                    scene_version: snapshot.scene_version,
+                    scene_config: snapshot.scene_config.clone(),
+                })
+            }
+            StoreBackend::Postgres(store) => {
+                let row = sqlx::query(
+                    r#"SELECT scene_version, scene_config FROM scene_configs WHERE site_id = $1"#,
+                )
+                .bind(seed_scene::SITE_ID)
+                .fetch_one(&store.pool)
+                .await?;
+
+                let scene_version: i64 = row.get("scene_version");
+                let scene_config: serde_json::Value = row.get("scene_config");
+                Ok(SceneResponse {
+                    scene_version: scene_version as u64,
+                    scene_config: serde_json::from_value(scene_config)?,
+                })
+            }
+            StoreBackend::Sqlite(store) => {
+                let row = sqlx::query(
+                    r#"SELECT scene_version, scene_config FROM scene_configs WHERE site_id = ?"#,
+                )
+                .bind(seed_scene::SITE_ID)
+                .fetch_one(&store.pool)
+                .await?;
+
+                let scene_version: i64 = row.get("scene_version");
+                let scene_config: String = row.get("scene_config");
+                Ok(SceneResponse {
+                    scene_version: scene_version as u64,
+                    scene_config: serde_json::from_str(&scene_config)?,
+                })
+            }
+        }
+    }
+
+    pub async fn update_scene(&self, config: SceneConfig) -> Result<SceneResponse, StoreError> {
+        match &self.backend {
+            StoreBackend::Memory(store) => {
+                let mut snapshot = store.write().await;
+                snapshot.scene_config = config;
+                snapshot.scene_version += 1;
+                snapshot.audit_events.push(serde_json::json!({
+                    "action": "scene.update",
+                    "actor": "system",
+                    "timestamp": now_millis()
+                }));
+                Ok(SceneResponse {
+                    scene_version: snapshot.scene_version,
+                    scene_config: snapshot.scene_config.clone(),
+                })
+            }
+            StoreBackend::Postgres(store) => {
+                let mut tx = store.pool.begin().await?;
+                let updated_at = now_millis() as i64;
+
+                let row = sqlx::query(
+                    r#"
+                    UPDATE scene_configs
+                    SET scene_config = $1, scene_version = scene_version + 1, updated_at = $2
+                    WHERE site_id = $3
+                    RETURNING scene_version
+                    "#,
+                )
+                .bind(serde_json::to_value(&config)?)
+                .bind(updated_at)
+                .bind(seed_scene::SITE_ID)
+                .fetch_one(&mut *tx)
+                .await?;
+
+                let scene_version: i64 = row.get("scene_version");
+                insert_audit_event(
+                    &mut tx,
+                    "scene.update",
+                    "scene",
+                    seed_scene::SITE_ID,
+                    serde_json::to_value(&config)?,
+                )
+                .await?;
+                tx.commit().await?;
+
+                Ok(SceneResponse {
+                    scene_version: scene_version as u64,
+                    scene_config: config,
+                })
+            }
+            StoreBackend::Sqlite(store) => {
+                let mut tx = store.pool.begin().await?;
+                let updated_at = now_millis() as i64;
+
+                sqlx::query(
+                    r#"
+                    UPDATE scene_configs
+                    SET scene_config = ?, scene_version = scene_version + 1, updated_at = ?
+                    WHERE site_id = ?
+                    "#,
+                )
+                .bind(serde_json::to_string(&config)?)
+                .bind(updated_at)
+                .bind(seed_scene::SITE_ID)
+                .execute(&mut *tx)
+                .await?;
+
+                let scene_version: i64 = sqlx::query_scalar(
+                    r#"SELECT scene_version FROM scene_configs WHERE site_id = ?"#,
+                )
+                .bind(seed_scene::SITE_ID)
+                .fetch_one(&mut *tx)
+                .await?;
+
+                insert_audit_event_sqlite(
+                    &mut tx,
+                    "scene.update",
+                    "scene",
+                    seed_scene::SITE_ID,
+                    serde_json::to_value(&config)?,
+                )
+                .await?;
+                tx.commit().await?;
+
+                Ok(SceneResponse {
+                    scene_version: scene_version as u64,
+                    scene_config: config,
+                })
+            }
+        }
+    }
+
+    pub async fn list_entities(&self) -> Result<Vec<Entity>, StoreError> {
+        match &self.backend {
+            StoreBackend::Memory(store) => {
+                let snapshot = store.read().await;
+                let mut entities: Vec<Entity> = snapshot.entities.values().cloned().collect();
+                sort_entities(&mut entities);
+                Ok(entities)
+            }
+            StoreBackend::Postgres(store) => {
+                let rows = sqlx::query(
+                    r#"SELECT entity_data FROM entities ORDER BY created_at ASC, id ASC"#,
+                )
+                .fetch_all(&store.pool)
+                .await?;
+
+                let mut entities: Vec<Entity> = rows
+                    .into_iter()
+                    .map(|row| {
+                        let value: serde_json::Value = row.get("entity_data");
+                        serde_json::from_value(value).map_err(StoreError::from)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                sort_entities(&mut entities);
+                Ok(entities)
+            }
+            StoreBackend::Sqlite(store) => {
+                let rows = sqlx::query(
+                    r#"SELECT entity_data FROM entities ORDER BY created_at ASC, id ASC"#,
+                )
+                .fetch_all(&store.pool)
+                .await?;
+
+                let mut entities: Vec<Entity> = rows
+                    .into_iter()
+                    .map(|row| {
+                        let value: String = row.get("entity_data");
+                        serde_json::from_str(&value).map_err(StoreError::from)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                sort_entities(&mut entities);
+                Ok(entities)
+            }
+        }
+    }
+
+    pub async fn get_entity(&self, id: &str) -> Result<Option<Entity>, StoreError> {
+        match &self.backend {
+            StoreBackend::Memory(store) => Ok(store.read().await.entities.get(id).cloned()),
+            StoreBackend::Postgres(store) => {
+                let row = sqlx::query(r#"SELECT entity_data FROM entities WHERE id = $1"#)
+                    .bind(id)
+                    .fetch_optional(&store.pool)
+                    .await?;
+
+                match row {
+                    Some(row) => {
+                        let value: serde_json::Value = row.get("entity_data");
+                        Ok(Some(serde_json::from_value(value)?))
+                    }
+                    None => Ok(None),
+                }
+            }
+            StoreBackend::Sqlite(store) => {
+                let row = sqlx::query(r#"SELECT entity_data FROM entities WHERE id = ?"#)
+                    .bind(id)
+                    .fetch_optional(&store.pool)
+                    .await?;
+
+                match row {
+                    Some(row) => {
+                        let value: String = row.get("entity_data");
+                        Ok(Some(serde_json::from_str(&value)?))
+                    }
+                    None => Ok(None),
+                }
+            }
+        }
+    }
+
+    pub async fn create_entity(&self, mut entity: Entity) -> Result<Entity, StoreError> {
+        let now = now_millis();
+        ensure_entity_create_defaults(&mut entity, now);
+
+        match &self.backend {
+            StoreBackend::Memory(store) => {
+                let mut snapshot = store.write().await;
+                if snapshot.entities.contains_key(entity.id()) {
+                    return Err(StoreError::Validation(format!(
+                        "entity {} already exists",
+                        entity.id()
+                    )));
+                }
+                snapshot
+                    .entities
+                    .insert(entity.id().to_string(), entity.clone());
+                snapshot.scene_version += 1;
+                snapshot.audit_events.push(serde_json::json!({
+                    "action": "entity.create",
+                    "resourceId": entity.id(),
+                    "actor": "system",
+                    "timestamp": now
+                }));
+                Ok(entity)
+            }
+            StoreBackend::Postgres(store) => {
+                let mut tx = store.pool.begin().await?;
+                persist_entity(&mut tx, &entity, false).await?;
+                let scene_version = bump_scene_version_tx(&mut tx).await?;
+                insert_audit_event(
+                    &mut tx,
+                    "entity.create",
+                    "entity",
+                    entity.id(),
+                    serde_json::to_value(&entity)?,
+                )
+                .await?;
+                tx.commit().await?;
+                let _ = scene_version;
+                Ok(entity)
+            }
+            StoreBackend::Sqlite(store) => {
+                let mut tx = store.pool.begin().await?;
+                persist_entity_sqlite(&mut tx, &entity, false).await?;
+                let _ = bump_scene_version_sqlite(&mut tx).await?;
+                insert_audit_event_sqlite(
+                    &mut tx,
+                    "entity.create",
+                    "entity",
+                    entity.id(),
+                    serde_json::to_value(&entity)?,
+                )
+                .await?;
+                tx.commit().await?;
+                Ok(entity)
+            }
+        }
+    }
+
+    pub async fn update_entity(&self, id: &str, mut entity: Entity) -> Result<Entity, StoreError> {
+        set_entity_id(&mut entity, id);
+        ensure_entity_update_defaults(&mut entity, now_millis());
+
+        match &self.backend {
+            StoreBackend::Memory(store) => {
+                let mut snapshot = store.write().await;
+                let Some(existing) = snapshot.entities.get(id) else {
+                    return Err(StoreError::NotFound(format!("entity {id}")));
+                };
+
+                let created_at = existing.created_at();
+                set_entity_created_at(&mut entity, created_at);
+                snapshot.entities.insert(id.to_string(), entity.clone());
+                snapshot.scene_version += 1;
+                snapshot.audit_events.push(serde_json::json!({
+                    "action": "entity.update",
+                    "resourceId": id,
+                    "actor": "system",
+                    "timestamp": now_millis()
+                }));
+                Ok(entity)
+            }
+            StoreBackend::Postgres(store) => {
+                let mut tx = store.pool.begin().await?;
+                let existing_row = sqlx::query(r#"SELECT entity_data FROM entities WHERE id = $1"#)
+                    .bind(id)
+                    .fetch_optional(&mut *tx)
+                    .await?;
+
+                let Some(existing_row) = existing_row else {
+                    return Err(StoreError::NotFound(format!("entity {id}")));
+                };
+
+                let existing: Entity = serde_json::from_value(existing_row.get("entity_data"))?;
+                set_entity_created_at(&mut entity, existing.created_at());
+                persist_entity(&mut tx, &entity, true).await?;
+                let _ = bump_scene_version_tx(&mut tx).await?;
+                insert_audit_event(
+                    &mut tx,
+                    "entity.update",
+                    "entity",
+                    id,
+                    serde_json::to_value(&entity)?,
+                )
+                .await?;
+                tx.commit().await?;
+                Ok(entity)
+            }
+            StoreBackend::Sqlite(store) => {
+                let mut tx = store.pool.begin().await?;
+                let existing_row = sqlx::query(r#"SELECT entity_data FROM entities WHERE id = ?"#)
+                    .bind(id)
+                    .fetch_optional(&mut *tx)
+                    .await?;
+
+                let Some(existing_row) = existing_row else {
+                    return Err(StoreError::NotFound(format!("entity {id}")));
+                };
+
+                let existing: Entity =
+                    serde_json::from_str(existing_row.get::<String, _>("entity_data").as_str())?;
+                set_entity_created_at(&mut entity, existing.created_at());
+                persist_entity_sqlite(&mut tx, &entity, true).await?;
+                let _ = bump_scene_version_sqlite(&mut tx).await?;
+                insert_audit_event_sqlite(
+                    &mut tx,
+                    "entity.update",
+                    "entity",
+                    id,
+                    serde_json::to_value(&entity)?,
+                )
+                .await?;
+                tx.commit().await?;
+                Ok(entity)
+            }
+        }
+    }
+
+    pub async fn delete_entity(&self, id: &str) -> Result<bool, StoreError> {
+        match &self.backend {
+            StoreBackend::Memory(store) => {
+                let mut snapshot = store.write().await;
+                if snapshot.entities.remove(id).is_none() {
+                    return Ok(false);
+                }
+                snapshot.bindings.remove(id);
+                snapshot.scene_version += 1;
+                snapshot.audit_events.push(serde_json::json!({
+                    "action": "entity.delete",
+                    "resourceId": id,
+                    "actor": "system",
+                    "timestamp": now_millis()
+                }));
+                Ok(true)
+            }
+            StoreBackend::Postgres(store) => {
+                let mut tx = store.pool.begin().await?;
+                sqlx::query(r#"DELETE FROM entity_bindings WHERE entity_id = $1"#)
+                    .bind(id)
+                    .execute(&mut *tx)
+                    .await?;
+                let deleted = sqlx::query(r#"DELETE FROM entities WHERE id = $1"#)
+                    .bind(id)
+                    .execute(&mut *tx)
+                    .await?
+                    .rows_affected();
+
+                if deleted == 0 {
+                    tx.rollback().await?;
+                    return Ok(false);
+                }
+
+                let _ = bump_scene_version_tx(&mut tx).await?;
+                insert_audit_event(
+                    &mut tx,
+                    "entity.delete",
+                    "entity",
+                    id,
+                    serde_json::json!({ "id": id }),
+                )
+                .await?;
+                tx.commit().await?;
+                Ok(true)
+            }
+            StoreBackend::Sqlite(store) => {
+                let mut tx = store.pool.begin().await?;
+                sqlx::query(r#"DELETE FROM entity_bindings WHERE entity_id = ?"#)
+                    .bind(id)
+                    .execute(&mut *tx)
+                    .await?;
+                let deleted = sqlx::query(r#"DELETE FROM entities WHERE id = ?"#)
+                    .bind(id)
+                    .execute(&mut *tx)
+                    .await?
+                    .rows_affected();
+
+                if deleted == 0 {
+                    tx.rollback().await?;
+                    return Ok(false);
+                }
+
+                let _ = bump_scene_version_sqlite(&mut tx).await?;
+                insert_audit_event_sqlite(
+                    &mut tx,
+                    "entity.delete",
+                    "entity",
+                    id,
+                    serde_json::json!({ "id": id }),
+                )
+                .await?;
+                tx.commit().await?;
+                Ok(true)
+            }
+        }
+    }
+
+    pub async fn list_static_assets(&self) -> Result<Vec<StaticAssetInstance>, StoreError> {
+        match &self.backend {
+            StoreBackend::Memory(store) => {
+                let snapshot = store.read().await;
+                let mut static_assets: Vec<StaticAssetInstance> =
+                    snapshot.static_assets.values().cloned().collect();
+                sort_static_assets(&mut static_assets);
+                Ok(static_assets)
+            }
+            StoreBackend::Postgres(store) => {
+                let rows = sqlx::query(
+                    r#"SELECT asset_data FROM static_assets ORDER BY created_at ASC, id ASC"#,
+                )
+                .fetch_all(&store.pool)
+                .await?;
+
+                let mut static_assets: Vec<StaticAssetInstance> = rows
+                    .into_iter()
+                    .map(|row| {
+                        let value: serde_json::Value = row.get("asset_data");
+                        serde_json::from_value(value).map_err(StoreError::from)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                sort_static_assets(&mut static_assets);
+                Ok(static_assets)
+            }
+            StoreBackend::Sqlite(store) => {
+                let rows = sqlx::query(
+                    r#"SELECT asset_data FROM static_assets ORDER BY created_at ASC, id ASC"#,
+                )
+                .fetch_all(&store.pool)
+                .await?;
+
+                let mut static_assets: Vec<StaticAssetInstance> = rows
+                    .into_iter()
+                    .map(|row| {
+                        let value: String = row.get("asset_data");
+                        serde_json::from_str(&value).map_err(StoreError::from)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                sort_static_assets(&mut static_assets);
+                Ok(static_assets)
+            }
+        }
+    }
+
+    pub async fn get_static_asset(
+        &self,
+        id: &str,
+    ) -> Result<Option<StaticAssetInstance>, StoreError> {
+        match &self.backend {
+            StoreBackend::Memory(store) => Ok(store.read().await.static_assets.get(id).cloned()),
+            StoreBackend::Postgres(store) => {
+                let row = sqlx::query(r#"SELECT asset_data FROM static_assets WHERE id = $1"#)
+                    .bind(id)
+                    .fetch_optional(&store.pool)
+                    .await?;
+
+                match row {
+                    Some(row) => {
+                        let value: serde_json::Value = row.get("asset_data");
+                        Ok(Some(serde_json::from_value(value)?))
+                    }
+                    None => Ok(None),
+                }
+            }
+            StoreBackend::Sqlite(store) => {
+                let row = sqlx::query(r#"SELECT asset_data FROM static_assets WHERE id = ?"#)
+                    .bind(id)
+                    .fetch_optional(&store.pool)
+                    .await?;
+
+                match row {
+                    Some(row) => {
+                        let value: String = row.get("asset_data");
+                        Ok(Some(serde_json::from_str(&value)?))
+                    }
+                    None => Ok(None),
+                }
+            }
+        }
+    }
+
+    pub async fn create_static_asset(
+        &self,
+        mut asset: StaticAssetInstance,
+    ) -> Result<StaticAssetInstance, StoreError> {
+        let now = now_millis();
+        ensure_static_asset_create_defaults(&mut asset, now);
+
+        match &self.backend {
+            StoreBackend::Memory(store) => {
+                let mut snapshot = store.write().await;
+                if snapshot.static_assets.contains_key(&asset.id) {
+                    return Err(StoreError::Validation(format!(
+                        "static asset {} already exists",
+                        asset.id
+                    )));
+                }
+                snapshot.static_assets.insert(asset.id.clone(), asset.clone());
+                snapshot.scene_version += 1;
+                snapshot.audit_events.push(serde_json::json!({
+                    "action": "static_asset.create",
+                    "resourceType": "static_asset",
+                    "resourceId": asset.id.clone(),
+                    "actor": "system",
+                    "timestamp": now
+                }));
+                Ok(asset)
+            }
+            StoreBackend::Postgres(store) => {
+                let mut tx = store.pool.begin().await?;
+                persist_static_asset(&mut tx, &asset, false).await?;
+                let _ = bump_scene_version_tx(&mut tx).await?;
+                insert_audit_event(
+                    &mut tx,
+                    "static_asset.create",
+                    "static_asset",
+                    &asset.id,
+                    serde_json::to_value(&asset)?,
+                )
+                .await?;
+                tx.commit().await?;
+                Ok(asset)
+            }
+            StoreBackend::Sqlite(store) => {
+                let mut tx = store.pool.begin().await?;
+                persist_static_asset_sqlite(&mut tx, &asset, false).await?;
+                let _ = bump_scene_version_sqlite(&mut tx).await?;
+                insert_audit_event_sqlite(
+                    &mut tx,
+                    "static_asset.create",
+                    "static_asset",
+                    &asset.id,
+                    serde_json::to_value(&asset)?,
+                )
+                .await?;
+                tx.commit().await?;
+                Ok(asset)
+            }
+        }
+    }
+
+    pub async fn update_static_asset(
+        &self,
+        id: &str,
+        mut asset: StaticAssetInstance,
+    ) -> Result<StaticAssetInstance, StoreError> {
+        asset.id = id.to_string();
+        ensure_static_asset_update_defaults(&mut asset, now_millis());
+
+        match &self.backend {
+            StoreBackend::Memory(store) => {
+                let mut snapshot = store.write().await;
+                let Some(existing) = snapshot.static_assets.get(id) else {
+                    return Err(StoreError::NotFound(format!("static asset {id}")));
+                };
+
+                asset.created_at = existing.created_at;
+                snapshot.static_assets.insert(id.to_string(), asset.clone());
+                snapshot.scene_version += 1;
+                snapshot.audit_events.push(serde_json::json!({
+                    "action": "static_asset.update",
+                    "resourceType": "static_asset",
+                    "resourceId": id,
+                    "actor": "system",
+                    "timestamp": now_millis()
+                }));
+                Ok(asset)
+            }
+            StoreBackend::Postgres(store) => {
+                let mut tx = store.pool.begin().await?;
+                let existing_row =
+                    sqlx::query(r#"SELECT asset_data FROM static_assets WHERE id = $1"#)
+                        .bind(id)
+                        .fetch_optional(&mut *tx)
+                        .await?;
+
+                let Some(existing_row) = existing_row else {
+                    return Err(StoreError::NotFound(format!("static asset {id}")));
+                };
+
+                let existing: StaticAssetInstance =
+                    serde_json::from_value(existing_row.get("asset_data"))?;
+                asset.created_at = existing.created_at;
+                persist_static_asset(&mut tx, &asset, true).await?;
+                let _ = bump_scene_version_tx(&mut tx).await?;
+                insert_audit_event(
+                    &mut tx,
+                    "static_asset.update",
+                    "static_asset",
+                    id,
+                    serde_json::to_value(&asset)?,
+                )
+                .await?;
+                tx.commit().await?;
+                Ok(asset)
+            }
+            StoreBackend::Sqlite(store) => {
+                let mut tx = store.pool.begin().await?;
+                let existing_row =
+                    sqlx::query(r#"SELECT asset_data FROM static_assets WHERE id = ?"#)
+                        .bind(id)
+                        .fetch_optional(&mut *tx)
+                        .await?;
+
+                let Some(existing_row) = existing_row else {
+                    return Err(StoreError::NotFound(format!("static asset {id}")));
+                };
+
+                let existing: StaticAssetInstance =
+                    serde_json::from_str(existing_row.get::<String, _>("asset_data").as_str())?;
+                asset.created_at = existing.created_at;
+                persist_static_asset_sqlite(&mut tx, &asset, true).await?;
+                let _ = bump_scene_version_sqlite(&mut tx).await?;
+                insert_audit_event_sqlite(
+                    &mut tx,
+                    "static_asset.update",
+                    "static_asset",
+                    id,
+                    serde_json::to_value(&asset)?,
+                )
+                .await?;
+                tx.commit().await?;
+                Ok(asset)
+            }
+        }
+    }
+
+    pub async fn delete_static_asset(&self, id: &str) -> Result<bool, StoreError> {
+        match &self.backend {
+            StoreBackend::Memory(store) => {
+                let mut snapshot = store.write().await;
+                if snapshot.static_assets.remove(id).is_none() {
+                    return Ok(false);
+                }
+                snapshot.scene_version += 1;
+                snapshot.audit_events.push(serde_json::json!({
+                    "action": "static_asset.delete",
+                    "resourceType": "static_asset",
+                    "resourceId": id,
+                    "actor": "system",
+                    "timestamp": now_millis()
+                }));
+                Ok(true)
+            }
+            StoreBackend::Postgres(store) => {
+                let mut tx = store.pool.begin().await?;
+                let deleted = sqlx::query(r#"DELETE FROM static_assets WHERE id = $1"#)
+                    .bind(id)
+                    .execute(&mut *tx)
+                    .await?
+                    .rows_affected();
+
+                if deleted == 0 {
+                    tx.rollback().await?;
+                    return Ok(false);
+                }
+
+                let _ = bump_scene_version_tx(&mut tx).await?;
+                insert_audit_event(
+                    &mut tx,
+                    "static_asset.delete",
+                    "static_asset",
+                    id,
+                    serde_json::json!({ "id": id }),
+                )
+                .await?;
+                tx.commit().await?;
+                Ok(true)
+            }
+            StoreBackend::Sqlite(store) => {
+                let mut tx = store.pool.begin().await?;
+                let deleted = sqlx::query(r#"DELETE FROM static_assets WHERE id = ?"#)
+                    .bind(id)
+                    .execute(&mut *tx)
+                    .await?
+                    .rows_affected();
+
+                if deleted == 0 {
+                    tx.rollback().await?;
+                    return Ok(false);
+                }
+
+                let _ = bump_scene_version_sqlite(&mut tx).await?;
+                insert_audit_event_sqlite(
+                    &mut tx,
+                    "static_asset.delete",
+                    "static_asset",
+                    id,
+                    serde_json::json!({ "id": id }),
+                )
+                .await?;
+                tx.commit().await?;
+                Ok(true)
+            }
+        }
+    }
+
+    pub async fn list_connectors(&self) -> Result<Vec<DataConnector>, StoreError> {
+        match &self.backend {
+            StoreBackend::Memory(store) => {
+                Ok(store.read().await.connectors.values().cloned().collect())
+            }
+            StoreBackend::Postgres(store) => {
+                let rows = sqlx::query(
+                    r#"SELECT connector_data FROM data_connectors ORDER BY created_at ASC, id ASC"#,
+                )
+                .fetch_all(&store.pool)
+                .await?;
+                rows.into_iter()
+                    .map(|row| {
+                        let value: serde_json::Value = row.get("connector_data");
+                        serde_json::from_value(value).map_err(StoreError::from)
+                    })
+                    .collect()
+            }
+            StoreBackend::Sqlite(store) => {
+                let rows = sqlx::query(
+                    r#"SELECT connector_data FROM data_connectors ORDER BY created_at ASC, id ASC"#,
+                )
+                .fetch_all(&store.pool)
+                .await?;
+                rows.into_iter()
+                    .map(|row| {
+                        let value: String = row.get("connector_data");
+                        serde_json::from_str(&value).map_err(StoreError::from)
+                    })
+                    .collect()
+            }
+        }
+    }
+
+    pub async fn create_connector(
+        &self,
+        mut connector: DataConnector,
+    ) -> Result<DataConnector, StoreError> {
+        let now = now_millis();
+        if connector.id.trim().is_empty() {
+            connector.id = Uuid::new_v4().to_string();
+        }
+        connector.created_at = now;
+        connector.updated_at = now;
+
+        match &self.backend {
+            StoreBackend::Memory(store) => {
+                let mut snapshot = store.write().await;
+                if snapshot.connectors.contains_key(&connector.id) {
+                    return Err(StoreError::Validation(format!(
+                        "connector {} already exists",
+                        connector.id
+                    )));
+                }
+                snapshot
+                    .connectors
+                    .insert(connector.id.clone(), connector.clone());
+                snapshot.scene_version += 1;
+                snapshot.audit_events.push(serde_json::json!({
+                    "action": "connector.create",
+                    "resourceId": connector.id,
+                    "timestamp": now,
+                    "actor": "system"
+                }));
+                Ok(connector)
+            }
+            StoreBackend::Postgres(store) => {
+                let mut tx = store.pool.begin().await?;
+                sqlx::query(
+                    r#"
+                    INSERT INTO data_connectors (id, enabled, connector_data, created_at, updated_at)
+                    VALUES ($1, $2, $3, $4, $5)
+                    "#,
+                )
+                .bind(&connector.id)
+                .bind(connector.enabled)
+                .bind(serde_json::to_value(&connector)?)
+                .bind(connector.created_at as i64)
+                .bind(connector.updated_at as i64)
+                .execute(&mut *tx)
+                .await?;
+                let _ = bump_scene_version_tx(&mut tx).await?;
+                insert_audit_event(
+                    &mut tx,
+                    "connector.create",
+                    "connector",
+                    &connector.id,
+                    serde_json::to_value(&connector)?,
+                )
+                .await?;
+                tx.commit().await?;
+                Ok(connector)
+            }
+            StoreBackend::Sqlite(store) => {
+                let mut tx = store.pool.begin().await?;
+                sqlx::query(
+                    r#"
+                    INSERT INTO data_connectors (id, enabled, connector_data, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    "#,
+                )
+                .bind(&connector.id)
+                .bind(connector.enabled)
+                .bind(serde_json::to_string(&connector)?)
+                .bind(connector.created_at as i64)
+                .bind(connector.updated_at as i64)
+                .execute(&mut *tx)
+                .await?;
+                let _ = bump_scene_version_sqlite(&mut tx).await?;
+                insert_audit_event_sqlite(
+                    &mut tx,
+                    "connector.create",
+                    "connector",
+                    &connector.id,
+                    serde_json::to_value(&connector)?,
+                )
+                .await?;
+                tx.commit().await?;
+                Ok(connector)
+            }
+        }
+    }
+
+    pub async fn update_connector(
+        &self,
+        id: &str,
+        mut connector: DataConnector,
+    ) -> Result<DataConnector, StoreError> {
+        connector.id = id.to_string();
+        connector.updated_at = now_millis();
+
+        match &self.backend {
+            StoreBackend::Memory(store) => {
+                let mut snapshot = store.write().await;
+                let Some(existing) = snapshot.connectors.get(id) else {
+                    return Err(StoreError::NotFound(format!("connector {id}")));
+                };
+                connector.created_at = existing.created_at;
+                snapshot
+                    .connectors
+                    .insert(id.to_string(), connector.clone());
+                snapshot.scene_version += 1;
+                snapshot.audit_events.push(serde_json::json!({
+                    "action": "connector.update",
+                    "resourceId": id,
+                    "timestamp": now_millis(),
+                    "actor": "system"
+                }));
+                Ok(connector)
+            }
+            StoreBackend::Postgres(store) => {
+                let mut tx = store.pool.begin().await?;
+                let existing =
+                    sqlx::query(r#"SELECT connector_data FROM data_connectors WHERE id = $1"#)
+                        .bind(id)
+                        .fetch_optional(&mut *tx)
+                        .await?;
+
+                let Some(existing) = existing else {
+                    return Err(StoreError::NotFound(format!("connector {id}")));
+                };
+                let previous: DataConnector =
+                    serde_json::from_value(existing.get("connector_data"))?;
+                connector.created_at = previous.created_at;
+                sqlx::query(
+                    r#"
+                    UPDATE data_connectors
+                    SET enabled = $1, connector_data = $2, updated_at = $3
+                    WHERE id = $4
+                    "#,
+                )
+                .bind(connector.enabled)
+                .bind(serde_json::to_value(&connector)?)
+                .bind(connector.updated_at as i64)
+                .bind(id)
+                .execute(&mut *tx)
+                .await?;
+                let _ = bump_scene_version_tx(&mut tx).await?;
+                insert_audit_event(
+                    &mut tx,
+                    "connector.update",
+                    "connector",
+                    id,
+                    serde_json::to_value(&connector)?,
+                )
+                .await?;
+                tx.commit().await?;
+                Ok(connector)
+            }
+            StoreBackend::Sqlite(store) => {
+                let mut tx = store.pool.begin().await?;
+                let existing =
+                    sqlx::query(r#"SELECT connector_data FROM data_connectors WHERE id = ?"#)
+                        .bind(id)
+                        .fetch_optional(&mut *tx)
+                        .await?;
+
+                let Some(existing) = existing else {
+                    return Err(StoreError::NotFound(format!("connector {id}")));
+                };
+                let previous: DataConnector =
+                    serde_json::from_str(existing.get::<String, _>("connector_data").as_str())?;
+                connector.created_at = previous.created_at;
+                sqlx::query(
+                    r#"
+                    UPDATE data_connectors
+                    SET enabled = ?, connector_data = ?, updated_at = ?
+                    WHERE id = ?
+                    "#,
+                )
+                .bind(connector.enabled)
+                .bind(serde_json::to_string(&connector)?)
+                .bind(connector.updated_at as i64)
+                .bind(id)
+                .execute(&mut *tx)
+                .await?;
+                let _ = bump_scene_version_sqlite(&mut tx).await?;
+                insert_audit_event_sqlite(
+                    &mut tx,
+                    "connector.update",
+                    "connector",
+                    id,
+                    serde_json::to_value(&connector)?,
+                )
+                .await?;
+                tx.commit().await?;
+                Ok(connector)
+            }
+        }
+    }
+
+    pub async fn delete_connector(&self, id: &str) -> Result<bool, StoreError> {
+        match &self.backend {
+            StoreBackend::Memory(store) => {
+                let mut snapshot = store.write().await;
+                if snapshot.connectors.remove(id).is_none() {
+                    return Ok(false);
+                }
+
+                for bindings in snapshot.bindings.values_mut() {
+                    bindings.retain(|binding| binding.connector_id != id);
+                }
+
+                snapshot.scene_version += 1;
+                snapshot.audit_events.push(serde_json::json!({
+                    "action": "connector.delete",
+                    "resourceId": id,
+                    "timestamp": now_millis(),
+                    "actor": "system"
+                }));
+                Ok(true)
+            }
+            StoreBackend::Postgres(store) => {
+                let mut tx = store.pool.begin().await?;
+                sqlx::query(r#"DELETE FROM entity_bindings WHERE connector_id = $1"#)
+                    .bind(id)
+                    .execute(&mut *tx)
+                    .await?;
+                let deleted = sqlx::query(r#"DELETE FROM data_connectors WHERE id = $1"#)
+                    .bind(id)
+                    .execute(&mut *tx)
+                    .await?
+                    .rows_affected();
+
+                if deleted == 0 {
+                    tx.rollback().await?;
+                    return Ok(false);
+                }
+
+                let _ = bump_scene_version_tx(&mut tx).await?;
+                insert_audit_event(
+                    &mut tx,
+                    "connector.delete",
+                    "connector",
+                    id,
+                    serde_json::json!({ "id": id }),
+                )
+                .await?;
+                tx.commit().await?;
+                Ok(true)
+            }
+            StoreBackend::Sqlite(store) => {
+                let mut tx = store.pool.begin().await?;
+                sqlx::query(r#"DELETE FROM entity_bindings WHERE connector_id = ?"#)
+                    .bind(id)
+                    .execute(&mut *tx)
+                    .await?;
+                let deleted = sqlx::query(r#"DELETE FROM data_connectors WHERE id = ?"#)
+                    .bind(id)
+                    .execute(&mut *tx)
+                    .await?
+                    .rows_affected();
+
+                if deleted == 0 {
+                    tx.rollback().await?;
+                    return Ok(false);
+                }
+
+                let _ = bump_scene_version_sqlite(&mut tx).await?;
+                insert_audit_event_sqlite(
+                    &mut tx,
+                    "connector.delete",
+                    "connector",
+                    id,
+                    serde_json::json!({ "id": id }),
+                )
+                .await?;
+                tx.commit().await?;
+                Ok(true)
+            }
+        }
+    }
+
+    pub async fn list_bindings_by_entity(
+        &self,
+        entity_id: &str,
+    ) -> Result<Vec<EntityBinding>, StoreError> {
+        match &self.backend {
+            StoreBackend::Memory(store) => Ok(store
+                .read()
+                .await
+                .bindings
+                .get(entity_id)
+                .cloned()
+                .unwrap_or_default()),
+            StoreBackend::Postgres(store) => {
+                let rows = sqlx::query(
+                    r#"
+                    SELECT binding_data FROM entity_bindings
+                    WHERE entity_id = $1
+                    ORDER BY created_at ASC, binding_id ASC
+                    "#,
+                )
+                .bind(entity_id)
+                .fetch_all(&store.pool)
+                .await?;
+
+                rows.into_iter()
+                    .map(|row| {
+                        let value: serde_json::Value = row.get("binding_data");
+                        serde_json::from_value(value).map_err(StoreError::from)
+                    })
+                    .collect()
+            }
+            StoreBackend::Sqlite(store) => {
+                let rows = sqlx::query(
+                    r#"
+                    SELECT binding_data FROM entity_bindings
+                    WHERE entity_id = ?
+                    ORDER BY created_at ASC, binding_id ASC
+                    "#,
+                )
+                .bind(entity_id)
+                .fetch_all(&store.pool)
+                .await?;
+
+                rows.into_iter()
+                    .map(|row| {
+                        let value: String = row.get("binding_data");
+                        serde_json::from_str(&value).map_err(StoreError::from)
+                    })
+                    .collect()
+            }
+        }
+    }
+
+    pub async fn replace_entity_bindings(
+        &self,
+        entity_id: &str,
+        mut bindings: Vec<EntityBinding>,
+    ) -> Result<Vec<EntityBinding>, StoreError> {
+        let now = now_millis();
+
+        let mut seen_connector_ids = HashSet::new();
+        for binding in &bindings {
+            if !seen_connector_ids.insert(binding.connector_id.clone()) {
+                return Err(StoreError::Validation(format!(
+                    "duplicate connector {} in bindings",
+                    binding.connector_id
+                )));
+            }
+        }
+
+        for binding in &mut bindings {
+            binding.entity_id = entity_id.to_string();
+            if binding.binding_id.trim().is_empty() {
+                binding.binding_id = Uuid::new_v4().to_string();
+            }
+            binding.created_at = now;
+            binding.updated_at = now;
+        }
+
+        match &self.backend {
+            StoreBackend::Memory(store) => {
+                let mut snapshot = store.write().await;
+                if !snapshot.entities.contains_key(entity_id) {
+                    return Err(StoreError::NotFound(format!("entity {entity_id}")));
+                }
+
+                for binding in &bindings {
+                    if !snapshot.connectors.contains_key(&binding.connector_id) {
+                        return Err(StoreError::Validation(format!(
+                            "connector {} does not exist",
+                            binding.connector_id
+                        )));
+                    }
+                }
+
+                snapshot
+                    .bindings
+                    .insert(entity_id.to_string(), bindings.clone());
+                snapshot.scene_version += 1;
+                snapshot.audit_events.push(serde_json::json!({
+                    "action": "binding.replace",
+                    "resourceId": entity_id,
+                    "timestamp": now,
+                    "actor": "system"
+                }));
+                Ok(bindings)
+            }
+            StoreBackend::Postgres(store) => {
+                let mut tx = store.pool.begin().await?;
+
+                let exists =
+                    sqlx::query_scalar::<_, i64>(r#"SELECT COUNT(*) FROM entities WHERE id = $1"#)
+                        .bind(entity_id)
+                        .fetch_one(&mut *tx)
+                        .await?;
+                if exists == 0 {
+                    return Err(StoreError::NotFound(format!("entity {entity_id}")));
+                }
+
+                for binding in &bindings {
+                    let connector_exists = sqlx::query_scalar::<_, i64>(
+                        r#"SELECT COUNT(*) FROM data_connectors WHERE id = $1"#,
+                    )
+                    .bind(&binding.connector_id)
+                    .fetch_one(&mut *tx)
+                    .await?;
+                    if connector_exists == 0 {
+                        return Err(StoreError::Validation(format!(
+                            "connector {} does not exist",
+                            binding.connector_id
+                        )));
+                    }
+                }
+
+                sqlx::query(r#"DELETE FROM entity_bindings WHERE entity_id = $1"#)
+                    .bind(entity_id)
+                    .execute(&mut *tx)
+                    .await?;
+
+                for binding in &bindings {
+                    sqlx::query(
+                        r#"
+                        INSERT INTO entity_bindings (
+                            binding_id, entity_id, connector_id, source_path, mapping, enabled, binding_data, created_at, updated_at
+                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                        "#,
+                    )
+                    .bind(&binding.binding_id)
+                    .bind(&binding.entity_id)
+                    .bind(&binding.connector_id)
+                    .bind(&binding.source_path)
+                    .bind(binding.mapping.clone())
+                    .bind(binding.enabled)
+                    .bind(serde_json::to_value(binding)?)
+                    .bind(binding.created_at as i64)
+                    .bind(binding.updated_at as i64)
+                    .execute(&mut *tx)
+                    .await?;
+                }
+
+                let _ = bump_scene_version_tx(&mut tx).await?;
+                insert_audit_event(
+                    &mut tx,
+                    "binding.replace",
+                    "binding",
+                    entity_id,
+                    serde_json::to_value(&bindings)?,
+                )
+                .await?;
+                tx.commit().await?;
+                Ok(bindings)
+            }
+            StoreBackend::Sqlite(store) => {
+                let mut tx = store.pool.begin().await?;
+
+                let exists =
+                    sqlx::query_scalar::<_, i64>(r#"SELECT COUNT(*) FROM entities WHERE id = ?"#)
+                        .bind(entity_id)
+                        .fetch_one(&mut *tx)
+                        .await?;
+                if exists == 0 {
+                    return Err(StoreError::NotFound(format!("entity {entity_id}")));
+                }
+
+                for binding in &bindings {
+                    let connector_exists = sqlx::query_scalar::<_, i64>(
+                        r#"SELECT COUNT(*) FROM data_connectors WHERE id = ?"#,
+                    )
+                    .bind(&binding.connector_id)
+                    .fetch_one(&mut *tx)
+                    .await?;
+                    if connector_exists == 0 {
+                        return Err(StoreError::Validation(format!(
+                            "connector {} does not exist",
+                            binding.connector_id
+                        )));
+                    }
+                }
+
+                sqlx::query(r#"DELETE FROM entity_bindings WHERE entity_id = ?"#)
+                    .bind(entity_id)
+                    .execute(&mut *tx)
+                    .await?;
+
+                for binding in &bindings {
+                    sqlx::query(
+                        r#"
+                        INSERT INTO entity_bindings (
+                            binding_id, entity_id, connector_id, source_path, mapping, enabled, binding_data, created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        "#,
+                    )
+                    .bind(&binding.binding_id)
+                    .bind(&binding.entity_id)
+                    .bind(&binding.connector_id)
+                    .bind(&binding.source_path)
+                    .bind(serde_json::to_string(&binding.mapping)?)
+                    .bind(binding.enabled)
+                    .bind(serde_json::to_string(binding)?)
+                    .bind(binding.created_at as i64)
+                    .bind(binding.updated_at as i64)
+                    .execute(&mut *tx)
+                    .await?;
+                }
+
+                let _ = bump_scene_version_sqlite(&mut tx).await?;
+                insert_audit_event_sqlite(
+                    &mut tx,
+                    "binding.replace",
+                    "binding",
+                    entity_id,
+                    serde_json::to_value(&bindings)?,
+                )
+                .await?;
+                tx.commit().await?;
+                Ok(bindings)
+            }
+        }
+    }
+
+    pub async fn list_rules(&self) -> Result<Vec<RuleConfig>, StoreError> {
+        match &self.backend {
+            StoreBackend::Memory(store) => Ok(store.read().await.rules.values().cloned().collect()),
+            StoreBackend::Postgres(store) => {
+                let rows =
+                    sqlx::query(r#"SELECT rule_data FROM rules ORDER BY created_at ASC, id ASC"#)
+                        .fetch_all(&store.pool)
+                        .await?;
+                rows.into_iter()
+                    .map(|row| {
+                        let value: serde_json::Value = row.get("rule_data");
+                        serde_json::from_value(value).map_err(StoreError::from)
+                    })
+                    .collect()
+            }
+            StoreBackend::Sqlite(store) => {
+                let rows =
+                    sqlx::query(r#"SELECT rule_data FROM rules ORDER BY created_at ASC, id ASC"#)
+                        .fetch_all(&store.pool)
+                        .await?;
+                rows.into_iter()
+                    .map(|row| {
+                        let value: String = row.get("rule_data");
+                        serde_json::from_str(&value).map_err(StoreError::from)
+                    })
+                    .collect()
+            }
+        }
+    }
+
+    pub async fn get_rule(&self, id: &str) -> Result<Option<RuleConfig>, StoreError> {
+        match &self.backend {
+            StoreBackend::Memory(store) => Ok(store.read().await.rules.get(id).cloned()),
+            StoreBackend::Postgres(store) => {
+                let row = sqlx::query(r#"SELECT rule_data FROM rules WHERE id = $1"#)
+                    .bind(id)
+                    .fetch_optional(&store.pool)
+                    .await?;
+                match row {
+                    Some(row) => {
+                        let value: serde_json::Value = row.get("rule_data");
+                        Ok(Some(serde_json::from_value(value)?))
+                    }
+                    None => Ok(None),
+                }
+            }
+            StoreBackend::Sqlite(store) => {
+                let row = sqlx::query(r#"SELECT rule_data FROM rules WHERE id = ?"#)
+                    .bind(id)
+                    .fetch_optional(&store.pool)
+                    .await?;
+                match row {
+                    Some(row) => {
+                        let value: String = row.get("rule_data");
+                        Ok(Some(serde_json::from_str(&value)?))
+                    }
+                    None => Ok(None),
+                }
+            }
+        }
+    }
+
+    pub async fn create_rule(&self, mut rule: RuleConfig) -> Result<RuleConfig, StoreError> {
+        let now = now_millis();
+        if rule.id.trim().is_empty() {
+            rule.id = Uuid::new_v4().to_string();
+        }
+        rule.created_at = now;
+        rule.updated_at = now;
+        if rule.version == 0 {
+            rule.version = 1;
+        }
+
+        let validation = validate_rule_graph(&rule);
+        if !validation.valid {
+            return Err(StoreError::Validation(validation.errors.join("; ")));
+        }
+
+        match &self.backend {
+            StoreBackend::Memory(store) => {
+                let mut snapshot = store.write().await;
+                if snapshot.rules.contains_key(&rule.id) {
+                    return Err(StoreError::Validation(format!(
+                        "rule {} already exists",
+                        rule.id
+                    )));
+                }
+                snapshot.rules.insert(rule.id.clone(), rule.clone());
+                snapshot.scene_version += 1;
+                snapshot.audit_events.push(serde_json::json!({
+                    "action": "rule.create",
+                    "resourceId": rule.id,
+                    "actor": "system",
+                    "timestamp": now
+                }));
+                Ok(rule)
+            }
+            StoreBackend::Postgres(store) => {
+                let mut tx = store.pool.begin().await?;
+                persist_rule(&mut tx, &rule, false).await?;
+                let _ = bump_scene_version_tx(&mut tx).await?;
+                insert_audit_event(
+                    &mut tx,
+                    "rule.create",
+                    "rule",
+                    &rule.id,
+                    serde_json::to_value(&rule)?,
+                )
+                .await?;
+                tx.commit().await?;
+                Ok(rule)
+            }
+            StoreBackend::Sqlite(store) => {
+                let mut tx = store.pool.begin().await?;
+                persist_rule_sqlite(&mut tx, &rule, false).await?;
+                let _ = bump_scene_version_sqlite(&mut tx).await?;
+                insert_audit_event_sqlite(
+                    &mut tx,
+                    "rule.create",
+                    "rule",
+                    &rule.id,
+                    serde_json::to_value(&rule)?,
+                )
+                .await?;
+                tx.commit().await?;
+                Ok(rule)
+            }
+        }
+    }
+
+    pub async fn update_rule(
+        &self,
+        id: &str,
+        mut rule: RuleConfig,
+    ) -> Result<RuleConfig, StoreError> {
+        rule.id = id.to_string();
+        rule.updated_at = now_millis();
+
+        let validation = validate_rule_graph(&rule);
+        if !validation.valid {
+            return Err(StoreError::Validation(validation.errors.join("; ")));
+        }
+
+        match &self.backend {
+            StoreBackend::Memory(store) => {
+                let mut snapshot = store.write().await;
+                let Some(existing) = snapshot.rules.get(id) else {
+                    return Err(StoreError::NotFound(format!("rule {id}")));
+                };
+                rule.created_at = existing.created_at;
+                rule.version = existing.version + 1;
+                snapshot.rules.insert(id.to_string(), rule.clone());
+                snapshot.scene_version += 1;
+                snapshot.audit_events.push(serde_json::json!({
+                    "action": "rule.update",
+                    "resourceId": id,
+                    "actor": "system",
+                    "timestamp": now_millis()
+                }));
+                Ok(rule)
+            }
+            StoreBackend::Postgres(store) => {
+                let mut tx = store.pool.begin().await?;
+                let existing = sqlx::query(r#"SELECT rule_data FROM rules WHERE id = $1"#)
+                    .bind(id)
+                    .fetch_optional(&mut *tx)
+                    .await?;
+
+                let Some(existing) = existing else {
+                    return Err(StoreError::NotFound(format!("rule {id}")));
+                };
+
+                let existing_rule: RuleConfig = serde_json::from_value(existing.get("rule_data"))?;
+                rule.created_at = existing_rule.created_at;
+                rule.version = existing_rule.version + 1;
+
+                persist_rule(&mut tx, &rule, true).await?;
+                let _ = bump_scene_version_tx(&mut tx).await?;
+                insert_audit_event(
+                    &mut tx,
+                    "rule.update",
+                    "rule",
+                    id,
+                    serde_json::to_value(&rule)?,
+                )
+                .await?;
+                tx.commit().await?;
+                Ok(rule)
+            }
+            StoreBackend::Sqlite(store) => {
+                let mut tx = store.pool.begin().await?;
+                let existing = sqlx::query(r#"SELECT rule_data FROM rules WHERE id = ?"#)
+                    .bind(id)
+                    .fetch_optional(&mut *tx)
+                    .await?;
+
+                let Some(existing) = existing else {
+                    return Err(StoreError::NotFound(format!("rule {id}")));
+                };
+
+                let existing_rule: RuleConfig =
+                    serde_json::from_str(existing.get::<String, _>("rule_data").as_str())?;
+                rule.created_at = existing_rule.created_at;
+                rule.version = existing_rule.version + 1;
+
+                persist_rule_sqlite(&mut tx, &rule, true).await?;
+                let _ = bump_scene_version_sqlite(&mut tx).await?;
+                insert_audit_event_sqlite(
+                    &mut tx,
+                    "rule.update",
+                    "rule",
+                    id,
+                    serde_json::to_value(&rule)?,
+                )
+                .await?;
+                tx.commit().await?;
+                Ok(rule)
+            }
+        }
+    }
+
+    pub async fn delete_rule(&self, id: &str) -> Result<bool, StoreError> {
+        match &self.backend {
+            StoreBackend::Memory(store) => {
+                let mut snapshot = store.write().await;
+                if snapshot.rules.remove(id).is_none() {
+                    return Ok(false);
+                }
+                snapshot.scene_version += 1;
+                snapshot.audit_events.push(serde_json::json!({
+                    "action": "rule.delete",
+                    "resourceId": id,
+                    "actor": "system",
+                    "timestamp": now_millis()
+                }));
+                Ok(true)
+            }
+            StoreBackend::Postgres(store) => {
+                let mut tx = store.pool.begin().await?;
+                sqlx::query(r#"DELETE FROM rule_nodes WHERE rule_id = $1"#)
+                    .bind(id)
+                    .execute(&mut *tx)
+                    .await?;
+                sqlx::query(r#"DELETE FROM rule_edges WHERE rule_id = $1"#)
+                    .bind(id)
+                    .execute(&mut *tx)
+                    .await?;
+                let deleted = sqlx::query(r#"DELETE FROM rules WHERE id = $1"#)
+                    .bind(id)
+                    .execute(&mut *tx)
+                    .await?
+                    .rows_affected();
+
+                if deleted == 0 {
+                    tx.rollback().await?;
+                    return Ok(false);
+                }
+
+                let _ = bump_scene_version_tx(&mut tx).await?;
+                insert_audit_event(
+                    &mut tx,
+                    "rule.delete",
+                    "rule",
+                    id,
+                    serde_json::json!({ "id": id }),
+                )
+                .await?;
+                tx.commit().await?;
+                Ok(true)
+            }
+            StoreBackend::Sqlite(store) => {
+                let mut tx = store.pool.begin().await?;
+                sqlx::query(r#"DELETE FROM rule_nodes WHERE rule_id = ?"#)
+                    .bind(id)
+                    .execute(&mut *tx)
+                    .await?;
+                sqlx::query(r#"DELETE FROM rule_edges WHERE rule_id = ?"#)
+                    .bind(id)
+                    .execute(&mut *tx)
+                    .await?;
+                let deleted = sqlx::query(r#"DELETE FROM rules WHERE id = ?"#)
+                    .bind(id)
+                    .execute(&mut *tx)
+                    .await?
+                    .rows_affected();
+
+                if deleted == 0 {
+                    tx.rollback().await?;
+                    return Ok(false);
+                }
+
+                let _ = bump_scene_version_sqlite(&mut tx).await?;
+                insert_audit_event_sqlite(
+                    &mut tx,
+                    "rule.delete",
+                    "rule",
+                    id,
+                    serde_json::json!({ "id": id }),
+                )
+                .await?;
+                tx.commit().await?;
+                Ok(true)
+            }
+        }
+    }
+
+    pub async fn list_alarms(&self) -> Result<Vec<Alarm>, StoreError> {
+        match &self.backend {
+            StoreBackend::Memory(store) => Ok(store.read().await.alarms.clone()),
+            StoreBackend::Postgres(_store) => Ok(Vec::new()),
+            StoreBackend::Sqlite(_store) => Ok(Vec::new()),
+        }
+    }
+
+    pub async fn binding_count(&self) -> Result<u64, StoreError> {
+        match &self.backend {
+            StoreBackend::Memory(store) => Ok(store
+                .read()
+                .await
+                .bindings
+                .values()
+                .map(|items| items.len() as u64)
+                .sum()),
+            StoreBackend::Postgres(store) => {
+                let count: i64 = sqlx::query_scalar(r#"SELECT COUNT(*) FROM entity_bindings"#)
+                    .fetch_one(&store.pool)
+                    .await?;
+                Ok(count as u64)
+            }
+            StoreBackend::Sqlite(store) => {
+                let count: i64 = sqlx::query_scalar(r#"SELECT COUNT(*) FROM entity_bindings"#)
+                    .fetch_one(&store.pool)
+                    .await?;
+                Ok(count as u64)
+            }
+        }
+    }
+
+    pub async fn list_audit_events(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<AuditEventRecord>, StoreError> {
+        match &self.backend {
+            StoreBackend::Memory(store) => {
+                let mut events = store
+                    .read()
+                    .await
+                    .audit_events
+                    .iter()
+                    .enumerate()
+                    .rev()
+                    .take(limit)
+                    .map(|(index, value)| map_memory_audit_event(index, value))
+                    .collect::<Vec<_>>();
+                events.sort_by(|left, right| right.created_at.cmp(&left.created_at));
+                Ok(events)
+            }
+            StoreBackend::Postgres(store) => {
+                let rows = sqlx::query(
+                    r#"
+                    SELECT id, actor, action, resource_type, resource_id, payload, created_at
+                    FROM audit_events
+                    ORDER BY created_at DESC, id DESC
+                    LIMIT $1
+                    "#,
+                )
+                .bind(limit as i64)
+                .fetch_all(&store.pool)
+                .await?;
+
+                rows.into_iter()
+                    .map(|row| {
+                        Ok(AuditEventRecord {
+                            id: row.get("id"),
+                            actor: row.get("actor"),
+                            action: row.get("action"),
+                            resource_type: row.get("resource_type"),
+                            resource_id: row.get("resource_id"),
+                            payload: row.get("payload"),
+                            created_at: row.get::<i64, _>("created_at") as u64,
+                        })
+                    })
+                    .collect()
+            }
+            StoreBackend::Sqlite(store) => {
+                let rows = sqlx::query(
+                    r#"
+                    SELECT id, actor, action, resource_type, resource_id, payload, created_at
+                    FROM audit_events
+                    ORDER BY created_at DESC, id DESC
+                    LIMIT ?
+                    "#,
+                )
+                .bind(limit as i64)
+                .fetch_all(&store.pool)
+                .await?;
+
+                rows.into_iter()
+                    .map(|row| {
+                        let payload: String = row.get("payload");
+                        Ok(AuditEventRecord {
+                            id: row.get("id"),
+                            actor: row.get("actor"),
+                            action: row.get("action"),
+                            resource_type: row.get("resource_type"),
+                            resource_id: row.get("resource_id"),
+                            payload: serde_json::from_str(&payload)?,
+                            created_at: row.get::<i64, _>("created_at") as u64,
+                        })
+                    })
+                    .collect()
+            }
+        }
+    }
+
+    pub fn validate_rule(&self, rule: &RuleConfig) -> RuleValidationResponse {
+        validate_rule_graph(rule)
+    }
+
+    pub async fn scene_version(&self) -> Result<u64, StoreError> {
+        Ok(self.get_scene().await?.scene_version)
+    }
+}
+
+pub fn validate_rule_graph(rule: &RuleConfig) -> RuleValidationResponse {
+    let mut errors: Vec<String> = Vec::new();
+
+    if rule.nodes.is_empty() {
+        errors.push("rule must contain at least one node".to_string());
+    }
+    if rule.edges.is_empty() {
+        errors.push("rule must contain at least one edge".to_string());
+    }
+
+    let mut node_map = HashMap::new();
+    for node in &rule.nodes {
+        node_map.insert(node.id.clone(), node);
+    }
+
+    let mut incoming: HashMap<String, usize> = HashMap::new();
+    let mut outgoing: HashMap<String, usize> = HashMap::new();
+    let mut adjacency: HashMap<String, Vec<String>> = HashMap::new();
+
+    for edge in &rule.edges {
+        if !node_map.contains_key(&edge.source) {
+            errors.push(format!(
+                "edge {} source {} does not exist",
+                edge.id, edge.source
+            ));
+            continue;
+        }
+        if !node_map.contains_key(&edge.target) {
+            errors.push(format!(
+                "edge {} target {} does not exist",
+                edge.id, edge.target
+            ));
+            continue;
+        }
+
+        *outgoing.entry(edge.source.clone()).or_insert(0) += 1;
+        *incoming.entry(edge.target.clone()).or_insert(0) += 1;
+        adjacency
+            .entry(edge.source.clone())
+            .or_default()
+            .push(edge.target.clone());
+    }
+
+    let trigger_count = rule
+        .nodes
+        .iter()
+        .filter(|node| node.data.node_type.is_trigger())
+        .count();
+    let action_count = rule
+        .nodes
+        .iter()
+        .filter(|node| node.data.node_type.is_action())
+        .count();
+
+    if trigger_count == 0 {
+        errors.push("rule must contain at least one trigger node".to_string());
+    }
+    if action_count == 0 {
+        errors.push("rule must contain at least one action node".to_string());
+    }
+
+    for node in &rule.nodes {
+        let in_degree = incoming.get(&node.id).copied().unwrap_or(0);
+        let out_degree = outgoing.get(&node.id).copied().unwrap_or(0);
+        if in_degree == 0 && out_degree == 0 {
+            errors.push(format!("node {} is isolated", node.id));
+        }
+
+        if node.data.node_type.is_trigger() {
+            if in_degree > 0 {
+                errors.push(format!(
+                    "trigger node {} cannot have incoming edges",
+                    node.id
+                ));
+            }
+            if out_degree == 0 {
+                errors.push(format!("trigger node {} must have outgoing edges", node.id));
+            }
+        }
+
+        if node.data.node_type.is_action() {
+            if out_degree > 0 {
+                errors.push(format!(
+                    "action node {} cannot have outgoing edges",
+                    node.id
+                ));
+            }
+            if in_degree == 0 {
+                errors.push(format!("action node {} must have incoming edges", node.id));
+            }
+        }
+
+        if node.data.node_type.requires_config() && node.data.config.is_empty() {
+            errors.push(format!("node {} requires non-empty config", node.id));
+        }
+    }
+
+    if has_cycle(&rule.nodes, &adjacency) {
+        errors.push("rule graph must not contain cycles".to_string());
+    }
+
+    RuleValidationResponse {
+        valid: errors.is_empty(),
+        errors,
+    }
+}
+
+fn has_cycle(
+    nodes: &[crate::contracts::RuleNode],
+    adjacency: &HashMap<String, Vec<String>>,
+) -> bool {
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum Mark {
+        Visiting,
+        Visited,
+    }
+
+    fn dfs(
+        node_id: &str,
+        marks: &mut HashMap<String, Mark>,
+        adjacency: &HashMap<String, Vec<String>>,
+    ) -> bool {
+        if let Some(mark) = marks.get(node_id) {
+            return *mark == Mark::Visiting;
+        }
+
+        marks.insert(node_id.to_string(), Mark::Visiting);
+        if let Some(targets) = adjacency.get(node_id) {
+            for target in targets {
+                if dfs(target, marks, adjacency) {
+                    return true;
+                }
+            }
+        }
+        marks.insert(node_id.to_string(), Mark::Visited);
+        false
+    }
+
+    let mut marks = HashMap::new();
+    for node in nodes {
+        if !marks.contains_key(&node.id) && dfs(&node.id, &mut marks, adjacency) {
+            return true;
+        }
+    }
+
+    false
+}
+
+async fn setup_postgres(pool: &PgPool) -> Result<(), StoreError> {
+    let mut tx = pool.begin().await?;
+
+    tx.execute(
+        r#"
+        CREATE TABLE IF NOT EXISTS scene_configs (
+            site_id TEXT PRIMARY KEY,
+            scene_version BIGINT NOT NULL,
+            scene_config JSONB NOT NULL,
+            created_at BIGINT NOT NULL,
+            updated_at BIGINT NOT NULL
+        )
+        "#,
+    )
+    .await?;
+
+    tx.execute(
+        r#"
+        CREATE TABLE IF NOT EXISTS entities (
+            id TEXT PRIMARY KEY,
+            entity_type TEXT NOT NULL,
+            status TEXT NOT NULL,
+            entity_data JSONB NOT NULL,
+            created_at BIGINT NOT NULL,
+            updated_at BIGINT NOT NULL
+        )
+        "#,
+    )
+    .await?;
+
+    tx.execute(
+        r#"
+        CREATE TABLE IF NOT EXISTS static_assets (
+            id TEXT PRIMARY KEY,
+            asset_kind TEXT NOT NULL,
+            visible BOOLEAN NOT NULL,
+            asset_data JSONB NOT NULL,
+            created_at BIGINT NOT NULL,
+            updated_at BIGINT NOT NULL
+        )
+        "#,
+    )
+    .await?;
+
+    tx.execute(
+        r#"
+        CREATE TABLE IF NOT EXISTS entity_zone_vertices (
+            entity_id TEXT NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+            vertex_order INT NOT NULL,
+            point JSONB NOT NULL,
+            PRIMARY KEY (entity_id, vertex_order)
+        )
+        "#,
+    )
+    .await?;
+
+    tx.execute(
+        r#"
+        CREATE TABLE IF NOT EXISTS data_connectors (
+            id TEXT PRIMARY KEY,
+            enabled BOOLEAN NOT NULL,
+            connector_data JSONB NOT NULL,
+            created_at BIGINT NOT NULL,
+            updated_at BIGINT NOT NULL
+        )
+        "#,
+    )
+    .await?;
+
+    tx.execute(
+        r#"
+        CREATE TABLE IF NOT EXISTS entity_bindings (
+            binding_id TEXT PRIMARY KEY,
+            entity_id TEXT NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+            connector_id TEXT NOT NULL REFERENCES data_connectors(id) ON DELETE CASCADE,
+            source_path TEXT NOT NULL,
+            mapping JSONB NOT NULL,
+            enabled BOOLEAN NOT NULL,
+            binding_data JSONB NOT NULL,
+            created_at BIGINT NOT NULL,
+            updated_at BIGINT NOT NULL,
+            UNIQUE(entity_id, connector_id)
+        )
+        "#,
+    )
+    .await?;
+
+    tx.execute(
+        r#"
+        CREATE TABLE IF NOT EXISTS rules (
+            id TEXT PRIMARY KEY,
+            enabled BOOLEAN NOT NULL,
+            version INT NOT NULL,
+            rule_data JSONB NOT NULL,
+            created_at BIGINT NOT NULL,
+            updated_at BIGINT NOT NULL
+        )
+        "#,
+    )
+    .await?;
+
+    tx.execute(
+        r#"
+        CREATE TABLE IF NOT EXISTS rule_nodes (
+            id TEXT PRIMARY KEY,
+            rule_id TEXT NOT NULL REFERENCES rules(id) ON DELETE CASCADE,
+            node_type TEXT NOT NULL,
+            node_kind TEXT NOT NULL,
+            position JSONB NOT NULL,
+            data JSONB NOT NULL
+        )
+        "#,
+    )
+    .await?;
+
+    tx.execute(
+        r#"
+        CREATE TABLE IF NOT EXISTS rule_edges (
+            id TEXT PRIMARY KEY,
+            rule_id TEXT NOT NULL REFERENCES rules(id) ON DELETE CASCADE,
+            source_node_id TEXT NOT NULL,
+            target_node_id TEXT NOT NULL,
+            source_handle TEXT,
+            target_handle TEXT
+        )
+        "#,
+    )
+    .await?;
+
+    tx.execute(
+        r#"
+        CREATE TABLE IF NOT EXISTS audit_events (
+            id TEXT PRIMARY KEY,
+            actor TEXT NOT NULL,
+            action TEXT NOT NULL,
+            resource_type TEXT NOT NULL,
+            resource_id TEXT NOT NULL,
+            payload JSONB NOT NULL,
+            created_at BIGINT NOT NULL
+        )
+        "#,
+    )
+    .await?;
+
+    tx.execute(
+        r#"CREATE INDEX IF NOT EXISTS idx_entities_type_status ON entities(entity_type, status)"#,
+    )
+    .await?;
+    tx.execute(
+        r#"CREATE INDEX IF NOT EXISTS idx_static_assets_kind_visible ON static_assets(asset_kind, visible)"#,
+    )
+    .await?;
+    tx.execute(r#"CREATE INDEX IF NOT EXISTS idx_bindings_entity_connector ON entity_bindings(entity_id, connector_id)"#)
+        .await?;
+    tx.execute(r#"CREATE INDEX IF NOT EXISTS idx_rule_nodes_rule_id ON rule_nodes(rule_id)"#)
+        .await?;
+    tx.execute(r#"CREATE INDEX IF NOT EXISTS idx_rule_edges_rule_id ON rule_edges(rule_id)"#)
+        .await?;
+
+    let seeded_rows: i64 =
+        sqlx::query_scalar(r#"SELECT COUNT(*) FROM scene_configs WHERE site_id = $1"#)
+            .bind(seed_scene::SITE_ID)
+            .fetch_one(&mut *tx)
+            .await?;
+
+    if seeded_rows == 0 {
+        let snapshot = seed_scene::seed_snapshot();
+        let now = now_millis() as i64;
+        sqlx::query(
+            r#"
+            INSERT INTO scene_configs (site_id, scene_version, scene_config, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5)
+            "#,
+        )
+        .bind(seed_scene::SITE_ID)
+        .bind(snapshot.scene_version as i64)
+        .bind(serde_json::to_value(&snapshot.scene_config)?)
+        .bind(now)
+        .bind(now)
+        .execute(&mut *tx)
+        .await?;
+
+        for entity in &snapshot.entities {
+            persist_entity(&mut tx, entity, false).await?;
+        }
+
+        for rule in &snapshot.rules {
+            persist_rule(&mut tx, rule, false).await?;
+        }
+    }
+
+    tx.commit().await?;
+    Ok(())
+}
+
+async fn setup_sqlite(pool: &SqlitePool) -> Result<(), StoreError> {
+    let mut tx = pool.begin().await?;
+
+    tx.execute("PRAGMA foreign_keys = ON").await?;
+
+    tx.execute(
+        r#"
+        CREATE TABLE IF NOT EXISTS scene_configs (
+            site_id TEXT PRIMARY KEY,
+            scene_version INTEGER NOT NULL,
+            scene_config TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        )
+        "#,
+    )
+    .await?;
+
+    tx.execute(
+        r#"
+        CREATE TABLE IF NOT EXISTS entities (
+            id TEXT PRIMARY KEY,
+            entity_type TEXT NOT NULL,
+            status TEXT NOT NULL,
+            entity_data TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        )
+        "#,
+    )
+    .await?;
+
+    tx.execute(
+        r#"
+        CREATE TABLE IF NOT EXISTS static_assets (
+            id TEXT PRIMARY KEY,
+            asset_kind TEXT NOT NULL,
+            visible INTEGER NOT NULL,
+            asset_data TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        )
+        "#,
+    )
+    .await?;
+
+    tx.execute(
+        r#"
+        CREATE TABLE IF NOT EXISTS entity_zone_vertices (
+            entity_id TEXT NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+            vertex_order INTEGER NOT NULL,
+            point TEXT NOT NULL,
+            PRIMARY KEY (entity_id, vertex_order)
+        )
+        "#,
+    )
+    .await?;
+
+    tx.execute(
+        r#"
+        CREATE TABLE IF NOT EXISTS data_connectors (
+            id TEXT PRIMARY KEY,
+            enabled INTEGER NOT NULL,
+            connector_data TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        )
+        "#,
+    )
+    .await?;
+
+    tx.execute(
+        r#"
+        CREATE TABLE IF NOT EXISTS entity_bindings (
+            binding_id TEXT PRIMARY KEY,
+            entity_id TEXT NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+            connector_id TEXT NOT NULL REFERENCES data_connectors(id) ON DELETE CASCADE,
+            source_path TEXT NOT NULL,
+            mapping TEXT NOT NULL,
+            enabled INTEGER NOT NULL,
+            binding_data TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            UNIQUE(entity_id, connector_id)
+        )
+        "#,
+    )
+    .await?;
+
+    tx.execute(
+        r#"
+        CREATE TABLE IF NOT EXISTS rules (
+            id TEXT PRIMARY KEY,
+            enabled INTEGER NOT NULL,
+            version INTEGER NOT NULL,
+            rule_data TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        )
+        "#,
+    )
+    .await?;
+
+    tx.execute(
+        r#"
+        CREATE TABLE IF NOT EXISTS rule_nodes (
+            id TEXT PRIMARY KEY,
+            rule_id TEXT NOT NULL REFERENCES rules(id) ON DELETE CASCADE,
+            node_type TEXT NOT NULL,
+            node_kind TEXT NOT NULL,
+            position TEXT NOT NULL,
+            data TEXT NOT NULL
+        )
+        "#,
+    )
+    .await?;
+
+    tx.execute(
+        r#"
+        CREATE TABLE IF NOT EXISTS rule_edges (
+            id TEXT PRIMARY KEY,
+            rule_id TEXT NOT NULL REFERENCES rules(id) ON DELETE CASCADE,
+            source_node_id TEXT NOT NULL,
+            target_node_id TEXT NOT NULL,
+            source_handle TEXT,
+            target_handle TEXT
+        )
+        "#,
+    )
+    .await?;
+
+    tx.execute(
+        r#"
+        CREATE TABLE IF NOT EXISTS audit_events (
+            id TEXT PRIMARY KEY,
+            actor TEXT NOT NULL,
+            action TEXT NOT NULL,
+            resource_type TEXT NOT NULL,
+            resource_id TEXT NOT NULL,
+            payload TEXT NOT NULL,
+            created_at INTEGER NOT NULL
+        )
+        "#,
+    )
+    .await?;
+
+    tx.execute(
+        r#"CREATE INDEX IF NOT EXISTS idx_entities_type_status ON entities(entity_type, status)"#,
+    )
+    .await?;
+    tx.execute(
+        r#"CREATE INDEX IF NOT EXISTS idx_static_assets_kind_visible ON static_assets(asset_kind, visible)"#,
+    )
+    .await?;
+    tx.execute(r#"CREATE INDEX IF NOT EXISTS idx_bindings_entity_connector ON entity_bindings(entity_id, connector_id)"#)
+        .await?;
+    tx.execute(r#"CREATE INDEX IF NOT EXISTS idx_rule_nodes_rule_id ON rule_nodes(rule_id)"#)
+        .await?;
+    tx.execute(r#"CREATE INDEX IF NOT EXISTS idx_rule_edges_rule_id ON rule_edges(rule_id)"#)
+        .await?;
+
+    let seeded_rows: i64 =
+        sqlx::query_scalar(r#"SELECT COUNT(*) FROM scene_configs WHERE site_id = ?"#)
+            .bind(seed_scene::SITE_ID)
+            .fetch_one(&mut *tx)
+            .await?;
+
+    if seeded_rows == 0 {
+        let snapshot = seed_scene::seed_snapshot();
+        let now = now_millis() as i64;
+        sqlx::query(
+            r#"
+            INSERT INTO scene_configs (site_id, scene_version, scene_config, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(seed_scene::SITE_ID)
+        .bind(snapshot.scene_version as i64)
+        .bind(serde_json::to_string(&snapshot.scene_config)?)
+        .bind(now)
+        .bind(now)
+        .execute(&mut *tx)
+        .await?;
+
+        for entity in &snapshot.entities {
+            persist_entity_sqlite(&mut tx, entity, false).await?;
+        }
+
+        for rule in &snapshot.rules {
+            persist_rule_sqlite(&mut tx, rule, false).await?;
+        }
+    }
+
+    tx.commit().await?;
+    Ok(())
+}
+
+async fn persist_entity(
+    tx: &mut Transaction<'_, Postgres>,
+    entity: &Entity,
+    replace: bool,
+) -> Result<(), StoreError> {
+    if replace {
+        sqlx::query(
+            r#"
+            UPDATE entities
+            SET entity_type = $1, status = $2, entity_data = $3, created_at = $4, updated_at = $5
+            WHERE id = $6
+            "#,
+        )
+        .bind(entity.entity_type())
+        .bind(status_to_str(&entity.status()))
+        .bind(serde_json::to_value(entity)?)
+        .bind(entity.created_at() as i64)
+        .bind(entity.updated_at() as i64)
+        .bind(entity.id())
+        .execute(&mut **tx)
+        .await?;
+
+        sqlx::query(r#"DELETE FROM entity_zone_vertices WHERE entity_id = $1"#)
+            .bind(entity.id())
+            .execute(&mut **tx)
+            .await?;
+    } else {
+        sqlx::query(
+            r#"
+            INSERT INTO entities (id, entity_type, status, entity_data, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            "#,
+        )
+        .bind(entity.id())
+        .bind(entity.entity_type())
+        .bind(status_to_str(&entity.status()))
+        .bind(serde_json::to_value(entity)?)
+        .bind(entity.created_at() as i64)
+        .bind(entity.updated_at() as i64)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    if let Entity::Zone(zone) = entity {
+        for (index, point) in zone.boundary.iter().enumerate() {
+            sqlx::query(
+                r#"
+                INSERT INTO entity_zone_vertices (entity_id, vertex_order, point)
+                VALUES ($1, $2, $3)
+                "#,
+            )
+            .bind(entity.id())
+            .bind(index as i32)
+            .bind(serde_json::to_value(point)?)
+            .execute(&mut **tx)
+            .await?;
+        }
+    }
+
+    Ok(())
+}
+
+async fn persist_entity_sqlite(
+    tx: &mut Transaction<'_, Sqlite>,
+    entity: &Entity,
+    replace: bool,
+) -> Result<(), StoreError> {
+    if replace {
+        sqlx::query(
+            r#"
+            UPDATE entities
+            SET entity_type = ?, status = ?, entity_data = ?, created_at = ?, updated_at = ?
+            WHERE id = ?
+            "#,
+        )
+        .bind(entity.entity_type())
+        .bind(status_to_str(&entity.status()))
+        .bind(serde_json::to_string(entity)?)
+        .bind(entity.created_at() as i64)
+        .bind(entity.updated_at() as i64)
+        .bind(entity.id())
+        .execute(&mut **tx)
+        .await?;
+
+        sqlx::query(r#"DELETE FROM entity_zone_vertices WHERE entity_id = ?"#)
+            .bind(entity.id())
+            .execute(&mut **tx)
+            .await?;
+    } else {
+        sqlx::query(
+            r#"
+            INSERT INTO entities (id, entity_type, status, entity_data, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(entity.id())
+        .bind(entity.entity_type())
+        .bind(status_to_str(&entity.status()))
+        .bind(serde_json::to_string(entity)?)
+        .bind(entity.created_at() as i64)
+        .bind(entity.updated_at() as i64)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    if let Entity::Zone(zone) = entity {
+        for (index, point) in zone.boundary.iter().enumerate() {
+            sqlx::query(
+                r#"
+                INSERT INTO entity_zone_vertices (entity_id, vertex_order, point)
+                VALUES (?, ?, ?)
+                "#,
+            )
+            .bind(entity.id())
+            .bind(index as i32)
+            .bind(serde_json::to_string(point)?)
+            .execute(&mut **tx)
+            .await?;
+        }
+    }
+
+    Ok(())
+}
+
+async fn persist_static_asset(
+    tx: &mut Transaction<'_, Postgres>,
+    asset: &StaticAssetInstance,
+    replace: bool,
+) -> Result<(), StoreError> {
+    if replace {
+        sqlx::query(
+            r#"
+            UPDATE static_assets
+            SET asset_kind = $1, visible = $2, asset_data = $3, created_at = $4, updated_at = $5
+            WHERE id = $6
+            "#,
+        )
+        .bind(static_asset_kind_to_str(asset))
+        .bind(asset.visible)
+        .bind(serde_json::to_value(asset)?)
+        .bind(asset.created_at as i64)
+        .bind(asset.updated_at as i64)
+        .bind(&asset.id)
+        .execute(&mut **tx)
+        .await?;
+    } else {
+        sqlx::query(
+            r#"
+            INSERT INTO static_assets (id, asset_kind, visible, asset_data, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            "#,
+        )
+        .bind(&asset.id)
+        .bind(static_asset_kind_to_str(asset))
+        .bind(asset.visible)
+        .bind(serde_json::to_value(asset)?)
+        .bind(asset.created_at as i64)
+        .bind(asset.updated_at as i64)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    Ok(())
+}
+
+async fn persist_static_asset_sqlite(
+    tx: &mut Transaction<'_, Sqlite>,
+    asset: &StaticAssetInstance,
+    replace: bool,
+) -> Result<(), StoreError> {
+    if replace {
+        sqlx::query(
+            r#"
+            UPDATE static_assets
+            SET asset_kind = ?, visible = ?, asset_data = ?, created_at = ?, updated_at = ?
+            WHERE id = ?
+            "#,
+        )
+        .bind(static_asset_kind_to_str(asset))
+        .bind(asset.visible)
+        .bind(serde_json::to_string(asset)?)
+        .bind(asset.created_at as i64)
+        .bind(asset.updated_at as i64)
+        .bind(&asset.id)
+        .execute(&mut **tx)
+        .await?;
+    } else {
+        sqlx::query(
+            r#"
+            INSERT INTO static_assets (id, asset_kind, visible, asset_data, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(&asset.id)
+        .bind(static_asset_kind_to_str(asset))
+        .bind(asset.visible)
+        .bind(serde_json::to_string(asset)?)
+        .bind(asset.created_at as i64)
+        .bind(asset.updated_at as i64)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    Ok(())
+}
+
+async fn persist_rule(
+    tx: &mut Transaction<'_, Postgres>,
+    rule: &RuleConfig,
+    replace: bool,
+) -> Result<(), StoreError> {
+    if replace {
+        sqlx::query(
+            r#"
+            UPDATE rules
+            SET enabled = $1, version = $2, rule_data = $3, created_at = $4, updated_at = $5
+            WHERE id = $6
+            "#,
+        )
+        .bind(rule.enabled)
+        .bind(rule.version as i32)
+        .bind(serde_json::to_value(rule)?)
+        .bind(rule.created_at as i64)
+        .bind(rule.updated_at as i64)
+        .bind(&rule.id)
+        .execute(&mut **tx)
+        .await?;
+
+        sqlx::query(r#"DELETE FROM rule_nodes WHERE rule_id = $1"#)
+            .bind(&rule.id)
+            .execute(&mut **tx)
+            .await?;
+        sqlx::query(r#"DELETE FROM rule_edges WHERE rule_id = $1"#)
+            .bind(&rule.id)
+            .execute(&mut **tx)
+            .await?;
+    } else {
+        sqlx::query(
+            r#"
+            INSERT INTO rules (id, enabled, version, rule_data, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            "#,
+        )
+        .bind(&rule.id)
+        .bind(rule.enabled)
+        .bind(rule.version as i32)
+        .bind(serde_json::to_value(rule)?)
+        .bind(rule.created_at as i64)
+        .bind(rule.updated_at as i64)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    for node in &rule.nodes {
+        sqlx::query(
+            r#"
+            INSERT INTO rule_nodes (id, rule_id, node_type, node_kind, position, data)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            "#,
+        )
+        .bind(&node.id)
+        .bind(&rule.id)
+        .bind(format!("{:?}", node.data.node_type))
+        .bind(&node.kind)
+        .bind(serde_json::to_value(node.position.clone())?)
+        .bind(serde_json::to_value(node.data.clone())?)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    for edge in &rule.edges {
+        sqlx::query(
+            r#"
+            INSERT INTO rule_edges (id, rule_id, source_node_id, target_node_id, source_handle, target_handle)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            "#,
+        )
+        .bind(&edge.id)
+        .bind(&rule.id)
+        .bind(&edge.source)
+        .bind(&edge.target)
+        .bind(&edge.source_handle)
+        .bind(&edge.target_handle)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    Ok(())
+}
+
+async fn persist_rule_sqlite(
+    tx: &mut Transaction<'_, Sqlite>,
+    rule: &RuleConfig,
+    replace: bool,
+) -> Result<(), StoreError> {
+    if replace {
+        sqlx::query(
+            r#"
+            UPDATE rules
+            SET enabled = ?, version = ?, rule_data = ?, created_at = ?, updated_at = ?
+            WHERE id = ?
+            "#,
+        )
+        .bind(rule.enabled)
+        .bind(rule.version as i32)
+        .bind(serde_json::to_string(rule)?)
+        .bind(rule.created_at as i64)
+        .bind(rule.updated_at as i64)
+        .bind(&rule.id)
+        .execute(&mut **tx)
+        .await?;
+
+        sqlx::query(r#"DELETE FROM rule_nodes WHERE rule_id = ?"#)
+            .bind(&rule.id)
+            .execute(&mut **tx)
+            .await?;
+        sqlx::query(r#"DELETE FROM rule_edges WHERE rule_id = ?"#)
+            .bind(&rule.id)
+            .execute(&mut **tx)
+            .await?;
+    } else {
+        sqlx::query(
+            r#"
+            INSERT INTO rules (id, enabled, version, rule_data, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(&rule.id)
+        .bind(rule.enabled)
+        .bind(rule.version as i32)
+        .bind(serde_json::to_string(rule)?)
+        .bind(rule.created_at as i64)
+        .bind(rule.updated_at as i64)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    for node in &rule.nodes {
+        sqlx::query(
+            r#"
+            INSERT INTO rule_nodes (id, rule_id, node_type, node_kind, position, data)
+            VALUES (?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(&node.id)
+        .bind(&rule.id)
+        .bind(format!("{:?}", node.data.node_type))
+        .bind(&node.kind)
+        .bind(serde_json::to_string(&node.position)?)
+        .bind(serde_json::to_string(&node.data)?)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    for edge in &rule.edges {
+        sqlx::query(
+            r#"
+            INSERT INTO rule_edges (id, rule_id, source_node_id, target_node_id, source_handle, target_handle)
+            VALUES (?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(&edge.id)
+        .bind(&rule.id)
+        .bind(&edge.source)
+        .bind(&edge.target)
+        .bind(&edge.source_handle)
+        .bind(&edge.target_handle)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    Ok(())
+}
+
+async fn bump_scene_version_tx(tx: &mut Transaction<'_, Postgres>) -> Result<u64, StoreError> {
+    let row = sqlx::query(
+        r#"
+        UPDATE scene_configs
+        SET scene_version = scene_version + 1, updated_at = $1
+        WHERE site_id = $2
+        RETURNING scene_version
+        "#,
+    )
+    .bind(now_millis() as i64)
+    .bind(seed_scene::SITE_ID)
+    .fetch_one(&mut **tx)
+    .await?;
+
+    let scene_version: i64 = row.get("scene_version");
+    Ok(scene_version as u64)
+}
+
+async fn bump_scene_version_sqlite(tx: &mut Transaction<'_, Sqlite>) -> Result<u64, StoreError> {
+    sqlx::query(
+        r#"
+        UPDATE scene_configs
+        SET scene_version = scene_version + 1, updated_at = ?
+        WHERE site_id = ?
+        "#,
+    )
+    .bind(now_millis() as i64)
+    .bind(seed_scene::SITE_ID)
+    .execute(&mut **tx)
+    .await?;
+
+    let scene_version: i64 =
+        sqlx::query_scalar(r#"SELECT scene_version FROM scene_configs WHERE site_id = ?"#)
+            .bind(seed_scene::SITE_ID)
+            .fetch_one(&mut **tx)
+            .await?;
+
+    Ok(scene_version as u64)
+}
+
+async fn insert_audit_event(
+    tx: &mut Transaction<'_, Postgres>,
+    action: &str,
+    resource_type: &str,
+    resource_id: &str,
+    payload: serde_json::Value,
+) -> Result<(), StoreError> {
+    sqlx::query(
+        r#"
+        INSERT INTO audit_events (id, actor, action, resource_type, resource_id, payload, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        "#,
+    )
+    .bind(Uuid::new_v4().to_string())
+    .bind("system")
+    .bind(action)
+    .bind(resource_type)
+    .bind(resource_id)
+    .bind(payload)
+    .bind(now_millis() as i64)
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(())
+}
+
+async fn insert_audit_event_sqlite(
+    tx: &mut Transaction<'_, Sqlite>,
+    action: &str,
+    resource_type: &str,
+    resource_id: &str,
+    payload: serde_json::Value,
+) -> Result<(), StoreError> {
+    sqlx::query(
+        r#"
+        INSERT INTO audit_events (id, actor, action, resource_type, resource_id, payload, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        "#,
+    )
+    .bind(Uuid::new_v4().to_string())
+    .bind("system")
+    .bind(action)
+    .bind(resource_type)
+    .bind(resource_id)
+    .bind(serde_json::to_string(&payload)?)
+    .bind(now_millis() as i64)
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(())
+}
+
+fn map_memory_audit_event(index: usize, value: &serde_json::Value) -> AuditEventRecord {
+    let action = value
+        .get("action")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("unknown");
+    let resource_type = value
+        .get("resourceType")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string)
+        .or_else(|| action.split('.').next().map(str::to_string))
+        .unwrap_or_else(|| "system".to_string());
+    let resource_id = value
+        .get("resourceId")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("unknown")
+        .to_string();
+    let created_at = value
+        .get("timestamp")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or_default();
+
+    AuditEventRecord {
+        id: value
+            .get("id")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string)
+            .unwrap_or_else(|| format!("memory-audit-{index}")),
+        actor: value
+            .get("actor")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("system")
+            .to_string(),
+        action: action.to_string(),
+        resource_type,
+        resource_id,
+        payload: value.clone(),
+        created_at,
+    }
+}
+
+fn is_sqlite_url(url: &str) -> bool {
+    let normalized = url.trim().to_ascii_lowercase();
+    normalized.starts_with("sqlite:") || normalized.starts_with("file:")
+}
+
+fn is_memory_backend_url(url: &str) -> bool {
+    matches!(
+        url.trim().to_ascii_lowercase().as_str(),
+        "memory" | "memory://" | "in-memory"
+    )
+}
+
+fn ensure_sqlite_parent_dir(url: &str) -> Result<(), StoreError> {
+    let Some(path) = sqlite_file_path_from_url(url) else {
+        return Ok(());
+    };
+
+    let Some(parent) = Path::new(&path).parent() else {
+        return Ok(());
+    };
+    if parent.as_os_str().is_empty() {
+        return Ok(());
+    }
+
+    fs::create_dir_all(parent).map_err(|error| {
+        StoreError::Validation(format!(
+            "failed to create sqlite parent directory {}: {}",
+            parent.display(),
+            error
+        ))
+    })?;
+
+    Ok(())
+}
+
+fn sqlite_file_path_from_url(url: &str) -> Option<String> {
+    if !is_sqlite_url(url) {
+        return None;
+    }
+
+    let without_prefix = &url.trim()["sqlite:".len()..];
+    let without_query = without_prefix
+        .split_once('?')
+        .map(|(value, _)| value)
+        .unwrap_or(without_prefix)
+        .trim();
+    if without_query.is_empty() || without_query.eq_ignore_ascii_case(":memory:") {
+        return None;
+    }
+
+    if let Some(rest) = without_query.strip_prefix("//") {
+        if rest.is_empty() || rest.eq_ignore_ascii_case(":memory:") {
+            return None;
+        }
+        return Some(rest.to_string());
+    }
+
+    Some(without_query.to_string())
+}
+
+fn status_to_str(status: &EntityStatus) -> &'static str {
+    match status {
+        EntityStatus::Active => "active",
+        EntityStatus::Inactive => "inactive",
+        EntityStatus::Warning => "warning",
+        EntityStatus::Error => "error",
+    }
+}
+
+fn static_asset_kind_to_str(asset: &StaticAssetInstance) -> &'static str {
+    match asset.asset_kind {
+        crate::contracts::StaticAssetKind::ProcessTrain => "process-train",
+        crate::contracts::StaticAssetKind::PipeRack => "pipe-rack",
+        crate::contracts::StaticAssetKind::VerticalTank => "vertical-tank",
+        crate::contracts::StaticAssetKind::SphereTank => "sphere-tank",
+        crate::contracts::StaticAssetKind::PumpManifold => "pump-manifold",
+        crate::contracts::StaticAssetKind::ServiceBuilding => "service-building",
+    }
+}
+
+fn sort_entities(entities: &mut [Entity]) {
+    entities.sort_by(|left, right| {
+        entity_sort_rank(left)
+            .cmp(&entity_sort_rank(right))
+            .then_with(|| left.id().cmp(right.id()))
+    });
+}
+
+fn sort_static_assets(static_assets: &mut [StaticAssetInstance]) {
+    static_assets.sort_by(|left, right| {
+        left.created_at
+            .cmp(&right.created_at)
+            .then_with(|| left.id.cmp(&right.id))
+    });
+}
+
+fn entity_sort_rank(entity: &Entity) -> u8 {
+    match entity {
+        Entity::Zone(_) => 0,
+        Entity::Person(_) => 1,
+        Entity::Vehicle(_) => 2,
+        Entity::Equipment(_) => 3,
+        Entity::Sensor(_) => 4,
+        Entity::Camera(_) => 5,
+    }
+}
+
+fn ensure_entity_create_defaults(entity: &mut Entity, now: u64) {
+    if entity.id().trim().is_empty() {
+        set_entity_id(entity, &Uuid::new_v4().to_string());
+    }
+    set_entity_created_at(entity, now);
+    set_entity_updated_at(entity, now);
+}
+
+fn ensure_entity_update_defaults(entity: &mut Entity, now: u64) {
+    set_entity_updated_at(entity, now);
+    if entity.created_at() == 0 {
+        set_entity_created_at(entity, now);
+    }
+}
+
+fn ensure_static_asset_create_defaults(asset: &mut StaticAssetInstance, now: u64) {
+    if asset.id.trim().is_empty() {
+        asset.id = Uuid::new_v4().to_string();
+    }
+    if asset.name.trim().is_empty() {
+        asset.name = asset.id.clone();
+    }
+    if asset.scale.x == 0.0 {
+        asset.scale.x = 1.0;
+    }
+    if asset.scale.y == 0.0 {
+        asset.scale.y = 1.0;
+    }
+    if asset.scale.z == 0.0 {
+        asset.scale.z = 1.0;
+    }
+    asset.created_at = now;
+    asset.updated_at = now;
+}
+
+fn ensure_static_asset_update_defaults(asset: &mut StaticAssetInstance, now: u64) {
+    if asset.name.trim().is_empty() {
+        asset.name = asset.id.clone();
+    }
+    if asset.scale.x == 0.0 {
+        asset.scale.x = 1.0;
+    }
+    if asset.scale.y == 0.0 {
+        asset.scale.y = 1.0;
+    }
+    if asset.scale.z == 0.0 {
+        asset.scale.z = 1.0;
+    }
+    if asset.created_at == 0 {
+        asset.created_at = now;
+    }
+    asset.updated_at = now;
+}
+
+fn set_entity_id(entity: &mut Entity, id: &str) {
+    match entity {
+        Entity::Person(item) => item.base.id = id.to_string(),
+        Entity::Vehicle(item) => item.base.id = id.to_string(),
+        Entity::Equipment(item) => item.base.id = id.to_string(),
+        Entity::Sensor(item) => item.base.id = id.to_string(),
+        Entity::Camera(item) => item.base.id = id.to_string(),
+        Entity::Zone(item) => item.base.id = id.to_string(),
+    }
+}
+
+fn set_entity_created_at(entity: &mut Entity, created_at: u64) {
+    match entity {
+        Entity::Person(item) => item.base.created_at = created_at,
+        Entity::Vehicle(item) => item.base.created_at = created_at,
+        Entity::Equipment(item) => item.base.created_at = created_at,
+        Entity::Sensor(item) => item.base.created_at = created_at,
+        Entity::Camera(item) => item.base.created_at = created_at,
+        Entity::Zone(item) => item.base.created_at = created_at,
+    }
+}
+
+fn set_entity_updated_at(entity: &mut Entity, updated_at: u64) {
+    match entity {
+        Entity::Person(item) => item.base.updated_at = updated_at,
+        Entity::Vehicle(item) => item.base.updated_at = updated_at,
+        Entity::Equipment(item) => item.base.updated_at = updated_at,
+        Entity::Sensor(item) => item.base.updated_at = updated_at,
+        Entity::Camera(item) => item.base.updated_at = updated_at,
+        Entity::Zone(item) => item.base.updated_at = updated_at,
+    }
+}
+
+fn now_millis() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock should be after unix epoch")
+        .as_millis() as u64
+}
+
+#[allow(dead_code)]
+fn _vector_to_json(point: Vector3) -> serde_json::Value {
+    serde_json::json!({ "x": point.x, "y": point.y, "z": point.z })
+}

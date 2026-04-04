@@ -1,27 +1,30 @@
-use std::{
-    collections::BTreeMap,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::collections::BTreeMap;
 
 use crate::contracts::{
-    AccessAction, AccessRule, BootstrapResponse, ContractValue, Entity, EntityBase, EntityStatus,
-    EquipmentEntity, GraphPosition, PersonEntity, RuleConfig, RuleEdge, RuleNode, RuleNodeData,
-    RuleNodeType, SceneConfig, TimeRange, Vector3, VehicleEntity, VehicleType, ZoneEntity,
-    ZoneType,
+    AccessAction, AccessRule, CameraEntity, CameraType, ContractValue, Entity, EntityBase,
+    EntityStatus, EquipmentEntity, GraphPosition, PersonEntity, RuleConfig, RuleEdge, RuleNode,
+    RuleNodeData, RuleNodeType, SceneConfig, SensorEntity, SensorType, TimeRange, Vector3,
+    VehicleEntity, VehicleType, ZoneEntity, ZoneType,
 };
 
-const SITE_ID: &str = "factory-demo-site";
+pub const SITE_ID: &str = "factory-demo-site";
 const SCENE_ID: &str = "factory-demo-scene";
-const SEEDED_TIMESTAMP: u64 = 1_775_000_000_000;
+pub const SEEDED_TIMESTAMP: u64 = 1_775_000_000_000;
+pub const SEEDED_SCENE_VERSION: u64 = 1;
 
-pub fn build_bootstrap_response() -> BootstrapResponse {
-    BootstrapResponse {
-        site_id: SITE_ID.to_string(),
+pub struct SeedSnapshot {
+    pub scene_version: u64,
+    pub scene_config: SceneConfig,
+    pub entities: Vec<Entity>,
+    pub rules: Vec<RuleConfig>,
+}
+
+pub fn seed_snapshot() -> SeedSnapshot {
+    SeedSnapshot {
+        scene_version: SEEDED_SCENE_VERSION,
         scene_config: seed_scene_config(),
         entities: seed_entities(),
         rules: vec![seed_zone_warning_rule()],
-        alarms: Vec::new(),
-        issued_at: issued_at_now(),
     }
 }
 
@@ -54,6 +57,11 @@ fn seed_entities() -> Vec<Entity> {
         Entity::Person(seed_operator()),
         Entity::Vehicle(seed_forklift()),
         Entity::Equipment(seed_cnc_equipment()),
+        Entity::Sensor(seed_temperature_sensor()),
+        Entity::Sensor(seed_gas_sensor()),
+        Entity::Sensor(seed_pressure_sensor()),
+        Entity::Camera(seed_gate_camera()),
+        Entity::Camera(seed_yard_camera()),
     ]
 }
 
@@ -123,6 +131,7 @@ fn seed_operator() -> PersonEntity {
         ),
         role: "操作员".to_string(),
         department: "生产部".to_string(),
+        avatar: None,
         schedule: vec![TimeRange {
             start: SEEDED_TIMESTAMP,
             end: SEEDED_TIMESTAMP + 28_800_000,
@@ -170,8 +179,113 @@ fn seed_cnc_equipment() -> EquipmentEntity {
             },
             EntityStatus::Active,
         ),
+        model_id: None,
+        model_url: None,
         parameters,
         alarms: Vec::new(),
+        maintenance_schedule: None,
+    }
+}
+
+fn seed_temperature_sensor() -> SensorEntity {
+    SensorEntity {
+        base: entity_base(
+            "sensor-temp-reactor-01",
+            "反应釜温度传感器 01",
+            Vector3 {
+                x: -6.5,
+                y: 2.2,
+                z: -5.0,
+            },
+            EntityStatus::Active,
+        ),
+        sensor_type: SensorType::Temperature,
+        unit: "C".to_string(),
+        reading: 68.5,
+        threshold_min: Some(10.0),
+        threshold_max: Some(75.0),
+    }
+}
+
+fn seed_gas_sensor() -> SensorEntity {
+    SensorEntity {
+        base: entity_base(
+            "sensor-gas-loading-01",
+            "装卸区气体传感器 01",
+            Vector3 {
+                x: 13.5,
+                y: 2.4,
+                z: 6.0,
+            },
+            EntityStatus::Warning,
+        ),
+        sensor_type: SensorType::Gas,
+        unit: "ppm".to_string(),
+        reading: 41.2,
+        threshold_min: Some(0.0),
+        threshold_max: Some(45.0),
+    }
+}
+
+fn seed_pressure_sensor() -> SensorEntity {
+    SensorEntity {
+        base: entity_base(
+            "sensor-pressure-pump-01",
+            "泵站压力传感器 01",
+            Vector3 {
+                x: 6.0,
+                y: 1.8,
+                z: -8.5,
+            },
+            EntityStatus::Active,
+        ),
+        sensor_type: SensorType::Pressure,
+        unit: "bar".to_string(),
+        reading: 5.8,
+        threshold_min: Some(3.0),
+        threshold_max: Some(8.0),
+    }
+}
+
+fn seed_gate_camera() -> CameraEntity {
+    CameraEntity {
+        base: entity_base(
+            "camera-gate-fixed-01",
+            "南门固定摄像头 01",
+            Vector3 {
+                x: 18.0,
+                y: 5.0,
+                z: 1.5,
+            },
+            EntityStatus::Active,
+        ),
+        camera_type: CameraType::Fixed,
+        stream_url: Some("rtsp://demo.local/cam/gate-fixed-01".to_string()),
+        fov: 75.0,
+        heading: 180.0,
+        range: Some(30.0),
+        recording: true,
+    }
+}
+
+fn seed_yard_camera() -> CameraEntity {
+    CameraEntity {
+        base: entity_base(
+            "camera-yard-ptz-01",
+            "货场云台摄像头 01",
+            Vector3 {
+                x: 4.0,
+                y: 6.0,
+                z: 14.0,
+            },
+            EntityStatus::Active,
+        ),
+        camera_type: CameraType::Ptz,
+        stream_url: Some("rtsp://demo.local/cam/yard-ptz-01".to_string()),
+        fov: 95.0,
+        heading: 225.0,
+        range: Some(55.0),
+        recording: true,
     }
 }
 
@@ -202,6 +316,7 @@ fn seed_zone_warning_rule() -> RuleConfig {
         name: "叉车接近作业区提醒".to_string(),
         description: "当叉车接近总装作业区时，向值守人员发出预警。".to_string(),
         enabled: true,
+        version: 1,
         nodes: vec![
             RuleNode {
                 id: "node-trigger-zone-01".to_string(),
@@ -259,11 +374,4 @@ fn entity_base(id: &str, name: &str, position: Vector3, status: EntityStatus) ->
         created_at: SEEDED_TIMESTAMP,
         updated_at: SEEDED_TIMESTAMP,
     }
-}
-
-fn issued_at_now() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system clock should be after unix epoch")
-        .as_millis() as u64
 }

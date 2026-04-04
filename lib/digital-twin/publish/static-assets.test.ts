@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { createPublishedCampusScenePackage } from './compiler'
 import {
+  createVersionedPublishedStaticAssetUrl,
   createPublishedStaticAssetManifest,
   decodePublishedStaticMaterialName,
   decodePublishedStaticMeshName,
@@ -59,5 +60,20 @@ describe('published static assets', () => {
       castShadow: true,
       receiveShadow: false,
     })
+  })
+
+  test('adds a cache-busting version to relative and absolute published asset urls', () => {
+    expect(
+      createVersionedPublishedStaticAssetUrl(
+        '/generated/published-static/chunk-manifest.json',
+        '2026-04-05T10:20:30.000Z'
+      )
+    ).toBe('/generated/published-static/chunk-manifest.json?v=2026-04-05T10%3A20%3A30.000Z')
+    expect(
+      createVersionedPublishedStaticAssetUrl(
+        'https://cdn.example.com/chunk.glb',
+        'build-42'
+      )
+    ).toBe('https://cdn.example.com/chunk.glb?v=build-42')
   })
 })

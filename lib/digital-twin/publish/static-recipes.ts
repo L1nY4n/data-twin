@@ -6,7 +6,8 @@ import {
   type CampusSector,
   type LayoutBlueprint,
 } from '../campus-layout'
-import type { Vector3 } from '../types'
+import { resolveStaticAssetBlueprint } from '../static-asset-catalog'
+import type { StaticAssetInstance, Vector3 } from '../types'
 import type {
   PublishedStaticChunkRenderRecipe,
   PublishedStaticInstanceTransform,
@@ -905,6 +906,35 @@ function createPumpManifoldNode(id: string, blueprint: LayoutBlueprint) {
       position: vec3(blueprint.center.x, 0, blueprint.center.z),
     }
   )
+}
+
+export function createAuthoredStaticAssetNode(
+  asset: Pick<StaticAssetInstance, 'id' | 'name' | 'assetKind' | 'variant'>
+): PublishedStaticRenderNode {
+  const blueprint = resolveStaticAssetBlueprint(asset)
+
+  switch (asset.assetKind) {
+    case 'process-train':
+      return createProcessTrainNode(asset.id, blueprint)
+    case 'pipe-rack':
+      return createLinearPipeRackNode(asset.id, blueprint)
+    case 'vertical-tank':
+      return createVerticalTankCompoundNode(asset.id, blueprint)
+    case 'sphere-tank':
+      return createSphereTankNode(asset.id, blueprint)
+    case 'pump-manifold':
+      return createPumpManifoldNode(asset.id, blueprint)
+    case 'service-building':
+      return createServiceBuildingNode(asset.id, blueprint)
+  }
+}
+
+export function createAuthoredStaticAssetRenderRecipe(
+  asset: Pick<StaticAssetInstance, 'id' | 'name' | 'assetKind' | 'variant'>
+): PublishedStaticChunkRenderRecipe {
+  return {
+    detailed: [createAuthoredStaticAssetNode(asset)],
+  }
 }
 
 function createProcessDistrictNode(id: string) {

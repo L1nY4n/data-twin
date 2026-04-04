@@ -1,8 +1,8 @@
 'use client'
 
+import Link from 'next/link'
 import { 
   Eye, 
-  EyeOff,
   Grid3X3, 
   Axis3D,
   Camera,
@@ -11,9 +11,6 @@ import {
   Play,
   Pause,
   RotateCcw,
-  ZoomIn,
-  ZoomOut,
-  Maximize,
   Move,
   ArrowUp,
   Box,
@@ -21,6 +18,7 @@ import {
   WifiOff,
   Bell,
   Settings,
+  Shield,
   ChevronDown,
   Sun,
   Moon,
@@ -319,6 +317,13 @@ export function Toolbar() {
             </TooltipTrigger>
             <TooltipContent>设置</TooltipContent>
           </Tooltip>
+
+          <Button asChild variant="secondary" size="sm" className="h-8 gap-1.5 px-3 text-[11px]">
+            <Link href="/admin/overview">
+              <Shield className="h-4 w-4" />
+              管理中心
+            </Link>
+          </Button>
 
           {/* 性能档位 */}
           <DropdownMenu>

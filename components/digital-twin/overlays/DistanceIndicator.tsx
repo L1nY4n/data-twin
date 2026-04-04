@@ -73,6 +73,8 @@ export function NearbyDistanceOverlay() {
   const persons = useDigitalTwinStore((state) => state.entityBuckets.persons)
   const vehicles = useDigitalTwinStore((state) => state.entityBuckets.vehicles)
   const equipment = useDigitalTwinStore((state) => state.entityBuckets.equipment)
+  const sensors = useDigitalTwinStore((state) => state.entityBuckets.sensors)
+  const cameras = useDigitalTwinStore((state) => state.entityBuckets.cameras)
 
   const selectedEntity = useMemo(() => {
     if (!selectedEntityId) return null
@@ -80,15 +82,17 @@ export function NearbyDistanceOverlay() {
       persons.find((entity) => entity.id === selectedEntityId) ??
       vehicles.find((entity) => entity.id === selectedEntityId) ??
       equipment.find((entity) => entity.id === selectedEntityId) ??
+      sensors.find((entity) => entity.id === selectedEntityId) ??
+      cameras.find((entity) => entity.id === selectedEntityId) ??
       null
     )
-  }, [equipment, persons, selectedEntityId, vehicles])
+  }, [cameras, equipment, persons, selectedEntityId, sensors, vehicles])
 
   const nearbyConnections = useMemo(() => {
     if (!selectedEntity) return []
 
     const connections: { entity: Entity; distance: number }[] = []
-    for (const bucket of [persons, vehicles, equipment]) {
+    for (const bucket of [persons, vehicles, equipment, sensors, cameras]) {
       for (const entity of bucket) {
         if (entity.id === selectedEntity.id) continue
 
@@ -101,7 +105,7 @@ export function NearbyDistanceOverlay() {
 
     // 按距离排序，取最近的3个
     return connections.sort((a, b) => a.distance - b.distance).slice(0, 3)
-  }, [equipment, persons, selectedEntity, vehicles])
+  }, [cameras, equipment, persons, selectedEntity, sensors, vehicles])
 
   if (!selectedEntity || nearbyConnections.length === 0) return null
 

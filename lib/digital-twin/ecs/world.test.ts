@@ -193,6 +193,49 @@ describe('ecs world command buffer', () => {
           updatedAt: now - 3000,
         },
       },
+      {
+        type: 'create',
+        payload: {
+          id: 'sensor-ext',
+          entityType: 'sensor',
+          name: '压力传感器',
+          position: { x: 6, y: 2, z: -2 },
+          rotation: { x: 0, y: 0, z: 0 },
+          scale: { x: 0.8, y: 0.8, z: 0.8 },
+          status: 'warning',
+          visible: true,
+          metadata: { loop: 'P1' },
+          sensorType: 'pressure',
+          unit: 'bar',
+          reading: 8.5,
+          thresholdMin: 1,
+          thresholdMax: 7.5,
+          createdAt: now - 6000,
+          updatedAt: now - 2500,
+        },
+      },
+      {
+        type: 'create',
+        payload: {
+          id: 'camera-ext',
+          entityType: 'camera',
+          name: '云台摄像头',
+          position: { x: -7, y: 4, z: 4 },
+          rotation: { x: 0, y: 1, z: 0 },
+          scale: { x: 1, y: 1, z: 1 },
+          status: 'active',
+          visible: true,
+          metadata: { line: 'west' },
+          cameraType: 'ptz',
+          streamUrl: 'rtsp://camera/live',
+          fov: 95,
+          heading: 57,
+          range: 30,
+          recording: true,
+          createdAt: now - 7000,
+          updatedAt: now - 1200,
+        },
+      },
     ])
 
     const vehicle = world.snapshotById.get('vehicle-ext')
@@ -212,6 +255,18 @@ describe('ecs world command buffer', () => {
     expect(zone?.accessRules?.length).toBe(1)
     expect(zone?.capacity).toBe(20)
     expect(zone?.currentOccupancy).toBe(8)
+
+    const sensor = world.snapshotById.get('sensor-ext')
+    expect(sensor?.sensorType).toBe('pressure')
+    expect(sensor?.unit).toBe('bar')
+    expect(sensor?.reading).toBe(8.5)
+    expect(sensor?.thresholdMax).toBe(7.5)
+
+    const camera = world.snapshotById.get('camera-ext')
+    expect(camera?.cameraType).toBe('ptz')
+    expect(camera?.streamUrl).toBe('rtsp://camera/live')
+    expect(camera?.fov).toBe(95)
+    expect(camera?.recording).toBe(true)
   })
 
   test('maintains type indexes as entities are created and removed', () => {
@@ -279,11 +334,48 @@ describe('ecs world command buffer', () => {
           ],
         },
       },
+      {
+        type: 'create',
+        payload: {
+          id: 'sensor-1',
+          entityType: 'sensor',
+          name: '传感器1',
+          position: { x: 4, y: 2, z: 4 },
+          rotation: { x: 0, y: 0, z: 0 },
+          scale: { x: 1, y: 1, z: 1 },
+          status: 'active',
+          visible: true,
+          metadata: {},
+          sensorType: 'temperature',
+          unit: '°C',
+          reading: 25,
+        },
+      },
+      {
+        type: 'create',
+        payload: {
+          id: 'camera-1',
+          entityType: 'camera',
+          name: '摄像头1',
+          position: { x: 5, y: 4, z: 5 },
+          rotation: { x: 0, y: 0, z: 0 },
+          scale: { x: 1, y: 1, z: 1 },
+          status: 'active',
+          visible: true,
+          metadata: {},
+          cameraType: 'fixed',
+          fov: 75,
+          heading: 0,
+          recording: true,
+        },
+      },
     ])
 
     expect(world.byType.person.has('person-1')).toBe(true)
     expect(world.byType.vehicle.has('vehicle-1')).toBe(true)
     expect(world.byType.equipment.has('equipment-1')).toBe(true)
+    expect(world.byType.sensor.has('sensor-1')).toBe(true)
+    expect(world.byType.camera.has('camera-1')).toBe(true)
     expect(world.byType.zone.has('zone-1')).toBe(true)
 
     flushCommands(world, [{ type: 'remove', payload: { id: 'vehicle-1' } }])
@@ -291,6 +383,8 @@ describe('ecs world command buffer', () => {
     expect(world.byType.vehicle.has('vehicle-1')).toBe(false)
     expect(world.byType.person.has('person-1')).toBe(true)
     expect(world.byType.equipment.has('equipment-1')).toBe(true)
+    expect(world.byType.sensor.has('sensor-1')).toBe(true)
+    expect(world.byType.camera.has('camera-1')).toBe(true)
     expect(world.byType.zone.has('zone-1')).toBe(true)
   })
 

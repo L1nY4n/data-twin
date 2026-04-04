@@ -10,8 +10,10 @@ import {
 import type {
   AccessRule,
   Alarm,
+  CameraType,
   EntityStatus,
   EntityType,
+  SensorType,
   TimeRange,
   Vector3,
 } from '@/lib/digital-twin/types'
@@ -22,7 +24,9 @@ const ENTITY_TYPE_TO_CODE: Record<EntityType, number> = {
   person: 1,
   vehicle: 2,
   equipment: 3,
-  zone: 4,
+  sensor: 4,
+  camera: 5,
+  zone: 6,
 }
 
 const STATUS_TO_CODE: Record<EntityStatus, number> = {
@@ -105,6 +109,16 @@ export interface EcsEntitySnapshot {
   parameters?: Record<string, number | string | boolean>
   alarms?: Alarm[]
   maintenanceSchedule?: TimeRange[]
+  sensorType?: SensorType
+  unit?: string
+  reading?: number
+  thresholdMin?: number
+  thresholdMax?: number
+  cameraType?: CameraType
+  streamUrl?: string
+  fov?: number
+  range?: number
+  recording?: boolean
   zoneType?: string
   color?: string
   boundary?: Vector3[]
@@ -140,6 +154,16 @@ export interface EcsCreatePayload {
   parameters?: Record<string, number | string | boolean>
   alarms?: Alarm[]
   maintenanceSchedule?: TimeRange[]
+  sensorType?: SensorType
+  unit?: string
+  reading?: number
+  thresholdMin?: number
+  thresholdMax?: number
+  cameraType?: CameraType
+  streamUrl?: string
+  fov?: number
+  range?: number
+  recording?: boolean
   zoneType?: string
   color?: string
   boundary?: Vector3[]
@@ -337,6 +361,16 @@ function applyCreate(world: EcsWorld, eid: number, payload: EcsCreatePayload) {
     parameters: payload.parameters ? { ...payload.parameters } : undefined,
     alarms: cloneAlarms(payload.alarms),
     maintenanceSchedule: cloneTimeRanges(payload.maintenanceSchedule),
+    sensorType: payload.sensorType,
+    unit: payload.unit,
+    reading: payload.reading,
+    thresholdMin: payload.thresholdMin,
+    thresholdMax: payload.thresholdMax,
+    cameraType: payload.cameraType,
+    streamUrl: payload.streamUrl,
+    fov: payload.fov,
+    range: payload.range,
+    recording: payload.recording,
     zoneType: payload.zoneType,
     color: payload.color,
     boundary: cloneBoundary(payload.boundary),
@@ -372,6 +406,16 @@ function applyUpdate(world: EcsWorld, eid: number, payload: EcsUpdatePayload) {
   if (updates.maintenanceSchedule !== undefined) {
     existing.maintenanceSchedule = cloneTimeRanges(updates.maintenanceSchedule)
   }
+  if (updates.sensorType !== undefined) existing.sensorType = updates.sensorType
+  if (updates.unit !== undefined) existing.unit = updates.unit
+  if (updates.reading !== undefined) existing.reading = updates.reading
+  if (updates.thresholdMin !== undefined) existing.thresholdMin = updates.thresholdMin
+  if (updates.thresholdMax !== undefined) existing.thresholdMax = updates.thresholdMax
+  if (updates.cameraType !== undefined) existing.cameraType = updates.cameraType
+  if (updates.streamUrl !== undefined) existing.streamUrl = updates.streamUrl
+  if (updates.fov !== undefined) existing.fov = updates.fov
+  if (updates.range !== undefined) existing.range = updates.range
+  if (updates.recording !== undefined) existing.recording = updates.recording
   if (updates.zoneType !== undefined) existing.zoneType = updates.zoneType
   if (updates.color !== undefined) existing.color = updates.color
   if (updates.boundary !== undefined) existing.boundary = cloneBoundary(updates.boundary)
@@ -495,6 +539,8 @@ function createTypeIndex(): EcsTypeIndex {
     person: new Set(),
     vehicle: new Set(),
     equipment: new Set(),
+    sensor: new Set(),
+    camera: new Set(),
     zone: new Set(),
   }
 }
