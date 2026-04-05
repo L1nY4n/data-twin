@@ -31,6 +31,12 @@ function sanitizeChunkIdForFilename(chunkId: string) {
   return chunkId.replace(/[^a-zA-Z0-9_-]+/g, '-')
 }
 
+export function resolvePublishedStaticAssetManifestUrl(
+  baseUrl = PUBLISHED_STATIC_ASSET_BASE_URL
+) {
+  return `${baseUrl}/chunk-manifest.json`
+}
+
 export function createVersionedPublishedStaticAssetUrl(
   url: string,
   version?: string | null
@@ -50,11 +56,12 @@ export function createVersionedPublishedStaticAssetUrl(
 function createAssetVariant(
   chunkId: string,
   variant: 'detailed' | 'proxy',
-  compression: PublishedStaticAssetCompression
+  compression: PublishedStaticAssetCompression,
+  baseUrl: string
 ): PublishedStaticAssetVariant {
   const safeChunkId = sanitizeChunkIdForFilename(chunkId)
   return {
-    url: `${PUBLISHED_STATIC_ASSET_BASE_URL}/${safeChunkId}.${variant}.glb`,
+    url: `${baseUrl}/${safeChunkId}.${variant}.glb`,
     format: 'glb',
     compression,
   }
@@ -62,12 +69,15 @@ function createAssetVariant(
 
 export function createPublishedStaticChunkAssetEntry(
   chunk: Pick<PublishedStaticChunk, 'id' | 'renderRecipe'>,
-  compression: PublishedStaticAssetCompression = 'none'
+  compression: PublishedStaticAssetCompression = 'none',
+  baseUrl = PUBLISHED_STATIC_ASSET_BASE_URL
 ): PublishedStaticChunkAssetEntry {
   return {
     chunkId: chunk.id,
-    detailed: createAssetVariant(chunk.id, 'detailed', compression),
-    ...(chunk.renderRecipe.proxy ? { proxy: createAssetVariant(chunk.id, 'proxy', compression) } : {}),
+    detailed: createAssetVariant(chunk.id, 'detailed', compression, baseUrl),
+    ...(chunk.renderRecipe.proxy
+      ? { proxy: createAssetVariant(chunk.id, 'proxy', compression, baseUrl) }
+      : {}),
   }
 }
 
@@ -75,14 +85,18 @@ export function createPublishedStaticAssetManifest(
   sceneId: string,
   generatedAt: string,
   chunks: PublishedStaticChunk[],
-  compression: PublishedStaticAssetCompression = 'none'
+  compression: PublishedStaticAssetCompression = 'none',
+  baseUrl = PUBLISHED_STATIC_ASSET_BASE_URL
 ): PublishedStaticAssetManifest {
   return {
     schemaVersion: PUBLISHED_STATIC_ASSET_SCHEMA_VERSION,
     sceneId,
     generatedAt,
     chunks: Object.fromEntries(
-      chunks.map((chunk) => [chunk.id, createPublishedStaticChunkAssetEntry(chunk, compression)])
+      chunks.map((chunk) => [
+        chunk.id,
+        createPublishedStaticChunkAssetEntry(chunk, compression, baseUrl),
+      ])
     ),
   }
 }

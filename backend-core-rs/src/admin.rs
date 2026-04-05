@@ -10,11 +10,11 @@ use crate::{
     admin_service,
     app::AppState,
     contracts::{
-        AdminOverviewResponse, Alarm, AuditEventRecord, ConfigChangedScope, DataConnector, Entity,
-        EntityBinding, RuleConfig, RuleValidationResponse, SceneConfig, SceneResponse,
-        StaticAssetInstance,
+        AdminOverviewResponse, Alarm, AuditEventRecord, BootstrapResponse, ConfigChangedScope,
+        DataConnector, Entity, EntityBinding, PublishStatusResponse, RuleConfig,
+        RuleValidationResponse, SceneConfig, SceneResponse, StaticAssetInstance,
     },
-    published_scene::load_published_scene_descriptor,
+    publish_service,
     store::StoreError,
 };
 
@@ -63,10 +63,20 @@ pub struct ReplaceBindingsRequest {
     pub bindings: Vec<EntityBinding>,
 }
 
-fn emit_config_changed(state: &AppState, scene_version: u64, scope: ConfigChangedScope) {
+async fn emit_config_changed(
+    state: &AppState,
+    scene_version: u64,
+    scope: ConfigChangedScope,
+) -> Result<(), ApiError> {
+    let published_scene = state
+        .store
+        .published_scene_descriptor()
+        .await
+        .map_err(ApiError::from_store)?;
     state
         .realtime
-        .emit_config_changed(scene_version, scope, load_published_scene_descriptor());
+        .emit_config_changed(scene_version, scope, published_scene);
+    Ok(())
 }
 
 pub async fn get_scene(State(state): State<AppState>) -> ApiResult<SceneResponse> {
@@ -85,6 +95,61 @@ pub async fn get_overview(State(state): State<AppState>) -> ApiResult<AdminOverv
     Ok(Json(overview))
 }
 
+pub async fn get_editor_bootstrap(State(state): State<AppState>) -> ApiResult<BootstrapResponse> {
+    let payload = state
+        .store
+        .editor_bootstrap()
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(Json(payload))
+}
+
+pub async fn get_publish_status(State(state): State<AppState>) -> ApiResult<PublishStatusResponse> {
+    let status = publish_service::load_publish_status(&state.store, &state.publish)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(Json(status))
+}
+
+pub async fn post_publish(State(state): State<AppState>) -> ApiResult<PublishStatusResponse> {
+    let lease = state.publish.try_acquire().ok_or(ApiError {
+        status: StatusCode::CONFLICT,
+        message: "publish already in progress".to_string(),
+    })?;
+    let snapshot = state
+        .store
+        .load_working_snapshot()
+        .await
+        .map_err(ApiError::from_store)?;
+
+    match publish_service::publish_working_snapshot(&state.store, &snapshot, &state.publish_config)
+        .await
+    {
+        Ok(published) => {
+            let published_scene = published.published_scene.clone();
+            let scene_version = published.published_scene_version;
+            drop(lease);
+            state.realtime.emit_config_changed(
+                scene_version,
+                ConfigChangedScope::Publish,
+                published_scene,
+            );
+            let status = publish_service::load_publish_status(&state.store, &state.publish)
+                .await
+                .map_err(ApiError::from_store)?;
+            Ok(Json(status))
+        }
+        Err(error) => {
+            let _ = publish_service::record_publish_failure(&state.store, &snapshot, &error).await;
+            drop(lease);
+            Err(ApiError {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                message: error.to_string(),
+            })
+        }
+    }
+}
+
 pub async fn put_scene(
     State(state): State<AppState>,
     Json(payload): Json<SceneConfig>,
@@ -94,7 +159,7 @@ pub async fn put_scene(
         .update_scene(payload)
         .await
         .map_err(ApiError::from_store)?;
-    emit_config_changed(&state, scene.scene_version, ConfigChangedScope::Scene);
+    emit_config_changed(&state, scene.scene_version, ConfigChangedScope::Scene).await?;
     Ok(Json(scene))
 }
 
@@ -138,7 +203,7 @@ pub async fn create_entity(
         .scene_version()
         .await
         .map_err(ApiError::from_store)?;
-    emit_config_changed(&state, scene_version, ConfigChangedScope::Entity);
+    emit_config_changed(&state, scene_version, ConfigChangedScope::Entity).await?;
     Ok(Json(entity))
 }
 
@@ -157,7 +222,7 @@ pub async fn update_entity(
         .scene_version()
         .await
         .map_err(ApiError::from_store)?;
-    emit_config_changed(&state, scene_version, ConfigChangedScope::Entity);
+    emit_config_changed(&state, scene_version, ConfigChangedScope::Entity).await?;
     Ok(Json(entity))
 }
 
@@ -183,11 +248,13 @@ pub async fn delete_entity(
         .scene_version()
         .await
         .map_err(ApiError::from_store)?;
-    emit_config_changed(&state, scene_version, ConfigChangedScope::Entity);
+    emit_config_changed(&state, scene_version, ConfigChangedScope::Entity).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
-pub async fn list_static_assets(State(state): State<AppState>) -> ApiResult<Vec<StaticAssetInstance>> {
+pub async fn list_static_assets(
+    State(state): State<AppState>,
+) -> ApiResult<Vec<StaticAssetInstance>> {
     let static_assets = state
         .store
         .list_static_assets()
@@ -227,7 +294,7 @@ pub async fn create_static_asset(
         .scene_version()
         .await
         .map_err(ApiError::from_store)?;
-    emit_config_changed(&state, scene_version, ConfigChangedScope::StaticAsset);
+    emit_config_changed(&state, scene_version, ConfigChangedScope::StaticAsset).await?;
     Ok(Json(static_asset))
 }
 
@@ -246,7 +313,7 @@ pub async fn update_static_asset(
         .scene_version()
         .await
         .map_err(ApiError::from_store)?;
-    emit_config_changed(&state, scene_version, ConfigChangedScope::StaticAsset);
+    emit_config_changed(&state, scene_version, ConfigChangedScope::StaticAsset).await?;
     Ok(Json(static_asset))
 }
 
@@ -272,7 +339,7 @@ pub async fn delete_static_asset(
         .scene_version()
         .await
         .map_err(ApiError::from_store)?;
-    emit_config_changed(&state, scene_version, ConfigChangedScope::StaticAsset);
+    emit_config_changed(&state, scene_version, ConfigChangedScope::StaticAsset).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -313,7 +380,7 @@ pub async fn create_data_source(
         .scene_version()
         .await
         .map_err(ApiError::from_store)?;
-    emit_config_changed(&state, scene_version, ConfigChangedScope::Binding);
+    emit_config_changed(&state, scene_version, ConfigChangedScope::Binding).await?;
     Ok(Json(source))
 }
 
@@ -332,7 +399,7 @@ pub async fn update_data_source(
         .scene_version()
         .await
         .map_err(ApiError::from_store)?;
-    emit_config_changed(&state, scene_version, ConfigChangedScope::Binding);
+    emit_config_changed(&state, scene_version, ConfigChangedScope::Binding).await?;
     Ok(Json(source))
 }
 
@@ -358,7 +425,7 @@ pub async fn delete_data_source(
         .scene_version()
         .await
         .map_err(ApiError::from_store)?;
-    emit_config_changed(&state, scene_version, ConfigChangedScope::Binding);
+    emit_config_changed(&state, scene_version, ConfigChangedScope::Binding).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -390,7 +457,7 @@ pub async fn replace_entity_bindings(
         .scene_version()
         .await
         .map_err(ApiError::from_store)?;
-    emit_config_changed(&state, scene_version, ConfigChangedScope::Binding);
+    emit_config_changed(&state, scene_version, ConfigChangedScope::Binding).await?;
     Ok(Json(bindings))
 }
 
@@ -419,7 +486,7 @@ pub async fn create_rule(
         .scene_version()
         .await
         .map_err(ApiError::from_store)?;
-    emit_config_changed(&state, scene_version, ConfigChangedScope::Rule);
+    emit_config_changed(&state, scene_version, ConfigChangedScope::Rule).await?;
 
     Ok(Json(rule))
 }
@@ -457,7 +524,7 @@ pub async fn update_rule(
         .scene_version()
         .await
         .map_err(ApiError::from_store)?;
-    emit_config_changed(&state, scene_version, ConfigChangedScope::Rule);
+    emit_config_changed(&state, scene_version, ConfigChangedScope::Rule).await?;
 
     Ok(Json(rule))
 }
@@ -484,7 +551,7 @@ pub async fn delete_rule(
         .scene_version()
         .await
         .map_err(ApiError::from_store)?;
-    emit_config_changed(&state, scene_version, ConfigChangedScope::Rule);
+    emit_config_changed(&state, scene_version, ConfigChangedScope::Rule).await?;
 
     Ok(StatusCode::NO_CONTENT)
 }

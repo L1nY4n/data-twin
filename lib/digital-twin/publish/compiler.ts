@@ -55,6 +55,7 @@ const DEFAULT_EQUIPMENT_SPREAD = { x: 1.2, z: 1.2 } as const
 interface BuildPublishedScenePackageOptions {
   generatedAt?: string
   profile?: PublishedSceneProfile
+  staticAssetManifestUrl?: string
 }
 
 function offsetPoint(value: Vector3, offset: Vector3): Vector3 {
@@ -441,7 +442,8 @@ export function buildPublishedScenePackage(
     profile,
     generatedAt,
     source: 'campus-layout',
-    staticAssetManifestUrl: PUBLISHED_STATIC_ASSET_MANIFEST_URL,
+    staticAssetManifestUrl:
+      options.staticAssetManifestUrl ?? PUBLISHED_STATIC_ASSET_MANIFEST_URL,
     bounds,
     sceneConfig: createSceneConfig(),
     sectors: CAMPUS_SECTORS.map((sector) => buildSectorEntry(sector)),

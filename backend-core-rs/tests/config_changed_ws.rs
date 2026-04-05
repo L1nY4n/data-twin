@@ -127,6 +127,74 @@ async fn static_asset_write_pushes_config_changed_event() {
     let _ = server.await;
 }
 
+#[tokio::test]
+async fn publish_pushes_publish_scoped_config_changed_event() {
+    init_test_database_url();
+    let app = backend_core_rs::app::build_app("http://localhost:3000")
+        .await
+        .expect("app should build");
+    let update_app = app.clone();
+
+    let create_response = update_app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/v1/admin/static-assets")
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    json!({
+                      "id": "static-asset-ws-publish-01",
+                      "name": "发布 websocket 罐体",
+                      "assetKind": "vertical-tank",
+                      "variant": "fixed-roof",
+                      "position": {"x": 12.0, "y": 0.0, "z": -6.0},
+                      "rotation": {"x": 0.0, "y": 0.6, "z": 0.0},
+                      "scale": {"x": 1.0, "y": 1.0, "z": 1.0},
+                      "visible": true,
+                      "metadata": {},
+                      "createdAt": 0,
+                      "updatedAt": 0
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(create_response.status(), 200);
+
+    let (base_url, server) = spawn_app(app).await;
+    let ws_url = format!("{}/ws/realtime", base_url.replace("http", "ws"));
+    let (mut socket, _) = connect_async(websocket_request(&ws_url, "http://localhost:3000"))
+        .await
+        .expect("websocket should connect");
+
+    let publish_response = update_app
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/v1/admin/publish")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(publish_response.status(), 200);
+
+    let event = next_config_changed(&mut socket).await;
+    assert_eq!(event["type"], json!("config_changed"));
+    assert_eq!(event["payload"]["scope"], json!("publish"));
+    assert!(event["payload"]["publishedScene"]["packageUrl"]
+        .as_str()
+        .unwrap()
+        .contains("/generated/published-static/versions/"));
+    assert!(event["payload"]["publishedScene"]["packageVersion"].is_string());
+
+    server.abort();
+    let _ = server.await;
+}
+
 async fn next_config_changed(socket: &mut TestSocket) -> Value {
     timeout(Duration::from_secs(6), async {
         loop {

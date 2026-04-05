@@ -35,7 +35,7 @@ describe('editor guards', () => {
     expect(viewerPage.includes('editor-store')).toBe(false)
   })
 
-  test('editor should use transform controls with dedicated bootstrap and save flow', () => {
+  test('editor should use transform controls with dedicated bootstrap, save flow, and explicit publish flow', () => {
     const canvas = readFileSync(
       join(process.cwd(), 'components/editor/scene/EditorTransformGizmo.tsx'),
       'utf8'
@@ -56,7 +56,9 @@ describe('editor guards', () => {
     expect(canvas.includes('TransformControls')).toBe(true)
     expect(picking.includes('suppressClickRef')).toBe(true)
     expect(picking.includes('resolveEditorMarqueeTarget')).toBe(true)
-    expect(hook.includes('fetchBootstrap')).toBe(true)
+    expect(hook.includes('fetchEditorBootstrap')).toBe(true)
+    expect(hook.includes('fetchAdminPublishStatus')).toBe(true)
+    expect(hook.includes('triggerAdminPublish')).toBe(true)
     expect(hook.includes('createAdminEntity')).toBe(true)
     expect(hook.includes('deleteAdminEntity')).toBe(true)
     expect(hook.includes('updateAdminEntity')).toBe(true)
@@ -67,5 +69,16 @@ describe('editor guards', () => {
     expect(store.includes('updateDraftMetadata')).toBe(true)
     expect(store.includes('focusCameraDirection')).toBe(true)
     expect(store.includes('hydrateFromBootstrap')).toBe(true)
+  })
+
+  test('viewer should only refresh from publish-scoped config changes or descriptor swaps', () => {
+    const hook = readFileSync(
+      join(process.cwd(), 'hooks/use-live-digital-twin.ts'),
+      'utf8'
+    )
+
+    expect(hook.includes("configChanged.scope === 'publish'")).toBe(true)
+    expect(hook.includes('hasPublishedSceneUpdate')).toBe(true)
+    expect(hook.includes('hasSceneVersionUpdate')).toBe(false)
   })
 })

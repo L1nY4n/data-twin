@@ -1,0 +1,368 @@
+@layer base {
+  .editor-fonts {
+    --editor-font-sans:
+      var(--font-editor-sans),
+      'PingFang SC',
+      'Noto Sans SC',
+      'Microsoft YaHei',
+      sans-serif;
+    --editor-font-mono:
+      var(--font-editor-mono),
+      'SF Mono',
+      'JetBrains Mono',
+      monospace;
+  }
+
+  .editor-surface {
+    --editor-surface-page: #d8e2ef;
+    --editor-surface-canvas: rgba(243, 248, 255, 0.82);
+    --editor-surface-modal:
+      linear-gradient(180deg, rgba(30, 33, 40, 0.96) 0%, rgba(16, 18, 24, 0.94) 100%),
+      rgba(16, 18, 24, 0.94);
+    --editor-surface-toolbar:
+      linear-gradient(180deg, rgba(28, 31, 37, 0.9) 0%, rgba(18, 20, 25, 0.92) 100%),
+      rgba(18, 20, 25, 0.92);
+    --editor-surface-dock:
+      linear-gradient(180deg, rgba(34, 37, 44, 0.86) 0%, rgba(20, 22, 27, 0.9) 100%),
+      rgba(20, 22, 27, 0.9);
+    --editor-surface-soft: rgba(255, 255, 255, 0.055);
+    --editor-surface-soft-hover: rgba(255, 255, 255, 0.11);
+    --editor-surface-strong: rgba(255, 255, 255, 0.11);
+    --editor-surface-pressed: rgba(255, 255, 255, 0.085);
+    --editor-outline-soft: rgba(255, 255, 255, 0.075);
+    --editor-outline-strong: rgba(255, 255, 255, 0.14);
+    --editor-outline-highlight: rgba(139, 182, 255, 0.52);
+    --editor-outline-ambient: rgba(255, 255, 255, 0.028);
+    --editor-text-primary: rgba(255, 255, 255, 0.95);
+    --editor-text-secondary: rgba(255, 255, 255, 0.72);
+    --editor-text-tertiary: rgba(255, 255, 255, 0.5);
+    --editor-text-quaternary: rgba(255, 255, 255, 0.36);
+    --editor-accent: #77a7ff;
+    --editor-accent-strong: #91b7ff;
+    --editor-accent-soft: rgba(95, 149, 255, 0.18);
+    --editor-accent-mist: rgba(95, 149, 255, 0.1);
+    --editor-danger-soft: rgba(255, 96, 96, 0.12);
+    --editor-danger-text: #ffd4d8;
+    --editor-shadow-panel:
+      0 18px 60px rgba(7, 10, 16, 0.24),
+      0 4px 18px rgba(7, 10, 16, 0.16);
+    --editor-shadow-toolbar:
+      0 18px 48px rgba(6, 8, 12, 0.22),
+      inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    --editor-shadow-canvas: 0 24px 100px rgba(16, 28, 48, 0.2);
+    --editor-radius-panel: 16px;
+    --editor-radius-block: 12px;
+    --editor-radius-toolbar: 18px;
+    --editor-radius-pill: 999px;
+    --editor-blur-panel: 28px;
+    --editor-blur-frame: 18px;
+    color-scheme: dark;
+    font-family: var(--editor-font-sans);
+    background: linear-gradient(180deg, #ebf1f9 0%, #d9e3ef 48%, #d1dbe7 100%);
+  }
+
+  .editor-surface .font-mono,
+  .editor-surface [data-editor-mono='true'] {
+    font-family: var(--editor-font-mono);
+  }
+
+  .editor-surface ::selection {
+    background: rgba(103, 154, 255, 0.3);
+  }
+}
+
+@layer components {
+  .editor-shell-backdrop {
+    background-image:
+      radial-gradient(circle at 18% 0%, rgba(255, 255, 255, 0.96), transparent 28%),
+      radial-gradient(circle at 82% 8%, rgba(167, 189, 223, 0.45), transparent 30%),
+      linear-gradient(180deg, #eef4fb 0%, #dce6f2 52%, #d4dfeb 100%);
+  }
+
+  .editor-shell-grid {
+    opacity: 0.45;
+    background-image:
+      linear-gradient(rgba(255, 255, 255, 0.35) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.35) 1px, transparent 1px);
+    background-size: 28px 28px;
+    mask-image:
+      linear-gradient(180deg, rgba(255, 255, 255, 1) 0%, rgba(255, 255, 255, 0.44) 56%, rgba(255, 255, 255, 0) 100%);
+  }
+
+  .editor-shell-vignette {
+    background:
+      radial-gradient(circle at 50% 16%, rgba(109, 152, 255, 0.18), transparent 32%),
+      radial-gradient(circle at 50% 118%, rgba(16, 24, 36, 0.18), transparent 46%);
+  }
+
+  .editor-canvas-loading-shell {
+    background:
+      radial-gradient(circle at top center, rgba(255, 255, 255, 0.36), transparent 28%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.08)),
+      var(--editor-surface-canvas);
+  }
+
+  .editor-loading-card {
+    border: 1px solid rgba(255, 255, 255, 0.48);
+    border-radius: 28px;
+    background:
+      linear-gradient(180deg, rgba(40, 44, 53, 0.96) 0%, rgba(30, 33, 40, 0.9) 100%),
+      rgba(30, 33, 40, 0.9);
+    box-shadow:
+      0 24px 60px rgba(8, 12, 20, 0.26),
+      inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(24px);
+  }
+
+  .editor-surface [data-editor-chrome] {
+    will-change: transform, opacity;
+    transform: translateZ(0);
+  }
+
+  .editor-surface .editor-canvas-frame {
+    border: 1px solid rgba(255, 255, 255, 0.56) !important;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.28) 0%, rgba(255, 255, 255, 0.12) 100%),
+      var(--editor-surface-canvas) !important;
+    box-shadow:
+      var(--editor-shadow-canvas),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.28);
+    backdrop-filter: blur(var(--editor-blur-frame));
+  }
+
+  .editor-surface .editor-canvas-frame::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+      radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.28), transparent 28%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0));
+  }
+
+  .editor-canvas-sheen {
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.46) 0%, rgba(255, 255, 255, 0.12) 38%, rgba(255, 255, 255, 0.04) 100%);
+    mix-blend-mode: screen;
+    opacity: 0.72;
+  }
+
+  .editor-surface .editor-panel {
+    border-color: var(--editor-outline-soft) !important;
+    background: var(--editor-surface-modal) !important;
+    box-shadow:
+      var(--editor-shadow-panel),
+      inset 0 0 0 1px var(--editor-outline-ambient);
+    backdrop-filter: blur(var(--editor-blur-panel));
+  }
+
+  .editor-surface .editor-panel--soft {
+    background:
+      linear-gradient(180deg, rgba(34, 37, 44, 0.94) 0%, rgba(20, 22, 28, 0.88) 100%),
+      rgba(20, 22, 28, 0.88) !important;
+  }
+
+  .editor-surface .editor-panel--accent {
+    background:
+      linear-gradient(180deg, rgba(93, 145, 255, 0.2), rgba(255, 255, 255, 0.04)),
+      rgba(18, 20, 26, 0.94) !important;
+    box-shadow:
+      0 20px 44px rgba(18, 38, 78, 0.22),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+  }
+
+  .editor-surface .editor-group,
+  .editor-surface .editor-block {
+    border-color: rgba(255, 255, 255, 0.065) !important;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.018)) !important;
+  }
+
+  .editor-surface .editor-toolbar {
+    border-color: rgba(255, 255, 255, 0.12) !important;
+    background: var(--editor-surface-toolbar) !important;
+    box-shadow: var(--editor-shadow-toolbar);
+    backdrop-filter: blur(var(--editor-blur-panel));
+  }
+
+  .editor-surface .editor-dock {
+    border-color: rgba(255, 255, 255, 0.12) !important;
+    background: var(--editor-surface-dock) !important;
+    box-shadow:
+      0 16px 42px rgba(7, 10, 16, 0.22),
+      inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  }
+
+  .editor-surface .editor-dock-group,
+  .editor-surface .editor-tab-list {
+    background: rgba(255, 255, 255, 0.03);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  }
+
+  .editor-surface .editor-pill,
+  .editor-surface .editor-mini-pill {
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  }
+
+  .editor-surface .editor-kicker {
+    letter-spacing: 0.2em;
+  }
+
+  .editor-surface :is(.editor-control, .editor-menu-button, .editor-tab-trigger),
+  .editor-surface .editor-input {
+    transition:
+      transform 240ms cubic-bezier(0.22, 1, 0.36, 1),
+      background-color 180ms ease,
+      border-color 180ms ease,
+      color 180ms ease,
+      box-shadow 240ms ease,
+      opacity 180ms ease;
+  }
+
+  .editor-surface :is(.editor-control, .editor-menu-button, .editor-tab-trigger) {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+  }
+
+  .editor-surface :is(.editor-control, .editor-menu-button, .editor-tab-trigger)::before {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    z-index: 0;
+    pointer-events: none;
+    background: linear-gradient(120deg, transparent 12%, rgba(255, 255, 255, 0.14) 48%, transparent 84%);
+    opacity: 0;
+    transform: translateX(-110%);
+    transition:
+      transform 420ms cubic-bezier(0.22, 1, 0.36, 1),
+      opacity 200ms ease;
+  }
+
+  .editor-surface :is(.editor-control:hover:enabled, .editor-menu-button:hover, .editor-tab-trigger:hover)::before {
+    opacity: 0.92;
+    transform: translateX(0);
+  }
+
+  .editor-surface .editor-control {
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.032)) !important;
+    border-color: rgba(255, 255, 255, 0.09) !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  }
+
+  .editor-surface .editor-control:hover:enabled {
+    transform: translateY(-1px);
+    box-shadow:
+      0 12px 28px rgba(7, 10, 16, 0.18),
+      inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  }
+
+  .editor-surface .editor-control.is-active,
+  .editor-surface .editor-control.is-primary {
+    background:
+      linear-gradient(180deg, rgba(119, 167, 255, 1), rgba(92, 145, 255, 0.96)) !important;
+    border-color: var(--editor-outline-highlight) !important;
+    box-shadow:
+      0 14px 30px rgba(37, 104, 220, 0.28),
+      inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  }
+
+  .editor-surface .editor-control.is-active:hover:enabled,
+  .editor-surface .editor-control.is-primary:hover:enabled {
+    transform: translateY(-1px);
+    background:
+      linear-gradient(180deg, rgba(145, 183, 255, 1), rgba(112, 161, 255, 0.96)) !important;
+  }
+
+  .editor-surface .editor-control.is-danger {
+    background:
+      linear-gradient(180deg, rgba(255, 96, 96, 0.18), rgba(255, 96, 96, 0.08)) !important;
+    border-color: rgba(255, 132, 132, 0.2) !important;
+  }
+
+  .editor-surface .editor-control.is-danger:hover:enabled {
+    box-shadow:
+      0 12px 28px rgba(46, 10, 17, 0.2),
+      inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  }
+
+  .editor-surface .editor-menu-button {
+    background: transparent !important;
+  }
+
+  .editor-surface .editor-menu-button:hover {
+    transform: translateX(2px);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  }
+
+  .editor-surface .editor-menu-button[data-active='true'] {
+    background:
+      linear-gradient(180deg, rgba(95, 149, 255, 0.18), rgba(95, 149, 255, 0.1)) !important;
+    box-shadow:
+      0 12px 24px rgba(18, 38, 78, 0.16),
+      inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  }
+
+  .editor-surface .editor-tab-trigger[data-state='active'] {
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.1));
+    border-color: rgba(255, 255, 255, 0.16);
+    box-shadow: 0 8px 18px rgba(7, 10, 16, 0.14);
+  }
+
+  .editor-surface .editor-input {
+    background:
+      linear-gradient(180deg, rgba(8, 12, 18, 0.54), rgba(10, 14, 20, 0.4));
+    border-color: rgba(255, 255, 255, 0.09);
+  }
+
+  .editor-surface .editor-input:hover {
+    background:
+      linear-gradient(180deg, rgba(10, 15, 22, 0.62), rgba(12, 16, 23, 0.46));
+  }
+
+  .editor-surface .editor-input:focus-visible {
+    border-color: var(--editor-outline-highlight);
+    box-shadow:
+      0 0 0 1px rgba(132, 170, 255, 0.64),
+      0 0 0 4px rgba(119, 167, 255, 0.12);
+  }
+
+  .editor-surface .editor-side-shell.editor-panel {
+    box-shadow:
+      0 20px 54px rgba(7, 10, 16, 0.26),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+  }
+
+  .editor-surface .editor-empty {
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.026), rgba(255, 255, 255, 0.015)),
+      rgba(255, 255, 255, 0.014);
+    border-color: rgba(184, 200, 231, 0.18);
+  }
+
+  .editor-surface .editor-scroll::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.18);
+  }
+}
+
+@media (max-width: 1024px) {
+  .editor-surface {
+    --editor-blur-panel: 24px;
+    --editor-shadow-panel:
+      0 14px 40px rgba(7, 10, 16, 0.2),
+      0 4px 12px rgba(7, 10, 16, 0.12);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .editor-surface :is(.editor-control, .editor-menu-button, .editor-tab-trigger),
+  .editor-surface .editor-input {
+    transition: none;
+  }
+
+  .editor-surface :is(.editor-control, .editor-menu-button, .editor-tab-trigger)::before {
+    display: none;
+  }
+}

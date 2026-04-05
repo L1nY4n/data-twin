@@ -52,6 +52,17 @@ describe('buildPublishedScenePackage', () => {
     expect(published.entityCounts.production).toEqual(PRODUCTION_SCENE_COUNTS)
   })
 
+  test('allows the publish contract to point at a versioned static asset manifest', () => {
+    const published = buildPublishedScenePackage({
+      generatedAt: '2026-04-03T06:26:12.000Z',
+      staticAssetManifestUrl: '/generated/published-static/versions/build-42/chunk-manifest.json',
+    })
+
+    expect(published.staticAssetManifestUrl).toBe(
+      '/generated/published-static/versions/build-42/chunk-manifest.json'
+    )
+  })
+
   test('links each sector to one static chunk, one interaction layer, and three dynamic layers', () => {
     const published = buildPublishedScenePackage({
       generatedAt: '2026-04-03T06:26:12.000Z',

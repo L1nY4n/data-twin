@@ -16,9 +16,10 @@ use uuid::Uuid;
 use crate::{
     contracts::{
         Alarm, AuditEventRecord, BootstrapResponse, DataConnector, Entity, EntityBinding,
-        EntityStatus, RuleConfig, RuleValidationResponse, SceneConfig, SceneResponse,
-        StaticAssetInstance, Vector3,
+        EntityStatus, PublishedSceneDescriptor, RuleConfig, RuleValidationResponse, SceneConfig,
+        SceneResponse, StaticAssetInstance, Vector3,
     },
+    published_scene::load_published_scene_descriptor,
     seed_scene,
 };
 
@@ -85,6 +86,18 @@ struct MemoryStore {
     scene_config: SceneConfig,
     entities: BTreeMap<String, Entity>,
     static_assets: BTreeMap<String, StaticAssetInstance>,
+    published_scene_version: u64,
+    published_scene_config: SceneConfig,
+    published_entities: Vec<Entity>,
+    published_static_assets: Vec<StaticAssetInstance>,
+    published_scene: Option<PublishedSceneDescriptor>,
+    published_compiler_source: String,
+    published_updated_at: u64,
+    last_published_at: Option<u64>,
+    last_published_version: Option<String>,
+    last_publish_error: Option<String>,
+    last_failure_scene_version: Option<u64>,
+    last_failure_at: Option<u64>,
     rules: BTreeMap<String, RuleConfig>,
     alarms: Vec<Alarm>,
     connectors: BTreeMap<String, DataConnector>,
@@ -92,19 +105,63 @@ struct MemoryStore {
     audit_events: Vec<serde_json::Value>,
 }
 
+#[derive(Debug, Clone)]
+pub struct WorkingSnapshot {
+    pub scene_version: u64,
+    pub scene_config: SceneConfig,
+    pub entities: Vec<Entity>,
+    pub static_assets: Vec<StaticAssetInstance>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PublishedStateRecord {
+    pub published_scene_version: u64,
+    pub scene_config: SceneConfig,
+    pub entities: Vec<Entity>,
+    pub static_assets: Vec<StaticAssetInstance>,
+    pub published_scene: Option<PublishedSceneDescriptor>,
+    pub compiler_source: String,
+    pub updated_at: u64,
+    pub last_published_at: Option<u64>,
+    pub last_published_version: Option<String>,
+    pub last_publish_error: Option<String>,
+    pub last_failure_scene_version: Option<u64>,
+    pub last_failure_at: Option<u64>,
+}
+
 impl MemoryStore {
     fn seeded() -> Self {
         let snapshot = seed_scene::seed_snapshot();
+        let published_scene = load_published_scene_descriptor();
+        let now = now_millis();
+        let mut published_entities = snapshot.entities.clone();
+        let mut published_static_assets = Vec::new();
+        sort_entities(&mut published_entities);
+        sort_static_assets(&mut published_static_assets);
 
         Self {
             scene_version: snapshot.scene_version,
-            scene_config: snapshot.scene_config,
+            scene_config: snapshot.scene_config.clone(),
             entities: snapshot
                 .entities
                 .into_iter()
                 .map(|entity| (entity.id().to_string(), entity))
                 .collect(),
             static_assets: BTreeMap::new(),
+            published_scene_version: snapshot.scene_version,
+            published_scene_config: snapshot.scene_config,
+            published_entities,
+            published_static_assets,
+            published_scene: published_scene.clone(),
+            published_compiler_source: "campus-layout".to_string(),
+            published_updated_at: now,
+            last_published_at: Some(now),
+            last_published_version: published_scene
+                .as_ref()
+                .map(|descriptor| descriptor.package_version.clone()),
+            last_publish_error: None,
+            last_failure_scene_version: None,
+            last_failure_at: None,
             rules: snapshot
                 .rules
                 .into_iter()
@@ -170,23 +227,298 @@ impl Store {
     }
 
     pub async fn bootstrap(&self) -> Result<BootstrapResponse, StoreError> {
-        let scene = self.get_scene().await?;
-        let entities = self.list_entities().await?;
-        let static_assets = self.list_static_assets().await?;
+        let published = self.published_state().await?;
         let rules = self.list_rules().await?;
         let alarms = self.list_alarms().await?;
 
         Ok(BootstrapResponse {
             site_id: seed_scene::SITE_ID.to_string(),
+            scene_version: published.published_scene_version,
+            scene_config: published.scene_config,
+            entities: published.entities,
+            static_assets: published.static_assets,
+            rules,
+            alarms,
+            published_scene: published.published_scene,
+            issued_at: now_millis(),
+        })
+    }
+
+    pub async fn editor_bootstrap(&self) -> Result<BootstrapResponse, StoreError> {
+        let working = self.load_working_snapshot().await?;
+        let rules = self.list_rules().await?;
+        let alarms = self.list_alarms().await?;
+
+        Ok(BootstrapResponse {
+            site_id: seed_scene::SITE_ID.to_string(),
+            scene_version: working.scene_version,
+            scene_config: working.scene_config,
+            entities: working.entities,
+            static_assets: working.static_assets,
+            rules,
+            alarms,
+            published_scene: self.published_scene_descriptor().await?,
+            issued_at: now_millis(),
+        })
+    }
+
+    pub async fn load_working_snapshot(&self) -> Result<WorkingSnapshot, StoreError> {
+        let scene = self.get_scene().await?;
+        let entities = self.list_entities().await?;
+        let static_assets = self.list_static_assets().await?;
+
+        Ok(WorkingSnapshot {
             scene_version: scene.scene_version,
             scene_config: scene.scene_config,
             entities,
             static_assets,
-            rules,
-            alarms,
-            published_scene: None,
-            issued_at: now_millis(),
         })
+    }
+
+    pub async fn published_state(&self) -> Result<PublishedStateRecord, StoreError> {
+        match &self.backend {
+            StoreBackend::Memory(store) => {
+                let snapshot = store.read().await;
+                Ok(PublishedStateRecord {
+                    published_scene_version: snapshot.published_scene_version,
+                    scene_config: snapshot.published_scene_config.clone(),
+                    entities: snapshot.published_entities.clone(),
+                    static_assets: snapshot.published_static_assets.clone(),
+                    published_scene: snapshot.published_scene.clone(),
+                    compiler_source: snapshot.published_compiler_source.clone(),
+                    updated_at: snapshot.published_updated_at,
+                    last_published_at: snapshot.last_published_at,
+                    last_published_version: snapshot.last_published_version.clone(),
+                    last_publish_error: snapshot.last_publish_error.clone(),
+                    last_failure_scene_version: snapshot.last_failure_scene_version,
+                    last_failure_at: snapshot.last_failure_at,
+                })
+            }
+            StoreBackend::Postgres(store) => {
+                let row = sqlx::query(
+                    r#"
+                    SELECT
+                        published_scene_version,
+                        scene_config,
+                        entities,
+                        static_assets,
+                        published_scene,
+                        compiler_source,
+                        updated_at,
+                        last_published_at,
+                        last_published_version,
+                        last_publish_error,
+                        last_failure_scene_version,
+                        last_failure_at
+                    FROM published_state
+                    WHERE site_id = $1
+                    "#,
+                )
+                .bind(seed_scene::SITE_ID)
+                .fetch_one(&store.pool)
+                .await?;
+
+                Ok(PublishedStateRecord {
+                    published_scene_version: row.get::<i64, _>("published_scene_version") as u64,
+                    scene_config: serde_json::from_value(row.get("scene_config"))?,
+                    entities: serde_json::from_value(row.get("entities"))?,
+                    static_assets: serde_json::from_value(row.get("static_assets"))?,
+                    published_scene: row
+                        .get::<Option<serde_json::Value>, _>("published_scene")
+                        .map(serde_json::from_value)
+                        .transpose()?,
+                    compiler_source: row.get("compiler_source"),
+                    updated_at: row.get::<i64, _>("updated_at") as u64,
+                    last_published_at: row
+                        .get::<Option<i64>, _>("last_published_at")
+                        .map(|value| value as u64),
+                    last_published_version: row.get("last_published_version"),
+                    last_publish_error: row.get("last_publish_error"),
+                    last_failure_scene_version: row
+                        .get::<Option<i64>, _>("last_failure_scene_version")
+                        .map(|value| value as u64),
+                    last_failure_at: row
+                        .get::<Option<i64>, _>("last_failure_at")
+                        .map(|value| value as u64),
+                })
+            }
+            StoreBackend::Sqlite(store) => {
+                let row = sqlx::query(
+                    r#"
+                    SELECT
+                        published_scene_version,
+                        scene_config,
+                        entities,
+                        static_assets,
+                        published_scene,
+                        compiler_source,
+                        updated_at,
+                        last_published_at,
+                        last_published_version,
+                        last_publish_error,
+                        last_failure_scene_version,
+                        last_failure_at
+                    FROM published_state
+                    WHERE site_id = ?
+                    "#,
+                )
+                .bind(seed_scene::SITE_ID)
+                .fetch_one(&store.pool)
+                .await?;
+
+                Ok(PublishedStateRecord {
+                    published_scene_version: row.get::<i64, _>("published_scene_version") as u64,
+                    scene_config: serde_json::from_str(&row.get::<String, _>("scene_config"))?,
+                    entities: serde_json::from_str(&row.get::<String, _>("entities"))?,
+                    static_assets: serde_json::from_str(&row.get::<String, _>("static_assets"))?,
+                    published_scene: row
+                        .get::<Option<String>, _>("published_scene")
+                        .map(|value| serde_json::from_str(&value))
+                        .transpose()?,
+                    compiler_source: row.get("compiler_source"),
+                    updated_at: row.get::<i64, _>("updated_at") as u64,
+                    last_published_at: row
+                        .get::<Option<i64>, _>("last_published_at")
+                        .map(|value| value as u64),
+                    last_published_version: row.get("last_published_version"),
+                    last_publish_error: row.get("last_publish_error"),
+                    last_failure_scene_version: row
+                        .get::<Option<i64>, _>("last_failure_scene_version")
+                        .map(|value| value as u64),
+                    last_failure_at: row
+                        .get::<Option<i64>, _>("last_failure_at")
+                        .map(|value| value as u64),
+                })
+            }
+        }
+    }
+
+    pub async fn published_scene_descriptor(
+        &self,
+    ) -> Result<Option<PublishedSceneDescriptor>, StoreError> {
+        Ok(self.published_state().await?.published_scene)
+    }
+
+    pub async fn promote_working_snapshot(
+        &self,
+        snapshot: &WorkingSnapshot,
+        published_scene: Option<PublishedSceneDescriptor>,
+        compiler_source: &str,
+    ) -> Result<PublishedStateRecord, StoreError> {
+        let updated_at = now_millis();
+        let last_published_version = published_scene
+            .as_ref()
+            .map(|descriptor| descriptor.package_version.clone());
+
+        match &self.backend {
+            StoreBackend::Memory(store) => {
+                let mut state = store.write().await;
+                state.published_scene_version = snapshot.scene_version;
+                state.published_scene_config = snapshot.scene_config.clone();
+                state.published_entities = snapshot.entities.clone();
+                state.published_static_assets = snapshot.static_assets.clone();
+                state.published_scene = published_scene.clone();
+                state.published_compiler_source = compiler_source.to_string();
+                state.published_updated_at = updated_at;
+                state.last_published_at = Some(updated_at);
+                state.last_published_version = last_published_version.clone();
+                state.last_publish_error = None;
+                state.last_failure_scene_version = None;
+                state.last_failure_at = None;
+            }
+            StoreBackend::Postgres(store) => {
+                let mut tx = store.pool.begin().await?;
+                upsert_published_state_postgres(
+                    &mut tx,
+                    snapshot,
+                    published_scene.as_ref(),
+                    compiler_source,
+                    updated_at,
+                )
+                .await?;
+                tx.commit().await?;
+            }
+            StoreBackend::Sqlite(store) => {
+                let mut tx = store.pool.begin().await?;
+                upsert_published_state_sqlite(
+                    &mut tx,
+                    snapshot,
+                    published_scene.as_ref(),
+                    compiler_source,
+                    updated_at,
+                )
+                .await?;
+                tx.commit().await?;
+            }
+        }
+
+        Ok(PublishedStateRecord {
+            published_scene_version: snapshot.scene_version,
+            scene_config: snapshot.scene_config.clone(),
+            entities: snapshot.entities.clone(),
+            static_assets: snapshot.static_assets.clone(),
+            published_scene,
+            compiler_source: compiler_source.to_string(),
+            updated_at,
+            last_published_at: Some(updated_at),
+            last_published_version,
+            last_publish_error: None,
+            last_failure_scene_version: None,
+            last_failure_at: None,
+        })
+    }
+
+    pub async fn record_publish_failure(
+        &self,
+        scene_version: u64,
+        error_message: &str,
+    ) -> Result<(), StoreError> {
+        let failed_at = now_millis();
+
+        match &self.backend {
+            StoreBackend::Memory(store) => {
+                let mut state = store.write().await;
+                state.last_publish_error = Some(error_message.to_string());
+                state.last_failure_scene_version = Some(scene_version);
+                state.last_failure_at = Some(failed_at);
+            }
+            StoreBackend::Postgres(store) => {
+                let mut tx = store.pool.begin().await?;
+                sqlx::query(
+                    r#"
+                    UPDATE published_state
+                    SET last_publish_error = $1, last_failure_scene_version = $2, last_failure_at = $3
+                    WHERE site_id = $4
+                    "#,
+                )
+                .bind(error_message)
+                .bind(scene_version as i64)
+                .bind(failed_at as i64)
+                .bind(seed_scene::SITE_ID)
+                .execute(&mut *tx)
+                .await?;
+                tx.commit().await?;
+            }
+            StoreBackend::Sqlite(store) => {
+                let mut tx = store.pool.begin().await?;
+                sqlx::query(
+                    r#"
+                    UPDATE published_state
+                    SET last_publish_error = ?, last_failure_scene_version = ?, last_failure_at = ?
+                    WHERE site_id = ?
+                    "#,
+                )
+                .bind(error_message)
+                .bind(scene_version as i64)
+                .bind(failed_at as i64)
+                .bind(seed_scene::SITE_ID)
+                .execute(&mut *tx)
+                .await?;
+                tx.commit().await?;
+            }
+        }
+
+        Ok(())
     }
 
     pub async fn get_scene(&self) -> Result<SceneResponse, StoreError> {
@@ -717,7 +1049,9 @@ impl Store {
                         asset.id
                     )));
                 }
-                snapshot.static_assets.insert(asset.id.clone(), asset.clone());
+                snapshot
+                    .static_assets
+                    .insert(asset.id.clone(), asset.clone());
                 snapshot.scene_version += 1;
                 snapshot.audit_events.push(serde_json::json!({
                     "action": "static_asset.create",
@@ -2187,6 +2521,27 @@ async fn setup_postgres(pool: &PgPool) -> Result<(), StoreError> {
     .await?;
 
     tx.execute(
+        r#"
+        CREATE TABLE IF NOT EXISTS published_state (
+            site_id TEXT PRIMARY KEY,
+            published_scene_version BIGINT NOT NULL,
+            scene_config JSONB NOT NULL,
+            entities JSONB NOT NULL,
+            static_assets JSONB NOT NULL,
+            published_scene JSONB,
+            compiler_source TEXT NOT NULL,
+            updated_at BIGINT NOT NULL,
+            last_published_at BIGINT,
+            last_published_version TEXT,
+            last_publish_error TEXT,
+            last_failure_scene_version BIGINT,
+            last_failure_at BIGINT
+        )
+        "#,
+    )
+    .await?;
+
+    tx.execute(
         r#"CREATE INDEX IF NOT EXISTS idx_entities_type_status ON entities(entity_type, status)"#,
     )
     .await?;
@@ -2210,6 +2565,7 @@ async fn setup_postgres(pool: &PgPool) -> Result<(), StoreError> {
     if seeded_rows == 0 {
         let snapshot = seed_scene::seed_snapshot();
         let now = now_millis() as i64;
+        let published_scene = load_published_scene_descriptor();
         sqlx::query(
             r#"
             INSERT INTO scene_configs (site_id, scene_version, scene_config, created_at, updated_at)
@@ -2231,6 +2587,48 @@ async fn setup_postgres(pool: &PgPool) -> Result<(), StoreError> {
         for rule in &snapshot.rules {
             persist_rule(&mut tx, rule, false).await?;
         }
+
+        sqlx::query(
+            r#"
+            INSERT INTO published_state (
+                site_id,
+                published_scene_version,
+                scene_config,
+                entities,
+                static_assets,
+                published_scene,
+                compiler_source,
+                updated_at,
+                last_published_at,
+                last_published_version,
+                last_publish_error,
+                last_failure_scene_version,
+                last_failure_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NULL, NULL, NULL)
+            "#,
+        )
+        .bind(seed_scene::SITE_ID)
+        .bind(snapshot.scene_version as i64)
+        .bind(serde_json::to_value(&snapshot.scene_config)?)
+        .bind(serde_json::to_value(&snapshot.entities)?)
+        .bind(serde_json::to_value(Vec::<StaticAssetInstance>::new())?)
+        .bind(
+            published_scene
+                .as_ref()
+                .map(serde_json::to_value)
+                .transpose()?,
+        )
+        .bind("campus-layout")
+        .bind(now)
+        .bind(now)
+        .bind(
+            published_scene
+                .as_ref()
+                .map(|descriptor| descriptor.package_version.clone()),
+        )
+        .execute(&mut *tx)
+        .await?;
     }
 
     tx.commit().await?;
@@ -2384,6 +2782,27 @@ async fn setup_sqlite(pool: &SqlitePool) -> Result<(), StoreError> {
     .await?;
 
     tx.execute(
+        r#"
+        CREATE TABLE IF NOT EXISTS published_state (
+            site_id TEXT PRIMARY KEY,
+            published_scene_version INTEGER NOT NULL,
+            scene_config TEXT NOT NULL,
+            entities TEXT NOT NULL,
+            static_assets TEXT NOT NULL,
+            published_scene TEXT,
+            compiler_source TEXT NOT NULL,
+            updated_at INTEGER NOT NULL,
+            last_published_at INTEGER,
+            last_published_version TEXT,
+            last_publish_error TEXT,
+            last_failure_scene_version INTEGER,
+            last_failure_at INTEGER
+        )
+        "#,
+    )
+    .await?;
+
+    tx.execute(
         r#"CREATE INDEX IF NOT EXISTS idx_entities_type_status ON entities(entity_type, status)"#,
     )
     .await?;
@@ -2407,6 +2826,7 @@ async fn setup_sqlite(pool: &SqlitePool) -> Result<(), StoreError> {
     if seeded_rows == 0 {
         let snapshot = seed_scene::seed_snapshot();
         let now = now_millis() as i64;
+        let published_scene = load_published_scene_descriptor();
         sqlx::query(
             r#"
             INSERT INTO scene_configs (site_id, scene_version, scene_config, created_at, updated_at)
@@ -2428,6 +2848,48 @@ async fn setup_sqlite(pool: &SqlitePool) -> Result<(), StoreError> {
         for rule in &snapshot.rules {
             persist_rule_sqlite(&mut tx, rule, false).await?;
         }
+
+        sqlx::query(
+            r#"
+            INSERT INTO published_state (
+                site_id,
+                published_scene_version,
+                scene_config,
+                entities,
+                static_assets,
+                published_scene,
+                compiler_source,
+                updated_at,
+                last_published_at,
+                last_published_version,
+                last_publish_error,
+                last_failure_scene_version,
+                last_failure_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)
+            "#,
+        )
+        .bind(seed_scene::SITE_ID)
+        .bind(snapshot.scene_version as i64)
+        .bind(serde_json::to_string(&snapshot.scene_config)?)
+        .bind(serde_json::to_string(&snapshot.entities)?)
+        .bind(serde_json::to_string(&Vec::<StaticAssetInstance>::new())?)
+        .bind(
+            published_scene
+                .as_ref()
+                .map(serde_json::to_string)
+                .transpose()?,
+        )
+        .bind("campus-layout")
+        .bind(now)
+        .bind(now)
+        .bind(
+            published_scene
+                .as_ref()
+                .map(|descriptor| descriptor.package_version.clone()),
+        )
+        .execute(&mut *tx)
+        .await?;
     }
 
     tx.commit().await?;
@@ -2894,6 +3356,124 @@ async fn insert_audit_event_sqlite(
     .bind(resource_id)
     .bind(serde_json::to_string(&payload)?)
     .bind(now_millis() as i64)
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(())
+}
+
+async fn upsert_published_state_postgres(
+    tx: &mut Transaction<'_, Postgres>,
+    snapshot: &WorkingSnapshot,
+    published_scene: Option<&PublishedSceneDescriptor>,
+    compiler_source: &str,
+    updated_at: u64,
+) -> Result<(), StoreError> {
+    sqlx::query(
+        r#"
+        INSERT INTO published_state (
+            site_id,
+            published_scene_version,
+            scene_config,
+            entities,
+            static_assets,
+            published_scene,
+            compiler_source,
+            updated_at,
+            last_published_at,
+            last_published_version,
+            last_publish_error,
+            last_failure_scene_version,
+            last_failure_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9, $10, $11, $12)
+        ON CONFLICT (site_id) DO UPDATE
+        SET
+            published_scene_version = EXCLUDED.published_scene_version,
+            scene_config = EXCLUDED.scene_config,
+            entities = EXCLUDED.entities,
+            static_assets = EXCLUDED.static_assets,
+            published_scene = EXCLUDED.published_scene,
+            compiler_source = EXCLUDED.compiler_source,
+            updated_at = EXCLUDED.updated_at,
+            last_published_at = EXCLUDED.last_published_at,
+            last_published_version = EXCLUDED.last_published_version,
+            last_publish_error = EXCLUDED.last_publish_error,
+            last_failure_scene_version = EXCLUDED.last_failure_scene_version,
+            last_failure_at = EXCLUDED.last_failure_at
+        "#,
+    )
+    .bind(seed_scene::SITE_ID)
+    .bind(snapshot.scene_version as i64)
+    .bind(serde_json::to_value(&snapshot.scene_config)?)
+    .bind(serde_json::to_value(&snapshot.entities)?)
+    .bind(serde_json::to_value(&snapshot.static_assets)?)
+    .bind(published_scene.map(serde_json::to_value).transpose()?)
+    .bind(compiler_source)
+    .bind(updated_at as i64)
+    .bind(published_scene.map(|descriptor| descriptor.package_version.clone()))
+    .bind(Option::<String>::None)
+    .bind(Option::<i64>::None)
+    .bind(Option::<i64>::None)
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(())
+}
+
+async fn upsert_published_state_sqlite(
+    tx: &mut Transaction<'_, Sqlite>,
+    snapshot: &WorkingSnapshot,
+    published_scene: Option<&PublishedSceneDescriptor>,
+    compiler_source: &str,
+    updated_at: u64,
+) -> Result<(), StoreError> {
+    sqlx::query(
+        r#"
+        INSERT INTO published_state (
+            site_id,
+            published_scene_version,
+            scene_config,
+            entities,
+            static_assets,
+            published_scene,
+            compiler_source,
+            updated_at,
+            last_published_at,
+            last_published_version,
+            last_publish_error,
+            last_failure_scene_version,
+            last_failure_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(site_id) DO UPDATE SET
+            published_scene_version = excluded.published_scene_version,
+            scene_config = excluded.scene_config,
+            entities = excluded.entities,
+            static_assets = excluded.static_assets,
+            published_scene = excluded.published_scene,
+            compiler_source = excluded.compiler_source,
+            updated_at = excluded.updated_at,
+            last_published_at = excluded.last_published_at,
+            last_published_version = excluded.last_published_version,
+            last_publish_error = excluded.last_publish_error,
+            last_failure_scene_version = excluded.last_failure_scene_version,
+            last_failure_at = excluded.last_failure_at
+        "#,
+    )
+    .bind(seed_scene::SITE_ID)
+    .bind(snapshot.scene_version as i64)
+    .bind(serde_json::to_string(&snapshot.scene_config)?)
+    .bind(serde_json::to_string(&snapshot.entities)?)
+    .bind(serde_json::to_string(&snapshot.static_assets)?)
+    .bind(published_scene.map(serde_json::to_string).transpose()?)
+    .bind(compiler_source)
+    .bind(updated_at as i64)
+    .bind(updated_at as i64)
+    .bind(published_scene.map(|descriptor| descriptor.package_version.clone()))
+    .bind(Option::<String>::None)
+    .bind(Option::<i64>::None)
+    .bind(Option::<i64>::None)
     .execute(&mut **tx)
     .await?;
 

@@ -12,7 +12,8 @@ import {
   createPublishedStaticAssetManifest,
   encodePublishedStaticMaterialName,
   encodePublishedStaticMeshName,
-  PUBLISHED_STATIC_ASSET_MANIFEST_URL,
+  PUBLISHED_STATIC_ASSET_BASE_URL,
+  resolvePublishedStaticAssetManifestUrl,
   type PublishedStaticAssetCompression,
   type PublishedStaticMaterialRef,
 } from '../lib/digital-twin/publish'
@@ -159,17 +160,25 @@ async function main() {
     ? path.resolve(process.argv[2])
     : path.join(process.cwd(), 'public')
   const compression = process.argv.includes('--meshopt') ? 'meshopt' : 'none'
+  const baseUrlFlagIndex = process.argv.indexOf('--base-url')
+  const baseUrl =
+    baseUrlFlagIndex >= 0 && process.argv[baseUrlFlagIndex + 1]
+      ? process.argv[baseUrlFlagIndex + 1]
+      : PUBLISHED_STATIC_ASSET_BASE_URL
 
   if (compression === 'meshopt') {
     await ensureMeshoptAvailable()
   }
 
-  const pkg = createPublishedCampusScenePackage('default')
+  const pkg = createPublishedCampusScenePackage('default', {
+    staticAssetManifestUrl: resolvePublishedStaticAssetManifestUrl(baseUrl),
+  })
   const manifest = createPublishedStaticAssetManifest(
     pkg.sceneId,
     pkg.generatedAt,
     pkg.staticChunks,
-    compression
+    compression,
+    baseUrl
   )
 
   for (const chunk of pkg.staticChunks) {
@@ -189,7 +198,10 @@ async function main() {
     }
   }
 
-  const manifestPath = urlToPublicPath(publicDir, PUBLISHED_STATIC_ASSET_MANIFEST_URL)
+  const manifestPath = urlToPublicPath(
+    publicDir,
+    resolvePublishedStaticAssetManifestUrl(baseUrl)
+  )
   await mkdir(path.dirname(manifestPath), { recursive: true })
   await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
 

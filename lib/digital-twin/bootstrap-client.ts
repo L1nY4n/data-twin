@@ -9,7 +9,7 @@ import type {
   StaticAssetInstance,
 } from './types'
 import { getAdminApiBaseUrl, getBootstrapUrl } from './backend-config'
-import type { AuditEventRecord, AdminOverview } from './admin'
+import type { AuditEventRecord, AdminOverview, PublishStatus } from './admin'
 
 export interface BootstrapPayload {
   siteId: string
@@ -59,12 +59,26 @@ export async function fetchBootstrap(): Promise<BootstrapPayload> {
   return requestJson<BootstrapPayload>(getBootstrapUrl())
 }
 
+export async function fetchEditorBootstrap(): Promise<BootstrapPayload> {
+  return requestJson<BootstrapPayload>(`${getAdminApiBaseUrl()}/bootstrap`)
+}
+
 export async function fetchAdminScene(): Promise<SceneResponse> {
   return requestJson<SceneResponse>(`${getAdminApiBaseUrl()}/scene`)
 }
 
 export async function fetchAdminOverview(): Promise<AdminOverview> {
   return requestJson<AdminOverview>(`${getAdminApiBaseUrl()}/overview`)
+}
+
+export async function fetchAdminPublishStatus(): Promise<PublishStatus> {
+  return requestJson<PublishStatus>(`${getAdminApiBaseUrl()}/publish`)
+}
+
+export async function triggerAdminPublish(): Promise<PublishStatus> {
+  return requestJson<PublishStatus>(`${getAdminApiBaseUrl()}/publish`, {
+    method: 'POST',
+  })
 }
 
 export async function updateAdminScene(sceneConfig: SceneConfig): Promise<SceneResponse> {

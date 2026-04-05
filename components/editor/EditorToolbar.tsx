@@ -6,15 +6,18 @@ import {
   Expand,
   MousePointer2,
   Move,
+  RefreshCw,
   Redo2,
   RotateCcw,
   Save,
   Trash2,
   Undo2,
+  Upload,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { cn } from '@/lib/utils'
+import type { PublishStatus } from '@/lib/digital-twin/admin'
 import {
   getEditorSelectionKind,
   useEditorDigitalTwinStore,
@@ -23,15 +26,21 @@ import { getStaticAssetCatalogItem } from '@/lib/digital-twin/static-asset-catal
 
 type EditorToolbarProps = {
   onSave: () => void
+  onPublish: () => void
   onDuplicate: () => void
   onDelete: () => void
+  canPublish: boolean
+  publishStatus: PublishStatus | null
   className?: string
 }
 
 export function EditorToolbar({
   onSave,
+  onPublish,
   onDuplicate,
   onDelete,
+  canPublish,
+  publishStatus,
   className,
 }: EditorToolbarProps) {
   const selectedEntityId = useEditorDigitalTwinStore((state) => state.selectedEntityId)
@@ -61,6 +70,41 @@ export function EditorToolbar({
   const hasSelection = Boolean(selectionKind)
   const hasHistory = historyLength > 0 || redoLength > 0
   const heading = draftSelection?.name ?? armedCatalogItem?.name ?? '场景'
+  const publishLabel =
+    publishStatus?.status === 'publishing'
+      ? 'Publishing'
+      : publishStatus?.status === 'failed'
+        ? 'Retry Publish'
+        : 'Publish'
+  const publishToneClass =
+    publishStatus?.status === 'failed'
+      ? 'border-[#f59e0b]/35 bg-[#3b2711]/72 text-[#ffd7a1]'
+      : publishStatus?.status === 'published'
+        ? 'border-[#65c6a4]/35 bg-[#0f2b23]/72 text-[#baf2db]'
+        : publishStatus?.status === 'publishing'
+          ? 'border-[#7da7ff]/35 bg-[#15233c]/72 text-[#d6e4ff]'
+          : 'border-[#7da7ff]/28 bg-[#122035]/70 text-[#d6e4ff]'
+  const publishMeta =
+    publishStatus?.status === 'failed'
+      ? publishStatus.lastError ?? '发布失败，请重试'
+      : publishStatus?.lastPublishedAt
+        ? `v${publishStatus.lastPublishedVersion ?? '--'} · ${new Date(
+            publishStatus.lastPublishedAt
+          ).toLocaleTimeString('zh-CN', {
+            hour: '2-digit',
+            minute: '2-digit',
+          })}`
+        : publishStatus?.compilerSource
+          ? `Runtime source · ${publishStatus.compilerSource}`
+          : 'Runtime publish state'
+  const publishBadge =
+    publishStatus?.status === 'failed'
+      ? 'Failed'
+      : publishStatus?.status === 'publishing'
+        ? 'Publishing'
+        : publishStatus?.hasUnpublishedChanges
+          ? 'Unpublished'
+          : 'Published'
   const subtitle = armedCatalogItem
     ? '已就绪，拖入或点击画布完成摆放'
     : selectionKind === 'static-asset'
@@ -102,6 +146,36 @@ export function EditorToolbar({
         </div>
 
         <div className="flex flex-1 flex-wrap items-center justify-end gap-1">
+          <div
+            className={cn(
+              'editor-block flex min-w-[13rem] items-center gap-2 px-2 py-1.5',
+              publishToneClass
+            )}
+          >
+            <div className="flex min-w-0 flex-1 flex-col">
+              <span className="editor-kicker">Publish</span>
+              <span className="truncate text-[12px] font-semibold">{publishBadge}</span>
+              <span className="truncate text-[11px] opacity-80">{publishMeta}</span>
+            </div>
+
+            <Button
+              variant="ghost"
+              size="sm"
+              className={cn('editor-control is-primary shrink-0', !canPublish && 'opacity-70')}
+              onClick={onPublish}
+              disabled={!canPublish}
+              aria-label={publishLabel}
+              title={publishLabel}
+            >
+              {publishStatus?.status === 'publishing' ? (
+                <RefreshCw className="size-4 animate-spin" />
+              ) : (
+                <Upload className="size-4" />
+              )}
+              {publishLabel}
+            </Button>
+          </div>
+
           <Button
             variant="ghost"
             size="sm"

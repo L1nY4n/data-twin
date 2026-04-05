@@ -50,6 +50,33 @@ pub struct AdminOverviewResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct PublishStatusResponse {
+    pub status: PublishState,
+    pub current_scene_version: u64,
+    pub published_scene_version: u64,
+    pub has_unpublished_changes: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_published_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_published_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub published_scene: Option<PublishedSceneDescriptor>,
+    pub compiler_source: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum PublishState {
+    Published,
+    SavedUnpublished,
+    Publishing,
+    Failed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SceneConfig {
     pub id: String,
     pub name: String,
@@ -606,4 +633,5 @@ pub enum ConfigChangedScope {
     StaticAsset,
     Binding,
     Rule,
+    Publish,
 }

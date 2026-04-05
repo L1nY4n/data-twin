@@ -1,7 +1,7 @@
 'use client'
 
 import dynamic from 'next/dynamic'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Spinner } from '@/components/ui/spinner'
 import { useIsMobile } from '@/hooks/use-mobile'
 import { useEditorDigitalTwin } from '@/hooks/use-editor-digital-twin'
@@ -11,14 +11,15 @@ import { EditorAppSidebar } from './EditorAppSidebar'
 import { EditorInspector } from './EditorInspector'
 import { EditorToolbar } from './EditorToolbar'
 import { EditorViewportDock } from './EditorViewportDock'
+import { useEditorChromeMotion } from './useEditorChromeMotion'
 
 const EditorCanvas = dynamic(
   () => import('@/components/editor/EditorCanvas').then((mod) => mod.EditorCanvas),
   {
     ssr: false,
     loading: () => (
-      <div className="flex h-full w-full items-center justify-center bg-[#dce7f5]">
-        <div className="flex flex-col items-center gap-3 rounded-[28px] border border-white/65 bg-[#0d1117]/78 px-6 py-5 text-white shadow-[0_24px_60px_rgba(8,12,20,0.32)] backdrop-blur-xl">
+      <div className="editor-canvas-loading-shell flex h-full w-full items-center justify-center">
+        <div className="editor-loading-card flex flex-col items-center gap-3 px-6 py-5 text-white">
           <Spinner className="h-8 w-8 text-[#7da7ff]" />
           <span className="text-sm text-white/70">加载 3D 编辑器...</span>
         </div>
@@ -28,11 +29,23 @@ const EditorCanvas = dynamic(
 )
 
 export function EditorShell() {
-  const { saveSelection, deleteSelection, duplicateSelection } = useEditorDigitalTwin()
+  const {
+    saveSelection,
+    deleteSelection,
+    duplicateSelection,
+    publish,
+    publishStatus,
+    canPublish,
+  } = useEditorDigitalTwin()
   const isMobile = useIsMobile()
   const error = useEditorDigitalTwinStore((state) => state.error)
   const [resourcesPanelOpen, setResourcesPanelOpen] = useState(true)
   const [inspectorCollapsed, setInspectorCollapsed] = useState(false)
+  const rootRef = useRef<HTMLDivElement | null>(null)
+  const leftPanelRef = useRef<HTMLDivElement | null>(null)
+  const toolbarRef = useRef<HTMLDivElement | null>(null)
+  const rightPanelRef = useRef<HTMLDivElement | null>(null)
+  const dockRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     if (isMobile) {
@@ -40,36 +53,29 @@ export function EditorShell() {
     }
   }, [isMobile])
 
+  useEditorChromeMotion({
+    rootRef,
+    leftPanelRef,
+    toolbarRef,
+    rightPanelRef,
+    dockRef,
+    resourcesPanelOpen,
+    inspectorCollapsed,
+  })
+
   return (
-    <div className="editor-surface relative min-h-svh overflow-hidden bg-[#dce7f5] text-slate-950">
-      <div
-        className="absolute inset-0"
-        style={{
-          backgroundImage:
-            'radial-gradient(circle at top left, rgba(255,255,255,0.96), transparent 28%), radial-gradient(circle at top right, rgba(167,189,223,0.4), transparent 32%), linear-gradient(180deg, #eef4fb 0%, #dce7f2 52%, #d3deeb 100%)',
-        }}
-      />
-      <div
-        className="absolute inset-0 opacity-45"
-        style={{
-          backgroundImage:
-            'linear-gradient(rgba(255,255,255,0.35) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.35) 1px, transparent 1px)',
-          backgroundSize: '28px 28px',
-          maskImage:
-            'linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(255,255,255,0.42) 56%, rgba(255,255,255,0) 100%)',
-        }}
-      />
+    <div
+      ref={rootRef}
+      className="editor-surface relative min-h-svh overflow-hidden text-slate-950"
+    >
+      <div aria-hidden className="editor-shell-backdrop absolute inset-0" />
+      <div aria-hidden className="editor-shell-grid absolute inset-0" />
+      <div aria-hidden className="editor-shell-vignette absolute inset-0" />
 
       <div className="relative z-10 flex min-h-svh">
         <main className="min-w-0 flex flex-1 flex-col px-1.5 py-1.5 md:px-2 md:py-2 lg:px-2.5 lg:py-2.5">
           <section className="editor-canvas-frame relative h-[calc(100svh-0.75rem)] min-h-[520px] w-full overflow-hidden md:h-[calc(100svh-1rem)] lg:h-[calc(100svh-1.25rem)] xl:min-h-[680px]">
-            <div
-              className="absolute inset-0"
-              style={{
-                backgroundImage:
-                  'linear-gradient(180deg, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0.14) 36%, rgba(255,255,255,0.08) 100%)',
-              }}
-            />
+            <div aria-hidden className="editor-canvas-sheen absolute inset-0" />
 
             {isMobile ? (
               <div
@@ -97,6 +103,9 @@ export function EditorShell() {
                 )}
               >
                 <div
+                  ref={leftPanelRef}
+                  data-editor-chrome="resources"
+                  data-editor-collapsed={!resourcesPanelOpen}
                   className={cn(
                     'pointer-events-auto',
                     resourcesPanelOpen ? 'h-full' : 'h-10'
@@ -110,11 +119,18 @@ export function EditorShell() {
               </div>
 
               <div className="pointer-events-none absolute inset-x-0 top-2.5 z-20 flex justify-center px-14 md:px-16 lg:px-24">
-                <div className="pointer-events-auto w-full max-w-[60rem]">
+                <div
+                  ref={toolbarRef}
+                  data-editor-chrome="toolbar"
+                  className="pointer-events-auto w-full max-w-[60rem]"
+                >
                   <EditorToolbar
                     onSave={() => void saveSelection()}
+                    onPublish={() => void publish()}
                     onDuplicate={() => void duplicateSelection()}
                     onDelete={() => void deleteSelection()}
+                    canPublish={canPublish}
+                    publishStatus={publishStatus}
                   />
                 </div>
               </div>
@@ -134,6 +150,9 @@ export function EditorShell() {
                 )}
               >
                 <div
+                  ref={rightPanelRef}
+                  data-editor-chrome="inspector"
+                  data-editor-collapsed={inspectorCollapsed}
                   className={cn(
                     'pointer-events-auto',
                     inspectorCollapsed ? 'h-10' : 'h-full'
@@ -147,7 +166,11 @@ export function EditorShell() {
               </div>
 
               <div className="pointer-events-none absolute inset-x-0 bottom-2.5 z-20 hidden justify-center px-2.5 md:flex">
-                <div className="pointer-events-auto">
+                <div
+                  ref={dockRef}
+                  data-editor-chrome="dock"
+                  className="pointer-events-auto"
+                >
                   <EditorViewportDock />
                 </div>
               </div>

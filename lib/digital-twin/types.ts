@@ -302,7 +302,7 @@ export interface StatusUpdateMessage {
 export interface ConfigChangedMessage {
   sceneVersion: number
   changedAt: number
-  scope: 'scene' | 'entity' | 'static_asset' | 'binding' | 'rule'
+  scope: 'scene' | 'entity' | 'static_asset' | 'binding' | 'rule' | 'publish'
   publishedScene?: PublishedSceneRuntimeDescriptor | null
 }
 

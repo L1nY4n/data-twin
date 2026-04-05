@@ -8,6 +8,7 @@ import {
   encodePublishedStaticMaterialName,
   encodePublishedStaticMeshName,
   PUBLISHED_STATIC_ASSET_MANIFEST_URL,
+  resolvePublishedStaticAssetManifestUrl,
 } from './static-assets'
 
 describe('published static assets', () => {
@@ -75,5 +76,28 @@ describe('published static assets', () => {
         'build-42'
       )
     ).toBe('https://cdn.example.com/chunk.glb?v=build-42')
+  })
+
+  test('supports versioned publish directories for manifests and chunk urls', () => {
+    const pkg = createPublishedCampusScenePackage('default', {
+      generatedAt: '2026-04-05T12:30:45.000Z',
+      staticAssetManifestUrl: resolvePublishedStaticAssetManifestUrl(
+        '/generated/published-static/versions/build-42'
+      ),
+    })
+    const manifest = createPublishedStaticAssetManifest(
+      pkg.sceneId,
+      pkg.generatedAt,
+      pkg.staticChunks,
+      'none',
+      '/generated/published-static/versions/build-42'
+    )
+
+    expect(pkg.staticAssetManifestUrl).toBe(
+      '/generated/published-static/versions/build-42/chunk-manifest.json'
+    )
+    expect(
+      manifest.chunks['chunk:sector-core:static']?.detailed.url
+    ).toContain('/generated/published-static/versions/build-42/')
   })
 })

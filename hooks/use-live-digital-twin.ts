@@ -142,7 +142,6 @@ export function useLiveDigitalTwin() {
           }
           case 'config_changed': {
             const configChanged = message.payload as ConfigChangedMessage
-            const hasSceneVersionUpdate = configChanged.sceneVersion > sceneVersionRef.current
             const hasPublishedSceneUpdate =
               Boolean(configChanged.publishedScene) &&
               (configChanged.publishedScene?.packageVersion !==
@@ -150,7 +149,10 @@ export function useLiveDigitalTwin() {
                 configChanged.publishedScene?.packageUrl !==
                   publishedSceneRef.current?.packageUrl)
 
-            if (!hasSceneVersionUpdate && !hasPublishedSceneUpdate) break
+            const shouldRefresh =
+              configChanged.scope === 'publish' || hasPublishedSceneUpdate
+
+            if (!shouldRefresh) break
             sceneVersionRef.current = Math.max(
               sceneVersionRef.current,
               configChanged.sceneVersion

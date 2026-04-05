@@ -1,15 +1,18 @@
 'use client'
 
-import { useCallback, useEffect } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   createAdminEntity,
   createAdminStaticAsset,
   deleteAdminEntity,
   deleteAdminStaticAsset,
-  fetchBootstrap,
+  fetchAdminPublishStatus,
+  fetchEditorBootstrap,
+  triggerAdminPublish,
   updateAdminEntity,
   updateAdminStaticAsset,
 } from '@/lib/digital-twin/bootstrap-client'
+import type { PublishStatus } from '@/lib/digital-twin/admin'
 import {
   getEditorSelectionKind,
   useEditorDigitalTwinStore,
@@ -41,6 +44,8 @@ async function resolvePublishedScenePackage(
 }
 
 export function useEditorDigitalTwin() {
+  const [publishStatus, setPublishStatus] = useState<PublishStatus | null>(null)
+  const [isPublishing, setIsPublishing] = useState(false)
   const selectedEntityId = useEditorDigitalTwinStore((state) => state.selectedEntityId)
   const selectedStaticAssetId = useEditorDigitalTwinStore(
     (state) => state.selectedStaticAssetId
@@ -52,15 +57,21 @@ export function useEditorDigitalTwin() {
   const duplicateSelectionState = useEditorDigitalTwinStore(
     (state) => state.duplicateSelection
   )
+  const isDirty = useEditorDigitalTwinStore((state) => state.isDirty)
+  const isSaving = useEditorDigitalTwinStore((state) => state.isSaving)
 
   const reload = useCallback(async () => {
     const store = useEditorDigitalTwinStore.getState()
     store.setLoading(true)
 
     try {
-      const payload = await fetchBootstrap()
+      const [payload, nextPublishStatus] = await Promise.all([
+        fetchEditorBootstrap(),
+        fetchAdminPublishStatus(),
+      ])
       const publishedScenePackage = await resolvePublishedScenePackage(payload.publishedScene)
       useEditorDigitalTwinStore.getState().hydrateFromBootstrap(payload, publishedScenePackage)
+      setPublishStatus(nextPublishStatus)
       useEditorDigitalTwinStore.getState().setError(null)
     } catch (error) {
       useEditorDigitalTwinStore
@@ -152,6 +163,44 @@ export function useEditorDigitalTwin() {
 
   const duplicateSelection = useCallback(() => duplicateSelectionState(), [duplicateSelectionState])
 
+  const publish = useCallback(async () => {
+    const store = useEditorDigitalTwinStore.getState()
+    if (store.isDirty || store.isSaving) {
+      store.setError('请先保存当前编辑内容，再执行 Publish')
+      return false
+    }
+
+    setIsPublishing(true)
+    try {
+      const nextStatus = await triggerAdminPublish()
+      setPublishStatus(nextStatus)
+      await reload()
+      return true
+    } catch (error) {
+      try {
+        setPublishStatus(await fetchAdminPublishStatus())
+      } catch {
+        // Ignore secondary status fetch failures and keep the primary publish error visible.
+      }
+      useEditorDigitalTwinStore
+        .getState()
+        .setError(error instanceof Error ? error.message : '发布运行时场景失败')
+      return false
+    } finally {
+      setIsPublishing(false)
+    }
+  }, [reload])
+
+  const effectivePublishStatus = useMemo(() => {
+    if (!publishStatus) return null
+    if (!isPublishing) return publishStatus
+
+    return {
+      ...publishStatus,
+      status: 'publishing',
+    } satisfies PublishStatus
+  }, [isPublishing, publishStatus])
+
   useEffect(() => {
     void reload()
   }, [reload])
@@ -161,5 +210,12 @@ export function useEditorDigitalTwin() {
     saveSelection,
     deleteSelection,
     duplicateSelection,
+    publish,
+    publishStatus: effectivePublishStatus,
+    canPublish:
+      Boolean(effectivePublishStatus?.hasUnpublishedChanges) &&
+      !isDirty &&
+      !isSaving &&
+      !isPublishing,
   }
 }
