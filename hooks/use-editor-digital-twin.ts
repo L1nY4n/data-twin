@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect } from 'react'
 import {
+  createAdminEntity,
   createAdminStaticAsset,
+  deleteAdminEntity,
   deleteAdminStaticAsset,
   fetchBootstrap,
   updateAdminEntity,
@@ -45,7 +47,11 @@ export function useEditorDigitalTwin() {
   )
   const draftEntity = useEditorDigitalTwinStore((state) => state.draftEntity)
   const draftStaticAsset = useEditorDigitalTwinStore((state) => state.draftStaticAsset)
+  const savedEntity = useEditorDigitalTwinStore((state) => state.savedEntity)
   const savedStaticAsset = useEditorDigitalTwinStore((state) => state.savedStaticAsset)
+  const duplicateSelectionState = useEditorDigitalTwinStore(
+    (state) => state.duplicateSelection
+  )
 
   const reload = useCallback(async () => {
     const store = useEditorDigitalTwinStore.getState()
@@ -73,22 +79,23 @@ export function useEditorDigitalTwin() {
 
     try {
       if (selectionKind === 'entity') {
-        if (!selectedEntityId || !draftEntity) return false
-        await updateAdminEntity(selectedEntityId, draftEntity)
+        if (!draftEntity) return false
+        const saved = savedEntity
+          ? await updateAdminEntity(draftEntity.id, draftEntity)
+          : await createAdminEntity(draftEntity)
+        await reload()
+        useEditorDigitalTwinStore.getState().selectEntity(saved.id)
       } else {
         if (!selectedStaticAssetId || !draftStaticAsset) return false
         if (savedStaticAsset) {
-          await updateAdminStaticAsset(selectedStaticAssetId, draftStaticAsset)
+          const saved = await updateAdminStaticAsset(selectedStaticAssetId, draftStaticAsset)
+          await reload()
+          useEditorDigitalTwinStore.getState().selectStaticAsset(saved.id)
         } else {
-          await createAdminStaticAsset(draftStaticAsset)
+          const saved = await createAdminStaticAsset(draftStaticAsset)
+          await reload()
+          useEditorDigitalTwinStore.getState().selectStaticAsset(saved.id)
         }
-      }
-      await reload()
-      if (selectionKind === 'entity' && selectedEntityId) {
-        useEditorDigitalTwinStore.getState().selectEntity(selectedEntityId)
-      }
-      if (selectionKind === 'static-asset' && selectedStaticAssetId) {
-        useEditorDigitalTwinStore.getState().selectStaticAsset(selectedStaticAssetId)
       }
       return true
     } catch (error) {
@@ -103,16 +110,20 @@ export function useEditorDigitalTwin() {
     draftEntity,
     draftStaticAsset,
     reload,
+    savedEntity,
     savedStaticAsset,
-    selectedEntityId,
     selectedStaticAssetId,
   ])
 
   const deleteSelection = useCallback(async () => {
-    if (!selectedStaticAssetId) return false
-
     const store = useEditorDigitalTwinStore.getState()
-    if (!store.savedStaticAsset) {
+    const selectionKind = getEditorSelectionKind(store)
+    if (!selectionKind) return false
+
+    if (
+      (selectionKind === 'entity' && !store.savedEntity) ||
+      (selectionKind === 'static-asset' && !store.savedStaticAsset)
+    ) {
       store.resetDraft()
       return true
     }
@@ -120,7 +131,13 @@ export function useEditorDigitalTwin() {
     store.setSaving(true)
 
     try {
-      await deleteAdminStaticAsset(selectedStaticAssetId)
+      if (selectionKind === 'entity') {
+        if (!selectedEntityId) return false
+        await deleteAdminEntity(selectedEntityId)
+      } else {
+        if (!selectedStaticAssetId) return false
+        await deleteAdminStaticAsset(selectedStaticAssetId)
+      }
       await reload()
       return true
     } catch (error) {
@@ -131,7 +148,9 @@ export function useEditorDigitalTwin() {
     } finally {
       useEditorDigitalTwinStore.getState().setSaving(false)
     }
-  }, [reload, selectedStaticAssetId])
+  }, [reload, selectedEntityId, selectedStaticAssetId])
+
+  const duplicateSelection = useCallback(() => duplicateSelectionState(), [duplicateSelectionState])
 
   useEffect(() => {
     void reload()
@@ -141,5 +160,6 @@ export function useEditorDigitalTwin() {
     reload,
     saveSelection,
     deleteSelection,
+    duplicateSelection,
   }
 }

@@ -10,9 +10,17 @@ export type EditorTransformTargetKind = EntityType | 'static-asset'
 
 export function resolveEditorTransformAxisConfig(
   targetKind: EditorTransformTargetKind | undefined,
-  transformMode: 'translate' | 'rotate'
+  transformMode: 'select' | 'translate' | 'rotate' | 'scale'
 ) {
   const allowVerticalTranslation = targetKind === 'sensor' || targetKind === 'camera'
+
+  if (transformMode === 'scale') {
+    return {
+      showX: true,
+      showY: allowVerticalTranslation,
+      showZ: true,
+    }
+  }
 
   if (transformMode === 'rotate') {
     return {
@@ -33,6 +41,11 @@ export function EditorTransformGizmo() {
   const draftEntity = useEditorDigitalTwinStore((state) => state.draftEntity)
   const draftStaticAsset = useEditorDigitalTwinStore((state) => state.draftStaticAsset)
   const transformMode = useEditorDigitalTwinStore((state) => state.transformMode)
+  const snapEnabled = useEditorDigitalTwinStore((state) => state.snapEnabled)
+  const translateSnap = useEditorDigitalTwinStore((state) => state.translateSnap)
+  const rotateSnapDegrees = useEditorDigitalTwinStore(
+    (state) => state.rotateSnapDegrees
+  )
   const beginTransformSession = useEditorDigitalTwinStore(
     (state) => state.beginTransformSession
   )
@@ -86,9 +99,15 @@ export function EditorTransformGizmo() {
           z: targetRef.current.position.z,
         },
         rotation: {
-          x: transformMode === 'rotate' ? draftTarget.rotation.x : targetRef.current.rotation.x,
+          x:
+            transformMode === 'rotate' || transformMode === 'scale'
+              ? draftTarget.rotation.x
+              : targetRef.current.rotation.x,
           y: targetRef.current.rotation.y,
-          z: transformMode === 'rotate' ? draftTarget.rotation.z : targetRef.current.rotation.z,
+          z:
+            transformMode === 'rotate' || transformMode === 'scale'
+              ? draftTarget.rotation.z
+              : targetRef.current.rotation.z,
         },
         scale: {
           x: targetRef.current.scale.x,
@@ -100,7 +119,7 @@ export function EditorTransformGizmo() {
     [allowVerticalTranslation, draftTarget, transformMode, updateDraftTransform]
   )
 
-  if (!draftTarget) return null
+  if (!draftTarget || transformMode === 'select') return null
 
   return (
     <>
@@ -122,6 +141,14 @@ export function EditorTransformGizmo() {
         showX={axisConfig.showX}
         showY={axisConfig.showY}
         showZ={axisConfig.showZ}
+        translationSnap={
+          snapEnabled && transformMode === 'translate' ? translateSnap : undefined
+        }
+        rotationSnap={
+          snapEnabled && transformMode === 'rotate'
+            ? (rotateSnapDegrees * Math.PI) / 180
+            : undefined
+        }
         onMouseDown={() => {
           beginTransformSession()
           setTransformDragging(true)

@@ -199,14 +199,77 @@ describe('editor store', () => {
       name: '立罐组 B',
       visible: false,
     })
+    store.updateDraftMetadata({
+      assetCode: 'TK-201',
+      color: '#ff8844',
+    })
     store.setDraftTransformField('scale', 'x', 1.25)
 
     const state = useEditorDigitalTwinStore.getState()
 
     expect(state.draftStaticAsset?.name).toBe('立罐组 B')
     expect(state.draftStaticAsset?.visible).toBe(false)
+    expect(state.draftStaticAsset?.metadata.assetCode).toBe('TK-201')
+    expect(state.draftStaticAsset?.metadata.color).toBe('#ff8844')
     expect(state.draftStaticAsset?.scale.x).toBe(1.25)
     expect(state.history).toHaveLength(1)
+    expect(state.isDirty).toBe(true)
+  })
+
+  test('duplicates selected static assets into a new unsaved draft', () => {
+    useEditorDigitalTwinStore.getState().reset()
+    const entity = createEntity()
+    const staticAsset = createStaticAsset()
+
+    useEditorDigitalTwinStore.getState().hydrateFromBootstrap(
+      {
+        ...createBootstrapPayload(entity),
+        staticAssets: [staticAsset],
+      },
+      DEFAULT_PUBLISHED_SCENE_PACKAGE
+    )
+
+    const store = useEditorDigitalTwinStore.getState()
+    store.selectStaticAsset(staticAsset.id)
+    store.setSnapEnabled(true)
+    store.setTranslateSnap(2)
+
+    const duplicate = store.duplicateSelection()
+    const state = useEditorDigitalTwinStore.getState()
+
+    expect(duplicate).not.toBeNull()
+    expect(duplicate?.id).not.toBe(staticAsset.id)
+    expect(duplicate?.name).toContain('副本')
+    expect(duplicate?.position.x).toBe(staticAsset.position.x + 2)
+    expect(duplicate?.position.z).toBe(staticAsset.position.z + 2)
+    expect(state.savedStaticAsset).toBeNull()
+    expect(state.selectedStaticAssetId).toBe(duplicate?.id ?? null)
+    expect(state.isDirty).toBe(true)
+  })
+
+  test('duplicates selected entities into a new unsaved draft', () => {
+    useEditorDigitalTwinStore.getState().reset()
+    const entity = createEntity()
+
+    useEditorDigitalTwinStore
+      .getState()
+      .hydrateFromBootstrap(createBootstrapPayload(entity), DEFAULT_PUBLISHED_SCENE_PACKAGE)
+
+    const store = useEditorDigitalTwinStore.getState()
+    store.selectEntity(entity.id)
+    store.setSnapEnabled(true)
+    store.setTranslateSnap(1)
+
+    const duplicate = store.duplicateSelection()
+    const state = useEditorDigitalTwinStore.getState()
+
+    expect(duplicate).not.toBeNull()
+    expect(duplicate?.id).not.toBe(entity.id)
+    expect(duplicate?.name).toContain('副本')
+    expect(state.savedEntity).toBeNull()
+    expect(state.selectedEntityId).toBe(duplicate?.id ?? null)
+    expect(state.draftEntity?.position.x).toBe(entity.position.x + 1)
+    expect(state.draftEntity?.position.z).toBe(entity.position.z + 1)
     expect(state.isDirty).toBe(true)
   })
 
@@ -232,5 +295,74 @@ describe('editor store', () => {
     expect(useEditorDigitalTwinStore.getState().savedStaticAsset).toBeNull()
     expect(useEditorDigitalTwinStore.getState().placementCatalogId).toBeNull()
     expect(useEditorDigitalTwinStore.getState().isDirty).toBe(true)
+  })
+
+  test('updates viewport and scene workspace controls independently from selection drafts', () => {
+    useEditorDigitalTwinStore.getState().reset()
+    const entity = createEntity()
+    const store = useEditorDigitalTwinStore.getState()
+
+    store.hydrateFromBootstrap(
+      createBootstrapPayload(entity),
+      DEFAULT_PUBLISHED_SCENE_PACKAGE
+    )
+
+    store.setSceneConfig({
+      showGrid: false,
+      showAxes: true,
+      gridSize: 640,
+      gridDivisions: 256,
+      ambientLightIntensity: 0.75,
+    })
+    store.setViewportProjection('orthographic')
+    store.setViewMode('topdown')
+    store.setSnapEnabled(true)
+    store.setTranslateSnap(2.5)
+    store.setRotateSnapDegrees(30)
+    store.focusCameraPreset('top')
+
+    const state = useEditorDigitalTwinStore.getState()
+    const topPreset = state.cameraPresets.find((preset) => preset.id === 'top')
+
+    expect(state.sceneConfig.showGrid).toBe(false)
+    expect(state.sceneConfig.showAxes).toBe(true)
+    expect(state.sceneConfig.gridSize).toBe(640)
+    expect(state.sceneConfig.gridDivisions).toBe(256)
+    expect(state.sceneConfig.ambientLightIntensity).toBe(0.75)
+    expect(state.viewportProjection).toBe('orthographic')
+    expect(state.viewMode).toBe('topdown')
+    expect(state.snapEnabled).toBe(true)
+    expect(state.translateSnap).toBe(2.5)
+    expect(state.rotateSnapDegrees).toBe(30)
+    expect(state.activeCameraPreset).toBe('top')
+    expect(state.cameraFocusRequest).not.toBeNull()
+    expect(state.cameraFocusRequest?.position).toEqual(topPreset?.position)
+    expect(state.cameraFocusRequest?.target).toEqual(topPreset?.target)
+    expect(state.sceneConfig.cameraPosition).toEqual(topPreset?.position)
+    expect(state.sceneConfig.cameraTarget).toEqual(topPreset?.target)
+
+    state.clearCameraFocusRequest()
+    expect(useEditorDigitalTwinStore.getState().cameraFocusRequest).toBeNull()
+    expect(useEditorDigitalTwinStore.getState().draftEntity).toBeNull()
+    expect(useEditorDigitalTwinStore.getState().isDirty).toBe(false)
+  })
+
+  test('focuses camera by cardinal directions without requiring preset ids', () => {
+    useEditorDigitalTwinStore.getState().reset()
+    const entity = createEntity()
+    const store = useEditorDigitalTwinStore.getState()
+
+    store.hydrateFromBootstrap(
+      createBootstrapPayload(entity),
+      DEFAULT_PUBLISHED_SCENE_PACKAGE
+    )
+    store.focusCameraDirection('east')
+
+    const state = useEditorDigitalTwinStore.getState()
+
+    expect(state.activeCameraPreset).toBeNull()
+    expect(state.cameraFocusRequest).not.toBeNull()
+    expect(state.viewMode).toBe('orbit')
+    expect(state.sceneConfig.cameraPosition.x).toBeGreaterThan(state.sceneConfig.cameraTarget.x)
   })
 })

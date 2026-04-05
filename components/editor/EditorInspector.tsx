@@ -1,29 +1,22 @@
 'use client'
 
-import {
-  useEffect,
-  useState,
-  type KeyboardEvent,
-  type ReactNode,
-} from 'react'
+import { useEffect, useId, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { SlidersHorizontal } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useEditorDigitalTwinStore } from '@/lib/digital-twin/editor-store'
 import { getStaticAssetCatalogItem } from '@/lib/digital-twin/static-asset-catalog'
 import type { Vector3 } from '@/lib/digital-twin/types'
+import { cn } from '@/lib/utils'
 import {
   resolveEditorTransformAxisConfig,
   type EditorTransformTargetKind,
 } from './scene/EditorTransformGizmo'
 
 const AXES: Array<keyof Vector3> = ['x', 'y', 'z']
-
-function formatVector(label: string, value: { x: number; y: number; z: number }) {
-  return `${label}: ${value.x.toFixed(2)} / ${value.y.toFixed(2)} / ${value.z.toFixed(2)}`
-}
 
 function formatNumberInput(value: number) {
   const normalized = Object.is(value, -0) ? 0 : value
@@ -33,31 +26,49 @@ function formatNumberInput(value: number) {
     : rounded.toFixed(2).replace(/\.?0+$/, '')
 }
 
+function getMetadataText(
+  metadata: Record<string, unknown>,
+  key: string,
+  fallback = ''
+) {
+  const value = metadata[key]
+  return typeof value === 'string' ? value : fallback
+}
+
+function getMetadataNumber(
+  metadata: Record<string, unknown>,
+  key: string,
+  fallback: number
+) {
+  const value = metadata[key]
+  return typeof value === 'number' ? value : fallback
+}
+
 function InspectorPanel({
-  eyebrow = 'Inspector',
+  eyebrow,
   title,
   description,
   badge,
   children,
 }: {
-  eyebrow?: string
+  eyebrow: string
   title: string
   description: string
   badge?: ReactNode
   children?: ReactNode
 }) {
   return (
-    <section className="editor-panel p-4">
-      <div className="flex items-start justify-between gap-3">
+    <section className="editor-panel p-3.5">
+      <div className="flex items-start justify-between gap-2.5">
         <div>
           <p className="editor-kicker">{eyebrow}</p>
           <h2 className="text-sm font-semibold text-white">{title}</h2>
-          <p className="mt-1 text-xs leading-5 text-white/52">{description}</p>
+          <p className="mt-1 text-[11px] leading-4.5 text-white/52">{description}</p>
         </div>
         {badge}
       </div>
 
-      {children ? <div className="mt-4 space-y-3">{children}</div> : null}
+      {children ? <div className="mt-3 space-y-2.5">{children}</div> : null}
     </section>
   )
 }
@@ -70,9 +81,9 @@ function InspectorBlock({
   children: ReactNode
 }) {
   return (
-    <div className="editor-block p-3.5">
+    <div className="editor-block p-3">
       <p className="editor-kicker">{label}</p>
-      <div className="mt-3">{children}</div>
+      <div className="mt-2.5 space-y-3">{children}</div>
     </div>
   )
 }
@@ -91,6 +102,7 @@ function InspectorTextField({
   onCommit: (value: string) => void
 }) {
   const [draftValue, setDraftValue] = useState(value)
+  const inputId = useId()
 
   useEffect(() => {
     setDraftValue(value)
@@ -125,10 +137,14 @@ function InspectorTextField({
   return (
     <div className="editor-field-grid">
       <div className="editor-field-copy">
-        <Label className="editor-field-label">{label}</Label>
+        <Label htmlFor={inputId} className="editor-field-label">
+          {label}
+        </Label>
         <p className="editor-field-hint">{hint}</p>
       </div>
       <Input
+        id={inputId}
+        name={inputId}
         value={draftValue}
         placeholder={placeholder}
         className="editor-input"
@@ -151,13 +167,22 @@ function InspectorToggleField({
   checked: boolean
   onCheckedChange: (checked: boolean) => void
 }) {
+  const switchId = useId()
+
   return (
     <div className="editor-inline-field">
       <div className="editor-field-copy">
-        <Label className="editor-field-label">{label}</Label>
+        <Label htmlFor={switchId} className="editor-field-label">
+          {label}
+        </Label>
         <p className="editor-field-hint">{hint}</p>
       </div>
-      <Switch checked={checked} onCheckedChange={onCheckedChange} />
+      <Switch
+        id={switchId}
+        name={switchId}
+        checked={checked}
+        onCheckedChange={onCheckedChange}
+      />
     </div>
   )
 }
@@ -176,6 +201,7 @@ function InspectorNumberField({
   onCommit: (value: number) => void
 }) {
   const [draftValue, setDraftValue] = useState(formatNumberInput(value))
+  const inputId = useId()
 
   useEffect(() => {
     setDraftValue(formatNumberInput(value))
@@ -211,6 +237,8 @@ function InspectorNumberField({
     <div className="editor-axis-field">
       <span className="editor-axis-chip">{axis}</span>
       <Input
+        id={inputId}
+        name={inputId}
         type="number"
         step={step}
         disabled={disabled}
@@ -220,6 +248,112 @@ function InspectorNumberField({
         onBlur={commitValue}
         onKeyDown={handleKeyDown}
       />
+    </div>
+  )
+}
+
+function InspectorScalarField({
+  label,
+  hint,
+  value,
+  step,
+  min,
+  max,
+  onCommit,
+}: {
+  label: string
+  hint: string
+  value: number
+  step: string
+  min?: number
+  max?: number
+  onCommit: (value: number) => void
+}) {
+  const [draftValue, setDraftValue] = useState(formatNumberInput(value))
+  const inputId = useId()
+
+  useEffect(() => {
+    setDraftValue(formatNumberInput(value))
+  }, [value])
+
+  const commitValue = () => {
+    const nextValue = Number(draftValue)
+    if (!Number.isFinite(nextValue)) {
+      setDraftValue(formatNumberInput(value))
+      return
+    }
+
+    const withMin = typeof min === 'number' ? Math.max(min, nextValue) : nextValue
+    const normalizedValue = typeof max === 'number' ? Math.min(max, withMin) : withMin
+    if (normalizedValue !== value) {
+      onCommit(normalizedValue)
+      return
+    }
+
+    setDraftValue(formatNumberInput(value))
+  }
+
+  return (
+    <div className="editor-field-grid">
+      <div className="editor-field-copy">
+        <Label htmlFor={inputId} className="editor-field-label">
+          {label}
+        </Label>
+        <p className="editor-field-hint">{hint}</p>
+      </div>
+      <Input
+        id={inputId}
+        name={inputId}
+        type="number"
+        value={draftValue}
+        step={step}
+        min={min}
+        max={max}
+        className="editor-input"
+        onChange={(event) => setDraftValue(event.target.value)}
+        onBlur={commitValue}
+      />
+    </div>
+  )
+}
+
+function InspectorColorField({
+  label,
+  hint,
+  value,
+  onCommit,
+}: {
+  label: string
+  hint: string
+  value: string
+  onCommit: (value: string) => void
+}) {
+  const inputId = useId()
+  const swatchValue = /^#([0-9a-f]{6})$/i.test(value) ? value : '#7da7ff'
+
+  return (
+    <div className="editor-field-grid">
+      <div className="editor-field-copy">
+        <Label htmlFor={inputId} className="editor-field-label">
+          {label}
+        </Label>
+        <p className="editor-field-hint">{hint}</p>
+      </div>
+      <div className="flex items-center gap-2">
+        <Input
+          id={inputId}
+          name={inputId}
+          type="color"
+          value={swatchValue}
+          className="editor-input h-10 w-14 p-1"
+          onChange={(event) => onCommit(event.target.value)}
+        />
+        <Input
+          value={value}
+          className="editor-input"
+          onChange={(event) => onCommit(event.target.value)}
+        />
+      </div>
     </div>
   )
 }
@@ -281,389 +415,572 @@ function buildSelectionBadges(values: string[]) {
   )
 }
 
-export function EditorInspector() {
+type EditorInspectorProps = {
+  collapsed?: boolean
+  onToggleCollapse?: () => void
+}
+
+export function EditorInspector({
+  collapsed = false,
+  onToggleCollapse,
+}: EditorInspectorProps) {
+  return (
+    <EditorInspectorContent
+      collapsed={collapsed}
+      onToggleCollapse={onToggleCollapse}
+    />
+  )
+}
+
+function InspectorCollapseHeader({
+  collapseLabel,
+  onToggleCollapse,
+}: {
+  collapseLabel: string
+  onToggleCollapse?: () => void
+}) {
+  return (
+    <section className="editor-panel editor-panel--accent px-2.5 py-2">
+      <div className="flex min-w-0 items-center gap-2.5 rounded-[14px] text-white">
+        {onToggleCollapse ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label={collapseLabel}
+            title={collapseLabel}
+            onClick={onToggleCollapse}
+            className="editor-control editor-header-icon size-8 rounded-[12px]"
+          >
+            <SlidersHorizontal className="size-4" />
+          </Button>
+        ) : (
+          <div className="editor-header-icon flex size-8 items-center justify-center rounded-[12px]">
+            <SlidersHorizontal className="size-4" />
+          </div>
+        )}
+        <div className="grid min-w-0 flex-1 gap-1 text-left leading-tight">
+          <span className="truncate text-[13px] font-semibold">属性编辑 / 场景</span>
+          <span className="truncate text-[11px] text-white/54">
+            调整对象参数或场景级配置
+          </span>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function InspectorFrame({
+  collapseLabel,
+  onToggleCollapse,
+  summaryKicker,
+  summaryTitle,
+  summaryDescription,
+  summaryBadge,
+  children,
+}: {
+  collapseLabel: string
+  onToggleCollapse?: () => void
+  summaryKicker: string
+  summaryTitle: string
+  summaryDescription: string
+  summaryBadge: string
+  children: ReactNode
+}) {
+  return (
+    <div className="editor-side-shell editor-panel editor-panel--soft flex h-full min-h-0 flex-col overflow-hidden px-2 py-2 text-white">
+      <div className="flex min-h-0 flex-1 flex-col gap-2">
+        <InspectorCollapseHeader
+          collapseLabel={collapseLabel}
+          onToggleCollapse={onToggleCollapse}
+        />
+
+        <div className="editor-group px-2.5 py-2">
+          <div className="flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <p className="editor-kicker">{summaryKicker}</p>
+              <p className="mt-1 truncate text-[13px] font-semibold leading-5">
+                {summaryTitle}
+              </p>
+              <p className="mt-0.5 truncate text-[11px] text-white/54">
+                {summaryDescription}
+              </p>
+            </div>
+            <Badge className="editor-pill">{summaryBadge}</Badge>
+          </div>
+        </div>
+
+        <div className="editor-scroll flex min-h-0 flex-1 flex-col gap-2 overflow-auto pr-0.5">
+          {children}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function EditorInspectorContent({
+  collapsed = false,
+  onToggleCollapse,
+}: EditorInspectorProps) {
   const draftEntity = useEditorDigitalTwinStore((state) => state.draftEntity)
   const savedEntity = useEditorDigitalTwinStore((state) => state.savedEntity)
   const draftStaticAsset = useEditorDigitalTwinStore((state) => state.draftStaticAsset)
   const savedStaticAsset = useEditorDigitalTwinStore((state) => state.savedStaticAsset)
   const placementCatalogId = useEditorDigitalTwinStore((state) => state.placementCatalogId)
+  const sceneConfig = useEditorDigitalTwinStore((state) => state.sceneConfig)
+  const viewportProjection = useEditorDigitalTwinStore(
+    (state) => state.viewportProjection
+  )
+  const snapEnabled = useEditorDigitalTwinStore((state) => state.snapEnabled)
+  const translateSnap = useEditorDigitalTwinStore((state) => state.translateSnap)
+  const rotateSnapDegrees = useEditorDigitalTwinStore(
+    (state) => state.rotateSnapDegrees
+  )
   const isDirty = useEditorDigitalTwinStore((state) => state.isDirty)
   const error = useEditorDigitalTwinStore((state) => state.error)
+  const setSceneConfig = useEditorDigitalTwinStore((state) => state.setSceneConfig)
+  const setViewportProjection = useEditorDigitalTwinStore(
+    (state) => state.setViewportProjection
+  )
+  const setSnapEnabled = useEditorDigitalTwinStore((state) => state.setSnapEnabled)
+  const setTranslateSnap = useEditorDigitalTwinStore((state) => state.setTranslateSnap)
+  const setRotateSnapDegrees = useEditorDigitalTwinStore(
+    (state) => state.setRotateSnapDegrees
+  )
   const updateDraftProperties = useEditorDigitalTwinStore(
     (state) => state.updateDraftProperties
+  )
+  const updateDraftMetadata = useEditorDigitalTwinStore(
+    (state) => state.updateDraftMetadata
   )
   const setDraftTransformField = useEditorDigitalTwinStore(
     (state) => state.setDraftTransformField
   )
+  const collapseLabel = collapsed ? 'Expand inspector panel' : 'Collapse inspector panel'
+
+  if (collapsed) {
+    return (
+      <div className="editor-side-shell editor-panel editor-panel--soft flex size-10 items-center justify-center p-1">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          aria-label={collapseLabel}
+          title={collapseLabel}
+          onClick={onToggleCollapse}
+          className="editor-control editor-header-icon size-8 rounded-[12px]"
+        >
+          <SlidersHorizontal className="size-4" />
+        </Button>
+      </div>
+    )
+  }
 
   const placementItem = placementCatalogId
     ? getStaticAssetCatalogItem(placementCatalogId)
     : null
 
-  if (placementItem && !draftEntity && !draftStaticAsset) {
+  const resetTransform = (
+    target: { position: Vector3; rotation: Vector3; scale: Vector3 },
+    type: 'position' | 'rotation' | 'scale'
+  ) => {
+    const defaults =
+      type === 'scale'
+        ? { x: 1, y: 1, z: 1 }
+        : { x: 0, y: 0, z: 0 }
+
+    for (const axis of AXES) {
+      if (target[type][axis] !== defaults[axis]) {
+        setDraftTransformField(type, axis, defaults[axis])
+      }
+    }
+  }
+
+  if (!draftEntity && !draftStaticAsset) {
     return (
-      <div className="editor-scroll space-y-4 xl:flex xl:h-full xl:flex-col xl:overflow-auto xl:pr-1">
+      <InspectorFrame
+        collapseLabel={collapseLabel}
+        onToggleCollapse={onToggleCollapse}
+        summaryKicker="Workspace"
+        summaryTitle={sceneConfig.name}
+        summaryDescription={
+          placementItem
+            ? `放置准备中 · ${placementItem.name}`
+            : '空选中时显示场景级属性'
+        }
+        summaryBadge={isDirty ? 'Draft' : 'Scene'}
+      >
+        {placementItem ? (
+          <InspectorPanel
+            eyebrow="Placement"
+            title={placementItem.name}
+            description="资源已就绪。拖放或点击画布地面即可生成新的对象草稿。"
+            badge={<Badge className="editor-pill">Armed</Badge>}
+          />
+        ) : null}
+
         <InspectorPanel
-          eyebrow="Placement"
-          title="Placement Armed"
-          description={`已选择 ${placementItem.name}。去画布中单击地面即可创建一个新的地图元素草稿。`}
-          badge={<Badge className="editor-pill">Armed</Badge>}
+          eyebrow="Scene"
+          title={sceneConfig.name}
+          description="空选中时只显示场景级设置。"
+          badge={<Badge className="editor-pill">{isDirty ? 'Draft' : 'Scene'}</Badge>}
         >
-          <InspectorBlock label="Catalog Item">
-            <p className="text-sm font-semibold text-white">{placementItem.name}</p>
-            <p className="mt-2 text-xs leading-5 text-white/56">{placementItem.description}</p>
+          <InspectorBlock label="Environment">
+            <InspectorColorField
+              label="Background"
+              hint="画布背景色。"
+              value={sceneConfig.backgroundColor}
+              onCommit={(value) => setSceneConfig({ backgroundColor: value })}
+            />
+            <InspectorScalarField
+              label="Ambient Light"
+              hint="环境基础亮度。"
+              value={sceneConfig.ambientLightIntensity}
+              step="0.05"
+              min={0.1}
+              max={2}
+              onCommit={(value) => setSceneConfig({ ambientLightIntensity: value })}
+            />
           </InspectorBlock>
 
-          <InspectorBlock label="Default Footprint">
-            <p className="font-mono text-[12px] leading-6 text-white/82 [font-variant-numeric:tabular-nums]">
-              {placementItem.dimensions.width} x {placementItem.dimensions.depth} x{' '}
-              {placementItem.dimensions.height}
-            </p>
+          <InspectorBlock label="Ground">
+            <InspectorToggleField
+              label="Show Grid"
+              hint="编辑网格。"
+              checked={sceneConfig.showGrid}
+              onCheckedChange={(checked) => setSceneConfig({ showGrid: checked })}
+            />
+            <InspectorToggleField
+              label="Show Axes"
+              hint="坐标轴。"
+              checked={sceneConfig.showAxes}
+              onCheckedChange={(checked) => setSceneConfig({ showAxes: checked })}
+            />
+            <InspectorScalarField
+              label="Grid Size"
+              hint="网格覆盖范围。"
+              value={sceneConfig.gridSize}
+              step="1"
+              min={20}
+              onCommit={(value) => setSceneConfig({ gridSize: value })}
+            />
+            <InspectorScalarField
+              label="Grid Divisions"
+              hint="网格细分。"
+              value={sceneConfig.gridDivisions}
+              step="1"
+              min={4}
+              onCommit={(value) => setSceneConfig({ gridDivisions: value })}
+            />
           </InspectorBlock>
-        </InspectorPanel>
 
-        <InspectorPanel
-          eyebrow="Guide"
-          title="Placement Rhythm"
-          description="Catalog placement now reads as its own staging flow before anything enters the scene collection."
-        >
-          <div className="editor-empty">
-            Pick from the left `Catalog` tab, click on the canvas, then switch to the
-            `Scene` tab once the new overlay draft exists.
-          </div>
+          <InspectorBlock label="Camera">
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                className={cn(
+                  'editor-control',
+                  viewportProjection === 'perspective' && 'is-active'
+                )}
+                onClick={() => setViewportProjection('perspective')}
+              >
+                Perspective
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className={cn(
+                  'editor-control',
+                  viewportProjection === 'orthographic' && 'is-active'
+                )}
+                onClick={() => setViewportProjection('orthographic')}
+              >
+                Orthographic
+              </Button>
+            </div>
+          </InspectorBlock>
+
+          <InspectorBlock label="Snap">
+            <InspectorToggleField
+              label="Transform Snap"
+              hint="画布 gizmo 吸附。"
+              checked={snapEnabled}
+              onCheckedChange={setSnapEnabled}
+            />
+            <InspectorScalarField
+              label="Translate Step"
+              hint="平移步长。"
+              value={translateSnap}
+              step="0.1"
+              min={0.1}
+              onCommit={setTranslateSnap}
+            />
+            <InspectorScalarField
+              label="Rotate Step"
+              hint="旋转步长。"
+              value={rotateSnapDegrees}
+              step="1"
+              min={1}
+              onCommit={setRotateSnapDegrees}
+            />
+          </InspectorBlock>
+
+          {error ? (
+            <InspectorBlock label="Status">
+              <p className="text-sm text-[#ffb4b4]">{error}</p>
+            </InspectorBlock>
+          ) : null}
         </InspectorPanel>
-      </div>
+      </InspectorFrame>
     )
   }
 
-  if (draftStaticAsset) {
-    const catalogId =
-      typeof draftStaticAsset.metadata.catalogId === 'string'
-        ? draftStaticAsset.metadata.catalogId
-        : null
-    const catalogItem = catalogId ? getStaticAssetCatalogItem(catalogId) : null
-    const translateConfig = resolveEditorTransformAxisConfig('static-asset', 'translate')
-    const rotateConfig = resolveEditorTransformAxisConfig('static-asset', 'rotate')
+  const draftTarget = draftStaticAsset ?? draftEntity
+  const savedTarget = savedStaticAsset ?? savedEntity
+  if (!draftTarget) return null
 
-    return (
-      <div className="editor-scroll space-y-4 xl:flex xl:h-full xl:flex-col xl:overflow-auto xl:pr-1">
-        <InspectorPanel
-          eyebrow="Selection"
-          title={draftStaticAsset.name}
-          description={draftStaticAsset.id}
-          badge={
-            <Badge className="editor-pill">
-              {savedStaticAsset ? (isDirty ? 'Draft' : 'Synced') : 'New Draft'}
-            </Badge>
-          }
-        >
-          {buildSelectionBadges(
-            [
-              draftStaticAsset.assetKind,
-              draftStaticAsset.variant,
-              draftStaticAsset.visible ? 'Visible' : 'Hidden',
-            ].filter(Boolean) as string[]
-          )}
-        </InspectorPanel>
-
-        <InspectorPanel
-          eyebrow="Editing"
-          title="Asset Properties"
-          description="Core properties can be staged directly here. Save still controls persistence."
-        >
-          <Tabs key={`asset-${draftStaticAsset.id}`} defaultValue="properties" className="gap-3">
-            <TabsList className="editor-tab-list grid grid-cols-3">
-              <TabsTrigger value="properties" className="editor-tab-trigger">
-                Properties
-              </TabsTrigger>
-              <TabsTrigger value="transform" className="editor-tab-trigger">
-                Transform
-              </TabsTrigger>
-              <TabsTrigger value="sync" className="editor-tab-trigger">
-                Sync
-              </TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="properties" className="space-y-3">
-              <InspectorBlock label="Identity">
-                <div className="editor-field-grid">
-                  <InspectorTextField
-                    label="Display Name"
-                    hint="Press Enter or blur to commit the draft label."
-                    value={draftStaticAsset.name}
-                    onCommit={(value) => updateDraftProperties({ name: value })}
-                  />
-                  <InspectorToggleField
-                    label="Visible"
-                    hint="Hiding stays in draft until you explicitly save."
-                    checked={draftStaticAsset.visible}
-                    onCheckedChange={(checked) =>
-                      updateDraftProperties({ visible: checked })
-                    }
-                  />
-                </div>
-              </InspectorBlock>
-
-              <InspectorBlock label="Catalog">
-                <div className="space-y-3">
-                  {buildSelectionBadges(
-                    [draftStaticAsset.assetKind, draftStaticAsset.variant]
-                      .filter(Boolean) as string[]
-                  )}
-                  {catalogItem ? (
-                    <p className="text-xs leading-5 text-white/54">
-                      默认尺寸: {catalogItem.dimensions.width} x{' '}
-                      {catalogItem.dimensions.depth} x {catalogItem.dimensions.height}
-                    </p>
-                  ) : (
-                    <div className="editor-empty">
-                      This draft is no longer linked to a known catalog item.
-                    </div>
-                  )}
-                </div>
-              </InspectorBlock>
-            </TabsContent>
-
-            <TabsContent value="transform" className="space-y-3">
-              <InspectorBlock label="Axis Rules">
-                <p className="text-xs leading-5 text-white/56">
-                  Static assets stay on X/Z translation and Y-axis rotation, matching the
-                  in-canvas gizmo rules.
-                </p>
-              </InspectorBlock>
-
-              <InspectorBlock label="Transform">
-                <div className="space-y-4">
-                  <InspectorVectorEditor
-                    label="Position"
-                    hint="Ground-anchored assets keep Y locked."
-                    value={draftStaticAsset.position}
-                    step="0.1"
-                    disabledAxes={buildDisabledAxes(translateConfig)}
-                    onCommit={(axis, value) =>
-                      setDraftTransformField('position', axis, value)
-                    }
-                  />
-                  <InspectorVectorEditor
-                    label="Rotation"
-                    hint="Rotation is constrained to Y for authored map assets."
-                    value={draftStaticAsset.rotation}
-                    step="0.05"
-                    disabledAxes={buildDisabledAxes(rotateConfig)}
-                    onCommit={(axis, value) =>
-                      setDraftTransformField('rotation', axis, value)
-                    }
-                  />
-                  <InspectorVectorEditor
-                    label="Scale"
-                    hint="Scale stays editable from the inspector even when the gizmo is not in scale mode."
-                    value={draftStaticAsset.scale}
-                    step="0.05"
-                    onCommit={(axis, value) =>
-                      setDraftTransformField('scale', axis, value)
-                    }
-                  />
-                </div>
-              </InspectorBlock>
-            </TabsContent>
-
-            <TabsContent value="sync" className="space-y-3">
-              {savedStaticAsset ? (
-                <InspectorBlock label="Saved Snapshot">
-                  <div className="space-y-1 font-mono text-[12px] leading-6 text-white/54 [font-variant-numeric:tabular-nums]">
-                    <p>{formatVector('P', savedStaticAsset.position)}</p>
-                    <p>{formatVector('R', savedStaticAsset.rotation)}</p>
-                    <p>{formatVector('S', savedStaticAsset.scale)}</p>
-                  </div>
-                </InspectorBlock>
-              ) : (
-                <div className="editor-empty">
-                  New authored overlays do not exist in the runtime until the current draft
-                  is saved.
-                </div>
-              )}
-
-              <InspectorBlock label="Runtime Boundary">
-                <p className="text-sm leading-6 text-white/62">
-                  放置后的对象不会改写 immutable published chunk，只会作为独立 overlay 持久化。
-                </p>
-                <p className="text-sm leading-6 text-white/62">
-                  保存成功后，viewer 会通过 bootstrap / config_changed 同步到新摆放的结果。
-                </p>
-                {error ? <p className="text-sm text-[#ffb4b4]">{error}</p> : null}
-              </InspectorBlock>
-            </TabsContent>
-          </Tabs>
-        </InspectorPanel>
-      </div>
-    )
-  }
-
-  if (!draftEntity) {
-    return (
-      <div className="editor-scroll space-y-4 xl:flex xl:h-full xl:flex-col xl:overflow-auto xl:pr-1">
-        <InspectorPanel
-          eyebrow="Selection"
-          title="Inspector"
-          description="从左侧 catalog 选择模型并去画布摆放，或从列表和画布里选择一个对象进入编辑会话。"
-        />
-
-        <InspectorPanel
-          eyebrow="Guide"
-          title="Editing Rhythm"
-          description="The left rail now separates asset inventory from scene objects, and the inspector becomes the direct property surface."
-        >
-          <div className="editor-empty">
-            Use `Catalog` to arm placement. Use `Scene` to jump back into authored assets
-            or runtime entities already in the scene.
-          </div>
-          {error ? <p className="text-sm text-[#ffb4b4]">{error}</p> : null}
-        </InspectorPanel>
-      </div>
-    )
-  }
-
-  const targetKind: EditorTransformTargetKind = draftEntity.type
+  const targetKind: EditorTransformTargetKind = draftStaticAsset
+    ? 'static-asset'
+    : draftEntity?.type ?? 'equipment'
   const translateConfig = resolveEditorTransformAxisConfig(targetKind, 'translate')
   const rotateConfig = resolveEditorTransformAxisConfig(targetKind, 'rotate')
+  const metadata = draftTarget.metadata
+  const selectionBadges = draftStaticAsset
+    ? [
+        draftStaticAsset.assetKind,
+        draftStaticAsset.variant ?? 'default',
+        draftTarget.visible ? 'Visible' : 'Hidden',
+      ]
+    : [
+        draftEntity?.type ?? 'entity',
+        draftEntity?.status ?? 'active',
+        draftTarget.visible ? 'Visible' : 'Hidden',
+      ]
+  const catalogItem =
+    draftStaticAsset && typeof draftStaticAsset.metadata.catalogId === 'string'
+      ? getStaticAssetCatalogItem(draftStaticAsset.metadata.catalogId)
+      : null
+  const color = getMetadataText(metadata, 'color', '#7da7ff')
+  const opacity = getMetadataNumber(metadata, 'opacity', 1)
+  const emissive = getMetadataText(metadata, 'emissive', '#0f172a')
 
   return (
-    <div className="editor-scroll space-y-4 xl:flex xl:h-full xl:flex-col xl:overflow-auto xl:pr-1">
+    <InspectorFrame
+      collapseLabel={collapseLabel}
+      onToggleCollapse={onToggleCollapse}
+      summaryKicker="Selection"
+      summaryTitle={draftTarget.name}
+      summaryDescription={draftTarget.id}
+      summaryBadge={savedTarget ? (isDirty ? 'Draft' : 'Synced') : 'New Draft'}
+    >
       <InspectorPanel
         eyebrow="Selection"
-        title={draftEntity.name}
-        description={draftEntity.id}
+        title={draftTarget.name}
+        description={draftTarget.id}
         badge={
           <Badge className="editor-pill">
-            {isDirty ? 'Draft' : 'Synced'}
+            {savedTarget ? (isDirty ? 'Draft' : 'Synced') : 'New Draft'}
           </Badge>
         }
       >
-        {buildSelectionBadges([
-          draftEntity.type,
-          draftEntity.status,
-          draftEntity.visible ? 'Visible' : 'Hidden',
-        ])}
+        {buildSelectionBadges(selectionBadges)}
       </InspectorPanel>
 
       <InspectorPanel
-        eyebrow="Editing"
-        title="Entity Properties"
-        description="The inspector now carries direct property staging for the current entity."
+        eyebrow="Transform"
+        title="Transform"
+        description="位置、旋转、缩放、对齐与重置。"
       >
-        <Tabs key={`entity-${draftEntity.id}`} defaultValue="properties" className="gap-3">
-          <TabsList className="editor-tab-list grid grid-cols-3">
-            <TabsTrigger value="properties" className="editor-tab-trigger">
-              Properties
-            </TabsTrigger>
-            <TabsTrigger value="transform" className="editor-tab-trigger">
-              Transform
-            </TabsTrigger>
-            <TabsTrigger value="sync" className="editor-tab-trigger">
-              Sync
-            </TabsTrigger>
-          </TabsList>
+        <InspectorBlock label="Transform">
+          <InspectorVectorEditor
+            label="Position"
+            hint="与画布 gizmo 使用同一坐标约束。"
+            value={draftTarget.position}
+            step="0.1"
+            disabledAxes={buildDisabledAxes(translateConfig)}
+            onCommit={(axis, value) => setDraftTransformField('position', axis, value)}
+          />
+          <InspectorVectorEditor
+            label="Rotation"
+            hint="平面对象默认只开放 Y 轴旋转。"
+            value={draftTarget.rotation}
+            step="0.05"
+            disabledAxes={buildDisabledAxes(rotateConfig)}
+            onCommit={(axis, value) => setDraftTransformField('rotation', axis, value)}
+          />
+          <InspectorVectorEditor
+            label="Scale"
+            hint="可独立编辑每个轴向。"
+            value={draftTarget.scale}
+            step="0.05"
+            onCommit={(axis, value) => setDraftTransformField('scale', axis, value)}
+          />
+        </InspectorBlock>
 
-          <TabsContent value="properties" className="space-y-3">
-            <InspectorBlock label="Identity">
-              <div className="editor-field-grid">
-                <InspectorTextField
-                  label="Display Name"
-                  hint="This label updates the staged entity payload immediately."
-                  value={draftEntity.name}
-                  onCommit={(value) => updateDraftProperties({ name: value })}
-                />
-                <InspectorToggleField
-                  label="Visible"
-                  hint="Canvas and runtime visibility only diverge after you save."
-                  checked={draftEntity.visible}
-                  onCheckedChange={(checked) =>
-                    updateDraftProperties({ visible: checked })
-                  }
-                />
-              </div>
-            </InspectorBlock>
-
-            <InspectorBlock label="State">
-              <div className="space-y-3">
-                {buildSelectionBadges([draftEntity.type, draftEntity.status])}
-                <p className="text-xs leading-5 text-white/54">
-                  Runtime metadata stays read-only here for now; this pass focuses on
-                  direct staging for naming, visibility, and transform.
-                </p>
-              </div>
-            </InspectorBlock>
-          </TabsContent>
-
-          <TabsContent value="transform" className="space-y-3">
-            <InspectorBlock label="Axis Rules">
-              <p className="text-xs leading-5 text-white/56">
-                Sensor and camera entities can move vertically. Ground entities keep Y
-                translation locked and rotate only on Y.
-              </p>
-            </InspectorBlock>
-
-            <InspectorBlock label="Transform">
-              <div className="space-y-4">
-                <InspectorVectorEditor
-                  label="Position"
-                  hint="Matches the same axis policy used by the canvas gizmo."
-                  value={draftEntity.position}
-                  step="0.1"
-                  disabledAxes={buildDisabledAxes(translateConfig)}
-                  onCommit={(axis, value) =>
-                    setDraftTransformField('position', axis, value)
-                  }
-                />
-                <InspectorVectorEditor
-                  label="Rotation"
-                  hint="Entity rotation remains Y-axis only in this editor pass."
-                  value={draftEntity.rotation}
-                  step="0.05"
-                  disabledAxes={buildDisabledAxes(rotateConfig)}
-                  onCommit={(axis, value) =>
-                    setDraftTransformField('rotation', axis, value)
-                  }
-                />
-                <InspectorVectorEditor
-                  label="Scale"
-                  hint="Numeric scale editing is available here even without a scale gizmo."
-                  value={draftEntity.scale}
-                  step="0.05"
-                  onCommit={(axis, value) =>
-                    setDraftTransformField('scale', axis, value)
-                  }
-                />
-              </div>
-            </InspectorBlock>
-          </TabsContent>
-
-          <TabsContent value="sync" className="space-y-3">
-            {savedEntity ? (
-              <InspectorBlock label="Saved Snapshot">
-                <div className="space-y-1 font-mono text-[12px] leading-6 text-white/54 [font-variant-numeric:tabular-nums]">
-                  <p>{formatVector('P', savedEntity.position)}</p>
-                  <p>{formatVector('R', savedEntity.rotation)}</p>
-                  <p>{formatVector('S', savedEntity.scale)}</p>
-                </div>
-              </InspectorBlock>
-            ) : null}
-
-            <InspectorBlock label="Runtime Boundary">
-              <p className="text-sm leading-6 text-white/62">
-                实体仍然走现有 admin entity API，地图元素则走单独的 static asset API。
-              </p>
-              <p className="text-sm leading-6 text-white/62">
-                zone 保留给后续的面域编辑，不在这次迭代内实现。
-              </p>
-              <p className="text-sm leading-6 text-white/62">
-                保存会重新从后端同步 editor 状态，避免本地草稿和后端数据漂移。
-              </p>
-              {error ? <p className="text-sm text-[#ffb4b4]">{error}</p> : null}
-            </InspectorBlock>
-          </TabsContent>
-        </Tabs>
+        <InspectorBlock label="Align / Reset">
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="editor-control"
+              onClick={() => setDraftTransformField('position', 'y', 0)}
+            >
+              Ground
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="editor-control"
+              onClick={() => resetTransform(draftTarget, 'position')}
+            >
+              Reset Position
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="editor-control"
+              onClick={() => resetTransform(draftTarget, 'rotation')}
+            >
+              Reset Rotation
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="editor-control"
+              onClick={() => resetTransform(draftTarget, 'scale')}
+            >
+              Reset Scale
+            </Button>
+          </div>
+        </InspectorBlock>
       </InspectorPanel>
-    </div>
+
+      <InspectorPanel
+        eyebrow="Asset"
+        title="Asset"
+        description="名称、分类、实例名、分组和可见性。"
+      >
+        <InspectorBlock label="Identity">
+          <InspectorTextField
+            label="Display Name"
+            hint="对象实例名。"
+            value={draftTarget.name}
+            onCommit={(value) => updateDraftProperties({ name: value })}
+          />
+          <InspectorToggleField
+            label="Visible"
+            hint="控制当前对象可见性。"
+            checked={draftTarget.visible}
+            onCheckedChange={(checked) => updateDraftProperties({ visible: checked })}
+          />
+        </InspectorBlock>
+
+        <InspectorBlock label="Classification">
+          {buildSelectionBadges(
+            draftStaticAsset
+              ? [draftStaticAsset.assetKind, draftStaticAsset.variant ?? 'default']
+              : [draftEntity?.type ?? 'entity', draftEntity?.status ?? 'active']
+          )}
+          <InspectorTextField
+            label="Group"
+            hint="逻辑分组。"
+            value={getMetadataText(metadata, 'group', '')}
+            placeholder="例如：东区罐组"
+            onCommit={(value) => updateDraftMetadata({ group: value })}
+          />
+          <InspectorTextField
+            label="Layer"
+            hint="图层名称。"
+            value={getMetadataText(metadata, 'layer', '')}
+            placeholder="例如：authored-static"
+            onCommit={(value) => updateDraftMetadata({ layer: value })}
+          />
+          {catalogItem ? (
+            <p className="text-xs leading-5 text-white/54">
+              参考尺寸: {catalogItem.dimensions.width} x {catalogItem.dimensions.depth} x{' '}
+              {catalogItem.dimensions.height}
+            </p>
+          ) : null}
+        </InspectorBlock>
+      </InspectorPanel>
+
+      <InspectorPanel
+        eyebrow="Material"
+        title="Material"
+        description="颜色、透明度、自发光等视觉属性。"
+      >
+        <InspectorBlock label="Surface">
+          <InspectorColorField
+            label="Color"
+            hint="主颜色。"
+            value={color}
+            onCommit={(value) => updateDraftMetadata({ color: value })}
+          />
+          <InspectorColorField
+            label="Emissive"
+            hint="发光色。"
+            value={emissive}
+            onCommit={(value) => updateDraftMetadata({ emissive: value })}
+          />
+          <InspectorScalarField
+            label="Opacity"
+            hint="0 到 1。"
+            value={opacity}
+            step="0.05"
+            min={0}
+            max={1}
+            onCommit={(value) => updateDraftMetadata({ opacity: value })}
+          />
+        </InspectorBlock>
+      </InspectorPanel>
+
+      <InspectorPanel
+        eyebrow="Business"
+        title="Business"
+        description="业务编码、标签、告警和绑定点位。"
+      >
+        <InspectorBlock label="Bindings">
+          <InspectorTextField
+            label="Asset Code"
+            hint="业务编码。"
+            value={getMetadataText(metadata, 'assetCode', '')}
+            placeholder="例如：TK-201"
+            onCommit={(value) => updateDraftMetadata({ assetCode: value })}
+          />
+          <InspectorTextField
+            label="Business Tag"
+            hint="业务标签。"
+            value={getMetadataText(metadata, 'businessTag', '')}
+            placeholder="例如：储运 / 东区"
+            onCommit={(value) => updateDraftMetadata({ businessTag: value })}
+          />
+          <InspectorTextField
+            label="Alarm Level"
+            hint="告警级别。"
+            value={getMetadataText(metadata, 'alarmLevel', '')}
+            placeholder="例如：warning"
+            onCommit={(value) => updateDraftMetadata({ alarmLevel: value })}
+          />
+          <InspectorTextField
+            label="Binding Point"
+            hint="绑定点位或连接标识。"
+            value={getMetadataText(metadata, 'bindingPoint', '')}
+            placeholder="例如：opcua://line-a/point-1"
+            onCommit={(value) => updateDraftMetadata({ bindingPoint: value })}
+          />
+        </InspectorBlock>
+      </InspectorPanel>
+
+      {error ? (
+        <InspectorPanel
+          eyebrow="Status"
+          title="Runtime"
+          description="当前编辑态状态。"
+        >
+          <p className="text-sm text-[#ffb4b4]">{error}</p>
+        </InspectorPanel>
+      ) : null}
+    </InspectorFrame>
   )
 }

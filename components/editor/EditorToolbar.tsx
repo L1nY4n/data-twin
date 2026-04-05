@@ -1,10 +1,11 @@
 'use client'
 
-import Link from 'next/link'
 import {
   Boxes,
+  Copy,
+  Expand,
+  MousePointer2,
   Move,
-  RefreshCw,
   Redo2,
   RotateCcw,
   Save,
@@ -13,7 +14,6 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
-import { SidebarTrigger } from '@/components/ui/sidebar'
 import { cn } from '@/lib/utils'
 import {
   getEditorSelectionKind,
@@ -21,15 +21,19 @@ import {
 } from '@/lib/digital-twin/editor-store'
 import { getStaticAssetCatalogItem } from '@/lib/digital-twin/static-asset-catalog'
 
-export function EditorToolbar({
-  onReload,
-  onSave,
-  onDelete,
-}: {
-  onReload: () => void
+type EditorToolbarProps = {
   onSave: () => void
+  onDuplicate: () => void
   onDelete: () => void
-}) {
+  className?: string
+}
+
+export function EditorToolbar({
+  onSave,
+  onDuplicate,
+  onDelete,
+  className,
+}: EditorToolbarProps) {
   const selectedEntityId = useEditorDigitalTwinStore((state) => state.selectedEntityId)
   const selectedStaticAssetId = useEditorDigitalTwinStore(
     (state) => state.selectedStaticAssetId
@@ -43,171 +47,184 @@ export function EditorToolbar({
   const isDirty = useEditorDigitalTwinStore((state) => state.isDirty)
   const isSaving = useEditorDigitalTwinStore((state) => state.isSaving)
   const setTransformMode = useEditorDigitalTwinStore((state) => state.setTransformMode)
-  const armStaticAssetPlacement = useEditorDigitalTwinStore(
-    (state) => state.armStaticAssetPlacement
-  )
   const undo = useEditorDigitalTwinStore((state) => state.undo)
   const redo = useEditorDigitalTwinStore((state) => state.redo)
-  const resetDraft = useEditorDigitalTwinStore((state) => state.resetDraft)
-  const armedCatalogItem = placementCatalogId
-    ? getStaticAssetCatalogItem(placementCatalogId)
-    : null
   const selectionKind = getEditorSelectionKind({
     selectedEntityId,
     selectedStaticAssetId,
   })
+  const armedCatalogItem = placementCatalogId
+    ? getStaticAssetCatalogItem(placementCatalogId)
+    : null
   const draftSelection = draftStaticAsset ?? draftEntity
-  const heading =
-    draftSelection?.name ?? armedCatalogItem?.name ?? 'Select an entity or arm a catalog item'
+  const hasDraftSelection = Boolean(draftSelection)
+  const hasSelection = Boolean(selectionKind)
+  const hasHistory = historyLength > 0 || redoLength > 0
+  const heading = draftSelection?.name ?? armedCatalogItem?.name ?? '场景'
   const subtitle = armedCatalogItem
-    ? `Click the canvas to place ${armedCatalogItem.name}.`
+    ? '已就绪，拖入或点击画布完成摆放'
     : selectionKind === 'static-asset'
-      ? 'Authored overlay editing stays separate from the published runtime chunk.'
+      ? draftStaticAsset?.variant
+        ? `${draftStaticAsset.assetKind} / ${draftStaticAsset.variant}`
+        : draftStaticAsset?.assetKind ?? '静态对象'
       : selectionKind === 'entity'
-        ? 'Entity transforms are authored here and committed back through the editor flow.'
-        : 'Catalog placement, in-canvas picking, transform gizmo, and explicit save all stay on /editor.'
-  const statusTone = isDirty ? 'Unsaved' : isSaving ? 'Saving' : 'Synced'
+        ? `${draftEntity?.type ?? '实体'} / ${draftEntity?.status ?? 'active'}`
+        : '选择对象后进入编辑'
+  const selectionBadge = armedCatalogItem
+    ? 'Placement'
+    : selectionKind === 'static-asset'
+      ? 'Asset'
+      : selectionKind === 'entity'
+        ? 'Entity'
+        : 'Scene'
 
   return (
-    <header className="pointer-events-none sticky top-0 z-40 px-3 pt-3 md:px-4 md:pt-4 lg:px-5">
-      <div className="pointer-events-auto editor-toolbar mx-auto w-full max-w-[1160px] p-3 text-white">
-        <div className="flex flex-wrap items-center gap-3 lg:flex-nowrap lg:justify-between">
-          <div className="flex min-w-0 flex-1 items-center gap-2">
-            <SidebarTrigger className="editor-control shrink-0" />
-            <div className="editor-separator hidden sm:block" />
-
-            <div className="editor-block flex min-w-0 flex-1 items-center gap-3 px-3 py-2.5">
-              <div className="flex size-9 shrink-0 items-center justify-center rounded-full border border-[#7da7ff]/30 bg-[#7da7ff]/14 text-[#cfe0ff]">
-                <Boxes className="size-4" />
-              </div>
-
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="truncate text-sm font-semibold text-white">{heading}</p>
-                  <span className="editor-pill">
-                    {draftStaticAsset
-                      ? draftStaticAsset.assetKind
-                      : draftEntity?.type ?? 'editor'}
-                  </span>
-                  {armedCatalogItem ? (
-                    <span className="editor-pill">Placement armed</span>
-                  ) : null}
-                  <span className="editor-pill">{statusTone}</span>
-                </div>
-                <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] leading-4 text-white/48">
-                  <span className="truncate">{subtitle}</span>
-                  <span className="hidden h-1 w-1 rounded-full bg-white/18 xl:block" />
-                  <span className="hidden xl:block">
-                    History {historyLength}/{redoLength}
-                  </span>
-                </div>
-              </div>
-            </div>
+    <div
+      className={cn(
+        'pointer-events-auto editor-toolbar w-full max-w-full px-1.5 py-1 text-white',
+        className
+      )}
+    >
+      <div className="flex flex-wrap items-center gap-1">
+        <div className="editor-block flex min-w-0 items-center gap-1.5 px-1.5 py-1">
+          <div className="flex size-6 shrink-0 items-center justify-center rounded-full border border-[#7da7ff]/30 bg-[#7da7ff]/14 text-[#cfe0ff]">
+            <Boxes className="size-3.5" />
           </div>
 
-          <div className="flex flex-wrap items-center gap-1.5">
+          <div className="min-w-0 flex-1">
+            <p className="editor-kicker">Context</p>
+            <div className="mt-0.5 flex min-w-0 items-center gap-1.5">
+              <p className="truncate text-[12px] font-semibold text-white">{heading}</p>
+              <span className="editor-pill">{selectionBadge}</span>
+            </div>
+            <p className="truncate text-[11px] text-white/52">{subtitle}</p>
+          </div>
+        </div>
+
+        <div className="flex flex-1 flex-wrap items-center justify-end gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            className={cn('editor-control', transformMode === 'select' && 'is-active')}
+            aria-label="Switch tool to select"
+            title="Switch tool to select"
+            onClick={() => setTransformMode('select')}
+          >
+            <MousePointer2 className="size-4" />
+            Select
+          </Button>
+          {hasDraftSelection ? (
+            <>
+              <Button
+                variant="ghost"
+                size="sm"
+                className={cn('editor-control', transformMode === 'translate' && 'is-active')}
+                aria-label="Switch tool to move"
+                title="Switch tool to move"
+                onClick={() => setTransformMode('translate')}
+              >
+                <Move className="size-4" />
+                Move
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className={cn('editor-control', transformMode === 'rotate' && 'is-active')}
+                aria-label="Switch tool to rotate"
+                title="Switch tool to rotate"
+                onClick={() => setTransformMode('rotate')}
+              >
+                <RotateCcw className="size-4" />
+                Rotate
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className={cn('editor-control', transformMode === 'scale' && 'is-active')}
+                aria-label="Switch tool to scale"
+                title="Switch tool to scale"
+                onClick={() => setTransformMode('scale')}
+              >
+                <Expand className="size-4" />
+                Scale
+              </Button>
+            </>
+          ) : null}
+
+          {hasHistory ? <Separator orientation="vertical" className="editor-separator hidden lg:block" /> : null}
+
+          {hasHistory ? (
+            <>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="editor-control"
+                onClick={undo}
+                disabled={historyLength === 0}
+                aria-label="Undo last change"
+                title="Undo last change"
+              >
+                <Undo2 className="size-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="editor-control"
+                onClick={redo}
+                disabled={redoLength === 0}
+                aria-label="Redo last change"
+                title="Redo last change"
+              >
+                <Redo2 className="size-4" />
+              </Button>
+            </>
+          ) : null}
+
+          {hasSelection ? (
             <Button
               variant="ghost"
               size="sm"
-              className={cn(
-                'editor-control',
-                transformMode === 'translate' && 'is-active'
-              )}
-              onClick={() => setTransformMode('translate')}
-              disabled={!draftSelection}
+              className="editor-control"
+              onClick={onDuplicate}
+              aria-label="Duplicate selected object"
+              title="Duplicate selected object"
             >
-              <Move className="size-4" />
-              Translate
+              <Copy className="size-4" />
+              Duplicate
             </Button>
+          ) : null}
+
+          {hasSelection ? (
             <Button
               variant="ghost"
               size="sm"
-              className={cn(
-                'editor-control',
-                transformMode === 'rotate' && 'is-active'
-              )}
-              onClick={() => setTransformMode('rotate')}
-              disabled={!draftSelection}
+              className="editor-control is-danger"
+              onClick={onDelete}
+              disabled={isSaving}
+              aria-label="Delete selected object"
+              title="Delete selected object"
             >
-              <RotateCcw className="size-4" />
-              Rotate
+              <Trash2 className="size-4" />
+              Delete
             </Button>
+          ) : null}
 
-            <Separator orientation="vertical" className="editor-separator hidden lg:block" />
-
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className="editor-control"
-              onClick={undo}
-              disabled={historyLength === 0}
-            >
-              <Undo2 className="size-4" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className="editor-control"
-              onClick={redo}
-              disabled={redoLength === 0}
-            >
-              <Redo2 className="size-4" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="editor-control"
-              onClick={() => {
-                if (armedCatalogItem) {
-                  armStaticAssetPlacement(null)
-                  return
-                }
-                resetDraft()
-              }}
-              disabled={!draftSelection && !armedCatalogItem}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className="editor-control"
-              onClick={onReload}
-            >
-              <RefreshCw className="size-4" />
-            </Button>
-
-            <Separator orientation="vertical" className="editor-separator hidden lg:block" />
-
+          {isDirty || isSaving ? (
             <Button
               variant="ghost"
               size="sm"
               className="editor-control is-primary"
               onClick={onSave}
               disabled={!isDirty || isSaving}
+              aria-label={isSaving ? 'Saving current draft' : 'Save current draft'}
+              title={isSaving ? 'Saving current draft' : 'Save current draft'}
             >
               <Save className="size-4" />
               {isSaving ? 'Saving' : 'Save'}
             </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="editor-control is-danger"
-              onClick={onDelete}
-              disabled={!selectedStaticAssetId || isSaving}
-            >
-              <Trash2 className="size-4" />
-              Delete
-            </Button>
-            <Button asChild variant="ghost" size="sm" className="editor-control">
-              <Link href="/">Viewer</Link>
-            </Button>
-            <Button asChild variant="ghost" size="sm" className="editor-control">
-              <Link href="/admin/overview">Admin</Link>
-            </Button>
-          </div>
+          ) : null}
         </div>
       </div>
-    </header>
+    </div>
   )
 }

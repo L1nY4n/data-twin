@@ -1,23 +1,16 @@
 'use client'
 
 import dynamic from 'next/dynamic'
-import { Badge } from '@/components/ui/badge'
+import { useEffect, useState } from 'react'
 import { Spinner } from '@/components/ui/spinner'
-import {
-  SidebarInset,
-  SidebarProvider,
-} from '@/components/ui/sidebar'
+import { useIsMobile } from '@/hooks/use-mobile'
 import { useEditorDigitalTwin } from '@/hooks/use-editor-digital-twin'
-import {
-  getEditorSelectionKind,
-  useEditorDigitalTwinStore,
-} from '@/lib/digital-twin/editor-store'
-import {
-  getStaticAssetCatalogItem,
-} from '@/lib/digital-twin/static-asset-catalog'
+import { useEditorDigitalTwinStore } from '@/lib/digital-twin/editor-store'
+import { cn } from '@/lib/utils'
 import { EditorAppSidebar } from './EditorAppSidebar'
 import { EditorInspector } from './EditorInspector'
 import { EditorToolbar } from './EditorToolbar'
+import { EditorViewportDock } from './EditorViewportDock'
 
 const EditorCanvas = dynamic(
   () => import('@/components/editor/EditorCanvas').then((mod) => mod.EditorCanvas),
@@ -35,25 +28,17 @@ const EditorCanvas = dynamic(
 )
 
 export function EditorShell() {
-  const { reload, saveSelection, deleteSelection } = useEditorDigitalTwin()
-  const isLoading = useEditorDigitalTwinStore((state) => state.isLoading)
+  const { saveSelection, deleteSelection, duplicateSelection } = useEditorDigitalTwin()
+  const isMobile = useIsMobile()
   const error = useEditorDigitalTwinStore((state) => state.error)
-  const isDirty = useEditorDigitalTwinStore((state) => state.isDirty)
-  const transformMode = useEditorDigitalTwinStore((state) => state.transformMode)
-  const selectedEntityId = useEditorDigitalTwinStore((state) => state.selectedEntityId)
-  const selectedStaticAssetId = useEditorDigitalTwinStore(
-    (state) => state.selectedStaticAssetId
-  )
-  const placementCatalogId = useEditorDigitalTwinStore((state) => state.placementCatalogId)
-  const historyLength = useEditorDigitalTwinStore((state) => state.history.length)
-  const redoLength = useEditorDigitalTwinStore((state) => state.redoHistory.length)
-  const selectionKind = getEditorSelectionKind({
-    selectedEntityId,
-    selectedStaticAssetId,
-  })
-  const armedCatalogItem = placementCatalogId
-    ? getStaticAssetCatalogItem(placementCatalogId)
-    : null
+  const [resourcesPanelOpen, setResourcesPanelOpen] = useState(true)
+  const [inspectorCollapsed, setInspectorCollapsed] = useState(false)
+
+  useEffect(() => {
+    if (isMobile) {
+      setResourcesPanelOpen(false)
+    }
+  }, [isMobile])
 
   return (
     <div className="editor-surface relative min-h-svh overflow-hidden bg-[#dce7f5] text-slate-950">
@@ -75,115 +60,105 @@ export function EditorShell() {
         }}
       />
 
-      <SidebarProvider
-        defaultOpen
-        className="relative z-10 flex min-h-svh [--sidebar-width:20.75rem] [--sidebar-width-icon:4.5rem]"
-      >
-        <EditorAppSidebar />
-        <SidebarInset className="bg-transparent md:peer-data-[variant=inset]:m-0 md:peer-data-[variant=inset]:rounded-none md:peer-data-[variant=inset]:shadow-none">
-          <EditorToolbar
-            onReload={() => void reload()}
-            onSave={() => void saveSelection()}
-            onDelete={() => void deleteSelection()}
-          />
+      <div className="relative z-10 flex min-h-svh">
+        <main className="min-w-0 flex flex-1 flex-col px-1.5 py-1.5 md:px-2 md:py-2 lg:px-2.5 lg:py-2.5">
+          <section className="editor-canvas-frame relative h-[calc(100svh-0.75rem)] min-h-[520px] w-full overflow-hidden md:h-[calc(100svh-1rem)] lg:h-[calc(100svh-1.25rem)] xl:min-h-[680px]">
+            <div
+              className="absolute inset-0"
+              style={{
+                backgroundImage:
+                  'linear-gradient(180deg, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0.14) 36%, rgba(255,255,255,0.08) 100%)',
+              }}
+            />
 
-          <main className="-mt-24 flex flex-1 px-3 pb-3 md:-mt-28 md:px-4 md:pb-4 lg:px-5 lg:pb-5">
-            <div className="mx-auto flex w-full max-w-[1840px] flex-col gap-5 pt-24 md:pt-28">
-              <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
-                <section className="editor-canvas-frame relative overflow-hidden">
-                  <div
-                    className="absolute inset-0"
-                    style={{
-                      backgroundImage:
-                        'linear-gradient(180deg, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0.14) 36%, rgba(255,255,255,0.08) 100%)',
-                    }}
+            {isMobile ? (
+              <div
+                className={cn(
+                  'absolute inset-0 z-30 bg-[#07101d]/26 transition-opacity duration-200 md:hidden',
+                  resourcesPanelOpen
+                    ? 'pointer-events-auto opacity-100'
+                    : 'pointer-events-none opacity-0'
+                )}
+                onClick={() => setResourcesPanelOpen(false)}
+              />
+            ) : null}
+
+            <div className="relative h-full">
+              <EditorCanvas />
+
+              <div
+                className={cn(
+                  'pointer-events-none absolute left-3 z-30 transition-[width,height,opacity,transform] duration-200',
+                  resourcesPanelOpen
+                    ? isMobile
+                      ? 'inset-y-3 w-[15.25rem]'
+                      : 'inset-y-3 w-[15.75rem]'
+                    : 'top-3 h-10 w-10'
+                )}
+              >
+                <div
+                  className={cn(
+                    'pointer-events-auto',
+                    resourcesPanelOpen ? 'h-full' : 'h-10'
+                  )}
+                >
+                  <EditorAppSidebar
+                    collapsed={!resourcesPanelOpen}
+                    onToggleCollapse={() => setResourcesPanelOpen((value) => !value)}
                   />
+                </div>
+              </div>
 
-                  <div className="pointer-events-none absolute inset-x-4 top-4 z-20 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                    <div className="pointer-events-auto editor-panel editor-panel--soft max-w-[18.5rem] px-4 py-3 text-white">
-                      <div className="flex items-center gap-2">
-                        <span className="size-2 rounded-full bg-[#7da7ff]" />
-                        <p className="editor-kicker">Workspace</p>
-                      </div>
-                      <p className="mt-2 text-[13px] font-semibold leading-5">
-                        Published scene + authored overlays
-                      </p>
-                      <p className="mt-1 text-[11px] leading-4 text-white/56">
-                        Place, adjust, then explicitly save before it reaches the runtime
-                        viewer.
-                      </p>
-                    </div>
+              <div className="pointer-events-none absolute inset-x-0 top-2.5 z-20 flex justify-center px-14 md:px-16 lg:px-24">
+                <div className="pointer-events-auto w-full max-w-[60rem]">
+                  <EditorToolbar
+                    onSave={() => void saveSelection()}
+                    onDuplicate={() => void duplicateSelection()}
+                    onDelete={() => void deleteSelection()}
+                  />
+                </div>
+              </div>
 
-                    <div className="pointer-events-auto flex flex-wrap items-center gap-2">
-                      {isLoading ? (
-                        <Badge className="editor-pill is-floating">Syncing</Badge>
-                      ) : error ? (
-                        <Badge className="editor-pill is-floating">Connection Issue</Badge>
-                      ) : (
-                        <Badge className="editor-pill is-floating">Scene Ready</Badge>
-                      )}
-                      <Badge className="editor-pill is-floating">
-                        {selectionKind === 'static-asset'
-                          ? 'Static Asset'
-                          : selectionKind === 'entity'
-                            ? 'Entity'
-                            : 'Idle'}
-                      </Badge>
-                      <Badge className="editor-pill is-floating">
-                        {armedCatalogItem ? `Armed · ${armedCatalogItem.name}` : 'Authoring Surface'}
-                      </Badge>
-                    </div>
-                  </div>
+              {error ? (
+                <div className="pointer-events-none absolute left-1/2 top-[4.6rem] z-30 w-[min(calc(100%-2rem),34rem)] -translate-x-1/2 rounded-[16px] border border-[#ff9e9e]/40 bg-[#1b1014]/84 px-3 py-2 text-sm text-[#ffd4d4] shadow-[0_18px_44px_rgba(43,12,16,0.22)] backdrop-blur-xl">
+                  {error}
+                </div>
+              ) : null}
 
-                  <div className="relative h-[min(78svh,940px)] min-h-[560px] xl:h-[calc(100svh-7.5rem)] xl:min-h-[720px]">
-                    <EditorCanvas />
+              <div
+                className={cn(
+                  'pointer-events-none absolute right-3 z-30 hidden transition-[width,height,opacity,transform] duration-200 lg:block',
+                  inspectorCollapsed
+                    ? 'top-3 h-10 w-10'
+                    : 'inset-y-3 w-[15.75rem]'
+                )}
+              >
+                <div
+                  className={cn(
+                    'pointer-events-auto',
+                    inspectorCollapsed ? 'h-10' : 'h-full'
+                  )}
+                >
+                  <EditorInspector
+                    collapsed={inspectorCollapsed}
+                    onToggleCollapse={() => setInspectorCollapsed((value) => !value)}
+                  />
+                </div>
+              </div>
 
-                    {error ? (
-                      <div className="pointer-events-none absolute inset-x-4 top-28 z-30 rounded-[22px] border border-[#ff9e9e]/40 bg-[#1b1014]/84 px-4 py-3 text-sm text-[#ffd4d4] shadow-[0_20px_50px_rgba(43,12,16,0.24)] backdrop-blur-xl">
-                        {error}
-                      </div>
-                    ) : null}
-
-                    <div className="pointer-events-none absolute inset-x-0 bottom-4 z-20 hidden justify-center px-4 md:flex">
-                      <div className="pointer-events-auto editor-dock flex max-w-[min(100%,920px)] flex-wrap items-center justify-center gap-2 px-4 py-3 text-white">
-                        <span className="editor-pill is-soft">
-                          {armedCatalogItem
-                            ? `Placement · ${armedCatalogItem.name}`
-                            : selectionKind === 'static-asset'
-                              ? 'Editing · static asset'
-                              : selectionKind === 'entity'
-                                ? 'Editing · entity'
-                                : 'Idle'}
-                        </span>
-                        <span className="editor-pill is-soft">
-                          Transform · {transformMode === 'translate' ? 'translate' : 'rotate'}
-                        </span>
-                        <span className="editor-pill is-soft">
-                          History · {historyLength} / {redoLength}
-                        </span>
-                        <span className="editor-pill is-soft">
-                          Status ·{' '}
-                          {error
-                            ? 'offline'
-                            : isLoading
-                              ? 'syncing'
-                              : isDirty
-                                ? 'unsaved'
-                                : 'synced'}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </section>
-
-                <aside className="xl:sticky xl:top-24 xl:h-[calc(100svh-7.5rem)]">
-                  <EditorInspector />
-                </aside>
+              <div className="pointer-events-none absolute inset-x-0 bottom-2.5 z-20 hidden justify-center px-2.5 md:flex">
+                <div className="pointer-events-auto">
+                  <EditorViewportDock />
+                </div>
               </div>
             </div>
-          </main>
-        </SidebarInset>
-      </SidebarProvider>
+          </section>
+
+          <div className="mt-2.5 lg:hidden">
+            <EditorInspector />
+          </div>
+        </main>
+      </div>
     </div>
   )
 }
