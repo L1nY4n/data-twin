@@ -1,14 +1,14 @@
 'use client'
 
 import dynamic from 'next/dynamic'
-import { 
+import {
   PanelLeft, 
   PanelRight, 
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react'
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
-import { useSimulation } from '@/hooks/use-simulation'
+import { useLiveDigitalTwin } from '@/hooks/use-live-digital-twin'
 import { EntityListPanel } from '@/components/digital-twin/panels/EntityListPanel'
 import { EntityDetailPanel } from '@/components/digital-twin/panels/EntityDetailPanel'
 import { Toolbar } from '@/components/digital-twin/panels/Toolbar'
@@ -39,8 +39,7 @@ const BottomPanel = dynamic(
 )
 
 export default function DigitalTwinPage() {
-  // 启动数据模拟
-  useSimulation({ autoStart: true })
+  const { isLoading, error } = useLiveDigitalTwin()
 
   const leftPanelOpen = useDigitalTwinStore((state) => state.leftPanelOpen)
   const rightPanelOpen = useDigitalTwinStore((state) => state.rightPanelOpen)
@@ -83,6 +82,14 @@ export default function DigitalTwinPage() {
         <div className="relative flex-1">
           <DigitalTwinCanvas />
 
+          {(isLoading || error) && (
+            <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-background/60 backdrop-blur-sm">
+              <div className="rounded-md border bg-background/90 px-4 py-3 text-sm shadow-sm">
+                {error ? `后端连接失败: ${error}` : '正在连接后端数据...'}
+              </div>
+            </div>
+          )}
+
           {/* 规则与图表右侧Dock切换按钮 */}
           <Button
             variant="secondary"
@@ -98,12 +105,12 @@ export default function DigitalTwinPage() {
             ) : (
               <>
                 <ChevronLeft className="h-4 w-4" />
-                <span className="text-xs">规则与图表</span>
+                <span className="text-xs">摘要与图表</span>
               </>
             )}
           </Button>
 
-          {/* 规则与图表右侧Dock */}
+          {/* 摘要与图表右侧Dock */}
           <div
             className={cn(
               'pointer-events-none absolute inset-y-2 right-2 z-20 overflow-hidden transition-all duration-300',

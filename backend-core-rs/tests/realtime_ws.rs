@@ -17,8 +17,10 @@ type TestSocket = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
 
 #[tokio::test]
 async fn realtime_websocket_emits_seeded_event_sequence() {
+    init_test_database_url();
     let (base_url, server) = spawn_app(
         backend_core_rs::app::build_app(ALLOWED_ORIGIN)
+            .await
             .expect("valid allowed origin should build the app"),
     )
     .await;
@@ -140,8 +142,10 @@ async fn realtime_websocket_emits_seeded_event_sequence() {
 
 #[tokio::test]
 async fn realtime_websocket_rejects_invalid_origin() {
+    init_test_database_url();
     let (base_url, server) = spawn_app(
         backend_core_rs::app::build_app(ALLOWED_ORIGIN)
+            .await
             .expect("valid allowed origin should build the app"),
     )
     .await;
@@ -159,8 +163,10 @@ async fn realtime_websocket_rejects_invalid_origin() {
 
 #[tokio::test]
 async fn realtime_websocket_rejects_missing_origin() {
+    init_test_database_url();
     let (base_url, server) = spawn_app(
         backend_core_rs::app::build_app(ALLOWED_ORIGIN)
+            .await
             .expect("valid allowed origin should build the app"),
     )
     .await;
@@ -240,4 +246,8 @@ async fn spawn_app(app: Router) -> (String, JoinHandle<()>) {
     });
 
     (format!("http://{address}"), server)
+}
+
+fn init_test_database_url() {
+    std::env::set_var("DATABASE_URL", "sqlite::memory:");
 }

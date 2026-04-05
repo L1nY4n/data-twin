@@ -15,4 +15,6 @@ node_modules
 .next/
 .DS_Store
 backend-core-rs/target/
+backend-core-rs/data/
+backend-core-rs/.data/
 .omx/

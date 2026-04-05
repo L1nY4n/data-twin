@@ -5,18 +5,17 @@ import { useFrame } from '@react-three/fiber'
 import { Frustum, Matrix4, Quaternion, Sphere, Vector3 as ThreeVector3 } from 'three'
 import type * as THREE from 'three'
 import type { PublishedStaticAssetManifest } from '@/lib/digital-twin/publish'
-import { DEFAULT_PUBLISHED_SCENE_PACKAGE } from '@/lib/digital-twin/publish'
 import { loadPublishedStaticAssetManifest } from '@/lib/digital-twin/runtime/static/asset-manifest'
-import { createRuntimeStaticChunkRegistry } from '@/lib/digital-twin/runtime/static/chunk-registry'
 import {
   hasRuntimeStaticViewChanged,
   isRuntimeStaticChunkVisible,
 } from '@/lib/digital-twin/runtime/static/visibility'
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
+import { AuthoredStaticAssetLayer } from './AuthoredStaticAssetLayer'
+import { createPublishedStaticPalette } from './palette'
 import { PublishedStaticAssetMount } from './PublishedStaticAssetMount'
 import {
   PublishedStaticRecipeMount,
-  type PublishedStaticPalette,
 } from './PublishedStaticRecipeMount'
 
 interface ChemicalPlantEnvironmentProps {
@@ -31,33 +30,8 @@ interface StaticChunkAssetBoundaryProps {
 interface StaticChunkAssetBoundaryState {
   hasError: boolean
 }
-
-const DEFAULT_STATIC_CHUNK_REGISTRY = createRuntimeStaticChunkRegistry(
-  DEFAULT_PUBLISHED_SCENE_PACKAGE
-)
 const STATIC_CHUNK_POSITION_EPSILON = 0.0001
 const STATIC_CHUNK_ROTATION_EPSILON = 0.000001
-
-function createPalette(isDark: boolean): PublishedStaticPalette {
-  return {
-    ground: isDark ? '#0d1620' : '#dce7f1',
-    slab: isDark ? '#1a2430' : '#d8e1ea',
-    slabAlt: isDark ? '#212c39' : '#e3eaf1',
-    curb: isDark ? '#4d5f73' : '#aab7c6',
-    steel: isDark ? '#54789c' : '#6e97bd',
-    steelDark: isDark ? '#29425b' : '#496b8e',
-    vessel: isDark ? '#97a9bb' : '#cfd8e2',
-    pipe: isDark ? '#72859a' : '#91a5ba',
-    road: isDark ? '#293140' : '#9099a7',
-    stripe: isDark ? '#cbd5e1' : '#ffffff',
-    canopy: isDark ? '#2e5577' : '#6c95bb',
-    building: isDark ? '#566170' : '#95a2b0',
-    water: isDark ? '#24506b' : '#82b7d5',
-    warning: '#f59e0b',
-    flare: '#f97316',
-    power: isDark ? '#cbd5e1' : '#e2e8f0',
-  }
-}
 
 class StaticChunkAssetBoundary extends Component<
   StaticChunkAssetBoundaryProps,
@@ -86,7 +60,14 @@ export const ChemicalPlantEnvironment = memo(function ChemicalPlantEnvironment({
   isDark,
 }: ChemicalPlantEnvironmentProps) {
   const qualityProfile = useDigitalTwinStore((state) => state.qualityProfile)
-  const palette = useMemo(() => createPalette(isDark), [isDark])
+  const publishedScenePackage = useDigitalTwinStore((state) => state.publishedScenePackage)
+  const staticChunkRegistry = useDigitalTwinStore((state) => state.staticChunkRegistry)
+  const authoredStaticAssetsMap = useDigitalTwinStore((state) => state.authoredStaticAssets)
+  const palette = useMemo(() => createPublishedStaticPalette(isDark), [isDark])
+  const authoredStaticAssets = useMemo(
+    () => [...authoredStaticAssetsMap.values()],
+    [authoredStaticAssetsMap]
+  )
   const lodDistances: [number, number] = qualityProfile === 'performance' ? [0, 280] : [0, 420]
   const [assetManifest, setAssetManifest] = useState<PublishedStaticAssetManifest | null | undefined>(
     undefined
@@ -99,7 +80,6 @@ export const ChemicalPlantEnvironment = memo(function ChemicalPlantEnvironment({
   const frustumRef = useRef(new Frustum())
   const projectionMatrixRef = useRef(new Matrix4())
   const sphereRef = useRef(new Sphere())
-  const staticChunkRegistry = DEFAULT_STATIC_CHUNK_REGISTRY
 
   function setChunkGroupRef(id: string, node: THREE.Group | null) {
     if (node) {
@@ -112,8 +92,9 @@ export const ChemicalPlantEnvironment = memo(function ChemicalPlantEnvironment({
 
   useEffect(() => {
     let cancelled = false
+    setAssetManifest(undefined)
 
-    loadPublishedStaticAssetManifest(DEFAULT_PUBLISHED_SCENE_PACKAGE.staticAssetManifestUrl).then(
+    loadPublishedStaticAssetManifest(publishedScenePackage.staticAssetManifestUrl).then(
       (manifest) => {
         if (cancelled) return
         setAssetManifest(manifest)
@@ -123,7 +104,7 @@ export const ChemicalPlantEnvironment = memo(function ChemicalPlantEnvironment({
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [publishedScenePackage.staticAssetManifestUrl])
 
   useLayoutEffect(() => {
     const root = rootRef.current
@@ -220,6 +201,7 @@ export const ChemicalPlantEnvironment = memo(function ChemicalPlantEnvironment({
           />
         )
       })}
+      <AuthoredStaticAssetLayer assets={authoredStaticAssets} palette={palette} />
     </group>
   )
 })

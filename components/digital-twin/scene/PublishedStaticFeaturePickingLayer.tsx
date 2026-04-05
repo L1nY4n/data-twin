@@ -5,7 +5,7 @@ import { Box3, InstancedMesh, Object3D, Sphere, Vector3 } from 'three'
 import { useDigitalTwinStore, useSelectedStaticFeature } from '@/lib/digital-twin/store'
 import {
   getRuntimePublishedStaticFeature,
-  getRuntimePublishedStaticFeatures,
+  type RuntimePublishedStaticFeature,
 } from '@/lib/digital-twin/runtime/static/features'
 
 const FEATURE_PROXY_TEMP = new Object3D()
@@ -25,8 +25,7 @@ interface StaticFeatureChunkBatch {
   }>
 }
 
-function createChunkBatches(): StaticFeatureChunkBatch[] {
-  const features = getRuntimePublishedStaticFeatures()
+function createChunkBatches(features: RuntimePublishedStaticFeature[]): StaticFeatureChunkBatch[] {
   const byChunk = new Map<string, StaticFeatureChunkBatch>()
 
   for (const entry of features) {
@@ -115,12 +114,13 @@ const StaticFeatureChunkProxy = memo(function StaticFeatureChunkProxy({
 function StaticFeatureSelectionOverlay() {
   const selectedFeature = useSelectedStaticFeature()
   const hoveredFeatureId = useDigitalTwinStore((state) => state.hoveredStaticFeatureId)
+  const staticFeatureRegistry = useDigitalTwinStore((state) => state.staticFeatureRegistry)
   const hoveredFeature = useMemo(
     () =>
       hoveredFeatureId && selectedFeature?.feature.id !== hoveredFeatureId
-        ? getRuntimePublishedStaticFeature(hoveredFeatureId)
+        ? getRuntimePublishedStaticFeature(hoveredFeatureId, staticFeatureRegistry)
         : null,
-    [hoveredFeatureId, selectedFeature?.feature.id]
+    [hoveredFeatureId, selectedFeature?.feature.id, staticFeatureRegistry]
   )
 
   const overlayFeatures = [selectedFeature, hoveredFeature].filter(Boolean)
@@ -163,7 +163,11 @@ function StaticFeatureSelectionOverlay() {
 }
 
 export const PublishedStaticFeaturePickingLayer = memo(function PublishedStaticFeaturePickingLayer() {
-  const chunkBatches = useMemo(() => createChunkBatches(), [])
+  const staticFeatureRegistry = useDigitalTwinStore((state) => state.staticFeatureRegistry)
+  const chunkBatches = useMemo(
+    () => createChunkBatches(staticFeatureRegistry.entries),
+    [staticFeatureRegistry]
+  )
 
   return (
     <group name="published-static-feature-picking-layer">

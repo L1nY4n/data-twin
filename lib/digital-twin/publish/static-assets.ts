@@ -25,8 +25,26 @@ export interface PublishedStaticAssetManifest {
   chunks: Record<string, PublishedStaticChunkAssetEntry>
 }
 
+const VERSIONED_ASSET_URL_ORIGIN = 'http://published-scene.local'
+
 function sanitizeChunkIdForFilename(chunkId: string) {
   return chunkId.replace(/[^a-zA-Z0-9_-]+/g, '-')
+}
+
+export function createVersionedPublishedStaticAssetUrl(
+  url: string,
+  version?: string | null
+) {
+  if (!version) return url
+
+  const parsed = new URL(url, VERSIONED_ASSET_URL_ORIGIN)
+  parsed.searchParams.set('v', version)
+
+  if (/^[a-zA-Z][a-zA-Z\d+.-]*:/.test(url)) {
+    return parsed.toString()
+  }
+
+  return `${parsed.pathname}${parsed.search}${parsed.hash}`
 }
 
 function createAssetVariant(
@@ -93,7 +111,7 @@ export function encodePublishedStaticMeshName(options: {
 export function decodePublishedStaticMeshName(name: string) {
   if (!name.startsWith('dtmesh:')) return null
 
-  const [_prefix, castShadow, receiveShadow] = name.split(':')
+  const [, castShadow, receiveShadow] = name.split(':')
   return {
     castShadow: castShadow === '1',
     receiveShadow: receiveShadow === '1',

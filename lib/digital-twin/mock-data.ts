@@ -53,19 +53,6 @@ function resolveEquipmentSpread(
   return anchor.spread ?? fallback
 }
 
-function respectsMinimumDistance(position: Vector3, existingPositions: Vector3[], minDistance: number): boolean {
-  return existingPositions.every(
-    (existing) => Math.hypot(position.x - existing.x, position.z - existing.z) >= minDistance
-  )
-}
-
-function distanceToClosestPosition(position: Vector3, existingPositions: Vector3[]): number {
-  return existingPositions.reduce(
-    (closest, existing) => Math.min(closest, Math.hypot(position.x - existing.x, position.z - existing.z)),
-    Number.POSITIVE_INFINITY
-  )
-}
-
 // 人员角色
 const PERSON_ROLE_PROFILES = [
   {
@@ -215,8 +202,6 @@ const PERSON_SPEED = 0.42
 const PERSON_ARRIVE_TOLERANCE = 0.2
 const DYNAMIC_OCCUPANCY_CELL_SIZE = 4
 export const DYNAMIC_NEIGHBOR_QUERY_RADIUS = 3.2
-const VEHICLE_SPAWN_MIN_DISTANCE = 3
-const VEHICLE_SPAWN_MAX_ATTEMPTS = 24
 
 function isPointInsideLane(point: Vector3, lane: LaneRect): boolean {
   return (

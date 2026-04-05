@@ -9,6 +9,8 @@ import {
   User,
   Car,
   Cog,
+  Radar,
+  Camera as CameraIcon,
   Map,
   Gauge,
   Thermometer,
@@ -20,6 +22,8 @@ import type {
   PersonEntity, 
   VehicleEntity, 
   EquipmentEntity, 
+  SensorEntity,
+  CameraEntity,
   ZoneEntity 
 } from '@/lib/digital-twin/types'
 import type { RuntimePublishedStaticFeature } from '@/lib/digital-twin/runtime/static/features'
@@ -47,6 +51,23 @@ const STATIC_FEATURE_KIND_LABELS: Record<RuntimePublishedStaticFeature['feature'
   'vertical-tank': '立式储罐',
   'pump-manifold': '泵组',
   bund: '围堰',
+}
+
+const SENSOR_TYPE_LABELS: Record<SensorEntity['sensorType'], string> = {
+  temperature: '温度',
+  pressure: '压力',
+  flow: '流量',
+  gas: '气体',
+  level: '液位',
+  humidity: '湿度',
+  other: '其他',
+}
+
+const CAMERA_TYPE_LABELS: Record<CameraEntity['cameraType'], string> = {
+  fixed: '固定枪机',
+  dome: '半球',
+  ptz: '云台',
+  thermal: '热成像',
 }
 
 export function EntityDetailPanel() {
@@ -159,6 +180,8 @@ export function EntityDetailPanel() {
           {entity.type === 'person' && <PersonDetails entity={entity} />}
           {entity.type === 'vehicle' && <VehicleDetails entity={entity} />}
           {entity.type === 'equipment' && <EquipmentDetails entity={entity} />}
+          {entity.type === 'sensor' && <SensorDetails entity={entity} />}
+          {entity.type === 'camera' && <CameraDetails entity={entity} />}
           {entity.type === 'zone' && <ZoneDetails entity={entity} />}
 
           <Separator />
@@ -326,6 +349,10 @@ function EntityTypeIcon({ type }: { type: string }) {
       return <Car className={cn(iconClass, "text-amber-500")} />
     case 'equipment':
       return <Cog className={cn(iconClass, "text-green-500")} />
+    case 'sensor':
+      return <Radar className={cn(iconClass, "text-teal-500")} />
+    case 'camera':
+      return <CameraIcon className={cn(iconClass, "text-red-500")} />
     case 'zone':
       return <Map className={cn(iconClass, "text-purple-500")} />
     default:
@@ -449,6 +476,84 @@ function EquipmentDetails({ entity }: { entity: EquipmentEntity }) {
             </span>
           </div>
         )}
+      </div>
+    </div>
+  )
+}
+
+function SensorDetails({ entity }: { entity: SensorEntity }) {
+  const rangeLabel = entity.thresholdMin !== undefined || entity.thresholdMax !== undefined
+    ? `${entity.thresholdMin ?? '-'} ~ ${entity.thresholdMax ?? '-'} ${entity.unit}`.trim()
+    : '未设置'
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <h4 className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+          <Radar className="h-3.5 w-3.5" />
+          传感器信息
+        </h4>
+        <div className="space-y-2 rounded-lg border p-2.5 text-sm">
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">类型</span>
+            <Badge variant="outline">{SENSOR_TYPE_LABELS[entity.sensorType] ?? entity.sensorType}</Badge>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">当前值</span>
+            <span className="font-mono">
+              {entity.reading.toFixed(2)} {entity.unit}
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">阈值范围</span>
+            <span>{rangeLabel}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function CameraDetails({ entity }: { entity: CameraEntity }) {
+  return (
+    <div className="space-y-3">
+      <div>
+        <h4 className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+          <CameraIcon className="h-3.5 w-3.5" />
+          摄像头信息
+        </h4>
+        <div className="space-y-2 rounded-lg border p-2.5 text-sm">
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">类型</span>
+            <Badge variant="outline">{CAMERA_TYPE_LABELS[entity.cameraType] ?? entity.cameraType}</Badge>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">视场角</span>
+            <span>{entity.fov.toFixed(0)}°</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">朝向</span>
+            <span>{entity.heading.toFixed(0)}°</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">覆盖范围</span>
+            <span>{entity.range ? `${entity.range.toFixed(1)} m` : '未设置'}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">录像状态</span>
+            <Badge variant={entity.recording ? 'secondary' : 'outline'}>
+              {entity.recording ? '录制中' : '未录制'}
+            </Badge>
+          </div>
+          {entity.streamUrl && (
+            <div className="space-y-1">
+              <span className="text-muted-foreground">视频流</span>
+              <div className="break-all rounded bg-muted px-2 py-1 font-mono text-xs">
+                {entity.streamUrl}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )

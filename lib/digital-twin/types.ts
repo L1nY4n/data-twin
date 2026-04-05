@@ -11,7 +11,18 @@ export interface Vector3 {
 export type EntityStatus = 'active' | 'inactive' | 'warning' | 'error'
 
 // 实体类型
-export type EntityType = 'person' | 'vehicle' | 'equipment' | 'zone'
+export type EntityType = 'person' | 'vehicle' | 'equipment' | 'sensor' | 'camera' | 'zone'
+
+export type SensorType =
+  | 'temperature'
+  | 'pressure'
+  | 'flow'
+  | 'gas'
+  | 'level'
+  | 'humidity'
+  | 'other'
+
+export type CameraType = 'fixed' | 'dome' | 'ptz' | 'thermal'
 
 // 基础实体
 export interface BaseEntity {
@@ -61,6 +72,27 @@ export interface EquipmentEntity extends BaseEntity {
   maintenanceSchedule?: TimeRange[]
 }
 
+// 传感器实体
+export interface SensorEntity extends BaseEntity {
+  type: 'sensor'
+  sensorType: SensorType
+  unit: string
+  reading: number
+  thresholdMin?: number
+  thresholdMax?: number
+}
+
+// 摄像头实体
+export interface CameraEntity extends BaseEntity {
+  type: 'camera'
+  cameraType: CameraType
+  streamUrl?: string
+  fov: number
+  heading: number
+  range?: number
+  recording: boolean
+}
+
 // 区域实体
 export interface ZoneEntity extends BaseEntity {
   type: 'zone'
@@ -73,7 +105,13 @@ export interface ZoneEntity extends BaseEntity {
 }
 
 // 实体联合类型
-export type Entity = PersonEntity | VehicleEntity | EquipmentEntity | ZoneEntity
+export type Entity =
+  | PersonEntity
+  | VehicleEntity
+  | EquipmentEntity
+  | SensorEntity
+  | CameraEntity
+  | ZoneEntity
 
 // 时间范围
 export interface TimeRange {
@@ -150,6 +188,28 @@ export interface ModelInfo {
   thumbnail?: string
 }
 
+export type StaticAssetKind =
+  | 'process-train'
+  | 'pipe-rack'
+  | 'vertical-tank'
+  | 'sphere-tank'
+  | 'pump-manifold'
+  | 'service-building'
+
+export interface StaticAssetInstance {
+  id: string
+  name: string
+  assetKind: StaticAssetKind
+  variant?: string
+  position: Vector3
+  rotation: Vector3
+  scale: Vector3
+  visible: boolean
+  metadata: Record<string, unknown>
+  createdAt: number
+  updatedAt: number
+}
+
 // 规则节点类型
 export type RuleNodeType = 
   | 'trigger-location'
@@ -180,6 +240,7 @@ export interface RuleConfig {
   name: string
   description: string
   enabled: boolean
+  version?: number
   nodes: Array<{
     id: string
     type: string
@@ -202,6 +263,7 @@ export type WSMessageType =
   | 'position_update'
   | 'status_update'
   | 'alarm'
+  | 'config_changed'
   | 'entity_enter_zone'
   | 'entity_leave_zone'
   | 'rule_triggered'
@@ -211,6 +273,14 @@ export interface WSMessage {
   type: WSMessageType
   payload: unknown
   timestamp: number
+}
+
+export interface PublishedSceneRuntimeDescriptor {
+  packageUrl: string
+  packageVersion: string
+  sceneId: string
+  generatedAt: string
+  staticAssetManifestUrl: string
 }
 
 // 位置更新消息
@@ -227,6 +297,35 @@ export interface StatusUpdateMessage {
   entityId: string
   status: EntityStatus
   parameters?: Record<string, unknown>
+}
+
+export interface ConfigChangedMessage {
+  sceneVersion: number
+  changedAt: number
+  scope: 'scene' | 'entity' | 'static_asset' | 'binding' | 'rule'
+  publishedScene?: PublishedSceneRuntimeDescriptor | null
+}
+
+export interface DataConnector {
+  id: string
+  name: string
+  protocol: string
+  endpoint: string
+  authConfig: Record<string, unknown>
+  enabled: boolean
+  createdAt: number
+  updatedAt: number
+}
+
+export interface EntityBinding {
+  bindingId: string
+  entityId: string
+  connectorId: string
+  sourcePath: string
+  mapping: Record<string, unknown>
+  enabled: boolean
+  createdAt: number
+  updatedAt: number
 }
 
 // 空间关系

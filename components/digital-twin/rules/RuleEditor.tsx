@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useMemo } from 'react'
+import { useCallback, useEffect, useMemo } from 'react'
 import {
   ReactFlow,
   Background,
@@ -136,12 +136,25 @@ const nodeTemplates = [
 interface RuleEditorProps {
   ruleId?: string
   ruleName?: string
+  initialNodes?: Node[]
+  initialEdges?: Edge[]
   onSave?: (nodes: Node[], edges: Edge[]) => void
 }
 
-export function RuleEditor({ ruleId, ruleName = '新建规则', onSave }: RuleEditorProps) {
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes)
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges)
+export function RuleEditor({
+  ruleId,
+  ruleName = '新建规则',
+  initialNodes: initialNodesOverride,
+  initialEdges: initialEdgesOverride,
+  onSave,
+}: RuleEditorProps) {
+  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodesOverride ?? initialNodes)
+  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdgesOverride ?? initialEdges)
+
+  useEffect(() => {
+    setNodes(initialNodesOverride ?? initialNodes)
+    setEdges(initialEdgesOverride ?? initialEdges)
+  }, [initialNodesOverride, initialEdgesOverride, setEdges, setNodes])
 
   const onConnect = useCallback(
     (params: Connection) => setEdges((eds) => addEdge({ ...params, animated: true }, eds)),

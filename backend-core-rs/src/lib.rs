@@ -1,6 +1,10 @@
+pub mod admin;
+mod admin_service;
 pub mod app;
 pub mod contracts;
 mod health;
+mod published_scene;
 pub mod realtime;
 mod seed_scene;
 mod site;
+pub mod store;

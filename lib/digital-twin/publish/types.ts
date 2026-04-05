@@ -1,7 +1,6 @@
 import type {
   CameraPreset,
   EquipmentEntity,
-  EntityType,
   PersonEntity,
   SceneConfig,
   Vector3,
@@ -201,7 +200,7 @@ export interface PublishedInteractionLayer {
 
 export interface PublishedDynamicLayerBase {
   id: string
-  entityType: Exclude<EntityType, 'zone'>
+  entityType: 'person' | 'vehicle' | 'equipment'
   sectorId: string
   bounds: PublishedSceneBounds
   count: number

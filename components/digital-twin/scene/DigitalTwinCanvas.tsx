@@ -44,11 +44,16 @@ const SceneContent = memo(function SceneContent({ backgroundColor }: SceneConten
   const sceneConfig = useDigitalTwinStore((state) => state.sceneConfig)
   const viewMode = useDigitalTwinStore((state) => state.viewMode)
   const activeCameraPreset = useDigitalTwinStore((state) => state.activeCameraPreset)
+  const cameraFocusRequest = useDigitalTwinStore((state) => state.cameraFocusRequest)
   const cameraPresets = useDigitalTwinStore((state) => state.cameraPresets)
   const setSceneReady = useDigitalTwinStore((state) => state.setSceneReady)
   const measurementMode = useDigitalTwinStore((state) => state.measurementMode)
   const advanceRuntime = useDigitalTwinStore((state) => state.advanceRuntime)
   const qualityProfile = useDigitalTwinStore((state) => state.qualityProfile)
+  const focusAnimationRef = useRef<{
+    position: { x: number; y: number; z: number }
+    target: { x: number; y: number; z: number }
+  } | null>(null)
   const isDark = resolvedTheme === 'dark'
   const environmentFile = isDark
     ? '/hdr/dikhololo_night_1k.hdr'
@@ -91,10 +96,52 @@ const SceneContent = memo(function SceneContent({ backgroundColor }: SceneConten
       preset.position.z
     )
     controlsRef.current.target.set(preset.target.x, preset.target.y, preset.target.z)
+    focusAnimationRef.current = null
     controlsRef.current.update()
   }, [activeCameraPreset, cameraPresets])
 
+  useEffect(() => {
+    if (!cameraFocusRequest) return
+
+    focusAnimationRef.current = {
+      position: cameraFocusRequest.position,
+      target: cameraFocusRequest.target,
+    }
+  }, [cameraFocusRequest])
+
   useFrame(({ clock, camera }, delta) => {
+    if (controlsRef.current && focusAnimationRef.current) {
+      const { position, target } = focusAnimationRef.current
+      const smoothing = 1 - Math.exp(-delta * 8)
+
+      camera.position.x += (position.x - camera.position.x) * smoothing
+      camera.position.y += (position.y - camera.position.y) * smoothing
+      camera.position.z += (position.z - camera.position.z) * smoothing
+
+      controlsRef.current.target.x += (target.x - controlsRef.current.target.x) * smoothing
+      controlsRef.current.target.y += (target.y - controlsRef.current.target.y) * smoothing
+      controlsRef.current.target.z += (target.z - controlsRef.current.target.z) * smoothing
+      controlsRef.current.update()
+
+      const cameraDelta = Math.hypot(
+        position.x - camera.position.x,
+        position.y - camera.position.y,
+        position.z - camera.position.z
+      )
+      const targetDelta = Math.hypot(
+        target.x - controlsRef.current.target.x,
+        target.y - controlsRef.current.target.y,
+        target.z - controlsRef.current.target.z
+      )
+
+      if (cameraDelta < 0.08 && targetDelta < 0.08) {
+        camera.position.set(position.x, position.y, position.z)
+        controlsRef.current.target.set(target.x, target.y, target.z)
+        controlsRef.current.update()
+        focusAnimationRef.current = null
+      }
+    }
+
     advanceRuntime(
       clock.elapsedTime * 1000,
       delta * 1000,
@@ -199,7 +246,7 @@ const PerformanceHud = memo(function PerformanceHud({
   const metrics = useDigitalTwinStore((state) => state.performanceMetrics)
 
   return (
-    <div className="pointer-events-none absolute left-3 top-3 z-20 rounded-md border bg-background/80 px-2.5 py-1.5 text-[10px] backdrop-blur">
+    <div className="pointer-events-none absolute bottom-3 left-3 z-20 rounded-md border bg-background/40 px-2.5 py-1.5 text-[10px] backdrop-blur-sm">
       <div>FPS {metrics.fps.toFixed(0)} | P95 {metrics.frameTimeP95.toFixed(1)}ms</div>
       <div>Draw {metrics.drawCalls} | Labels {metrics.visibleLabels}</div>
       <div>

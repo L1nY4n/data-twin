@@ -22,9 +22,13 @@ use tokio::{
 };
 use tracing::{debug, warn};
 
-use crate::contracts::{
-    AlarmEventPayload, AlarmLevel, ContractValue, EntityStatus, PositionUpdatePayload,
-    RealtimeEvent, StatusUpdatePayload, Vector3,
+use crate::{
+    app::AppState,
+    contracts::{
+        AlarmEventPayload, AlarmLevel, ConfigChangedPayload, ConfigChangedScope, ContractValue,
+        EntityStatus, PositionUpdatePayload, PublishedSceneDescriptor, RealtimeEvent,
+        StatusUpdatePayload, Vector3,
+    },
 };
 
 const TICK_INTERVAL: Duration = Duration::from_millis(200);
@@ -41,7 +45,7 @@ pub struct RealtimeState {
 
 impl RealtimeState {
     pub fn new(allowed_origin: HeaderValue) -> Self {
-        let (broadcaster, _) = broadcast::channel(32);
+        let (broadcaster, _) = broadcast::channel(128);
 
         Self {
             broadcaster,
@@ -70,23 +74,45 @@ impl RealtimeState {
             });
         }
     }
+
+    pub fn emit(&self, event: RealtimeEvent) {
+        let _ = self.broadcaster.send(event);
+    }
+
+    pub fn emit_config_changed(
+        &self,
+        scene_version: u64,
+        scope: ConfigChangedScope,
+        published_scene: Option<PublishedSceneDescriptor>,
+    ) {
+        let timestamp = now_millis();
+        self.emit(RealtimeEvent::ConfigChanged {
+            timestamp,
+            payload: ConfigChangedPayload {
+                scene_version,
+                changed_at: timestamp,
+                scope,
+                published_scene,
+            },
+        });
+    }
 }
 
 pub async fn realtime_ws_handler(
     ws: WebSocketUpgrade,
-    State(state): State<RealtimeState>,
+    State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, StatusCode> {
-    if !state.origin_allowed(headers.get(header::ORIGIN)) {
+    if !state.realtime.origin_allowed(headers.get(header::ORIGIN)) {
         warn!(
             request_origin = ?headers.get(header::ORIGIN),
-            allowed_origin = ?state.allowed_origin,
+            allowed_origin = ?state.realtime.allowed_origin,
             "rejected websocket handshake due to invalid origin"
         );
         return Err(StatusCode::FORBIDDEN);
     }
 
-    Ok(ws.on_upgrade(move |socket| client_stream(socket, state)))
+    Ok(ws.on_upgrade(move |socket| client_stream(socket, state.realtime.clone())))
 }
 
 async fn client_stream(socket: WebSocket, state: RealtimeState) {
@@ -235,4 +261,13 @@ fn forklift_headings() -> [f32; 4] {
 
 fn forklift_speeds() -> [f32; 4] {
     [3.2, 3.4, 3.1, 2.9]
+}
+
+fn now_millis() -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock should be after unix epoch")
+        .as_millis() as u64
 }
