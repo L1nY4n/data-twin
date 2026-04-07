@@ -126,6 +126,103 @@ describe('useEditorDigitalTwin standard room workflow', () => {
     expect(request?.entity?.entity.id).toBe('entity-1')
   })
 
+  test('builds a transactional scene and static-asset save request without persisting editor-only camera pose', () => {
+    const savedSceneConfig = createSceneConfig()
+    const nextSceneConfig = createSceneConfig({
+      backgroundColor: '#1d3557',
+      showAxes: true,
+      cameraPosition: { x: 90, y: 70, z: 50 },
+      cameraTarget: { x: 9, y: 0, z: -5 },
+    })
+    const savedAsset: StaticAssetInstance = {
+      id: 'asset-42',
+      name: 'AHU Door',
+      assetKind: 'door-system',
+      variant: 'single-swing',
+      position: { x: 4, y: 0, z: 5 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 1, y: 1, z: 1 },
+      visible: true,
+      metadata: { catalogId: 'door-system-single-swing' },
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const draftAsset: StaticAssetInstance = {
+      ...savedAsset,
+      name: 'AHU Door / Updated',
+    }
+
+    const request = createEditorSaveRequest({
+      sceneConfig: nextSceneConfig,
+      savedSceneConfig,
+      hasSceneChanges: true,
+      hasSelectionChanges: true,
+      draftEntity: null,
+      draftStaticAsset: draftAsset,
+      savedEntity: null,
+      savedStaticAsset: savedAsset,
+      selectedEntityId: null,
+      selectedStaticAssetId: draftAsset.id,
+    })
+
+    expect(request).not.toBeNull()
+    expect(request?.sceneConfig).toEqual({
+      ...nextSceneConfig,
+      cameraPosition: savedSceneConfig.cameraPosition,
+      cameraTarget: savedSceneConfig.cameraTarget,
+    })
+    expect(request?.entity).toBeUndefined()
+    expect(request?.staticAsset?.mode).toBe('update')
+    expect(request?.staticAsset?.staticAsset.id).toBe(savedAsset.id)
+    expect(request?.staticAsset?.staticAsset.name).toBe('AHU Door / Updated')
+  })
+
+  test('builds a transactional scene and create-mode static-asset save request for unsaved drafts', () => {
+    const savedSceneConfig = createSceneConfig()
+    const nextSceneConfig = createSceneConfig({
+      backgroundColor: '#1d3557',
+      showAxes: true,
+      cameraPosition: { x: 90, y: 70, z: 50 },
+      cameraTarget: { x: 9, y: 0, z: -5 },
+    })
+    const draftAsset: StaticAssetInstance = {
+      id: 'asset-draft-1',
+      name: 'Door',
+      assetKind: 'door-system',
+      variant: 'single-swing',
+      position: { x: 0, y: 0, z: 0 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 1, y: 1, z: 1 },
+      visible: true,
+      metadata: {},
+      createdAt: 1,
+      updatedAt: 1,
+    }
+
+    const request = createEditorSaveRequest({
+      sceneConfig: nextSceneConfig,
+      savedSceneConfig,
+      hasSceneChanges: true,
+      hasSelectionChanges: true,
+      draftEntity: null,
+      draftStaticAsset: draftAsset,
+      savedEntity: null,
+      savedStaticAsset: null,
+      selectedEntityId: null,
+      selectedStaticAssetId: draftAsset.id,
+    })
+
+    expect(request).not.toBeNull()
+    expect(request?.sceneConfig).toEqual({
+      ...nextSceneConfig,
+      cameraPosition: savedSceneConfig.cameraPosition,
+      cameraTarget: savedSceneConfig.cameraTarget,
+    })
+    expect(request?.entity).toBeUndefined()
+    expect(request?.staticAsset?.mode).toBe('create')
+    expect(request?.staticAsset?.staticAsset.id).toBe('asset-draft-1')
+  })
+
   test('builds update-mode save requests for persisted static-asset drafts', () => {
     const savedAsset: StaticAssetInstance = {
       id: 'asset-42',
