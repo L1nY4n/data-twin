@@ -37,4 +37,4 @@
 - Rust targeted tests: PASS
 - Lint: PASS
 - Typecheck: PASS
-- Build: PASS from repo root at `/Users/l1ny4n/Documents/study/spatial-modeling/data-t`; the nested team worktree hits a Turbopack workspace-root inference failure, so that failure looks environment/worktree-specific rather than branch-specific.
+- Build: PASS from the nested OMX team worktree after the Next/Turbopack workspace-root fix in `next.config.mjs`; no remaining branch-specific build blocker was observed.
