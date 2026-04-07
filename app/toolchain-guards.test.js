@@ -13,11 +13,15 @@ describe('toolchain guards', () => {
     expect(packageJson.scripts.build).toContain('--turbopack')
   })
 
-  test('next config should pin the project root for tracing and turbopack diagnostics', () => {
+  test('next config should use a shared workspace-aware root for tracing and turbopack', () => {
     const source = readFileSync(join(process.cwd(), 'next.config.mjs'), 'utf8')
 
-    expect(source.includes('outputFileTracingRoot: projectRoot')).toBe(true)
+    expect(
+      source.includes("const NEXT_PACKAGE_PATH = path.join('node_modules', 'next', 'package.json')")
+    ).toBe(true)
+    expect(source.includes('const turbopackRoot = resolveTurbopackRoot(projectRoot)')).toBe(true)
+    expect(source.includes('outputFileTracingRoot: turbopackRoot')).toBe(true)
     expect(source.includes('turbopack:')).toBe(true)
-    expect(source.includes('root: projectRoot')).toBe(true)
+    expect(source.includes('root: turbopackRoot')).toBe(true)
   })
 })
