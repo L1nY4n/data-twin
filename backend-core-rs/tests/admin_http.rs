@@ -170,7 +170,10 @@ async fn editor_save_commits_scene_and_static_asset_with_one_version_bump() {
     let save_body = parse_json(save_response).await;
     assert_eq!(save_body["sceneVersion"], json!(initial_version + 1));
     assert_eq!(save_body["sceneConfig"]["id"], json!("editor-save-scene"));
-    assert_eq!(save_body["savedStaticAsset"]["id"], json!("editor-save-wall-01"));
+    assert_eq!(
+        save_body["savedStaticAsset"]["id"],
+        json!("editor-save-wall-01")
+    );
 
     let editor_bootstrap = app
         .oneshot(
@@ -184,8 +187,14 @@ async fn editor_save_commits_scene_and_static_asset_with_one_version_bump() {
         .unwrap();
     assert_eq!(editor_bootstrap.status(), StatusCode::OK);
     let editor_bootstrap_body = parse_json(editor_bootstrap).await;
-    assert_eq!(editor_bootstrap_body["sceneVersion"], json!(initial_version + 1));
-    assert_eq!(editor_bootstrap_body["sceneConfig"]["name"], json!("事务保存场景"));
+    assert_eq!(
+        editor_bootstrap_body["sceneVersion"],
+        json!(initial_version + 1)
+    );
+    assert_eq!(
+        editor_bootstrap_body["sceneConfig"]["name"],
+        json!("事务保存场景")
+    );
     assert!(editor_bootstrap_body["staticAssets"]
         .as_array()
         .unwrap()
