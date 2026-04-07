@@ -259,7 +259,7 @@ export interface PublishedScenePackage {
   sceneId: string
   profile: PublishedSceneProfile
   generatedAt: string
-  source: 'campus-layout'
+  source: 'campus-layout' | 'working-snapshot'
   staticAssetManifestUrl: string
   bounds: PublishedSceneBounds
   sceneConfig: SceneConfig

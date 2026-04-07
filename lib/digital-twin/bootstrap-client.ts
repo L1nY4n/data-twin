@@ -28,9 +28,84 @@ interface SceneResponse {
   sceneConfig: SceneConfig
 }
 
+export type EditorSaveMode = 'create' | 'update'
+
+export interface EditorEntitySaveRequest {
+  mode: EditorSaveMode
+  entity: Entity
+}
+
+export interface EditorStaticAssetSaveRequest {
+  mode: EditorSaveMode
+  staticAsset: StaticAssetInstance
+}
+
+export interface EditorSaveRequest {
+  sceneConfig?: SceneConfig
+  entity?: EditorEntitySaveRequest
+  staticAsset?: EditorStaticAssetSaveRequest
+}
+
+export interface EditorSaveResponse {
+  sceneVersion: number
+  sceneConfig: SceneConfig
+  savedEntity?: Entity | null
+  savedStaticAsset?: StaticAssetInstance | null
+}
+
 interface RuleValidationResponse {
   valid: boolean
   errors: string[]
+}
+
+export class AdminApiError extends Error {
+  status: number
+  payload: string
+
+  constructor(
+    message: string,
+    options: {
+      status: number
+      payload: string
+    }
+  ) {
+    super(message)
+    this.name = 'AdminApiError'
+    this.status = options.status
+    this.payload = options.payload
+    Object.setPrototypeOf(this, new.target.prototype)
+  }
+}
+
+export function isAdminApiError(error: unknown): error is AdminApiError {
+  return error instanceof AdminApiError
+}
+
+function normalizeErrorPayload(payload: string) {
+  const trimmed = payload.trim()
+  if (!trimmed) return ''
+
+  try {
+    const parsed = JSON.parse(trimmed) as {
+      error?: unknown
+      message?: unknown
+    }
+    if (typeof parsed.error === 'string') return parsed.error
+    if (typeof parsed.message === 'string') return parsed.message
+  } catch {
+    // Fall through to raw payload.
+  }
+
+  return trimmed
+}
+
+function buildAdminApiErrorMessage(response: Response, payload: string) {
+  const detail = normalizeErrorPayload(payload)
+  if (!detail) {
+    return `Request failed ${response.status}`
+  }
+
+  return `Request failed ${response.status}: ${detail}`
 }
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -45,7 +120,10 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
 
   if (!response.ok) {
     const payload = await response.text()
-    throw new Error(`Request failed ${response.status}: ${payload}`)
+    throw new AdminApiError(buildAdminApiErrorMessage(response, payload), {
+      status: response.status,
+      payload,
+    })
   }
 
   if (response.status === 204) {
@@ -85,6 +163,15 @@ export async function updateAdminScene(sceneConfig: SceneConfig): Promise<SceneR
   return requestJson<SceneResponse>(`${getAdminApiBaseUrl()}/scene`, {
     method: 'PUT',
     body: JSON.stringify(sceneConfig),
+  })
+}
+
+export async function saveAdminEditorDrafts(
+  request: EditorSaveRequest
+): Promise<EditorSaveResponse> {
+  return requestJson<EditorSaveResponse>(`${getAdminApiBaseUrl()}/editor-save`, {
+    method: 'POST',
+    body: JSON.stringify(request),
   })
 }
 

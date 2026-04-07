@@ -41,4 +41,20 @@ describe('editor style and motion integration', () => {
     expect(source.includes('stagger(')).toBe(true)
     expect(source.includes('pointerdown')).toBe(true)
   })
+
+  test('editor theme keeps panel inputs rounded and bordered in the same chrome language', () => {
+    const source = readFileSync(
+      join(process.cwd(), 'app/editor/editor-global.css'),
+      'utf8'
+    )
+
+    expect(source.includes('.editor-surface .editor-input')).toBe(true)
+    expect(source.includes('border-radius: 14px !important;')).toBe(true)
+    expect(source.includes('border-color: rgba(164, 192, 236, 0.16) !important;')).toBe(true)
+    expect(source.includes("[data-slot='switch']")).toBe(true)
+    expect(source.includes("[data-slot='switch-thumb']")).toBe(true)
+    expect(source.includes("[data-editor-scrubbable='true']")).toBe(true)
+    expect(source.includes("[data-editor-scrubbing='true']")).toBe(true)
+    expect(source.includes('cursor: ns-resize;')).toBe(true)
+  })
 })

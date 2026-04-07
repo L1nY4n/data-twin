@@ -50,6 +50,12 @@ const STATIC_FEATURE_KIND_LABELS: Record<RuntimePublishedStaticFeature['feature'
   'sphere-tank': '球罐',
   'vertical-tank': '立式储罐',
   'pump-manifold': '泵组',
+  'wall-system': '墙体 / 隔断',
+  'door-system': '门体',
+  'window-system': '窗体',
+  'security-device': '安防设备',
+  'smart-sensor': '智能传感器',
+  'smart-control': '智能控制',
   bund: '围堰',
 }
 

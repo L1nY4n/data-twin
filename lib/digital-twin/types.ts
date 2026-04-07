@@ -195,6 +195,12 @@ export type StaticAssetKind =
   | 'sphere-tank'
   | 'pump-manifold'
   | 'service-building'
+  | 'wall-system'
+  | 'door-system'
+  | 'window-system'
+  | 'security-device'
+  | 'smart-sensor'
+  | 'smart-control'
 
 export interface StaticAssetInstance {
   id: string
@@ -208,6 +214,24 @@ export interface StaticAssetInstance {
   metadata: Record<string, unknown>
   createdAt: number
   updatedAt: number
+}
+
+export interface StaticAssetPlacement {
+  position: Vector3
+  rotation?: Vector3
+  elevationLocked?: boolean
+  metadata?: Record<string, unknown>
+}
+
+export interface StaticAssetPlacementPreview extends StaticAssetPlacement {
+  hostStaticAssetId?: string | null
+  hostSurface?:
+    | 'ground'
+    | 'wall-face'
+    | 'ceiling-plane'
+    | 'opening-center'
+    | 'door-face'
+  surfaceNormal?: Vector3 | null
 }
 
 // 规则节点类型

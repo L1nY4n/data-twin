@@ -107,6 +107,207 @@ async fn scene_update_increments_scene_version_but_site_bootstrap_stays_on_publi
 }
 
 #[tokio::test]
+async fn editor_save_commits_scene_and_static_asset_with_one_version_bump() {
+    init_test_database_url();
+    let app = backend_core_rs::app::build_app("http://localhost:3000")
+        .await
+        .expect("app should build");
+
+    let initial_scene = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/api/v1/admin/scene")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(initial_scene.status(), StatusCode::OK);
+    let initial_scene_body = parse_json(initial_scene).await;
+    let initial_version = initial_scene_body["sceneVersion"].as_u64().unwrap();
+
+    let save_response = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/admin/editor-save",
+            json!({
+              "sceneConfig": {
+                "id": "editor-save-scene",
+                "name": "事务保存场景",
+                "gridSize": 96,
+                "gridDivisions": 48,
+                "backgroundColor": "#162230",
+                "ambientLightIntensity": 0.57,
+                "showAxes": true,
+                "showGrid": false,
+                "cameraPosition": {"x": 30.0, "y": 20.0, "z": 10.0},
+                "cameraTarget": {"x": 0.0, "y": 0.0, "z": 0.0}
+              },
+              "staticAsset": {
+                "mode": "create",
+                "staticAsset": {
+                  "id": "editor-save-wall-01",
+                  "name": "事务保存墙体",
+                  "assetKind": "wall-system",
+                  "variant": "solid-wall",
+                  "position": {"x": 12.0, "y": 0.0, "z": -4.0},
+                  "rotation": {"x": 0.0, "y": 0.0, "z": 0.0},
+                  "scale": {"x": 1.0, "y": 1.0, "z": 1.0},
+                  "visible": true,
+                  "metadata": {"catalogId": "wall-system-solid-wall"},
+                  "createdAt": 0,
+                  "updatedAt": 0
+                }
+              }
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(save_response.status(), StatusCode::OK);
+    let save_body = parse_json(save_response).await;
+    assert_eq!(save_body["sceneVersion"], json!(initial_version + 1));
+    assert_eq!(save_body["sceneConfig"]["id"], json!("editor-save-scene"));
+    assert_eq!(save_body["savedStaticAsset"]["id"], json!("editor-save-wall-01"));
+
+    let editor_bootstrap = app
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/api/v1/admin/bootstrap")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(editor_bootstrap.status(), StatusCode::OK);
+    let editor_bootstrap_body = parse_json(editor_bootstrap).await;
+    assert_eq!(editor_bootstrap_body["sceneVersion"], json!(initial_version + 1));
+    assert_eq!(editor_bootstrap_body["sceneConfig"]["name"], json!("事务保存场景"));
+    assert!(editor_bootstrap_body["staticAssets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|asset| asset["id"] == json!("editor-save-wall-01")));
+}
+
+#[tokio::test]
+async fn editor_save_rolls_back_scene_when_selection_create_fails() {
+    init_test_database_url();
+    let app = backend_core_rs::app::build_app("http://localhost:3000")
+        .await
+        .expect("app should build");
+
+    let existing_entity_response = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/admin/entities",
+            json!({
+              "id": "entity-save-duplicate-01",
+              "type": "equipment",
+              "name": "已存在设备",
+              "position": {"x": 0.0, "y": 0.0, "z": 0.0},
+              "rotation": {"x": 0.0, "y": 0.0, "z": 0.0},
+              "scale": {"x": 1.0, "y": 1.0, "z": 1.0},
+              "status": "active",
+              "visible": true,
+              "metadata": {},
+              "modelId": "",
+              "parameters": {},
+              "alarms": [],
+              "createdAt": 0,
+              "updatedAt": 0
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(existing_entity_response.status(), StatusCode::OK);
+
+    let before_scene = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/api/v1/admin/scene")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(before_scene.status(), StatusCode::OK);
+    let before_scene_body = parse_json(before_scene).await;
+    let before_version = before_scene_body["sceneVersion"].as_u64().unwrap();
+    let before_scene_id = before_scene_body["sceneConfig"]["id"].clone();
+
+    let failed_save = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/admin/editor-save",
+            json!({
+              "sceneConfig": {
+                "id": "should-not-persist",
+                "name": "失败后不应落库",
+                "gridSize": 64,
+                "gridDivisions": 32,
+                "backgroundColor": "#000000",
+                "ambientLightIntensity": 0.4,
+                "showAxes": true,
+                "showGrid": false,
+                "cameraPosition": {"x": 30.0, "y": 20.0, "z": 10.0},
+                "cameraTarget": {"x": 0.0, "y": 0.0, "z": 0.0}
+              },
+              "entity": {
+                "mode": "create",
+                "entity": {
+                  "id": "entity-save-duplicate-01",
+                  "type": "equipment",
+                  "name": "重复设备",
+                  "position": {"x": 1.0, "y": 0.0, "z": 1.0},
+                  "rotation": {"x": 0.0, "y": 0.0, "z": 0.0},
+                  "scale": {"x": 1.0, "y": 1.0, "z": 1.0},
+                  "status": "active",
+                  "visible": true,
+                  "metadata": {},
+                  "modelId": "",
+                  "parameters": {},
+                  "alarms": [],
+                  "createdAt": 0,
+                  "updatedAt": 0
+                }
+              }
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(failed_save.status(), StatusCode::BAD_REQUEST);
+    let failed_save_body = parse_json(failed_save).await;
+    assert!(failed_save_body["error"]
+        .as_str()
+        .unwrap()
+        .contains("already exists"));
+
+    let after_scene = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/api/v1/admin/scene")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(after_scene.status(), StatusCode::OK);
+    let after_scene_body = parse_json(after_scene).await;
+    assert_eq!(after_scene_body["sceneVersion"], json!(before_version));
+    assert_eq!(after_scene_body["sceneConfig"]["id"], before_scene_id);
+}
+
+#[tokio::test]
 async fn overview_alarm_and_audit_endpoints_reflect_admin_state() {
     init_test_database_url();
     let app = backend_core_rs::app::build_app("http://localhost:3000")
@@ -471,11 +672,451 @@ async fn static_asset_crud_and_bootstrap_flow_works() {
 }
 
 #[tokio::test]
-async fn publish_promotes_working_changes_into_site_bootstrap_and_status() {
+async fn building_shell_and_smart_assets_round_trip_through_admin_bootstrap() {
     init_test_database_url();
     let app = backend_core_rs::app::build_app("http://localhost:3000")
         .await
         .expect("app should build");
+
+    let wall_asset = json!({
+      "id": "static-asset-wall-01",
+      "name": "南侧实体墙",
+      "assetKind": "wall-system",
+      "variant": "solid-wall",
+      "position": {"x": 8.0, "y": 0.0, "z": 4.0},
+      "rotation": {"x": 0.0, "y": 0.0, "z": 0.0},
+      "scale": {"x": 1.0, "y": 1.0, "z": 1.0},
+      "visible": true,
+      "metadata": {
+        "catalogId": "wall-system-solid-wall",
+        "domain": "building-shell"
+      },
+      "createdAt": 0,
+      "updatedAt": 0
+    });
+
+    let control_asset = json!({
+      "id": "static-asset-lock-01",
+      "name": "入户智能门锁",
+      "assetKind": "smart-control",
+      "variant": "smart-lock",
+      "position": {"x": 8.6, "y": 1.05, "z": 4.0},
+      "rotation": {"x": 0.0, "y": 0.0, "z": 0.0},
+      "scale": {"x": 1.0, "y": 1.0, "z": 1.0},
+      "visible": true,
+      "metadata": {
+        "catalogId": "smart-control-smart-lock",
+        "domain": "smart-home",
+        "hostStaticAssetId": "static-asset-wall-01"
+      },
+      "createdAt": 0,
+      "updatedAt": 0
+    });
+
+    let wall_response = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/admin/static-assets",
+            wall_asset,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(wall_response.status(), StatusCode::OK);
+    let wall_body = parse_json(wall_response).await;
+    assert_eq!(wall_body["assetKind"], json!("wall-system"));
+
+    let control_response = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/admin/static-assets",
+            control_asset,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(control_response.status(), StatusCode::OK);
+    let control_body = parse_json(control_response).await;
+    assert_eq!(control_body["assetKind"], json!("smart-control"));
+
+    let editor_bootstrap_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/api/v1/admin/bootstrap")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(editor_bootstrap_response.status(), StatusCode::OK);
+    let editor_bootstrap_body = parse_json(editor_bootstrap_response).await;
+    let editor_static_assets = editor_bootstrap_body["staticAssets"].as_array().unwrap();
+    assert_eq!(editor_static_assets.len(), 2);
+    assert!(editor_static_assets
+        .iter()
+        .any(|asset| asset["assetKind"] == json!("wall-system")));
+    assert!(editor_static_assets
+        .iter()
+        .any(|asset| asset["assetKind"] == json!("smart-control")));
+}
+
+#[tokio::test]
+async fn editor_save_batches_scene_and_entity_create_with_single_version_bump() {
+    init_test_database_url();
+    let app = backend_core_rs::app::build_app("http://localhost:3000")
+        .await
+        .expect("app should build");
+
+    let initial_scene = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/api/v1/admin/scene")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(initial_scene.status(), StatusCode::OK);
+    let initial_scene_body = parse_json(initial_scene).await;
+    let initial_version = initial_scene_body["sceneVersion"].as_u64().unwrap();
+
+    let save_response = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/admin/editor-save",
+            json!({
+              "sceneConfig": {
+                "id": "editor-save-scene",
+                "name": "批量保存场景",
+                "gridSize": 96,
+                "gridDivisions": 48,
+                "backgroundColor": "#162230",
+                "ambientLightIntensity": 0.57,
+                "showAxes": true,
+                "showGrid": false,
+                "cameraPosition": {"x": 24.0, "y": 18.0, "z": 20.0},
+                "cameraTarget": {"x": 4.0, "y": 0.0, "z": -2.0}
+              },
+              "entity": {
+                "mode": "create",
+                "entity": {
+                  "id": "entity-editor-save-01",
+                  "type": "person",
+                  "name": "批量保存巡检员",
+                  "position": {"x": 6.0, "y": 0.0, "z": -4.0},
+                  "rotation": {"x": 0.0, "y": 0.0, "z": 0.0},
+                  "scale": {"x": 1.0, "y": 1.0, "z": 1.0},
+                  "status": "active",
+                  "visible": true,
+                  "metadata": {},
+                  "role": "巡检",
+                  "department": "运维",
+                  "schedule": [],
+                  "createdAt": 0,
+                  "updatedAt": 0
+                }
+              }
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(save_response.status(), StatusCode::OK);
+    let save_body = parse_json(save_response).await;
+    assert_eq!(save_body["sceneVersion"], json!(initial_version + 1));
+    assert_eq!(save_body["sceneConfig"]["id"], json!("editor-save-scene"));
+    assert_eq!(
+        save_body["savedEntity"]["id"],
+        json!("entity-editor-save-01")
+    );
+
+    let editor_bootstrap = app
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/api/v1/admin/bootstrap")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(editor_bootstrap.status(), StatusCode::OK);
+    let editor_bootstrap_body = parse_json(editor_bootstrap).await;
+    assert_eq!(
+        editor_bootstrap_body["sceneVersion"],
+        json!(initial_version + 1)
+    );
+    assert_eq!(
+        editor_bootstrap_body["sceneConfig"]["id"],
+        json!("editor-save-scene")
+    );
+    assert!(editor_bootstrap_body["entities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|entity| entity["id"] == json!("entity-editor-save-01")));
+}
+
+#[tokio::test]
+async fn editor_save_rolls_back_scene_changes_when_selection_write_fails() {
+    init_test_database_url();
+    let app = backend_core_rs::app::build_app("http://localhost:3000")
+        .await
+        .expect("app should build");
+
+    let initial_scene = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/api/v1/admin/scene")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(initial_scene.status(), StatusCode::OK);
+    let initial_scene_body = parse_json(initial_scene).await;
+
+    let failed_save = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/admin/editor-save",
+            json!({
+              "sceneConfig": {
+                "id": "rolled-back-scene",
+                "name": "不应落库的场景",
+                "gridSize": 120,
+                "gridDivisions": 60,
+                "backgroundColor": "#2a1721",
+                "ambientLightIntensity": 0.7,
+                "showAxes": true,
+                "showGrid": false,
+                "cameraPosition": {"x": 22.0, "y": 16.0, "z": 18.0},
+                "cameraTarget": {"x": 2.0, "y": 0.0, "z": -1.0}
+              },
+              "entity": {
+                "mode": "create",
+                "entity": {
+                  "id": "person-operator-01",
+                  "type": "person",
+                  "name": "重复 ID 巡检员",
+                  "position": {"x": 1.0, "y": 0.0, "z": 1.0},
+                  "rotation": {"x": 0.0, "y": 0.0, "z": 0.0},
+                  "scale": {"x": 1.0, "y": 1.0, "z": 1.0},
+                  "status": "active",
+                  "visible": true,
+                  "metadata": {},
+                  "role": "巡检",
+                  "department": "运维",
+                  "schedule": [],
+                  "createdAt": 0,
+                  "updatedAt": 0
+                }
+              }
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(failed_save.status(), StatusCode::BAD_REQUEST);
+
+    let scene_after_failure = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/api/v1/admin/scene")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(scene_after_failure.status(), StatusCode::OK);
+    let scene_after_failure_body = parse_json(scene_after_failure).await;
+    assert_eq!(
+        scene_after_failure_body["sceneVersion"],
+        initial_scene_body["sceneVersion"]
+    );
+    assert_eq!(
+        scene_after_failure_body["sceneConfig"],
+        initial_scene_body["sceneConfig"]
+    );
+}
+
+#[tokio::test]
+async fn editor_save_updates_static_asset_and_publish_works_afterwards() {
+    init_test_database_url();
+    let harness = PublishTestHarness::new();
+    let app = backend_core_rs::app::build_app_with_options(
+        "http://localhost:3000",
+        AppBuildOptions {
+            publish_config: harness.publish_config(),
+        },
+    )
+    .await
+    .expect("app should build");
+
+    let create_asset_response = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/admin/static-assets",
+            json!({
+              "id": "static-asset-editor-save-01",
+              "name": "编辑器保存测试罐体",
+              "assetKind": "vertical-tank",
+              "variant": "fixed-roof",
+              "position": {"x": 24.0, "y": 0.0, "z": -11.0},
+              "rotation": {"x": 0.0, "y": 0.0, "z": 0.0},
+              "scale": {"x": 1.0, "y": 1.0, "z": 1.0},
+              "visible": true,
+              "metadata": {"catalogId": "vertical-tank-fixed-roof"},
+              "createdAt": 0,
+              "updatedAt": 0
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(create_asset_response.status(), StatusCode::OK);
+
+    let scene_before_save = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/api/v1/admin/scene")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let scene_before_save_body = parse_json(scene_before_save).await;
+    let version_before_save = scene_before_save_body["sceneVersion"].as_u64().unwrap();
+
+    let save_response = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/admin/editor-save",
+            json!({
+              "sceneConfig": {
+                "id": "editor-save-publish-scene",
+                "name": "编辑器保存发布场景",
+                "gridSize": 88,
+                "gridDivisions": 44,
+                "backgroundColor": "#13212f",
+                "ambientLightIntensity": 0.63,
+                "showAxes": false,
+                "showGrid": true,
+                "cameraPosition": {"x": 20.0, "y": 15.0, "z": 19.0},
+                "cameraTarget": {"x": 2.0, "y": 0.0, "z": -1.0}
+              },
+              "staticAsset": {
+                "mode": "update",
+                "staticAsset": {
+                  "id": "static-asset-editor-save-01",
+                  "name": "编辑器保存后罐体",
+                  "assetKind": "vertical-tank",
+                  "variant": "fixed-roof",
+                  "position": {"x": 30.0, "y": 0.0, "z": -9.0},
+                  "rotation": {"x": 0.0, "y": 0.35, "z": 0.0},
+                  "scale": {"x": 1.0, "y": 1.0, "z": 1.0},
+                  "visible": true,
+                  "metadata": {"catalogId": "vertical-tank-fixed-roof"},
+                  "createdAt": 0,
+                  "updatedAt": 0
+                }
+              }
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(save_response.status(), StatusCode::OK);
+    let save_body = parse_json(save_response).await;
+    assert_eq!(save_body["sceneVersion"], json!(version_before_save + 1));
+    assert_eq!(
+        save_body["savedStaticAsset"]["name"],
+        json!("编辑器保存后罐体")
+    );
+
+    let publish_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/v1/admin/publish")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(publish_response.status(), StatusCode::OK);
+
+    let site_bootstrap = app
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/api/v1/site/bootstrap")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(site_bootstrap.status(), StatusCode::OK);
+    let site_bootstrap_body = parse_json(site_bootstrap).await;
+    assert_eq!(
+        site_bootstrap_body["sceneConfig"]["id"],
+        json!("editor-save-publish-scene")
+    );
+    assert!(site_bootstrap_body["staticAssets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|asset| {
+            asset["id"] == json!("static-asset-editor-save-01")
+                && asset["name"] == json!("编辑器保存后罐体")
+        }));
+}
+
+#[tokio::test]
+async fn publish_promotes_working_changes_into_site_bootstrap_and_status() {
+    init_test_database_url();
+    let harness = PublishTestHarness::new();
+    let app = backend_core_rs::app::build_app_with_options(
+        "http://localhost:3000",
+        AppBuildOptions {
+            publish_config: harness.publish_config(),
+        },
+    )
+    .await
+    .expect("app should build");
+
+    let update_scene_response = app
+        .clone()
+        .oneshot(json_request(
+            Method::PUT,
+            "/api/v1/admin/scene",
+            json!({
+              "id": "ibms-publish-scene",
+              "name": "楼宇发布联调场景",
+              "gridSize": 80,
+              "gridDivisions": 80,
+              "backgroundColor": "#10151d",
+              "ambientLightIntensity": 0.62,
+              "showAxes": false,
+              "showGrid": true,
+              "cameraPosition": {"x": 18.0, "y": 14.0, "z": 22.0},
+              "cameraTarget": {"x": 2.0, "y": 0.0, "z": -1.0}
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(update_scene_response.status(), StatusCode::OK);
 
     let create_asset_response = app
         .clone()
@@ -537,12 +1178,13 @@ async fn publish_promotes_working_changes_into_site_bootstrap_and_status() {
     let publish_body = parse_json(publish_response).await;
     assert_eq!(publish_body["status"], json!("published"));
     assert_eq!(publish_body["hasUnpublishedChanges"], json!(false));
-    assert_eq!(publish_body["compilerSource"], json!("campus-layout"));
+    assert_eq!(publish_body["compilerSource"], json!("working-snapshot"));
     assert!(publish_body["lastPublishedVersion"].is_string());
-    assert!(publish_body["publishedScene"]["packageUrl"]
+    let package_url = publish_body["publishedScene"]["packageUrl"]
         .as_str()
         .unwrap()
-        .contains("/generated/published-static/versions/"));
+        .to_string();
+    assert!(package_url.contains("/generated/published-static/versions/"));
 
     let site_bootstrap = app
         .oneshot(
@@ -562,10 +1204,157 @@ async fn publish_promotes_working_changes_into_site_bootstrap_and_status() {
         site_static_assets[0]["id"],
         json!("static-asset-publish-01")
     );
+    assert_eq!(
+        site_bootstrap_body["sceneConfig"]["id"],
+        json!("ibms-publish-scene")
+    );
     assert!(site_bootstrap_body["publishedScene"]["packageUrl"]
         .as_str()
         .unwrap()
         .contains("/generated/published-static/versions/"));
+
+    let package_path = harness
+        .generated_root
+        .join(package_url.trim_start_matches("/generated/published-static/"));
+    let package_payload = fs::read_to_string(package_path).expect("package file should exist");
+    let package_body = serde_json::from_str::<Value>(&package_payload).unwrap();
+    assert_eq!(package_body["sceneId"], json!("ibms-publish-scene"));
+    assert_eq!(package_body["source"], json!("working-snapshot"));
+    assert_eq!(
+        package_body["sceneConfig"]["backgroundColor"],
+        json!("#10151d")
+    );
+}
+
+#[tokio::test]
+async fn expanded_editor_static_asset_kinds_round_trip_through_admin_and_publish() {
+    init_test_database_url();
+    let harness = PublishTestHarness::new();
+    let app = backend_core_rs::app::build_app_with_options(
+        "http://localhost:3000",
+        AppBuildOptions {
+            publish_config: harness.publish_config(),
+        },
+    )
+    .await
+    .expect("app should build");
+
+    let assets = [
+        (
+            "wall-system-solid-wall",
+            "wall-system",
+            "solid-wall",
+            json!({"catalogId": "wall-system-solid-wall", "domain": "building-shell"}),
+        ),
+        (
+            "door-system-single-swing",
+            "door-system",
+            "single-swing",
+            json!({
+                "catalogId": "door-system-single-swing",
+                "domain": "building-shell",
+                "hostStaticAssetId": "wall-system-solid-wall"
+            }),
+        ),
+        (
+            "window-system-casement-window",
+            "window-system",
+            "casement-window",
+            json!({
+                "catalogId": "window-system-casement-window",
+                "domain": "building-shell",
+                "hostStaticAssetId": "wall-system-solid-wall"
+            }),
+        ),
+        (
+            "security-device-access-reader",
+            "security-device",
+            "access-reader",
+            json!({"catalogId": "security-device-access-reader", "domain": "ibms-device"}),
+        ),
+        (
+            "smart-sensor-occupancy-sensor",
+            "smart-sensor",
+            "occupancy-sensor",
+            json!({"catalogId": "smart-sensor-occupancy-sensor", "domain": "ibms-device"}),
+        ),
+        (
+            "smart-control-smart-lock",
+            "smart-control",
+            "smart-lock",
+            json!({
+                "catalogId": "smart-control-smart-lock",
+                "domain": "smart-home",
+                "hostStaticAssetId": "door-system-single-swing"
+            }),
+        ),
+    ];
+
+    for (index, (id, asset_kind, variant, metadata)) in assets.iter().enumerate() {
+        let create_response = app
+            .clone()
+            .oneshot(json_request(
+                Method::POST,
+                "/api/v1/admin/static-assets",
+                json!({
+                    "id": id,
+                    "name": format!("扩展资产 {}", index + 1),
+                    "assetKind": asset_kind,
+                    "variant": variant,
+                    "position": {"x": index as f64 * 1.5, "y": 0.0, "z": index as f64 * -0.5},
+                    "rotation": {"x": 0.0, "y": 0.0, "z": 0.0},
+                    "scale": {"x": 1.0, "y": 1.0, "z": 1.0},
+                    "visible": true,
+                    "metadata": metadata,
+                    "createdAt": 0,
+                    "updatedAt": 0
+                }),
+            ))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            create_response.status(),
+            StatusCode::OK,
+            "asset kind {asset_kind} should be accepted by admin create"
+        );
+    }
+
+    let publish_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/v1/admin/publish")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(publish_response.status(), StatusCode::OK);
+
+    let site_bootstrap = app
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/api/v1/site/bootstrap")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(site_bootstrap.status(), StatusCode::OK);
+    let site_bootstrap_body = parse_json(site_bootstrap).await;
+    let site_static_assets = site_bootstrap_body["staticAssets"].as_array().unwrap();
+
+    for (_, asset_kind, _, _) in assets {
+        assert!(
+            site_static_assets
+                .iter()
+                .any(|asset| asset["assetKind"] == json!(asset_kind)),
+            "published bootstrap should retain asset kind {asset_kind}"
+        );
+    }
 }
 
 #[tokio::test]
@@ -654,6 +1443,77 @@ async fn concurrent_publish_requests_return_conflict_while_publish_is_in_progres
     let final_status_body = parse_json(final_status).await;
     assert_eq!(final_status_body["status"], json!("published"));
     assert_eq!(final_status_body["hasUnpublishedChanges"], json!(false));
+}
+
+#[tokio::test]
+async fn publish_updates_stable_package_alias_for_fallback_bootstrap_loading() {
+    init_test_database_url();
+    let harness = PublishTestHarness::new();
+    let app = backend_core_rs::app::build_app_with_options(
+        "http://localhost:3000",
+        AppBuildOptions {
+            publish_config: harness.publish_config(),
+        },
+    )
+    .await
+    .expect("app should build");
+
+    let scene_response = app
+        .clone()
+        .oneshot(json_request(
+            Method::PUT,
+            "/api/v1/admin/scene",
+            json!({
+              "id": "snapshot-alias-scene",
+              "name": "稳定别名发布场景",
+              "gridSize": 72,
+              "gridDivisions": 36,
+              "backgroundColor": "#162230",
+              "ambientLightIntensity": 0.57,
+              "showAxes": true,
+              "showGrid": false,
+              "cameraPosition": {"x": 24.0, "y": 18.0, "z": 20.0},
+              "cameraTarget": {"x": 4.0, "y": 0.0, "z": -2.0}
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(scene_response.status(), StatusCode::OK);
+
+    let publish_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/v1/admin/publish")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(publish_response.status(), StatusCode::OK);
+    let publish_body = parse_json(publish_response).await;
+    let versioned_package_url = publish_body["publishedScene"]["packageUrl"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let stable_alias_path = harness.generated_root.join("published-scene-package.json");
+    let stable_alias_payload = fs::read_to_string(&stable_alias_path).unwrap();
+    let stable_alias_body = serde_json::from_str::<Value>(&stable_alias_payload).unwrap();
+    assert_eq!(stable_alias_body["sceneId"], json!("snapshot-alias-scene"));
+    assert_eq!(stable_alias_body["source"], json!("working-snapshot"));
+    assert_eq!(
+        stable_alias_body["sceneConfig"]["name"],
+        json!("稳定别名发布场景")
+    );
+    assert_eq!(
+        stable_alias_body["staticAssetManifestUrl"],
+        json!(format!(
+            "{}/chunk-manifest.json",
+            versioned_package_url.trim_end_matches("/published-scene-package.json")
+        ))
+    );
 }
 
 #[tokio::test]

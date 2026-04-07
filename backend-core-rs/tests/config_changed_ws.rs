@@ -1,8 +1,15 @@
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    time::{SystemTime, UNIX_EPOCH},
+};
+
 use axum::{
     body::Body,
     http::{header::CONTENT_TYPE, Method, Request},
     Router,
 };
+use backend_core_rs::app::{AppBuildOptions, PublishConfig};
 use futures_util::StreamExt;
 use serde_json::{json, Value};
 use tokio::{
@@ -16,6 +23,9 @@ use tokio_tungstenite::{
     MaybeTlsStream, WebSocketStream,
 };
 use tower::ServiceExt;
+
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 
 type TestSocket = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
 
@@ -130,9 +140,15 @@ async fn static_asset_write_pushes_config_changed_event() {
 #[tokio::test]
 async fn publish_pushes_publish_scoped_config_changed_event() {
     init_test_database_url();
-    let app = backend_core_rs::app::build_app("http://localhost:3000")
-        .await
-        .expect("app should build");
+    let harness = PublishTestHarness::new();
+    let app = backend_core_rs::app::build_app_with_options(
+        "http://localhost:3000",
+        AppBuildOptions {
+            publish_config: harness.publish_config(),
+        },
+    )
+    .await
+    .expect("app should build");
     let update_app = app.clone();
 
     let create_response = update_app
@@ -250,4 +266,73 @@ async fn spawn_app(app: Router) -> (String, JoinHandle<()>) {
 
 fn init_test_database_url() {
     std::env::set_var("DATABASE_URL", "sqlite::memory:");
+}
+
+struct PublishTestHarness {
+    root: PathBuf,
+    generated_root: PathBuf,
+    mode_file: PathBuf,
+    bun_wrapper: PathBuf,
+}
+
+impl PublishTestHarness {
+    fn new() -> Self {
+        let root = unique_test_dir("publish-ws-harness");
+        let generated_root = root.join("generated-output");
+        let mode_file = root.join("publish-mode.txt");
+        let bun_wrapper = root.join("bun-wrapper.sh");
+
+        fs::create_dir_all(&generated_root).unwrap();
+        fs::write(&mode_file, "pass\n").unwrap();
+        fs::write(
+            &bun_wrapper,
+            format!(
+                "#!/bin/sh\nMODE=$(cat {} 2>/dev/null | tr -d '\\r\\n')\ncase \"$MODE\" in\n  fail)\n    echo \"forced publish failure\" >&2\n    exit 1\n    ;;\n  *)\n    exec bun \"$@\"\n    ;;\nesac\n",
+                shell_single_quoted(&mode_file)
+            ),
+        )
+        .unwrap();
+        set_executable(&bun_wrapper);
+
+        Self {
+            root,
+            generated_root,
+            mode_file,
+            bun_wrapper,
+        }
+    }
+
+    fn publish_config(&self) -> PublishConfig {
+        let mut config = PublishConfig::default();
+        config.generated_root = self.generated_root.clone();
+        config.bun_bin = self.bun_wrapper.to_string_lossy().into_owned();
+        config
+    }
+}
+
+impl Drop for PublishTestHarness {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.root);
+    }
+}
+
+fn unique_test_dir(prefix: &str) -> PathBuf {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    std::env::temp_dir().join(format!("backend-core-rs-{prefix}-{now}"))
+}
+
+fn shell_single_quoted(path: &Path) -> String {
+    format!("'{}'", path.to_string_lossy().replace('\'', "'\"'\"'"))
+}
+
+fn set_executable(path: &Path) {
+    #[cfg(unix)]
+    {
+        let mut permissions = fs::metadata(path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(path, permissions).unwrap();
+    }
 }

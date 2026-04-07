@@ -172,9 +172,12 @@ pub async fn publish_working_snapshot(
 ) -> Result<PublishedStateRecord, PublishError> {
     let version_slug = format!("{}-{}", snapshot.scene_version, current_publish_millis());
     let publish_config = config.clone();
-    let build = task::spawn_blocking(move || run_publish_export(&publish_config, &version_slug))
-        .await
-        .map_err(|error| PublishError::Join(error.to_string()))??;
+    let snapshot_for_export = snapshot.clone();
+    let build = task::spawn_blocking(move || {
+        run_publish_export(&publish_config, &snapshot_for_export, &version_slug)
+    })
+    .await
+    .map_err(|error| PublishError::Join(error.to_string()))??;
 
     store
         .promote_working_snapshot(snapshot, Some(build.descriptor), &build.compiler_source)
@@ -184,6 +187,7 @@ pub async fn publish_working_snapshot(
 
 fn run_publish_export(
     config: &PublishConfig,
+    snapshot: &WorkingSnapshot,
     version_slug: &str,
 ) -> Result<PublishBuildOutput, PublishError> {
     let repo_root = &config.repo_root;
@@ -191,6 +195,8 @@ fn run_publish_export(
     let versions_root = generated_root.join("versions");
     let final_dir = versions_root.join(version_slug);
     let temp_public_root = generated_root.join(format!(".tmp-publish-root-{version_slug}"));
+    let temp_snapshot_path =
+        generated_root.join(format!(".tmp-publish-snapshot-{version_slug}.json"));
     let public_base_url = format!(
         "{}/versions/{version_slug}",
         config.public_base_url_root.trim_end_matches('/')
@@ -208,12 +214,15 @@ fn run_publish_export(
     }
 
     fs::create_dir_all(&versions_root)?;
+    fs::write(&temp_snapshot_path, serde_json::to_vec(snapshot)?)?;
 
     let output = Command::new(&config.bun_bin)
         .arg(&config.export_script_path)
         .arg(&temp_public_root)
         .arg("--base-url")
         .arg(&public_base_url)
+        .arg("--snapshot")
+        .arg(&temp_snapshot_path)
         .current_dir(repo_root)
         .output()?;
 
@@ -222,11 +231,17 @@ fn run_publish_export(
         let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
         let detail = if !stderr.is_empty() { stderr } else { stdout };
         let _ = fs::remove_dir_all(&temp_public_root);
+        let _ = fs::remove_file(&temp_snapshot_path);
         return Err(PublishError::CommandFailed(detail));
     }
 
     fs::rename(&temp_dir, &final_dir)?;
+    fs::copy(
+        final_dir.join("published-scene-package.json"),
+        generated_root.join("published-scene-package.json"),
+    )?;
     let _ = fs::remove_dir_all(&temp_public_root);
+    let _ = fs::remove_file(&temp_snapshot_path);
 
     let package_path = final_dir.join("published-scene-package.json");
     let package_url = format!("{public_base_url}/published-scene-package.json");

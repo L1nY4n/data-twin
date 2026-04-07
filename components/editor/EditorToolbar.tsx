@@ -1,7 +1,9 @@
 'use client'
 
 import {
+  AlertTriangle,
   Boxes,
+  CheckCircle2,
   Copy,
   Expand,
   MousePointer2,
@@ -10,19 +12,25 @@ import {
   Redo2,
   RotateCcw,
   Save,
+  Sparkles,
   Trash2,
   Undo2,
   Upload,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
+import type { EditorActivityStatus } from '@/hooks/use-editor-digital-twin'
 import { cn } from '@/lib/utils'
 import type { PublishStatus } from '@/lib/digital-twin/admin'
 import {
   getEditorSelectionKind,
   useEditorDigitalTwinStore,
 } from '@/lib/digital-twin/editor-store'
-import { getStaticAssetCatalogItem } from '@/lib/digital-twin/static-asset-catalog'
+import {
+  getStaticAssetCatalogItem,
+  getStaticAssetKindLabel,
+} from '@/lib/digital-twin/static-asset-catalog'
+import { EditorCatalogRealtimePreview } from './EditorCatalogRealtimePreview'
 
 type EditorToolbarProps = {
   onSave: () => void
@@ -31,6 +39,7 @@ type EditorToolbarProps = {
   onDelete: () => void
   canPublish: boolean
   publishStatus: PublishStatus | null
+  activityStatus: EditorActivityStatus
   className?: string
 }
 
@@ -41,6 +50,7 @@ export function EditorToolbar({
   onDelete,
   canPublish,
   publishStatus,
+  activityStatus,
   className,
 }: EditorToolbarProps) {
   const selectedEntityId = useEditorDigitalTwinStore((state) => state.selectedEntityId)
@@ -53,6 +63,7 @@ export function EditorToolbar({
   const transformMode = useEditorDigitalTwinStore((state) => state.transformMode)
   const historyLength = useEditorDigitalTwinStore((state) => state.history.length)
   const redoLength = useEditorDigitalTwinStore((state) => state.redoHistory.length)
+  const hasSceneChanges = useEditorDigitalTwinStore((state) => state.hasSceneChanges)
   const isDirty = useEditorDigitalTwinStore((state) => state.isDirty)
   const isSaving = useEditorDigitalTwinStore((state) => state.isSaving)
   const setTransformMode = useEditorDigitalTwinStore((state) => state.setTransformMode)
@@ -109,8 +120,10 @@ export function EditorToolbar({
     ? '已就绪，拖入或点击画布完成摆放'
     : selectionKind === 'static-asset'
       ? draftStaticAsset?.variant
-        ? `${draftStaticAsset.assetKind} / ${draftStaticAsset.variant}`
-        : draftStaticAsset?.assetKind ?? '静态对象'
+        ? `${getStaticAssetKindLabel(draftStaticAsset.assetKind)} / ${draftStaticAsset.variant}`
+        : draftStaticAsset
+          ? getStaticAssetKindLabel(draftStaticAsset.assetKind)
+          : '静态对象'
       : selectionKind === 'entity'
         ? `${draftEntity?.type ?? '实体'} / ${draftEntity?.status ?? 'active'}`
         : '选择对象后进入编辑'
@@ -121,6 +134,42 @@ export function EditorToolbar({
       : selectionKind === 'entity'
         ? 'Entity'
         : 'Scene'
+  const sessionBadge =
+    activityStatus.phase === 'recovering'
+      ? 'Recovering'
+      : activityStatus.phase === 'publishing'
+        ? 'Publishing'
+        : activityStatus.phase === 'saving'
+          ? 'Saving'
+          : activityStatus.phase === 'loading'
+            ? 'Syncing'
+            : activityStatus.phase === 'error'
+              ? 'Attention'
+        : 'Ready'
+  const saveLabel = isSaving
+    ? 'Saving changes'
+    : hasSelection
+      ? hasSceneChanges
+        ? 'Save selection and scene changes'
+        : 'Save current draft'
+      : 'Save scene workspace'
+  const sessionToneClass =
+    activityStatus.tone === 'danger'
+      ? 'border-[#ff9e9e]/35 bg-[#2f161a]/74 text-[#ffd5d8]'
+      : activityStatus.tone === 'warning'
+        ? 'border-[#f6bf6a]/35 bg-[#352515]/74 text-[#ffe0ad]'
+        : activityStatus.tone === 'success'
+          ? 'border-[#65c6a4]/35 bg-[#102a24]/74 text-[#c9f7e4]'
+          : activityStatus.tone === 'info'
+            ? 'border-[#7da7ff]/35 bg-[#15233c]/72 text-[#d6e4ff]'
+            : 'border-white/12 bg-white/[0.035] text-white/88'
+  const SessionIcon = activityStatus.isBusy
+    ? RefreshCw
+    : activityStatus.tone === 'danger' || activityStatus.tone === 'warning'
+      ? AlertTriangle
+      : activityStatus.tone === 'success'
+        ? CheckCircle2
+        : Sparkles
 
   return (
     <div
@@ -131,9 +180,13 @@ export function EditorToolbar({
     >
       <div className="flex flex-wrap items-center gap-1">
         <div className="editor-block flex min-w-0 items-center gap-1.5 px-1.5 py-1">
-          <div className="flex size-6 shrink-0 items-center justify-center rounded-full border border-[#7da7ff]/30 bg-[#7da7ff]/14 text-[#cfe0ff]">
-            <Boxes className="size-3.5" />
-          </div>
+          {armedCatalogItem ? (
+            <EditorCatalogRealtimePreview item={armedCatalogItem} />
+          ) : (
+            <div className="flex size-6 shrink-0 items-center justify-center rounded-full border border-[#7da7ff]/30 bg-[#7da7ff]/14 text-[#cfe0ff]">
+              <Boxes className="size-3.5" />
+            </div>
+          )}
 
           <div className="min-w-0 flex-1">
             <p className="editor-kicker">Context</p>
@@ -146,6 +199,26 @@ export function EditorToolbar({
         </div>
 
         <div className="flex flex-1 flex-wrap items-center justify-end gap-1">
+          <div
+            data-editor-session-state={activityStatus.phase}
+            className={cn(
+              'editor-block flex min-w-[13rem] items-center gap-2 px-2 py-1.5',
+              sessionToneClass
+            )}
+          >
+            <div className="flex size-7 shrink-0 items-center justify-center rounded-full border border-current/20 bg-black/10">
+              <SessionIcon className={cn('size-3.5', activityStatus.isBusy && 'animate-spin')} />
+            </div>
+
+            <div className="flex min-w-0 flex-1 flex-col">
+              <span className="editor-kicker">Session</span>
+              <span className="truncate text-[12px] font-semibold">{activityStatus.title}</span>
+              <span className="truncate text-[11px] opacity-80">{activityStatus.detail}</span>
+            </div>
+
+            <span className="editor-pill shrink-0 border-current/25 bg-black/10">{sessionBadge}</span>
+          </div>
+
           <div
             className={cn(
               'editor-block flex min-w-[13rem] items-center gap-2 px-2 py-1.5',
@@ -178,54 +251,51 @@ export function EditorToolbar({
 
           <Button
             variant="ghost"
-            size="sm"
-            className={cn('editor-control', transformMode === 'select' && 'is-active')}
+            size="icon-sm"
+            className={cn('editor-control editor-tool-control', transformMode === 'select' && 'is-active')}
             aria-label="Switch tool to select"
             title="Switch tool to select"
             onClick={() => setTransformMode('select')}
           >
             <MousePointer2 className="size-4" />
-            Select
           </Button>
-          {hasDraftSelection ? (
-            <>
-              <Button
-                variant="ghost"
-                size="sm"
-                className={cn('editor-control', transformMode === 'translate' && 'is-active')}
-                aria-label="Switch tool to move"
-                title="Switch tool to move"
-                onClick={() => setTransformMode('translate')}
-              >
-                <Move className="size-4" />
-                Move
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                className={cn('editor-control', transformMode === 'rotate' && 'is-active')}
-                aria-label="Switch tool to rotate"
-                title="Switch tool to rotate"
-                onClick={() => setTransformMode('rotate')}
-              >
-                <RotateCcw className="size-4" />
-                Rotate
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                className={cn('editor-control', transformMode === 'scale' && 'is-active')}
-                aria-label="Switch tool to scale"
-                title="Switch tool to scale"
-                onClick={() => setTransformMode('scale')}
-              >
-                <Expand className="size-4" />
-                Scale
-              </Button>
-            </>
-          ) : null}
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className={cn('editor-control editor-tool-control', transformMode === 'translate' && 'is-active')}
+            aria-label="Switch tool to move"
+            title="Switch tool to move"
+            onClick={() => setTransformMode('translate')}
+            disabled={!hasDraftSelection}
+          >
+            <Move className="size-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className={cn('editor-control editor-tool-control', transformMode === 'rotate' && 'is-active')}
+            aria-label="Switch tool to rotate"
+            title="Switch tool to rotate"
+            onClick={() => setTransformMode('rotate')}
+            disabled={!hasDraftSelection}
+          >
+            <RotateCcw className="size-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className={cn('editor-control editor-tool-control', transformMode === 'scale' && 'is-active')}
+            aria-label="Switch tool to scale"
+            title="Switch tool to scale"
+            onClick={() => setTransformMode('scale')}
+            disabled={!hasDraftSelection}
+          >
+            <Expand className="size-4" />
+          </Button>
 
-          {hasHistory ? <Separator orientation="vertical" className="editor-separator hidden lg:block" /> : null}
+          {hasHistory ? (
+            <Separator orientation="vertical" className="editor-separator hidden lg:block" />
+          ) : null}
 
           {hasHistory ? (
             <>
@@ -257,21 +327,20 @@ export function EditorToolbar({
           {hasSelection ? (
             <Button
               variant="ghost"
-              size="sm"
+              size="icon-sm"
               className="editor-control"
               onClick={onDuplicate}
               aria-label="Duplicate selected object"
               title="Duplicate selected object"
             >
               <Copy className="size-4" />
-              Duplicate
             </Button>
           ) : null}
 
           {hasSelection ? (
             <Button
               variant="ghost"
-              size="sm"
+              size="icon-sm"
               className="editor-control is-danger"
               onClick={onDelete}
               disabled={isSaving}
@@ -279,22 +348,20 @@ export function EditorToolbar({
               title="Delete selected object"
             >
               <Trash2 className="size-4" />
-              Delete
             </Button>
           ) : null}
 
           {isDirty || isSaving ? (
             <Button
               variant="ghost"
-              size="sm"
+              size="icon-sm"
               className="editor-control is-primary"
               onClick={onSave}
               disabled={!isDirty || isSaving}
-              aria-label={isSaving ? 'Saving current draft' : 'Save current draft'}
-              title={isSaving ? 'Saving current draft' : 'Save current draft'}
+              aria-label={saveLabel}
+              title={saveLabel}
             >
               <Save className="size-4" />
-              {isSaving ? 'Saving' : 'Save'}
             </Button>
           ) : null}
         </div>

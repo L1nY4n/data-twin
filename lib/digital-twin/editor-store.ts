@@ -12,6 +12,8 @@ import type {
   CameraPreset,
   Entity,
   SceneConfig,
+  StaticAssetPlacement,
+  StaticAssetPlacementPreview,
   StaticAssetInstance,
   Vector3,
   ViewMode,
@@ -40,6 +42,10 @@ interface EditorSelectionMarquee {
   height: number
 }
 
+interface HydrateEditorOptions {
+  preserveEditorCameraPose?: boolean
+}
+
 type TransformableDraft = Entity | StaticAssetInstance
 type TransformField = keyof TransformSnapshot
 type EditableDraftPatch = Pick<TransformableDraft, 'name' | 'visible'>
@@ -47,6 +53,7 @@ type EditableDraftPatch = Pick<TransformableDraft, 'name' | 'visible'>
 interface EditorDigitalTwinState {
   publishedScenePackage: PublishedScenePackage
   sceneConfig: SceneConfig
+  savedSceneConfig: SceneConfig
   entities: Map<string, Entity>
   staticAssets: Map<string, StaticAssetInstance>
   selectedEntityId: string | null
@@ -59,11 +66,13 @@ interface EditorDigitalTwinState {
   viewportProjection: EditorViewportProjection
   cameraPresets: CameraPreset[]
   activeCameraPreset: string | null
+  editorCameraPosition: Vector3
+  editorCameraTarget: Vector3
   cameraFocusRequest: CameraFocusRequest | null
   snapEnabled: boolean
   translateSnap: number
   rotateSnapDegrees: number
-  placementPreview: Vector3 | null
+  placementPreview: StaticAssetPlacementPreview | null
   draftEntity: Entity | null
   savedEntity: Entity | null
   draftStaticAsset: StaticAssetInstance | null
@@ -71,6 +80,8 @@ interface EditorDigitalTwinState {
   transformSessionStart: TransformSnapshot | null
   history: TransformSnapshot[]
   redoHistory: TransformSnapshot[]
+  hasSceneChanges: boolean
+  hasSelectionChanges: boolean
   isDirty: boolean
   isLoading: boolean
   isSaving: boolean
@@ -83,7 +94,8 @@ interface EditorDigitalTwinState {
 interface EditorDigitalTwinActions {
   hydrateFromBootstrap: (
     payload: BootstrapPayload,
-    publishedScenePackage: PublishedScenePackage
+    publishedScenePackage: PublishedScenePackage,
+    options?: HydrateEditorOptions
   ) => void
   setLoading: (loading: boolean) => void
   setSaving: (saving: boolean) => void
@@ -93,18 +105,19 @@ interface EditorDigitalTwinActions {
   setHoveredEntity: (id: string | null) => void
   setHoveredStaticAsset: (id: string | null) => void
   armStaticAssetPlacement: (catalogId: string | null) => void
-  placeStaticAsset: (position: Vector3) => StaticAssetInstance | null
+  placeStaticAsset: (placement: StaticAssetPlacement) => StaticAssetInstance | null
   setTransformMode: (mode: EditorTransformMode) => void
   setViewMode: (mode: ViewMode) => void
   setViewportProjection: (projection: EditorViewportProjection) => void
   setSceneConfig: (config: Partial<SceneConfig>) => void
+  setEditorCameraPose: (position: Vector3, target: Vector3) => void
   focusCameraPreset: (presetId: string) => void
   focusCameraDirection: (direction: EditorCameraDirection) => void
   clearCameraFocusRequest: () => void
   setSnapEnabled: (enabled: boolean) => void
   setTranslateSnap: (value: number) => void
   setRotateSnapDegrees: (value: number) => void
-  setPlacementPreview: (position: Vector3 | null) => void
+  setPlacementPreview: (placement: StaticAssetPlacementPreview | null) => void
   setTransformDragging: (dragging: boolean) => void
   setMarqueeSelecting: (selecting: boolean) => void
   setSelectionMarquee: (marquee: EditorSelectionMarquee | null) => void
@@ -122,7 +135,7 @@ interface EditorDigitalTwinActions {
   duplicateSelection: () => Entity | StaticAssetInstance | null
   placeStaticAssetFromCatalog: (
     catalogId: string,
-    position: Vector3
+    placement: StaticAssetPlacement
   ) => StaticAssetInstance | null
   undo: () => void
   redo: () => void
@@ -144,6 +157,35 @@ export function getEditorSelectionKind(
   if (state.selectedStaticAssetId) return 'static-asset'
   if (state.selectedEntityId) return 'entity'
   return null
+}
+
+export function hasEditorSceneConfigChanged(current: SceneConfig, saved: SceneConfig) {
+  return (
+    current.id !== saved.id ||
+    current.name !== saved.name ||
+    current.gridSize !== saved.gridSize ||
+    current.gridDivisions !== saved.gridDivisions ||
+    current.backgroundColor !== saved.backgroundColor ||
+    current.ambientLightIntensity !== saved.ambientLightIntensity ||
+    current.showAxes !== saved.showAxes ||
+    current.showGrid !== saved.showGrid
+  )
+}
+
+export function buildEditorSceneSavePayload(current: SceneConfig, saved: SceneConfig): SceneConfig {
+  return {
+    ...current,
+    cameraPosition: cloneVector(saved.cameraPosition),
+    cameraTarget: cloneVector(saved.cameraTarget),
+  }
+}
+
+function createEditorDirtyState(sceneDirty: boolean, selectionDirty: boolean) {
+  return {
+    hasSceneChanges: sceneDirty,
+    hasSelectionChanges: selectionDirty,
+    isDirty: sceneDirty || selectionDirty,
+  }
 }
 
 function cloneVector(value: Vector3): Vector3 {
@@ -168,12 +210,14 @@ function snapNumber(value: number, step: number) {
 
 function createDirectionalFocusRequest(
   direction: EditorCameraDirection,
-  sceneConfig: SceneConfig
+  cameraPosition: Vector3,
+  cameraTarget: Vector3,
+  targetOverride?: Vector3
 ): CameraFocusRequest {
-  const target = cloneVector(sceneConfig.cameraTarget)
-  const deltaX = sceneConfig.cameraPosition.x - target.x
-  const deltaY = sceneConfig.cameraPosition.y - target.y
-  const deltaZ = sceneConfig.cameraPosition.z - target.z
+  const target = cloneVector(targetOverride ?? cameraTarget)
+  const deltaX = cameraPosition.x - target.x
+  const deltaY = cameraPosition.y - target.y
+  const deltaZ = cameraPosition.z - target.z
   const horizontalRadius = Math.max(48, Math.hypot(deltaX, deltaZ))
   const orbitHeight = Math.max(24, Math.abs(deltaY))
 
@@ -264,6 +308,15 @@ function getActiveSaved(state: EditorDigitalTwinState): TransformableDraft | nul
   return state.savedStaticAsset ?? state.savedEntity
 }
 
+function getDirectionalFocusTarget(state: EditorDigitalTwinState): Vector3 {
+  const activeDraft = getActiveDraft(state)
+  if (activeDraft) {
+    return cloneVector(activeDraft.position)
+  }
+
+  return cloneVector(state.editorCameraTarget)
+}
+
 function createDraftPatch(
   state: EditorDigitalTwinState,
   draft: TransformableDraft
@@ -273,7 +326,7 @@ function createDraftPatch(
     : { draftEntity: draft as Entity }
 }
 
-function clearSelectionState() {
+function clearSelectionState(sceneDirty = false) {
   return {
     placementCatalogId: null,
     placementPreview: null,
@@ -288,7 +341,7 @@ function clearSelectionState() {
     isMarqueeSelecting: false,
     history: [] as TransformSnapshot[],
     redoHistory: [] as TransformSnapshot[],
-    isDirty: false,
+    ...createEditorDirtyState(sceneDirty, false),
   }
 }
 
@@ -305,6 +358,7 @@ const DEFAULT_ROTATE_SNAP_DEGREES = 15
 const initialState: EditorDigitalTwinState = {
   publishedScenePackage: defaultPublishedScenePackage,
   sceneConfig: cloneSceneDraft(defaultPublishedScenePackage.sceneConfig),
+  savedSceneConfig: cloneSceneDraft(defaultPublishedScenePackage.sceneConfig),
   entities: new Map(),
   staticAssets: new Map(),
   selectedEntityId: null,
@@ -317,6 +371,8 @@ const initialState: EditorDigitalTwinState = {
   viewportProjection: 'perspective',
   cameraPresets: defaultCameraPresets,
   activeCameraPreset: defaultCameraPresets[0]?.id ?? null,
+  editorCameraPosition: cloneVector(defaultPublishedScenePackage.sceneConfig.cameraPosition),
+  editorCameraTarget: cloneVector(defaultPublishedScenePackage.sceneConfig.cameraTarget),
   cameraFocusRequest: null,
   snapEnabled: false,
   translateSnap: DEFAULT_TRANSLATE_SNAP,
@@ -329,6 +385,8 @@ const initialState: EditorDigitalTwinState = {
   transformSessionStart: null,
   history: [],
   redoHistory: [],
+  hasSceneChanges: false,
+  hasSelectionChanges: false,
   isDirty: false,
   isLoading: true,
   isSaving: false,
@@ -341,11 +399,17 @@ const initialState: EditorDigitalTwinState = {
 export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, get) => ({
   ...initialState,
 
-  hydrateFromBootstrap: (payload, publishedScenePackage) =>
+  hydrateFromBootstrap: (payload, publishedScenePackage, options) =>
     set((state) => {
       const entities = new Map(payload.entities.map((entity) => [entity.id, entity]))
       const staticAssets = new Map(payload.staticAssets.map((asset) => [asset.id, asset]))
       const cameraPresets = cloneCameraPresets(publishedScenePackage.cameraPresets)
+      const editorCameraPosition = options?.preserveEditorCameraPose
+        ? cloneVector(state.editorCameraPosition)
+        : cloneVector(payload.sceneConfig.cameraPosition)
+      const editorCameraTarget = options?.preserveEditorCameraPose
+        ? cloneVector(state.editorCameraTarget)
+        : cloneVector(payload.sceneConfig.cameraTarget)
       const selectedStaticAsset =
         state.selectedStaticAssetId === null
           ? null
@@ -357,12 +421,15 @@ export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, ge
         return {
           publishedScenePackage,
           sceneConfig: cloneSceneDraft(payload.sceneConfig),
+          savedSceneConfig: cloneSceneDraft(payload.sceneConfig),
           cameraPresets,
           activeCameraPreset: cameraPresets.some(
             (preset) => preset.id === state.activeCameraPreset
           )
             ? state.activeCameraPreset
             : cameraPresets[0]?.id ?? null,
+          editorCameraPosition,
+          editorCameraTarget,
           cameraFocusRequest: null,
           entities,
           staticAssets,
@@ -384,7 +451,7 @@ export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, ge
           history: [],
           redoHistory: [],
           placementPreview: null,
-          isDirty: false,
+          ...createEditorDirtyState(false, false),
         }
       }
 
@@ -393,12 +460,15 @@ export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, ge
       return {
         publishedScenePackage,
         sceneConfig: cloneSceneDraft(payload.sceneConfig),
+        savedSceneConfig: cloneSceneDraft(payload.sceneConfig),
         cameraPresets,
         activeCameraPreset: cameraPresets.some(
           (preset) => preset.id === state.activeCameraPreset
         )
           ? state.activeCameraPreset
           : cameraPresets[0]?.id ?? null,
+        editorCameraPosition,
+        editorCameraTarget,
         cameraFocusRequest: null,
         entities,
         staticAssets,
@@ -420,7 +490,7 @@ export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, ge
         history: [],
         redoHistory: [],
         placementPreview: null,
-        isDirty: false,
+        ...createEditorDirtyState(false, false),
       }
     }),
 
@@ -431,13 +501,13 @@ export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, ge
   selectEntity: (id) =>
     set((state) => {
       if (!id) {
-        return clearSelectionState()
+        return clearSelectionState(state.hasSceneChanges)
       }
 
       const entity = state.entities.get(id) ?? null
       const draftEntity = cloneEditableEntitySelection(entity)
       if (!draftEntity) {
-        return clearSelectionState()
+        return clearSelectionState(state.hasSceneChanges)
       }
 
       return {
@@ -452,14 +522,14 @@ export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, ge
         history: [],
         redoHistory: [],
         placementPreview: null,
-        isDirty: false,
+        ...createEditorDirtyState(state.hasSceneChanges, false),
       }
     }),
 
   selectStaticAsset: (id) =>
     set((state) => {
       if (!id) {
-        return clearSelectionState()
+        return clearSelectionState(state.hasSceneChanges)
       }
 
       const staticAsset =
@@ -470,7 +540,7 @@ export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, ge
           ? state.draftStaticAsset
           : null)
       if (!staticAsset) {
-        return clearSelectionState()
+        return clearSelectionState(state.hasSceneChanges)
       }
 
       return {
@@ -487,7 +557,7 @@ export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, ge
         history: [],
         redoHistory: [],
         placementPreview: null,
-        isDirty: !state.staticAssets.has(id),
+        ...createEditorDirtyState(state.hasSceneChanges, !state.staticAssets.has(id)),
       }
     }),
 
@@ -500,15 +570,16 @@ export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, ge
       placementPreview: null,
     }),
 
-  placeStaticAsset: (position) => {
+  placeStaticAsset: (placement) => {
     const { placementCatalogId } = get()
     if (!placementCatalogId) return null
 
-    return get().placeStaticAssetFromCatalog(placementCatalogId, position)
+    return get().placeStaticAssetFromCatalog(placementCatalogId, placement)
   },
 
-  placeStaticAssetFromCatalog: (catalogId, position) => {
-    const draftStaticAsset = createStaticAssetTemplateFromCatalog(catalogId, position)
+  placeStaticAssetFromCatalog: (catalogId, placement) => {
+    const draftStaticAsset = createStaticAssetTemplateFromCatalog(catalogId, placement)
+    const state = get()
     set({
       placementCatalogId: null,
       selectedEntityId: null,
@@ -522,7 +593,7 @@ export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, ge
       redoHistory: [],
       placementPreview: null,
       transformMode: 'translate',
-      isDirty: true,
+      ...createEditorDirtyState(state.hasSceneChanges, true),
     })
 
     return draftStaticAsset
@@ -532,16 +603,42 @@ export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, ge
   setViewMode: (mode) => set({ viewMode: mode }),
   setViewportProjection: (viewportProjection) => set({ viewportProjection }),
   setSceneConfig: (config) =>
-    set((state) => ({
-      sceneConfig: {
+    set((state) => {
+      const { cameraPosition, cameraTarget, ...persistentPatch } = config
+      const hasPersistentPatch = Object.keys(persistentPatch).length > 0
+      const hasCameraPosePatch = Boolean(cameraPosition || cameraTarget)
+      if (!hasPersistentPatch && !hasCameraPosePatch) return state
+
+      const sceneConfig = {
         ...state.sceneConfig,
-        ...config,
-      },
-      activeCameraPreset:
-        'cameraPosition' in config || 'cameraTarget' in config
-          ? null
-          : state.activeCameraPreset,
-    })),
+        ...persistentPatch,
+      }
+      const sceneDirty = hasPersistentPatch
+        ? hasEditorSceneConfigChanged(sceneConfig, state.savedSceneConfig)
+        : state.hasSceneChanges
+
+      return {
+        sceneConfig,
+        ...(hasCameraPosePatch
+          ? {
+              editorCameraPosition: cameraPosition
+                ? cloneVector(cameraPosition)
+                : state.editorCameraPosition,
+              editorCameraTarget: cameraTarget
+                ? cloneVector(cameraTarget)
+                : state.editorCameraTarget,
+            }
+          : {}),
+        activeCameraPreset: hasCameraPosePatch ? null : state.activeCameraPreset,
+        ...createEditorDirtyState(sceneDirty, state.hasSelectionChanges),
+      }
+    }),
+  setEditorCameraPose: (position, target) =>
+    set({
+      editorCameraPosition: cloneVector(position),
+      editorCameraTarget: cloneVector(target),
+      activeCameraPreset: null,
+    }),
   focusCameraPreset: (presetId) =>
     set((state) => {
       const preset = state.cameraPresets.find((candidate) => candidate.id === presetId)
@@ -553,26 +650,27 @@ export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, ge
           position: cloneVector(preset.position),
           target: cloneVector(preset.target),
         },
-        sceneConfig: {
-          ...state.sceneConfig,
-          cameraPosition: cloneVector(preset.position),
-          cameraTarget: cloneVector(preset.target),
-        },
+        editorCameraPosition: cloneVector(preset.position),
+        editorCameraTarget: cloneVector(preset.target),
+        ...createEditorDirtyState(state.hasSceneChanges, state.hasSelectionChanges),
       }
     }),
   focusCameraDirection: (direction) =>
     set((state) => {
-      const focusRequest = createDirectionalFocusRequest(direction, state.sceneConfig)
+      const focusRequest = createDirectionalFocusRequest(
+        direction,
+        state.editorCameraPosition,
+        state.editorCameraTarget,
+        getDirectionalFocusTarget(state)
+      )
 
       return {
         activeCameraPreset: null,
         cameraFocusRequest: focusRequest,
-        sceneConfig: {
-          ...state.sceneConfig,
-          cameraPosition: cloneVector(focusRequest.position),
-          cameraTarget: cloneVector(focusRequest.target),
-        },
+        editorCameraPosition: cloneVector(focusRequest.position),
+        editorCameraTarget: cloneVector(focusRequest.target),
         viewMode: direction === 'top' ? 'topdown' : 'orbit',
+        ...createEditorDirtyState(state.hasSceneChanges, state.hasSelectionChanges),
       }
     }),
   clearCameraFocusRequest: () => set({ cameraFocusRequest: null }),
@@ -604,9 +702,11 @@ export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, ge
         return state
       }
 
+      const selectionDirty = hasEditableDraftChanged(nextDraft, getActiveSaved(state))
+
       return {
         ...createDraftPatch(state, nextDraft),
-        isDirty: hasEditableDraftChanged(nextDraft, getActiveSaved(state)),
+        ...createEditorDirtyState(state.hasSceneChanges, selectionDirty),
       }
     }),
 
@@ -626,9 +726,11 @@ export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, ge
         updatedAt: Date.now(),
       } as TransformableDraft
 
+      const selectionDirty = hasEditableDraftChanged(nextDraft, getActiveSaved(state))
+
       return {
         ...createDraftPatch(state, nextDraft),
-        isDirty: hasEditableDraftChanged(nextDraft, getActiveSaved(state)),
+        ...createEditorDirtyState(state.hasSceneChanges, selectionDirty),
       }
     }),
 
@@ -646,9 +748,11 @@ export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, ge
         updatedAt: Date.now(),
       }
 
+      const selectionDirty = hasEditableDraftChanged(nextDraft, getActiveSaved(state))
+
       return {
         ...createDraftPatch(state, nextDraft),
-        isDirty: hasEditableDraftChanged(nextDraft, getActiveSaved(state)),
+        ...createEditorDirtyState(state.hasSceneChanges, selectionDirty),
       }
     }),
 
@@ -665,13 +769,14 @@ export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, ge
       }
 
       const nextDraft = applyTransformSnapshot(draft, nextSnapshot)
+      const selectionDirty = hasEditableDraftChanged(nextDraft, getActiveSaved(state))
 
       return {
         ...createDraftPatch(state, nextDraft),
         history: [...state.history, previousSnapshot],
         redoHistory: [],
         transformSessionStart: null,
-        isDirty: hasEditableDraftChanged(nextDraft, getActiveSaved(state)),
+        ...createEditorDirtyState(state.hasSceneChanges, selectionDirty),
       }
     }),
 
@@ -686,17 +791,22 @@ export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, ge
     set((state) => {
       if (state.draftStaticAsset) {
         const draftStaticAsset = applyTransformSnapshot(state.draftStaticAsset, snapshot)
+        const selectionDirty = hasEditableDraftChanged(
+          draftStaticAsset,
+          state.savedStaticAsset
+        )
         return {
           draftStaticAsset,
-          isDirty: hasEditableDraftChanged(draftStaticAsset, state.savedStaticAsset),
+          ...createEditorDirtyState(state.hasSceneChanges, selectionDirty),
         }
       }
 
       if (!state.draftEntity) return state
       const draftEntity = applyTransformSnapshot(state.draftEntity, snapshot)
+      const selectionDirty = hasEditableDraftChanged(draftEntity, state.savedEntity)
       return {
         draftEntity,
-        isDirty: hasEditableDraftChanged(draftEntity, state.savedEntity),
+        ...createEditorDirtyState(state.hasSceneChanges, selectionDirty),
       }
     }),
 
@@ -709,6 +819,7 @@ export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, ge
 
       const currentSnapshot = createTransformSnapshot(draft)
       const changed = hasSnapshotChanged(currentSnapshot, state.transformSessionStart)
+      const selectionDirty = hasEditableDraftChanged(draft, getActiveSaved(state))
 
       return {
         transformSessionStart: null,
@@ -716,7 +827,7 @@ export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, ge
           ? [...state.history, state.transformSessionStart]
           : state.history,
         redoHistory: changed ? [] : state.redoHistory,
-        isDirty: hasEditableDraftChanged(draft, getActiveSaved(state)),
+        ...createEditorDirtyState(state.hasSceneChanges, selectionDirty),
       }
     }),
 
@@ -752,7 +863,7 @@ export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, ge
         history: [],
         redoHistory: [],
         transformMode: 'translate',
-        isDirty: true,
+        ...createEditorDirtyState(state.hasSceneChanges, true),
       })
 
       return duplicate
@@ -785,7 +896,7 @@ export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, ge
       history: [],
       redoHistory: [],
       transformMode: 'translate',
-      isDirty: true,
+      ...createEditorDirtyState(state.hasSceneChanges, true),
     })
 
     return duplicate
@@ -807,7 +918,10 @@ export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, ge
         history: state.history.slice(0, -1),
         redoHistory: [...state.redoHistory, createTransformSnapshot(draft)],
         transformSessionStart: null,
-        isDirty: hasEditableDraftChanged(nextDraft, getActiveSaved(state)),
+        ...createEditorDirtyState(
+          state.hasSceneChanges,
+          hasEditableDraftChanged(nextDraft, getActiveSaved(state))
+        ),
       }
     }),
 
@@ -827,7 +941,10 @@ export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, ge
         history: [...state.history, createTransformSnapshot(draft)],
         redoHistory: state.redoHistory.slice(0, -1),
         transformSessionStart: null,
-        isDirty: hasEditableDraftChanged(nextDraft, getActiveSaved(state)),
+        ...createEditorDirtyState(
+          state.hasSceneChanges,
+          hasEditableDraftChanged(nextDraft, getActiveSaved(state))
+        ),
       }
     }),
 
@@ -840,13 +957,13 @@ export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, ge
           transformSessionStart: null,
           history: [],
           redoHistory: [],
-          isDirty: false,
+          ...createEditorDirtyState(state.hasSceneChanges, false),
         }
       }
 
       if (state.draftStaticAsset && !state.savedStaticAsset) {
         return {
-          ...clearSelectionState(),
+          ...clearSelectionState(state.hasSceneChanges),
           placementPreview: null,
           hoveredStaticAssetId: state.hoveredStaticAssetId,
           hoveredEntityId: state.hoveredEntityId,
@@ -860,7 +977,7 @@ export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, ge
         transformSessionStart: null,
         history: [],
         redoHistory: [],
-        isDirty: false,
+        ...createEditorDirtyState(state.hasSceneChanges, false),
       }
     }),
 

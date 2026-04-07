@@ -1,15 +1,13 @@
 'use client'
 
-import { Suspense, memo, useEffect, useMemo, useRef } from 'react'
-import { Canvas, useFrame } from '@react-three/fiber'
-import {
-  Environment,
-  OrthographicCamera,
-  OrbitControls,
-  PerspectiveCamera,
-} from '@react-three/drei'
+import { Suspense, memo, useCallback, useEffect, useMemo, useRef } from 'react'
+import type { RefObject } from 'react'
+import { Canvas, useFrame, useThree } from '@react-three/fiber'
+import { Environment, OrthographicCamera, PerspectiveCamera } from '@react-three/drei'
+import { Expand, MousePointer2, Move, RotateCcw } from 'lucide-react'
 import { useTheme } from 'next-themes'
-import type * as THREE from 'three'
+import * as THREE from 'three'
+import { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import type { OrbitControls as OrbitControlsType } from 'three-stdlib'
 import { createPublishedStaticPalette } from '@/components/digital-twin/scene/palette'
 import { SpaceGrid } from '@/components/digital-twin/scene/SpaceGrid'
@@ -24,6 +22,141 @@ import { EditorScenePicking } from './scene/EditorScenePicking'
 import { EditorStaticEnvironment } from './scene/EditorStaticEnvironment'
 import { EditorTransformGizmo } from './scene/EditorTransformGizmo'
 
+const DEFAULT_ORBIT_MOUSE_BUTTONS = {
+  LEFT: THREE.MOUSE.ROTATE,
+  MIDDLE: THREE.MOUSE.DOLLY,
+  RIGHT: THREE.MOUSE.PAN,
+}
+
+function EditorOrbitControls({
+  controlsRef,
+  enabled,
+  maxDistance,
+  maxPolarAngle,
+  minDistance,
+  minPolarAngle,
+  mouseButtons,
+  onRest,
+  target,
+}: {
+  controlsRef: RefObject<OrbitControlsType | null>
+  enabled: boolean
+  maxDistance: number
+  maxPolarAngle?: number
+  minDistance: number
+  minPolarAngle?: number
+  mouseButtons: typeof DEFAULT_ORBIT_MOUSE_BUTTONS
+  onRest: () => void
+  target: [number, number, number]
+}) {
+  const camera = useThree((state) => state.camera)
+  const gl = useThree((state) => state.gl)
+  const invalidate = useThree((state) => state.invalidate)
+  const controls = useMemo(() => new OrbitControlsImpl(camera, gl.domElement), [camera, gl])
+  const onRestRef = useRef(onRest)
+  const settleRequestedRef = useRef(false)
+
+  useEffect(() => {
+    onRestRef.current = onRest
+  }, [onRest])
+
+  useEffect(() => {
+    controlsRef.current = controls
+
+    return () => {
+      if (controlsRef.current === controls) {
+        controlsRef.current = null
+      }
+    }
+  }, [controls, controlsRef])
+
+  useEffect(() => {
+    controls.enabled = enabled
+  }, [controls, enabled])
+
+  useEffect(() => {
+    controls.enableDamping = true
+    controls.dampingFactor = 0.08
+    controls.minDistance = minDistance
+    controls.maxDistance = maxDistance
+    controls.minPolarAngle = minPolarAngle ?? 0
+    controls.maxPolarAngle = maxPolarAngle ?? Math.PI
+    controls.mouseButtons = mouseButtons
+    controls.target.set(target[0], target[1], target[2])
+    controls.update()
+    invalidate()
+  }, [
+    controls,
+    invalidate,
+    maxDistance,
+    maxPolarAngle,
+    minDistance,
+    minPolarAngle,
+    mouseButtons,
+    target,
+  ])
+
+  useEffect(() => {
+    let rafId: number | null = null
+
+    const finishSettledInteraction = () => {
+      if (!settleRequestedRef.current) return
+      settleRequestedRef.current = false
+      onRestRef.current()
+    }
+
+    const stepControls = () => {
+      rafId = null
+      if (!controls.enabled) {
+        settleRequestedRef.current = false
+        return
+      }
+      const controlsChanged = (controls.update as () => boolean)()
+      if (controlsChanged) {
+        invalidate()
+        rafId = window.requestAnimationFrame(stepControls)
+        return
+      }
+      finishSettledInteraction()
+    }
+
+    const scheduleControlsStep = () => {
+      if (rafId !== null) return
+      rafId = window.requestAnimationFrame(stepControls)
+    }
+
+    const handleChange = () => {
+      invalidate()
+    }
+
+    const handleStart = () => {
+      settleRequestedRef.current = false
+      scheduleControlsStep()
+    }
+
+    const handleEnd = () => {
+      settleRequestedRef.current = true
+      scheduleControlsStep()
+    }
+
+    controls.addEventListener('change', handleChange)
+    controls.addEventListener('start', handleStart)
+    controls.addEventListener('end', handleEnd)
+
+    return () => {
+      if (rafId !== null) {
+        window.cancelAnimationFrame(rafId)
+      }
+      controls.removeEventListener('change', handleChange)
+      controls.removeEventListener('start', handleStart)
+      controls.removeEventListener('end', handleEnd)
+      controls.dispose()
+    }
+  }, [controls, invalidate])
+
+  return <primitive object={controls} />
+}
+
 function EditorPlacementPreview() {
   const placementCatalogId = useEditorDigitalTwinStore((state) => state.placementCatalogId)
   const placementPreview = useEditorDigitalTwinStore((state) => state.placementPreview)
@@ -34,29 +167,33 @@ function EditorPlacementPreview() {
   const width = catalogItem?.dimensions.width ?? 4
   const depth = catalogItem?.dimensions.depth ?? 4
   const height = catalogItem?.dimensions.height ?? 1.5
+  const position = placementPreview.position
+  const rotation = placementPreview.rotation ?? { x: 0, y: 0, z: 0 }
+  const showGroundRing = !placementPreview.hostStaticAssetId && position.y <= 0.12
 
   return (
     <group
-      position={[
-        placementPreview.x,
-        placementPreview.y,
-        placementPreview.z,
-      ]}
+      position={[position.x, position.y, position.z]}
+      rotation={[rotation.x, rotation.y, rotation.z]}
     >
       <mesh position={[0, Math.max(height / 2, 0.75), 0]}>
         <boxGeometry args={[width, height, depth]} />
         <meshStandardMaterial
-          color="#7da7ff"
-          opacity={0.18}
+          color={placementPreview.hostStaticAssetId ? '#93c5fd' : '#7da7ff'}
+          opacity={placementPreview.hostStaticAssetId ? 0.24 : 0.18}
           transparent
           emissive="#4f83ff"
-          emissiveIntensity={0.5}
+          emissiveIntensity={placementPreview.hostStaticAssetId ? 0.7 : 0.5}
         />
       </mesh>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.04, 0]}>
-        <ringGeometry args={[Math.max(width, depth) * 0.32, Math.max(width, depth) * 0.42, 48]} />
-        <meshBasicMaterial color="#d5e4ff" opacity={0.88} transparent />
-      </mesh>
+      {showGroundRing ? (
+        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.04, 0]}>
+          <ringGeometry
+            args={[Math.max(width, depth) * 0.32, Math.max(width, depth) * 0.42, 48]}
+          />
+          <meshBasicMaterial color="#d5e4ff" opacity={0.88} transparent />
+        </mesh>
+      ) : null}
     </group>
   )
 }
@@ -68,7 +205,10 @@ const EditorSceneContent = memo(function EditorSceneContent({
   backgroundColor: string
   isDark: boolean
 }) {
+  const invalidate = useThree((state) => state.invalidate)
   const sceneConfig = useEditorDigitalTwinStore((state) => state.sceneConfig)
+  const editorCameraPosition = useEditorDigitalTwinStore((state) => state.editorCameraPosition)
+  const editorCameraTarget = useEditorDigitalTwinStore((state) => state.editorCameraTarget)
   const publishedScenePackage = useEditorDigitalTwinStore(
     (state) => state.publishedScenePackage
   )
@@ -88,7 +228,7 @@ const EditorSceneContent = memo(function EditorSceneContent({
   const clearCameraFocusRequest = useEditorDigitalTwinStore(
     (state) => state.clearCameraFocusRequest
   )
-  const setSceneConfig = useEditorDigitalTwinStore((state) => state.setSceneConfig)
+  const setEditorCameraPose = useEditorDigitalTwinStore((state) => state.setEditorCameraPose)
   const palette = useMemo(() => createPublishedStaticPalette(isDark), [isDark])
   const pickRootRef = useRef<THREE.Group>(null)
   const controlsRef = useRef<OrbitControlsType>(null)
@@ -101,7 +241,6 @@ const EditorSceneContent = memo(function EditorSceneContent({
   const environmentFile = isDark
     ? '/hdr/dikhololo_night_1k.hdr'
     : '/hdr/potsdamer_platz_1k.hdr'
-
   useEffect(() => {
     if (!cameraFocusRequest) return
     focusAnimationRef.current = {
@@ -109,7 +248,8 @@ const EditorSceneContent = memo(function EditorSceneContent({
       target: cameraFocusRequest.target,
     }
     clearCameraFocusRequest()
-  }, [cameraFocusRequest, clearCameraFocusRequest])
+    invalidate()
+  }, [cameraFocusRequest, clearCameraFocusRequest, invalidate])
 
   useEffect(() => {
     const activeCamera =
@@ -120,24 +260,24 @@ const EditorSceneContent = memo(function EditorSceneContent({
     if (!activeCamera || !controls || focusAnimationRef.current) return
 
     activeCamera.position.set(
-      sceneConfig.cameraPosition.x,
-      sceneConfig.cameraPosition.y,
-      sceneConfig.cameraPosition.z
+      editorCameraPosition.x,
+      editorCameraPosition.y,
+      editorCameraPosition.z
     )
     controls.target.set(
-      sceneConfig.cameraTarget.x,
-      sceneConfig.cameraTarget.y,
-      sceneConfig.cameraTarget.z
+      editorCameraTarget.x,
+      editorCameraTarget.y,
+      editorCameraTarget.z
     )
     activeCamera.updateProjectionMatrix()
     controls.update()
   }, [
-    sceneConfig.cameraPosition.x,
-    sceneConfig.cameraPosition.y,
-    sceneConfig.cameraPosition.z,
-    sceneConfig.cameraTarget.x,
-    sceneConfig.cameraTarget.y,
-    sceneConfig.cameraTarget.z,
+    editorCameraPosition.x,
+    editorCameraPosition.y,
+    editorCameraPosition.z,
+    editorCameraTarget.x,
+    editorCameraTarget.y,
+    editorCameraTarget.z,
     isMarqueeSelecting,
     isTransformDragging,
     viewportProjection,
@@ -150,6 +290,7 @@ const EditorSceneContent = memo(function EditorSceneContent({
         ? orthographicCameraRef.current
         : perspectiveCameraRef.current
     if (!controls || !activeCamera || !focusAnimationRef.current) return
+    invalidate()
 
     const { position, target } = focusAnimationRef.current
     const smoothing = 1 - Math.exp(-delta * 8)
@@ -184,7 +325,7 @@ const EditorSceneContent = memo(function EditorSceneContent({
     }
   })
 
-  const persistCameraPose = () => {
+  const persistCameraPose = useCallback(() => {
     const activeCamera =
       viewportProjection === 'orthographic'
         ? orthographicCameraRef.current
@@ -192,19 +333,19 @@ const EditorSceneContent = memo(function EditorSceneContent({
     const controls = controlsRef.current
     if (!activeCamera || !controls || focusAnimationRef.current) return
 
-    setSceneConfig({
-      cameraPosition: {
+    setEditorCameraPose(
+      {
         x: activeCamera.position.x,
         y: activeCamera.position.y,
         z: activeCamera.position.z,
       },
-      cameraTarget: {
+      {
         x: controls.target.x,
         y: controls.target.y,
         z: controls.target.z,
-      },
-    })
-  }
+      }
+    )
+  }, [setEditorCameraPose, viewportProjection])
 
   return (
     <>
@@ -236,9 +377,9 @@ const EditorSceneContent = memo(function EditorSceneContent({
         ref={perspectiveCameraRef}
         makeDefault={viewportProjection === 'perspective'}
         position={[
-          sceneConfig.cameraPosition.x,
-          sceneConfig.cameraPosition.y,
-          sceneConfig.cameraPosition.z,
+          editorCameraPosition.x,
+          editorCameraPosition.y,
+          editorCameraPosition.z,
         ]}
         fov={50}
       />
@@ -246,28 +387,27 @@ const EditorSceneContent = memo(function EditorSceneContent({
         ref={orthographicCameraRef}
         makeDefault={viewportProjection === 'orthographic'}
         position={[
-          sceneConfig.cameraPosition.x,
-          sceneConfig.cameraPosition.y,
-          sceneConfig.cameraPosition.z,
+          editorCameraPosition.x,
+          editorCameraPosition.y,
+          editorCameraPosition.z,
         ]}
         zoom={32}
         near={0.1}
         far={1200}
       />
-      <OrbitControls
-        ref={controlsRef}
+      <EditorOrbitControls
+        controlsRef={controlsRef}
         enabled={!isTransformDragging && !isMarqueeSelecting}
-        enableDamping
-        dampingFactor={0.08}
+        mouseButtons={DEFAULT_ORBIT_MOUSE_BUTTONS}
         minDistance={8}
         maxDistance={320}
         minPolarAngle={viewMode === 'topdown' ? 0 : undefined}
         maxPolarAngle={viewMode === 'topdown' ? 0 : Math.PI / 2.05}
-        onEnd={persistCameraPose}
+        onRest={persistCameraPose}
         target={[
-          sceneConfig.cameraTarget.x,
-          sceneConfig.cameraTarget.y,
-          sceneConfig.cameraTarget.z,
+          editorCameraTarget.x,
+          editorCameraTarget.y,
+          editorCameraTarget.z,
         ]}
       />
 
@@ -301,8 +441,38 @@ export function EditorCanvas() {
   const { resolvedTheme } = useTheme()
   const sceneConfig = useEditorDigitalTwinStore((state) => state.sceneConfig)
   const selectionMarquee = useEditorDigitalTwinStore((state) => state.selectionMarquee)
+  const transformMode = useEditorDigitalTwinStore((state) => state.transformMode)
   const isDark = resolvedTheme === 'dark'
   const canvasBackground = isDark ? sceneConfig.backgroundColor : '#eaf1fb'
+  const canvasHint = useMemo(() => {
+    switch (transformMode) {
+      case 'translate':
+        return {
+          icon: Move,
+          label: '移动对象',
+          lines: ['拖拽 Gizmo 移动物体', '左键拖动画面', '滚轮缩放 / 右键平移'],
+        }
+      case 'rotate':
+        return {
+          icon: RotateCcw,
+          label: '旋转对象',
+          lines: ['拖拽 Gizmo 旋转对象', '左键拖动画面', '滚轮缩放 / 右键平移'],
+        }
+      case 'scale':
+        return {
+          icon: Expand,
+          label: '缩放对象',
+          lines: ['拖拽 Gizmo 缩放对象', '左键拖动画面', '滚轮缩放 / 右键平移'],
+        }
+      default:
+        return {
+          icon: MousePointer2,
+          label: '选择模式',
+          lines: ['左键拖动画面', 'Shift + 左键框选', '单击选择对象'],
+        }
+    }
+  }, [transformMode])
+  const HintIcon = canvasHint.icon
 
   const createRenderer = useMemo(
     () =>
@@ -311,6 +481,7 @@ export function EditorCanvas() {
           mode: 'auto',
           antialias: true,
           alpha: false,
+          powerPreference: 'low-power',
         }),
     []
   )
@@ -318,6 +489,7 @@ export function EditorCanvas() {
   return (
     <div className="relative h-full w-full">
       <Canvas
+        frameloop="demand"
         shadows
         dpr={[1, 1.35]}
         resize={{ debounce: 100 }}
@@ -340,6 +512,23 @@ export function EditorCanvas() {
           }}
         />
       ) : null}
+
+      <div className="pointer-events-none absolute bottom-3 right-3 z-20 max-w-[15rem] rounded-[16px] border border-white/10 bg-[#07101d]/78 px-3 py-2.5 text-white shadow-[0_18px_40px_rgba(7,10,16,0.26)] backdrop-blur-xl">
+        <div className="flex items-center gap-2">
+          <div className="flex size-7 items-center justify-center rounded-full border border-[#7da7ff]/28 bg-[#7da7ff]/12 text-[#d6e4ff]">
+            <HintIcon className="size-3.5" />
+          </div>
+          <div>
+            <p className="editor-kicker">Interaction</p>
+            <p className="text-[12px] font-semibold text-white">{canvasHint.label}</p>
+          </div>
+        </div>
+        <div className="mt-2 space-y-1 text-[11px] text-white/70">
+          {canvasHint.lines.map((line) => (
+            <p key={line}>{line}</p>
+          ))}
+        </div>
+      </div>
     </div>
   )
 }

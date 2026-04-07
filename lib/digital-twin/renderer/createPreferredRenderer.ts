@@ -2,11 +2,13 @@ import * as THREE from 'three'
 
 export type PreferredRendererMode = 'auto' | 'webgpu' | 'webgl2'
 export type PreferredRendererBackend = 'webgpu' | 'webgl2'
+export type PreferredRendererPowerPreference = 'default' | 'high-performance' | 'low-power'
 
 interface CreatePreferredRendererOptions {
   mode: PreferredRendererMode
   antialias: boolean
   alpha: boolean
+  powerPreference?: PreferredRendererPowerPreference
 }
 
 interface GLDefaults {
@@ -56,7 +58,7 @@ function createWebGlRenderer(defaults: GLDefaults, options: CreatePreferredRende
     canvas: defaults.canvas,
     antialias: options.antialias,
     alpha: options.alpha,
-    powerPreference: 'high-performance',
+    powerPreference: options.powerPreference ?? 'high-performance',
   }) as AnyRenderer
 
   renderer.outputColorSpace = THREE.SRGBColorSpace

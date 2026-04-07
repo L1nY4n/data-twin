@@ -11,8 +11,9 @@ use crate::{
     app::AppState,
     contracts::{
         AdminOverviewResponse, Alarm, AuditEventRecord, BootstrapResponse, ConfigChangedScope,
-        DataConnector, Entity, EntityBinding, PublishStatusResponse, RuleConfig,
-        RuleValidationResponse, SceneConfig, SceneResponse, StaticAssetInstance,
+        DataConnector, EditorSaveRequest, EditorSaveResponse, Entity, EntityBinding,
+        PublishStatusResponse, RuleConfig, RuleValidationResponse, SceneConfig, SceneResponse,
+        StaticAssetInstance,
     },
     publish_service,
     store::StoreError,
@@ -161,6 +162,27 @@ pub async fn put_scene(
         .map_err(ApiError::from_store)?;
     emit_config_changed(&state, scene.scene_version, ConfigChangedScope::Scene).await?;
     Ok(Json(scene))
+}
+
+pub async fn post_editor_save(
+    State(state): State<AppState>,
+    Json(payload): Json<EditorSaveRequest>,
+) -> ApiResult<EditorSaveResponse> {
+    let scope = if payload.scene_config.is_some() {
+        ConfigChangedScope::Scene
+    } else if payload.static_asset.is_some() {
+        ConfigChangedScope::StaticAsset
+    } else {
+        ConfigChangedScope::Entity
+    };
+
+    let response = state
+        .store
+        .save_editor_changes(payload)
+        .await
+        .map_err(ApiError::from_store)?;
+    emit_config_changed(&state, response.scene_version, scope).await?;
+    Ok(Json(response))
 }
 
 pub async fn list_entities(State(state): State<AppState>) -> ApiResult<Vec<Entity>> {

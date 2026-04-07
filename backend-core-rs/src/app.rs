@@ -107,6 +107,7 @@ pub async fn build_app_with_options(
             "/api/v1/admin/scene",
             get(admin::get_scene).put(admin::put_scene),
         )
+        .route("/api/v1/admin/editor-save", post(admin::post_editor_save))
         .route(
             "/api/v1/admin/entities",
             get(admin::list_entities).post(admin::create_entity),

@@ -52,6 +52,12 @@ export type LayoutBlueprintKind =
   | 'sphere-tank'
   | 'vertical-tank'
   | 'pump-manifold'
+  | 'wall-system'
+  | 'door-system'
+  | 'window-system'
+  | 'security-device'
+  | 'smart-sensor'
+  | 'smart-control'
   | 'bund'
 
 export interface LayoutBlueprint {

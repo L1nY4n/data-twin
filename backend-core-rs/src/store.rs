@@ -15,9 +15,10 @@ use uuid::Uuid;
 
 use crate::{
     contracts::{
-        Alarm, AuditEventRecord, BootstrapResponse, DataConnector, Entity, EntityBinding,
-        EntityStatus, PublishedSceneDescriptor, RuleConfig, RuleValidationResponse, SceneConfig,
-        SceneResponse, StaticAssetInstance, Vector3,
+        Alarm, AuditEventRecord, BootstrapResponse, DataConnector, EditorSaveMode,
+        EditorSaveRequest, EditorSaveResponse, Entity, EntityBinding, EntityStatus,
+        PublishedSceneDescriptor, RuleConfig, RuleValidationResponse, SceneConfig, SceneResponse,
+        StaticAssetInstance, Vector3,
     },
     published_scene::load_published_scene_descriptor,
     seed_scene,
@@ -105,7 +106,8 @@ struct MemoryStore {
     audit_events: Vec<serde_json::Value>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WorkingSnapshot {
     pub scene_version: u64,
     pub scene_config: SceneConfig,
@@ -650,6 +652,437 @@ impl Store {
                 Ok(SceneResponse {
                     scene_version: scene_version as u64,
                     scene_config: config,
+                })
+            }
+        }
+    }
+
+    pub async fn save_editor_changes(
+        &self,
+        request: EditorSaveRequest,
+    ) -> Result<EditorSaveResponse, StoreError> {
+        validate_editor_save_request(&request)?;
+
+        let current_scene = self.get_scene().await?;
+        let response_scene_config = request
+            .scene_config
+            .clone()
+            .unwrap_or_else(|| current_scene.scene_config.clone());
+
+        match &self.backend {
+            StoreBackend::Memory(store) => {
+                let mut snapshot = store.write().await;
+                let mut next_scene_config = snapshot.scene_config.clone();
+                let mut next_entities = snapshot.entities.clone();
+                let mut next_static_assets = snapshot.static_assets.clone();
+                let mut pending_audit_events = Vec::new();
+                let mut saved_entity = None;
+                let mut saved_static_asset = None;
+
+                if let Some(scene_config) = request.scene_config.clone() {
+                    next_scene_config = scene_config;
+                    pending_audit_events.push(serde_json::json!({
+                        "action": "scene.update",
+                        "actor": "system",
+                        "timestamp": now_millis()
+                    }));
+                }
+
+                if let Some(entity_save) = request.entity {
+                    let entity = match entity_save.mode {
+                        EditorSaveMode::Create => {
+                            let mut entity = entity_save.entity;
+                            ensure_entity_create_defaults(&mut entity, now_millis());
+                            if next_entities.contains_key(entity.id()) {
+                                return Err(StoreError::Validation(format!(
+                                    "entity {} already exists",
+                                    entity.id()
+                                )));
+                            }
+                            next_entities.insert(entity.id().to_string(), entity.clone());
+                            pending_audit_events.push(serde_json::json!({
+                                "action": "entity.create",
+                                "resourceId": entity.id(),
+                                "actor": "system",
+                                "timestamp": now_millis()
+                            }));
+                            entity
+                        }
+                        EditorSaveMode::Update => {
+                            let mut entity = entity_save.entity;
+                            let entity_id = entity.id().to_string();
+                            let Some(existing) = next_entities.get(&entity_id) else {
+                                return Err(StoreError::NotFound(format!("entity {entity_id}")));
+                            };
+                            set_entity_id(&mut entity, &entity_id);
+                            ensure_entity_update_defaults(&mut entity, now_millis());
+                            set_entity_created_at(&mut entity, existing.created_at());
+                            next_entities.insert(entity_id.clone(), entity.clone());
+                            pending_audit_events.push(serde_json::json!({
+                                "action": "entity.update",
+                                "resourceId": entity_id,
+                                "actor": "system",
+                                "timestamp": now_millis()
+                            }));
+                            entity
+                        }
+                    };
+                    saved_entity = Some(entity);
+                }
+
+                if let Some(static_asset_save) = request.static_asset {
+                    let asset = match static_asset_save.mode {
+                        EditorSaveMode::Create => {
+                            let mut asset = static_asset_save.static_asset;
+                            ensure_static_asset_create_defaults(&mut asset, now_millis());
+                            if next_static_assets.contains_key(&asset.id) {
+                                return Err(StoreError::Validation(format!(
+                                    "static asset {} already exists",
+                                    asset.id
+                                )));
+                            }
+                            next_static_assets.insert(asset.id.clone(), asset.clone());
+                            pending_audit_events.push(serde_json::json!({
+                                "action": "static_asset.create",
+                                "resourceType": "static_asset",
+                                "resourceId": asset.id.clone(),
+                                "actor": "system",
+                                "timestamp": now_millis()
+                            }));
+                            asset
+                        }
+                        EditorSaveMode::Update => {
+                            let mut asset = static_asset_save.static_asset;
+                            let asset_id = asset.id.clone();
+                            let Some(existing) = next_static_assets.get(&asset_id) else {
+                                return Err(StoreError::NotFound(format!(
+                                    "static asset {asset_id}"
+                                )));
+                            };
+                            ensure_static_asset_update_defaults(&mut asset, now_millis());
+                            asset.created_at = existing.created_at;
+                            next_static_assets.insert(asset_id.clone(), asset.clone());
+                            pending_audit_events.push(serde_json::json!({
+                                "action": "static_asset.update",
+                                "resourceType": "static_asset",
+                                "resourceId": asset_id,
+                                "actor": "system",
+                                "timestamp": now_millis()
+                            }));
+                            asset
+                        }
+                    };
+                    saved_static_asset = Some(asset);
+                }
+
+                snapshot.scene_config = next_scene_config;
+                snapshot.entities = next_entities;
+                snapshot.static_assets = next_static_assets;
+                snapshot.audit_events.extend(pending_audit_events);
+                snapshot.scene_version += 1;
+
+                Ok(EditorSaveResponse {
+                    scene_version: snapshot.scene_version,
+                    scene_config: response_scene_config,
+                    saved_entity,
+                    saved_static_asset,
+                })
+            }
+            StoreBackend::Postgres(store) => {
+                let mut tx = store.pool.begin().await?;
+                let mut saved_entity = None;
+                let mut saved_static_asset = None;
+
+                if let Some(scene_config) = request.scene_config {
+                    persist_scene_config(&mut tx, &scene_config).await?;
+                    insert_audit_event(
+                        &mut tx,
+                        "scene.update",
+                        "scene",
+                        seed_scene::SITE_ID,
+                        serde_json::to_value(&scene_config)?,
+                    )
+                    .await?;
+                }
+
+                if let Some(entity_save) = request.entity {
+                    let entity = match entity_save.mode {
+                        EditorSaveMode::Create => {
+                            let mut entity = entity_save.entity;
+                            ensure_entity_create_defaults(&mut entity, now_millis());
+                            let existing = sqlx::query(r#"SELECT id FROM entities WHERE id = $1"#)
+                                .bind(entity.id())
+                                .fetch_optional(&mut *tx)
+                                .await?;
+                            if existing.is_some() {
+                                return Err(StoreError::Validation(format!(
+                                    "entity {} already exists",
+                                    entity.id()
+                                )));
+                            }
+                            persist_entity(&mut tx, &entity, false).await?;
+                            insert_audit_event(
+                                &mut tx,
+                                "entity.create",
+                                "entity",
+                                entity.id(),
+                                serde_json::to_value(&entity)?,
+                            )
+                            .await?;
+                            entity
+                        }
+                        EditorSaveMode::Update => {
+                            let mut entity = entity_save.entity;
+                            let entity_id = entity.id().to_string();
+                            let existing_row =
+                                sqlx::query(r#"SELECT entity_data FROM entities WHERE id = $1"#)
+                                    .bind(&entity_id)
+                                    .fetch_optional(&mut *tx)
+                                    .await?;
+
+                            let Some(existing_row) = existing_row else {
+                                return Err(StoreError::NotFound(format!("entity {entity_id}")));
+                            };
+
+                            let existing: Entity =
+                                serde_json::from_value(existing_row.get("entity_data"))?;
+                            set_entity_id(&mut entity, &entity_id);
+                            ensure_entity_update_defaults(&mut entity, now_millis());
+                            set_entity_created_at(&mut entity, existing.created_at());
+                            persist_entity(&mut tx, &entity, true).await?;
+                            insert_audit_event(
+                                &mut tx,
+                                "entity.update",
+                                "entity",
+                                &entity_id,
+                                serde_json::to_value(&entity)?,
+                            )
+                            .await?;
+                            entity
+                        }
+                    };
+                    saved_entity = Some(entity);
+                }
+
+                if let Some(static_asset_save) = request.static_asset {
+                    let asset = match static_asset_save.mode {
+                        EditorSaveMode::Create => {
+                            let mut asset = static_asset_save.static_asset;
+                            ensure_static_asset_create_defaults(&mut asset, now_millis());
+                            let existing =
+                                sqlx::query(r#"SELECT id FROM static_assets WHERE id = $1"#)
+                                    .bind(&asset.id)
+                                    .fetch_optional(&mut *tx)
+                                    .await?;
+                            if existing.is_some() {
+                                return Err(StoreError::Validation(format!(
+                                    "static asset {} already exists",
+                                    asset.id
+                                )));
+                            }
+                            persist_static_asset(&mut tx, &asset, false).await?;
+                            insert_audit_event(
+                                &mut tx,
+                                "static_asset.create",
+                                "static_asset",
+                                &asset.id,
+                                serde_json::to_value(&asset)?,
+                            )
+                            .await?;
+                            asset
+                        }
+                        EditorSaveMode::Update => {
+                            let mut asset = static_asset_save.static_asset;
+                            let asset_id = asset.id.clone();
+                            let existing_row = sqlx::query(
+                                r#"SELECT asset_data FROM static_assets WHERE id = $1"#,
+                            )
+                            .bind(&asset_id)
+                            .fetch_optional(&mut *tx)
+                            .await?;
+
+                            let Some(existing_row) = existing_row else {
+                                return Err(StoreError::NotFound(format!(
+                                    "static asset {asset_id}"
+                                )));
+                            };
+
+                            let existing: StaticAssetInstance =
+                                serde_json::from_value(existing_row.get("asset_data"))?;
+                            ensure_static_asset_update_defaults(&mut asset, now_millis());
+                            asset.created_at = existing.created_at;
+                            persist_static_asset(&mut tx, &asset, true).await?;
+                            insert_audit_event(
+                                &mut tx,
+                                "static_asset.update",
+                                "static_asset",
+                                &asset_id,
+                                serde_json::to_value(&asset)?,
+                            )
+                            .await?;
+                            asset
+                        }
+                    };
+                    saved_static_asset = Some(asset);
+                }
+
+                let scene_version = bump_scene_version_tx(&mut tx).await?;
+                tx.commit().await?;
+
+                Ok(EditorSaveResponse {
+                    scene_version,
+                    scene_config: response_scene_config,
+                    saved_entity,
+                    saved_static_asset,
+                })
+            }
+            StoreBackend::Sqlite(store) => {
+                let mut tx = store.pool.begin().await?;
+                let mut saved_entity = None;
+                let mut saved_static_asset = None;
+
+                if let Some(scene_config) = request.scene_config {
+                    persist_scene_config_sqlite(&mut tx, &scene_config).await?;
+                    insert_audit_event_sqlite(
+                        &mut tx,
+                        "scene.update",
+                        "scene",
+                        seed_scene::SITE_ID,
+                        serde_json::to_value(&scene_config)?,
+                    )
+                    .await?;
+                }
+
+                if let Some(entity_save) = request.entity {
+                    let entity = match entity_save.mode {
+                        EditorSaveMode::Create => {
+                            let mut entity = entity_save.entity;
+                            ensure_entity_create_defaults(&mut entity, now_millis());
+                            let existing = sqlx::query(r#"SELECT id FROM entities WHERE id = ?"#)
+                                .bind(entity.id())
+                                .fetch_optional(&mut *tx)
+                                .await?;
+                            if existing.is_some() {
+                                return Err(StoreError::Validation(format!(
+                                    "entity {} already exists",
+                                    entity.id()
+                                )));
+                            }
+                            persist_entity_sqlite(&mut tx, &entity, false).await?;
+                            insert_audit_event_sqlite(
+                                &mut tx,
+                                "entity.create",
+                                "entity",
+                                entity.id(),
+                                serde_json::to_value(&entity)?,
+                            )
+                            .await?;
+                            entity
+                        }
+                        EditorSaveMode::Update => {
+                            let mut entity = entity_save.entity;
+                            let entity_id = entity.id().to_string();
+                            let existing_row =
+                                sqlx::query(r#"SELECT entity_data FROM entities WHERE id = ?"#)
+                                    .bind(&entity_id)
+                                    .fetch_optional(&mut *tx)
+                                    .await?;
+
+                            let Some(existing_row) = existing_row else {
+                                return Err(StoreError::NotFound(format!("entity {entity_id}")));
+                            };
+
+                            let existing: Entity = serde_json::from_str(
+                                existing_row.get::<String, _>("entity_data").as_str(),
+                            )?;
+                            set_entity_id(&mut entity, &entity_id);
+                            ensure_entity_update_defaults(&mut entity, now_millis());
+                            set_entity_created_at(&mut entity, existing.created_at());
+                            persist_entity_sqlite(&mut tx, &entity, true).await?;
+                            insert_audit_event_sqlite(
+                                &mut tx,
+                                "entity.update",
+                                "entity",
+                                &entity_id,
+                                serde_json::to_value(&entity)?,
+                            )
+                            .await?;
+                            entity
+                        }
+                    };
+                    saved_entity = Some(entity);
+                }
+
+                if let Some(static_asset_save) = request.static_asset {
+                    let asset = match static_asset_save.mode {
+                        EditorSaveMode::Create => {
+                            let mut asset = static_asset_save.static_asset;
+                            ensure_static_asset_create_defaults(&mut asset, now_millis());
+                            let existing =
+                                sqlx::query(r#"SELECT id FROM static_assets WHERE id = ?"#)
+                                    .bind(&asset.id)
+                                    .fetch_optional(&mut *tx)
+                                    .await?;
+                            if existing.is_some() {
+                                return Err(StoreError::Validation(format!(
+                                    "static asset {} already exists",
+                                    asset.id
+                                )));
+                            }
+                            persist_static_asset_sqlite(&mut tx, &asset, false).await?;
+                            insert_audit_event_sqlite(
+                                &mut tx,
+                                "static_asset.create",
+                                "static_asset",
+                                &asset.id,
+                                serde_json::to_value(&asset)?,
+                            )
+                            .await?;
+                            asset
+                        }
+                        EditorSaveMode::Update => {
+                            let mut asset = static_asset_save.static_asset;
+                            let asset_id = asset.id.clone();
+                            let existing_row =
+                                sqlx::query(r#"SELECT asset_data FROM static_assets WHERE id = ?"#)
+                                    .bind(&asset_id)
+                                    .fetch_optional(&mut *tx)
+                                    .await?;
+
+                            let Some(existing_row) = existing_row else {
+                                return Err(StoreError::NotFound(format!(
+                                    "static asset {asset_id}"
+                                )));
+                            };
+
+                            let existing: StaticAssetInstance = serde_json::from_str(
+                                existing_row.get::<String, _>("asset_data").as_str(),
+                            )?;
+                            ensure_static_asset_update_defaults(&mut asset, now_millis());
+                            asset.created_at = existing.created_at;
+                            persist_static_asset_sqlite(&mut tx, &asset, true).await?;
+                            insert_audit_event_sqlite(
+                                &mut tx,
+                                "static_asset.update",
+                                "static_asset",
+                                &asset_id,
+                                serde_json::to_value(&asset)?,
+                            )
+                            .await?;
+                            asset
+                        }
+                    };
+                    saved_static_asset = Some(asset);
+                }
+
+                let scene_version = bump_scene_version_sqlite(&mut tx).await?;
+                tx.commit().await?;
+
+                Ok(EditorSaveResponse {
+                    scene_version,
+                    scene_config: response_scene_config,
+                    saved_entity,
+                    saved_static_asset,
                 })
             }
         }
@@ -3102,6 +3535,46 @@ async fn persist_static_asset_sqlite(
     Ok(())
 }
 
+async fn persist_scene_config(
+    tx: &mut Transaction<'_, Postgres>,
+    scene_config: &SceneConfig,
+) -> Result<(), StoreError> {
+    sqlx::query(
+        r#"
+        UPDATE scene_configs
+        SET scene_config = $1, updated_at = $2
+        WHERE site_id = $3
+        "#,
+    )
+    .bind(serde_json::to_value(scene_config)?)
+    .bind(now_millis() as i64)
+    .bind(seed_scene::SITE_ID)
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(())
+}
+
+async fn persist_scene_config_sqlite(
+    tx: &mut Transaction<'_, Sqlite>,
+    scene_config: &SceneConfig,
+) -> Result<(), StoreError> {
+    sqlx::query(
+        r#"
+        UPDATE scene_configs
+        SET scene_config = ?, updated_at = ?
+        WHERE site_id = ?
+        "#,
+    )
+    .bind(serde_json::to_string(scene_config)?)
+    .bind(now_millis() as i64)
+    .bind(seed_scene::SITE_ID)
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(())
+}
+
 async fn persist_rule(
     tx: &mut Transaction<'_, Postgres>,
     rule: &RuleConfig,
@@ -3308,6 +3781,24 @@ async fn bump_scene_version_sqlite(tx: &mut Transaction<'_, Sqlite>) -> Result<u
             .await?;
 
     Ok(scene_version as u64)
+}
+
+fn validate_editor_save_request(request: &EditorSaveRequest) -> Result<(), StoreError> {
+    if request.scene_config.is_none() && request.entity.is_none() && request.static_asset.is_none()
+    {
+        return Err(StoreError::Validation(
+            "editor save requires at least one scene or selection change".to_string(),
+        ));
+    }
+
+    if request.entity.is_some() && request.static_asset.is_some() {
+        return Err(StoreError::Validation(
+            "editor save accepts either an entity draft or a static asset draft, not both"
+                .to_string(),
+        ));
+    }
+
+    Ok(())
 }
 
 async fn insert_audit_event(
@@ -3597,6 +4088,12 @@ fn static_asset_kind_to_str(asset: &StaticAssetInstance) -> &'static str {
         crate::contracts::StaticAssetKind::SphereTank => "sphere-tank",
         crate::contracts::StaticAssetKind::PumpManifold => "pump-manifold",
         crate::contracts::StaticAssetKind::ServiceBuilding => "service-building",
+        crate::contracts::StaticAssetKind::WallSystem => "wall-system",
+        crate::contracts::StaticAssetKind::DoorSystem => "door-system",
+        crate::contracts::StaticAssetKind::WindowSystem => "window-system",
+        crate::contracts::StaticAssetKind::SecurityDevice => "security-device",
+        crate::contracts::StaticAssetKind::SmartSensor => "smart-sensor",
+        crate::contracts::StaticAssetKind::SmartControl => "smart-control",
     }
 }
 

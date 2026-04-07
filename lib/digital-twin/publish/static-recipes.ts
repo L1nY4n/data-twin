@@ -637,6 +637,307 @@ function createServiceBuildingNode(id: string, blueprint: LayoutBlueprint) {
   )
 }
 
+function createWallSystemNode(id: string, blueprint: LayoutBlueprint) {
+  const isGlassPartition = blueprint.variant === 'glass-partition'
+
+  return groupNode(
+    id,
+    [
+      meshNode(
+        `${id}:base`,
+        boxGeometry([blueprint.width, 0.08, blueprint.depth + 0.08]),
+        material('curb', 0.06, 0.88),
+        {
+          position: vec3(0, 0.04, 0),
+        }
+      ),
+      meshNode(
+        `${id}:wall-body`,
+        boxGeometry([blueprint.width, blueprint.height, blueprint.depth]),
+        material(isGlassPartition ? 'water' : 'building', isGlassPartition ? 0.12 : 0.18, isGlassPartition ? 0.08 : 0.74, {
+          ...(isGlassPartition ? { opacity: 0.42, transparent: true } : {}),
+        }),
+        {
+          position: vec3(0, blueprint.height / 2, 0),
+        }
+      ),
+      meshNode(
+        `${id}:top-cap`,
+        boxGeometry([blueprint.width + 0.08, 0.12, blueprint.depth + 0.08]),
+        material('steelDark', 0.4, 0.42),
+        {
+          position: vec3(0, blueprint.height + 0.06, 0),
+        }
+      ),
+    ],
+    {
+      position: vec3(blueprint.center.x, 0, blueprint.center.z),
+    }
+  )
+}
+
+function createDoorSystemNode(id: string, blueprint: LayoutBlueprint) {
+  const panelWidth =
+    blueprint.variant === 'double-swing' ? blueprint.width * 0.42 : blueprint.width * 0.84
+  const frameDepth = Math.max(blueprint.depth, 0.08)
+  const doorMaterial =
+    blueprint.variant === 'fire-rated'
+      ? material('warning', 0.16, 0.42)
+      : material('building', 0.12, 0.56)
+
+  return groupNode(
+    id,
+    [
+      meshNode(
+        `${id}:frame-top`,
+        boxGeometry([blueprint.width + 0.08, 0.12, frameDepth]),
+        material('steelDark', 0.42, 0.4),
+        {
+          position: vec3(0, blueprint.height - 0.06, 0),
+        }
+      ),
+      meshNode(
+        `${id}:frame-left`,
+        boxGeometry([0.12, blueprint.height, frameDepth]),
+        material('steelDark', 0.42, 0.4),
+        {
+          position: vec3(-blueprint.width / 2, blueprint.height / 2, 0),
+        }
+      ),
+      meshNode(
+        `${id}:frame-right`,
+        boxGeometry([0.12, blueprint.height, frameDepth]),
+        material('steelDark', 0.42, 0.4),
+        {
+          position: vec3(blueprint.width / 2, blueprint.height / 2, 0),
+        }
+      ),
+      ...(blueprint.variant === 'double-swing'
+        ? ([-blueprint.width * 0.24, blueprint.width * 0.24] as const).map((x, index) =>
+            meshNode(
+              `${id}:panel-${index}`,
+              boxGeometry([panelWidth, blueprint.height * 0.92, frameDepth * 0.62]),
+              doorMaterial,
+              {
+                position: vec3(x, blueprint.height * 0.46, 0),
+              }
+            )
+          )
+        : [
+            meshNode(
+              `${id}:panel`,
+              boxGeometry([panelWidth, blueprint.height * 0.92, frameDepth * 0.62]),
+              doorMaterial,
+              {
+                position: vec3(0, blueprint.height * 0.46, 0),
+              }
+            ),
+          ]),
+    ],
+    {
+      position: vec3(blueprint.center.x, 0, blueprint.center.z),
+    }
+  )
+}
+
+function createWindowSystemNode(id: string, blueprint: LayoutBlueprint) {
+  return groupNode(
+    id,
+    [
+      meshNode(
+        `${id}:frame`,
+        boxGeometry([blueprint.width, blueprint.height, blueprint.depth]),
+        material('steelDark', 0.38, 0.42),
+        {
+          position: vec3(0, blueprint.height / 2, 0),
+        }
+      ),
+      meshNode(
+        `${id}:glass`,
+        boxGeometry([blueprint.width * 0.82, blueprint.height * 0.72, blueprint.depth * 0.46]),
+        material('water', 0.08, 0.08, { opacity: 0.42, transparent: true }),
+        {
+          position: vec3(0, blueprint.height / 2, 0),
+        }
+      ),
+      meshNode(
+        `${id}:mullion-v`,
+        boxGeometry([0.08, blueprint.height * 0.82, blueprint.depth * 0.8]),
+        material('steelDark', 0.38, 0.42),
+        {
+          position: vec3(0, blueprint.height / 2, 0),
+        }
+      ),
+    ],
+    {
+      position: vec3(blueprint.center.x, 0, blueprint.center.z),
+    }
+  )
+}
+
+function createSecurityDeviceNode(id: string, blueprint: LayoutBlueprint) {
+  if (blueprint.variant === 'access-reader') {
+    return groupNode(
+      id,
+      [
+        meshNode(
+          `${id}:plate`,
+          boxGeometry([blueprint.width, blueprint.height, blueprint.depth]),
+          material('building', 0.16, 0.46),
+          {
+            position: vec3(0, blueprint.height / 2, 0),
+          }
+        ),
+        meshNode(
+          `${id}:reader`,
+          boxGeometry([blueprint.width * 0.34, blueprint.height * 0.18, blueprint.depth * 0.4]),
+          material('power', 0.08, 0.2),
+          {
+            position: vec3(0, blueprint.height * 0.6, blueprint.depth * 0.28),
+          }
+        ),
+      ],
+      {
+        position: vec3(blueprint.center.x, 0, blueprint.center.z),
+      }
+    )
+  }
+
+  return groupNode(
+    id,
+    [
+      meshNode(
+        `${id}:body`,
+        cylinderGeometry([blueprint.width / 2, blueprint.width / 1.8, blueprint.height, 20]),
+        material('building', 0.24, 0.42),
+        {
+          position: vec3(0, blueprint.height / 2, 0),
+        }
+      ),
+      meshNode(
+        `${id}:lens`,
+        sphereGeometry([blueprint.width * 0.36, 16, 12]),
+        material('water', 0.2, 0.1, { opacity: 0.26, transparent: true }),
+        {
+          position: vec3(0, blueprint.height * 0.2, 0),
+        }
+      ),
+    ],
+    {
+      position: vec3(blueprint.center.x, 0, blueprint.center.z),
+    }
+  )
+}
+
+function createSmartSensorNode(id: string, blueprint: LayoutBlueprint) {
+  if (blueprint.variant === 'occupancy-sensor') {
+    return groupNode(
+      id,
+      [
+        meshNode(
+          `${id}:base`,
+          cylinderGeometry([blueprint.width / 2, blueprint.width / 1.7, blueprint.height, 20]),
+          material('building', 0.12, 0.34),
+          {
+            position: vec3(0, blueprint.height / 2, 0),
+          }
+        ),
+        meshNode(
+          `${id}:core`,
+          cylinderGeometry([blueprint.width * 0.18, blueprint.width * 0.18, blueprint.height * 0.45, 16]),
+          material('power', 0.08, 0.16),
+          {
+            position: vec3(0, blueprint.height * 0.46, 0),
+          }
+        ),
+      ],
+      {
+        position: vec3(blueprint.center.x, 0, blueprint.center.z),
+      }
+    )
+  }
+
+  return groupNode(
+    id,
+    [
+      meshNode(
+        `${id}:plate`,
+        boxGeometry([blueprint.width, blueprint.height, blueprint.depth]),
+        material('building', 0.12, 0.4),
+        {
+          position: vec3(0, blueprint.height / 2, 0),
+        }
+      ),
+      meshNode(
+        `${id}:screen`,
+        boxGeometry([blueprint.width * 0.46, blueprint.height * 0.18, blueprint.depth * 0.36]),
+        material('power', 0.06, 0.18),
+        {
+          position: vec3(0, blueprint.height * 0.62, blueprint.depth * 0.24),
+        }
+      ),
+    ],
+    {
+      position: vec3(blueprint.center.x, 0, blueprint.center.z),
+    }
+  )
+}
+
+function createSmartControlNode(id: string, blueprint: LayoutBlueprint) {
+  if (blueprint.variant === 'smart-lock') {
+    return groupNode(
+      id,
+      [
+        meshNode(
+          `${id}:lock-body`,
+          boxGeometry([blueprint.width, blueprint.height, blueprint.depth]),
+          material('steelDark', 0.42, 0.32),
+          {
+            position: vec3(0, blueprint.height / 2, 0),
+          }
+        ),
+        meshNode(
+          `${id}:reader`,
+          cylinderGeometry([blueprint.width * 0.2, blueprint.width * 0.2, blueprint.depth * 0.8, 16]),
+          material('power', 0.08, 0.18),
+          {
+            position: vec3(0, blueprint.height * 0.28, blueprint.depth * 0.42),
+            rotation: vec3(Math.PI / 2, 0, 0),
+          }
+        ),
+      ],
+      {
+        position: vec3(blueprint.center.x, 0, blueprint.center.z),
+      }
+    )
+  }
+
+  return groupNode(
+    id,
+    [
+      meshNode(
+        `${id}:panel`,
+        boxGeometry([blueprint.width, blueprint.height, blueprint.depth]),
+        material('building', 0.08, 0.3),
+        {
+          position: vec3(0, blueprint.height / 2, 0),
+        }
+      ),
+      meshNode(
+        `${id}:display`,
+        boxGeometry([blueprint.width * 0.56, blueprint.height * 0.24, blueprint.depth * 0.36]),
+        material('power', 0.04, 0.14),
+        {
+          position: vec3(0, blueprint.height * 0.54, blueprint.depth * 0.24),
+        }
+      ),
+    ],
+    {
+      position: vec3(blueprint.center.x, 0, blueprint.center.z),
+    }
+  )
+}
+
 function createTankBundNode(id: string, blueprint: LayoutBlueprint) {
   const halfWidth = blueprint.width / 2
   const halfDepth = blueprint.depth / 2
@@ -926,6 +1227,18 @@ export function createAuthoredStaticAssetNode(
       return createPumpManifoldNode(asset.id, blueprint)
     case 'service-building':
       return createServiceBuildingNode(asset.id, blueprint)
+    case 'wall-system':
+      return createWallSystemNode(asset.id, blueprint)
+    case 'door-system':
+      return createDoorSystemNode(asset.id, blueprint)
+    case 'window-system':
+      return createWindowSystemNode(asset.id, blueprint)
+    case 'security-device':
+      return createSecurityDeviceNode(asset.id, blueprint)
+    case 'smart-sensor':
+      return createSmartSensorNode(asset.id, blueprint)
+    case 'smart-control':
+      return createSmartControlNode(asset.id, blueprint)
   }
 }
 

@@ -22,7 +22,7 @@ describe('editor guards', () => {
     expect(shell.includes('resourcesPanelOpen')).toBe(true)
     expect(sidebar.includes('资源库 / 场景')).toBe(true)
     expect(sidebar.includes('/admin/overview')).toBe(false)
-    expect(sidebar.includes('搜索塔、桥架、罐体、模块')).toBe(true)
+    expect(sidebar.includes('搜索墙体、门、摄像头、传感器、温控器')).toBe(true)
     expect(sidebar.includes('EDITOR_CATALOG_TRANSFER_MIME')).toBe(true)
     expect(sidebar.includes("from '@/components/ui/sidebar'")).toBe(false)
   })
@@ -37,6 +37,14 @@ describe('editor guards', () => {
 
   test('editor should use transform controls with dedicated bootstrap, save flow, and explicit publish flow', () => {
     const canvas = readFileSync(
+      join(process.cwd(), 'components/editor/EditorCanvas.tsx'),
+      'utf8'
+    )
+    const shell = readFileSync(
+      join(process.cwd(), 'components/editor/EditorShell.tsx'),
+      'utf8'
+    )
+    const gizmo = readFileSync(
       join(process.cwd(), 'components/editor/scene/EditorTransformGizmo.tsx'),
       'utf8'
     )
@@ -48,27 +56,86 @@ describe('editor guards', () => {
       join(process.cwd(), 'hooks/use-editor-digital-twin.ts'),
       'utf8'
     )
+    const inspector = readFileSync(
+      join(process.cwd(), 'components/editor/EditorInspector.tsx'),
+      'utf8'
+    )
     const store = readFileSync(
       join(process.cwd(), 'lib/digital-twin/editor-store.ts'),
       'utf8'
     )
 
-    expect(canvas.includes('TransformControls')).toBe(true)
+    expect(gizmo.includes('TransformControls')).toBe(true)
+    expect(canvas.includes('mouseButtons={DEFAULT_ORBIT_MOUSE_BUTTONS}')).toBe(true)
+    expect(picking.includes('event.shiftKey')).toBe(true)
+    expect(picking.includes('stopImmediatePropagation')).toBe(true)
     expect(picking.includes('suppressClickRef')).toBe(true)
     expect(picking.includes('resolveEditorMarqueeTarget')).toBe(true)
     expect(hook.includes('fetchEditorBootstrap')).toBe(true)
     expect(hook.includes('fetchAdminPublishStatus')).toBe(true)
     expect(hook.includes('triggerAdminPublish')).toBe(true)
-    expect(hook.includes('createAdminEntity')).toBe(true)
+    expect(hook.includes('saveAdminEditorDrafts')).toBe(true)
+    expect(hook.includes('updateAdminScene')).toBe(false)
+    expect(hook.includes('createAdminEntity')).toBe(false)
     expect(hook.includes('deleteAdminEntity')).toBe(true)
-    expect(hook.includes('updateAdminEntity')).toBe(true)
+    expect(hook.includes('updateAdminEntity')).toBe(false)
+    expect(hook.includes('updateAdminStaticAsset')).toBe(false)
+    expect(hook.includes('createEditorSaveRequest')).toBe(true)
+    expect(hook.includes('createEditorSceneSavePayload')).toBe(true)
+    expect(hook.includes('restoreSelectionAfterReload')).toBe(true)
+    expect(hook.includes('error.status === 409')).toBe(true)
+    expect(hook.includes('const hasSceneChanges = store.hasSceneChanges')).toBe(true)
+    expect(hook.includes('activityStatus')).toBe(true)
+    expect(hook.includes('createStandardRoomStaticAssets')).toBe(true)
+    expect(hook.includes('createStandardRoom')).toBe(true)
+    expect(shell.includes('onCreateStandardRoom={() => void createStandardRoom()}')).toBe(true)
+    expect(inspector.includes('创建标准房间')).toBe(true)
     expect(store.includes('undo')).toBe(true)
     expect(store.includes('redo')).toBe(true)
     expect(store.includes('resetDraft')).toBe(true)
     expect(store.includes('duplicateSelection')).toBe(true)
+    expect(store.includes('hasSceneChanges')).toBe(true)
+    expect(store.includes('hasSelectionChanges')).toBe(true)
+    expect(store.includes('buildEditorSceneSavePayload')).toBe(true)
+    expect(store.includes('savedSceneConfig')).toBe(true)
+    expect(store.includes('setEditorCameraPose')).toBe(true)
+    expect(store.includes('editorCameraPosition')).toBe(true)
+    expect(store.includes('editorCameraTarget')).toBe(true)
     expect(store.includes('updateDraftMetadata')).toBe(true)
     expect(store.includes('focusCameraDirection')).toBe(true)
     expect(store.includes('hydrateFromBootstrap')).toBe(true)
+  })
+
+  test('editor canvas should avoid continuous idle rendering while preserving camera focus animation', () => {
+    const canvas = readFileSync(
+      join(process.cwd(), 'components/editor/EditorCanvas.tsx'),
+      'utf8'
+    )
+
+    expect(canvas.includes("import { Canvas, useFrame, useThree } from '@react-three/fiber'")).toBe(
+      true
+    )
+    expect(canvas.includes("import { OrbitControls as OrbitControlsImpl } from 'three-stdlib'")).toBe(
+      true
+    )
+    expect(canvas.includes("const invalidate = useThree((state) => state.invalidate)")).toBe(true)
+    expect(canvas.includes('frameloop="demand"')).toBe(true)
+    expect(canvas.includes('focusAnimationRef.current = {')).toBe(true)
+    expect(canvas.includes('clearCameraFocusRequest()')).toBe(true)
+    expect(canvas.includes('invalidate()')).toBe(true)
+    expect(canvas.includes('new OrbitControlsImpl(camera, gl.domElement)')).toBe(true)
+    expect(canvas.includes('const settleRequestedRef = useRef(false)')).toBe(true)
+    expect(canvas.includes('const finishSettledInteraction = () => {')).toBe(true)
+    expect(canvas.includes('settleRequestedRef.current = true')).toBe(true)
+    expect(canvas.includes('onRestRef.current()')).toBe(true)
+    expect(canvas.includes('window.requestAnimationFrame(stepControls)')).toBe(true)
+    expect(canvas.includes("controls.addEventListener('start', handleStart)")).toBe(true)
+    expect(canvas.includes("controls.addEventListener('end', handleEnd)")).toBe(true)
+    expect(canvas.includes('const persistCameraPose = useCallback(() => {')).toBe(true)
+    expect(canvas.includes('const setEditorCameraPose = useEditorDigitalTwinStore((state) => state.setEditorCameraPose)')).toBe(true)
+    expect(canvas.includes('editorCameraPosition.x')).toBe(true)
+    expect(canvas.includes('editorCameraTarget.x')).toBe(true)
+    expect(canvas.includes("powerPreference: 'low-power'")).toBe(true)
   })
 
   test('viewer should only refresh from publish-scoped config changes or descriptor swaps', () => {

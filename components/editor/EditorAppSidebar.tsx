@@ -1,15 +1,21 @@
 'use client'
 
-import { useEffect, useMemo, useState, type DragEvent, type ReactNode } from 'react'
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type DragEvent,
+  type ReactNode,
+} from 'react'
 import {
   Box,
-  Boxes,
   Factory,
   Layers3,
   Search,
   TowerControl,
   Workflow,
 } from 'lucide-react'
+import Image from 'next/image'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -20,20 +26,18 @@ import {
   useEditorDigitalTwinStore,
 } from '@/lib/digital-twin/editor-store'
 import {
+  type StaticAssetCatalogDomain,
   type StaticAssetCatalogItem,
+  getStaticAssetDomainLabel,
+  getStaticAssetKindLabel,
+  getStaticAssetPlacementLabel,
   listStaticAssetCatalog,
+  matchesStaticAssetCatalogDomain,
 } from '@/lib/digital-twin/static-asset-catalog'
 import { cn } from '@/lib/utils'
 
 type ResourceTab = 'catalog' | 'scene'
-type CatalogFilter =
-  | 'all'
-  | 'process-train'
-  | 'pipe-rack'
-  | 'vertical-tank'
-  | 'sphere-tank'
-  | 'pump-manifold'
-  | 'service-building'
+type CatalogFilter = 'all' | StaticAssetCatalogDomain
 type SceneLayerFilter = 'all' | 'static-assets' | 'runtime-entities'
 
 type EditorAppSidebarProps = {
@@ -44,22 +48,11 @@ type EditorAppSidebarProps = {
 
 const CATALOG_FILTERS: Array<{ key: CatalogFilter; label: string }> = [
   { key: 'all', label: '全部' },
-  { key: 'process-train', label: '塔器装置' },
-  { key: 'pipe-rack', label: '桥架 / 管廊' },
-  { key: 'vertical-tank', label: '立罐' },
-  { key: 'sphere-tank', label: '球罐' },
-  { key: 'pump-manifold', label: '设备模块' },
-  { key: 'service-building', label: '建筑' },
+  { key: 'industrial', label: getStaticAssetDomainLabel('industrial') },
+  { key: 'building-shell', label: getStaticAssetDomainLabel('building-shell') },
+  { key: 'ibms-device', label: getStaticAssetDomainLabel('ibms-device') },
+  { key: 'smart-home', label: getStaticAssetDomainLabel('smart-home') },
 ]
-
-const ASSET_KIND_LABELS: Record<string, string> = {
-  'process-train': '塔器装置',
-  'pipe-rack': '桥架 / 管廊',
-  'vertical-tank': '立罐',
-  'sphere-tank': '球罐',
-  'pump-manifold': '设备模块',
-  'service-building': '建筑',
-}
 
 const ENTITY_TYPE_LABELS: Record<string, string> = {
   person: '人员',
@@ -72,6 +65,22 @@ const ENTITY_TYPE_LABELS: Record<string, string> = {
 
 function normalizeText(value: string) {
   return value.trim().toLowerCase()
+}
+
+function CatalogPreviewTile({ item }: { item: StaticAssetCatalogItem }) {
+  return (
+    <div className="flex h-10 w-[3.1rem] shrink-0 items-center justify-center rounded-[10px] border border-white/10 bg-white/[0.045] text-[#d9e6ff] shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
+      <Image
+        aria-hidden="true"
+        alt=""
+        src={item.thumbnailUrl}
+        width={96}
+        height={64}
+        loading="lazy"
+        className="h-8.5 w-[2.65rem] rounded-[8px] object-cover"
+      />
+    </div>
+  )
 }
 
 function PanelMenuButton({
@@ -137,7 +146,7 @@ function SceneGroupChip({
 }
 
 function matchesCatalogFilter(item: StaticAssetCatalogItem, filter: CatalogFilter) {
-  return filter === 'all' || item.assetKind === filter
+  return matchesStaticAssetCatalogDomain(item, filter)
 }
 
 function matchesSceneGroup(
@@ -217,7 +226,9 @@ export function EditorAppSidebar({
     return catalogItems.filter((item) => {
       if (!matchesCatalogFilter(item, catalogFilter)) return false
       if (!keyword) return true
-      return normalizeText(`${item.name} ${item.description} ${item.assetKind}`).includes(keyword)
+      return normalizeText(
+        `${item.name} ${item.description} ${item.assetKind} ${item.domain} ${item.subcategory} ${item.tags.join(' ')}`
+      ).includes(keyword)
     })
   }, [catalogFilter, catalogItems, catalogSearch])
 
@@ -227,9 +238,17 @@ export function EditorAppSidebar({
       if (sceneLayerFilter === 'runtime-entities') return false
       if (!matchesSceneGroup(sceneGroupFilter, 'asset', asset.assetKind)) return false
       if (!keyword) return true
-      return normalizeText(`${asset.name} ${asset.assetKind} ${asset.variant ?? ''}`).includes(
-        keyword
-      )
+      const metadata = asset.metadata as {
+        domain?: string
+        subcategory?: string
+        placementMode?: string
+        tags?: unknown
+      }
+      const tags = Array.isArray(metadata.tags) ? metadata.tags.join(' ') : ''
+
+      return normalizeText(
+        `${asset.name} ${getStaticAssetKindLabel(asset.assetKind)} ${asset.assetKind} ${asset.variant ?? ''} ${metadata.domain ?? ''} ${metadata.subcategory ?? ''} ${metadata.placementMode ?? ''} ${tags}`
+      ).includes(keyword)
     })
   }, [authoredStaticAssets, sceneGroupFilter, sceneLayerFilter, sceneSearch])
 
@@ -249,7 +268,7 @@ export function EditorAppSidebar({
 
     for (const asset of authoredStaticAssets) {
       const current = assetGroups.get(asset.assetKind) ?? {
-        label: ASSET_KIND_LABELS[asset.assetKind] ?? asset.assetKind,
+        label: getStaticAssetKindLabel(asset.assetKind),
         count: 0,
       }
       current.count += 1
@@ -293,9 +312,9 @@ export function EditorAppSidebar({
             aria-label={collapseLabel}
             title={collapseLabel}
             onClick={onToggleCollapse}
-            className="editor-control editor-header-icon size-8 rounded-[12px]"
+            className="editor-control editor-edge-toggle editor-edge-toggle--left editor-header-icon size-8 rounded-[12px]"
           >
-            <Boxes className="size-4" />
+            <Layers3 className="size-4" />
           </Button>
         </div>
       </aside>
@@ -304,60 +323,67 @@ export function EditorAppSidebar({
 
   return (
     <aside className={cn('h-full w-full min-w-0', className)}>
-      <div className="editor-side-shell editor-panel editor-panel--soft flex h-full min-h-0 flex-col overflow-hidden px-2 py-2 text-white">
-        <div className="flex min-h-0 flex-1 flex-col gap-2">
-          <div className="editor-panel editor-panel--accent px-2.5 py-2">
-            <div className="flex min-w-0 items-center gap-2.5 rounded-[14px] text-white">
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                aria-label={collapseLabel}
-                title={collapseLabel}
-                onClick={onToggleCollapse}
-                className="editor-control editor-header-icon size-8 rounded-[12px]"
+      <div className="editor-side-shell-wrap editor-side-shell-wrap--left h-full">
+        <div className="editor-side-shell editor-panel editor-panel--soft flex h-full min-h-0 flex-col overflow-hidden px-2 py-2 text-white">
+          <div className="flex min-h-0 flex-1 flex-col gap-2">
+            <div className="editor-panel editor-panel--accent editor-side-header px-2.5 py-2">
+              <div className="flex min-w-0 items-center gap-2.5 rounded-[14px] text-white">
+                {onToggleCollapse ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={collapseLabel}
+                    title={collapseLabel}
+                    onClick={onToggleCollapse}
+                    className="editor-control editor-header-icon size-8 shrink-0 rounded-[12px]"
+                  >
+                    <Layers3 className="size-4" />
+                  </Button>
+                ) : (
+                  <div className="editor-header-icon flex size-8 items-center justify-center rounded-[12px]">
+                    <Layers3 className="size-4" />
+                  </div>
+                )}
+                <div className="grid min-w-0 flex-1 gap-1 text-left leading-tight">
+                  <span className="truncate text-[13px] font-semibold">资源库 / 场景</span>
+                  <span className="truncate text-[11px] text-white/54">
+                    拖放到画布，或从场景区回选对象
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="editor-group px-2.5 py-2">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <p className="editor-kicker">Workspace</p>
+                  <p className="mt-1 text-[13px] font-semibold leading-5">
+                    {isLoading
+                      ? '正在同步编辑态'
+                      : `${authoredStaticAssets.length} 个已摆放对象 / ${editableEntities.length} 个运行实体`}
+                  </p>
+                </div>
+                <Badge className="editor-pill">Dock</Badge>
+              </div>
+            </div>
+
+            <div className="editor-scroll flex min-h-0 flex-1 flex-col gap-2 overflow-auto pr-0.5">
+              <Tabs
+                value={resourceTab}
+                onValueChange={(value) => setResourceTab(value as ResourceTab)}
+                className="gap-2"
               >
-                <Boxes className="size-4" />
-              </Button>
-              <div className="grid min-w-0 flex-1 gap-1 text-left leading-tight">
-                <span className="truncate text-[13px] font-semibold">资源库 / 场景</span>
-                <span className="truncate text-[11px] text-white/54">
-                  拖放到画布，或从场景区回选对象
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <div className="editor-group px-2.5 py-2">
-            <div className="flex items-center justify-between gap-2">
-              <div>
-                <p className="editor-kicker">Workspace</p>
-                <p className="mt-1 text-[13px] font-semibold leading-5">
-                  {isLoading
-                    ? '正在同步编辑态'
-                    : `${authoredStaticAssets.length} 个已摆放对象 / ${editableEntities.length} 个运行实体`}
-                </p>
-              </div>
-              <Badge className="editor-pill">Dock</Badge>
-            </div>
-          </div>
-
-          <div className="editor-scroll flex min-h-0 flex-1 flex-col gap-2 overflow-auto pr-0.5">
-            <Tabs
-              value={resourceTab}
-              onValueChange={(value) => setResourceTab(value as ResourceTab)}
-              className="gap-2"
-            >
-              <div className="editor-panel editor-panel--soft p-1.5">
-                <TabsList className="editor-tab-list grid grid-cols-2">
-                  <TabsTrigger value="catalog" className="editor-tab-trigger">
-                    资源库
-                  </TabsTrigger>
-                  <TabsTrigger value="scene" className="editor-tab-trigger">
-                    场景
-                  </TabsTrigger>
-                </TabsList>
-              </div>
+                <div className="editor-panel editor-panel--soft p-1.5">
+                  <TabsList className="editor-tab-list grid grid-cols-2">
+                    <TabsTrigger value="catalog" className="editor-tab-trigger">
+                      资源库
+                    </TabsTrigger>
+                    <TabsTrigger value="scene" className="editor-tab-trigger">
+                      场景
+                    </TabsTrigger>
+                  </TabsList>
+                </div>
 
               <TabsContent value="catalog" className="space-y-2">
                 <div className="editor-group p-1.5">
@@ -366,7 +392,7 @@ export function EditorAppSidebar({
                     <Input
                       value={catalogSearch}
                       onChange={(event) => setCatalogSearch(event.target.value)}
-                      placeholder="搜索塔、桥架、罐体、模块..."
+                      placeholder="搜索墙体、门、摄像头、传感器、温控器..."
                       className="editor-input pl-9"
                     />
                   </div>
@@ -423,14 +449,19 @@ export function EditorAppSidebar({
                             )
                           }
                         >
-                          <TowerControl className="mt-0.5 size-4 shrink-0" />
+                          <CatalogPreviewTile item={item} />
                           <div className="grid min-w-0 flex-1 gap-1 text-left leading-tight">
-                            <div className="flex items-center gap-2">
-                              <span className="truncate font-medium">{item.name}</span>
-                              <span className="editor-mini-pill">拖入</span>
-                            </div>
+                            <span className="truncate text-[11px] font-medium">{item.name}</span>
                             <span className="line-clamp-1 text-[11px] text-white/46">
                               {item.description}
+                            </span>
+                            <span className="text-[10px] text-white/30">
+                              {getStaticAssetDomainLabel(item.domain)} ·{' '}
+                              {getStaticAssetPlacementLabel(item.placementMode)}
+                            </span>
+                            <span className="text-[10px] text-white/30">
+                              {Math.round(item.dimensions.width)} × {Math.round(item.dimensions.depth)} ×{' '}
+                              {Math.round(item.dimensions.height)}m
                             </span>
                           </div>
                         </PanelMenuButton>
@@ -532,7 +563,7 @@ export function EditorAppSidebar({
                             <div className="grid min-w-0 flex-1 gap-1 text-left leading-tight">
                               <span className="truncate font-medium">{asset.name}</span>
                               <span className="line-clamp-1 text-[11px] text-white/46">
-                                {ASSET_KIND_LABELS[asset.assetKind] ?? asset.assetKind}
+                                {getStaticAssetKindLabel(asset.assetKind)}
                                 {asset.variant ? ` · ${asset.variant}` : ''}
                               </span>
                             </div>
@@ -583,6 +614,7 @@ export function EditorAppSidebar({
             </Tabs>
           </div>
         </div>
+      </div>
       </div>
     </aside>
   )

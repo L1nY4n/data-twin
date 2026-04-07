@@ -1,21 +1,24 @@
 #!/usr/bin/env bun
 
 import { execFile as execFileCallback } from 'node:child_process'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import process from 'node:process'
 import { promisify } from 'node:util'
 import { Group, Mesh, MeshStandardMaterial } from 'three'
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js'
 import {
+  buildPublishedScenePackageFromSnapshot,
   createPublishedCampusScenePackage,
   createPublishedStaticAssetManifest,
   encodePublishedStaticMaterialName,
   encodePublishedStaticMeshName,
   PUBLISHED_STATIC_ASSET_BASE_URL,
+  PUBLISHED_STATIC_ASSET_MANIFEST_URL,
   resolvePublishedStaticAssetManifestUrl,
   type PublishedStaticAssetCompression,
   type PublishedStaticMaterialRef,
+  type PublishedWorkingSnapshot,
 } from '../lib/digital-twin/publish'
 import {
   buildPublishedStaticRenderBatches,
@@ -161,18 +164,34 @@ async function main() {
     : path.join(process.cwd(), 'public')
   const compression = process.argv.includes('--meshopt') ? 'meshopt' : 'none'
   const baseUrlFlagIndex = process.argv.indexOf('--base-url')
+  const snapshotFlagIndex = process.argv.indexOf('--snapshot')
   const baseUrl =
     baseUrlFlagIndex >= 0 && process.argv[baseUrlFlagIndex + 1]
       ? process.argv[baseUrlFlagIndex + 1]
       : PUBLISHED_STATIC_ASSET_BASE_URL
+  const snapshotPath =
+    snapshotFlagIndex >= 0 && process.argv[snapshotFlagIndex + 1]
+      ? path.resolve(process.argv[snapshotFlagIndex + 1])
+      : null
+  const manifestUrl =
+    baseUrl === PUBLISHED_STATIC_ASSET_BASE_URL
+      ? PUBLISHED_STATIC_ASSET_MANIFEST_URL
+      : resolvePublishedStaticAssetManifestUrl(baseUrl)
 
   if (compression === 'meshopt') {
     await ensureMeshoptAvailable()
   }
 
-  const pkg = createPublishedCampusScenePackage('default', {
-    staticAssetManifestUrl: resolvePublishedStaticAssetManifestUrl(baseUrl),
-  })
+  const snapshot = snapshotPath
+    ? ((JSON.parse(await readFile(snapshotPath, 'utf8')) as PublishedWorkingSnapshot) ?? null)
+    : null
+  const pkg = snapshot
+    ? buildPublishedScenePackageFromSnapshot(snapshot, {
+        staticAssetManifestUrl: manifestUrl,
+      })
+    : createPublishedCampusScenePackage('default', {
+        staticAssetManifestUrl: manifestUrl,
+      })
   const manifest = createPublishedStaticAssetManifest(
     pkg.sceneId,
     pkg.generatedAt,
@@ -200,7 +219,7 @@ async function main() {
 
   const manifestPath = urlToPublicPath(
     publicDir,
-    resolvePublishedStaticAssetManifestUrl(baseUrl)
+    manifestUrl
   )
   await mkdir(path.dirname(manifestPath), { recursive: true })
   await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')

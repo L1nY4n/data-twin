@@ -8,12 +8,29 @@ import {
   isEditorEntityEditable,
   useEditorDigitalTwinStore,
 } from '@/lib/digital-twin/editor-store'
-import type { Entity, StaticAssetInstance, Vector3 } from '@/lib/digital-twin/types'
+import {
+  getStaticAssetCatalogItem,
+  isDoorHostAssetKind,
+  isHostedPlacementMode,
+  isWallHostAssetKind,
+  resolveStaticAssetPlacementElevation,
+  resolveStaticAssetCatalogItem,
+} from '@/lib/digital-twin/static-asset-catalog'
+import type {
+  Entity,
+  StaticAssetInstance,
+  StaticAssetPlacementPreview,
+  Vector3,
+} from '@/lib/digital-twin/types'
 
 const POINTER = new THREE.Vector2()
 const GROUND_PLANE = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0)
 const GROUND_INTERSECTION = new THREE.Vector3()
 const MARQUEE_THRESHOLD = 8
+const WALL_FACE_CLEARANCE = 0.02
+const WALL_EDGE_PADDING = 0.1
+const DOOR_LOCK_EDGE_RATIO = 0.28
+const DOOR_LOCK_EDGE_PADDING = 0.12
 
 interface PointerSample {
   offsetX: number
@@ -41,6 +58,34 @@ type EditorClickSelectionAction =
   | { type: 'keep' }
   | { type: 'clear' }
   | { type: 'select'; target: EditorPickTarget }
+
+interface EditorPickedIntersection {
+  target: EditorPickTarget
+  point: Vector3
+  normal: Vector3 | null
+}
+
+interface HostedWallPlacementInput {
+  catalogId: string
+  hostAsset: Pick<
+    StaticAssetInstance,
+    'id' | 'assetKind' | 'variant' | 'position' | 'rotation' | 'scale'
+  >
+  hitPoint: Vector3
+  hitNormal?: Vector3 | null
+  snapEnabled: boolean
+  translateSnap: number
+}
+
+interface HostedDoorPlacementInput {
+  catalogId: string
+  hostAsset: Pick<
+    StaticAssetInstance,
+    'id' | 'assetKind' | 'variant' | 'position' | 'rotation' | 'scale'
+  >
+  hitPoint: Vector3
+  hitNormal?: Vector3 | null
+}
 
 function snapNumber(value: number, step: number) {
   return Math.round(value / step) * step
@@ -113,6 +158,29 @@ export function resolveEditorClickSelectionAction({
   return { type: 'select', target }
 }
 
+function setRayFromPointer(
+  pointer: PointerSample,
+  domElement: HTMLCanvasElement,
+  camera: THREE.Camera,
+  raycaster: THREE.Raycaster
+) {
+  const width = domElement.clientWidth || domElement.width
+  const height = domElement.clientHeight || domElement.height
+  if (width <= 0 || height <= 0) return false
+
+  POINTER.set((pointer.offsetX / width) * 2 - 1, -(pointer.offsetY / height) * 2 + 1)
+  raycaster.setFromCamera(POINTER, camera)
+  return true
+}
+
+function resolveHitNormal(hit: THREE.Intersection<THREE.Object3D>) {
+  if (!hit.face) return null
+
+  const normal = hit.face.normal.clone()
+  const normalMatrix = new THREE.Matrix3().getNormalMatrix(hit.object.matrixWorld)
+  return normal.applyMatrix3(normalMatrix).normalize()
+}
+
 function resolvePickedTarget(
   pointer: PointerSample,
   domElement: HTMLCanvasElement,
@@ -121,17 +189,44 @@ function resolvePickedTarget(
   pickRoot: THREE.Object3D | null
 ) {
   if (!pickRoot) return null
-  const width = domElement.clientWidth || domElement.width
-  const height = domElement.clientHeight || domElement.height
-  if (width <= 0 || height <= 0) return null
-
-  POINTER.set((pointer.offsetX / width) * 2 - 1, -(pointer.offsetY / height) * 2 + 1)
-  raycaster.setFromCamera(POINTER, camera)
+  if (!setRayFromPointer(pointer, domElement, camera, raycaster)) return null
 
   const hits = raycaster.intersectObject(pickRoot, true)
   for (const hit of hits) {
     const target = resolveEditorPickTargetFromObject(hit.object)
     if (target) return target
+  }
+
+  return null
+}
+
+function resolvePickedIntersection(
+  pointer: PointerSample,
+  domElement: HTMLCanvasElement,
+  camera: THREE.Camera,
+  raycaster: THREE.Raycaster,
+  pickRoot: THREE.Object3D | null
+): EditorPickedIntersection | null {
+  if (!pickRoot) return null
+  if (!setRayFromPointer(pointer, domElement, camera, raycaster)) return null
+
+  const hits = raycaster.intersectObject(pickRoot, true)
+  for (const hit of hits) {
+    const target = resolveEditorPickTargetFromObject(hit.object)
+    if (!target) continue
+    const normal = resolveHitNormal(hit)
+
+    return {
+      target,
+      point: { x: hit.point.x, y: hit.point.y, z: hit.point.z },
+      normal: normal
+        ? {
+            x: normal.x,
+            y: normal.y,
+            z: normal.z,
+          }
+        : null,
+    }
   }
 
   return null
@@ -143,15 +238,332 @@ function resolveGroundIntersection(
   camera: THREE.Camera,
   raycaster: THREE.Raycaster
 ) {
-  const width = domElement.clientWidth || domElement.width
-  const height = domElement.clientHeight || domElement.height
-  if (width <= 0 || height <= 0) return null
-
-  POINTER.set((pointer.offsetX / width) * 2 - 1, -(pointer.offsetY / height) * 2 + 1)
-  raycaster.setFromCamera(POINTER, camera)
+  if (!setRayFromPointer(pointer, domElement, camera, raycaster)) return null
 
   const point = raycaster.ray.intersectPlane(GROUND_PLANE, GROUND_INTERSECTION)
   return point ? { x: point.x, y: point.y, z: point.z } : null
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value))
+}
+
+function rotateLocalXAxis(rotationY: number) {
+  return new THREE.Vector3(Math.cos(rotationY), 0, -Math.sin(rotationY))
+}
+
+function rotateLocalZAxis(rotationY: number) {
+  return new THREE.Vector3(Math.sin(rotationY), 0, Math.cos(rotationY))
+}
+
+export function resolveHostedWallPlacement({
+  catalogId,
+  hostAsset,
+  hitPoint,
+  hitNormal,
+  snapEnabled,
+  translateSnap,
+}: HostedWallPlacementInput): StaticAssetPlacementPreview | null {
+  if (!isWallHostAssetKind(hostAsset.assetKind)) return null
+
+  const catalogItem = getStaticAssetCatalogItem(catalogId)
+  const hostCatalogItem = resolveStaticAssetCatalogItem(hostAsset.assetKind, hostAsset.variant)
+  if (!catalogItem || !hostCatalogItem) return null
+
+  const tangent = rotateLocalXAxis(hostAsset.rotation.y)
+  const normal = rotateLocalZAxis(hostAsset.rotation.y)
+  const hitOffset = new THREE.Vector3(
+    hitPoint.x - hostAsset.position.x,
+    hitPoint.y - hostAsset.position.y,
+    hitPoint.z - hostAsset.position.z
+  )
+  const wallWidth = hostCatalogItem.dimensions.width * hostAsset.scale.x
+  const wallDepth = hostCatalogItem.dimensions.depth * hostAsset.scale.z
+  const wallHeight = hostCatalogItem.dimensions.height * hostAsset.scale.y
+  const assetHeight = catalogItem.dimensions.height
+  const assetWidth = catalogItem.dimensions.width
+  const assetDepth = catalogItem.dimensions.depth
+  const halfWidth = wallWidth / 2
+  const halfDepth = wallDepth / 2
+  const safeStep = Math.max(0.1, translateSnap)
+  const surfaceDot = hitNormal ? hitNormal.x * normal.x + hitNormal.z * normal.z : 0
+  const faceSign =
+    Math.sign(surfaceDot) ||
+    Math.sign(hitOffset.x * normal.x + hitOffset.z * normal.z) ||
+    1
+  const paddedHalfWidth = Math.max(
+    0,
+    halfWidth - Math.max(assetWidth / 2, WALL_EDGE_PADDING)
+  )
+  const snappedAlong = snapEnabled
+    ? snapNumber(
+        clampNumber(
+          hitOffset.x * tangent.x + hitOffset.z * tangent.z,
+          -paddedHalfWidth,
+          paddedHalfWidth
+        ),
+        safeStep
+      )
+    : clampNumber(
+        hitOffset.x * tangent.x + hitOffset.z * tangent.z,
+        -paddedHalfWidth,
+        paddedHalfWidth
+      )
+  const clampedAlong = clampNumber(snappedAlong, -paddedHalfWidth, paddedHalfWidth)
+  const availableHeight = Math.max(0, wallHeight - assetHeight)
+  const alongOffset = tangent.clone().multiplyScalar(clampedAlong)
+  let normalOffset = new THREE.Vector3(0, 0, 0)
+  let rotationY = hostAsset.rotation.y
+  let hostSurface: StaticAssetPlacementPreview['hostSurface'] = 'wall-face'
+  let surfaceNormal = { x: normal.x * faceSign, y: 0, z: normal.z * faceSign }
+  let finalY = clampNumber(Math.max(0, hitOffset.y - assetHeight / 2), 0, availableHeight)
+
+  switch (catalogItem.placementMode) {
+    case 'wall-mounted':
+      normalOffset = normal
+        .clone()
+        .multiplyScalar(faceSign * (halfDepth + assetDepth / 2 + WALL_FACE_CLEARANCE))
+      rotationY += faceSign < 0 ? Math.PI : 0
+      break
+    case 'ceiling-mounted':
+      hostSurface = 'ceiling-plane'
+      surfaceNormal = { x: 0, y: -1, z: 0 }
+      finalY = Math.max(0, wallHeight - assetHeight)
+      break
+    case 'opening-hosted':
+      hostSurface = 'opening-center'
+      if (catalogItem.assetKind === 'door-system') {
+        finalY = 0
+      } else if (catalogItem.assetKind === 'window-system') {
+        finalY = clampNumber(Math.max(1.2, hitOffset.y - assetHeight / 2), 0, availableHeight)
+      } else if (
+        catalogItem.assetKind === 'smart-control' &&
+        catalogItem.variant === 'smart-lock'
+      ) {
+        finalY = clampNumber(1.05, 0, availableHeight)
+        normalOffset = normal
+          .clone()
+          .multiplyScalar(faceSign * (halfDepth + assetDepth / 2 + WALL_FACE_CLEARANCE))
+        rotationY += faceSign < 0 ? Math.PI : 0
+      } else {
+        finalY = clampNumber(Math.max(0.9, hitOffset.y - assetHeight / 2), 0, availableHeight)
+      }
+      break
+    case 'floor':
+    default:
+      return null
+  }
+
+  const finalPosition = new THREE.Vector3(
+    hostAsset.position.x,
+    hostAsset.position.y,
+    hostAsset.position.z
+  )
+    .add(alongOffset)
+    .add(normalOffset)
+
+  return {
+    position: {
+      x: finalPosition.x,
+      y: hostAsset.position.y + finalY,
+      z: finalPosition.z,
+    },
+    rotation: { x: 0, y: rotationY, z: 0 },
+    elevationLocked: true,
+    metadata: {
+      hostStaticAssetId: hostAsset.id,
+      hostSurface,
+      surfaceNormal,
+    },
+    hostStaticAssetId: hostAsset.id,
+    hostSurface,
+    surfaceNormal,
+  }
+}
+
+export function resolveHostedDoorPlacement({
+  catalogId,
+  hostAsset,
+  hitPoint,
+  hitNormal,
+}: HostedDoorPlacementInput): StaticAssetPlacementPreview | null {
+  if (!isDoorHostAssetKind(hostAsset.assetKind)) return null
+
+  const catalogItem = getStaticAssetCatalogItem(catalogId)
+  const hostCatalogItem = resolveStaticAssetCatalogItem(hostAsset.assetKind, hostAsset.variant)
+  if (
+    !catalogItem ||
+    catalogItem.assetKind !== 'smart-control' ||
+    catalogItem.variant !== 'smart-lock' ||
+    !hostCatalogItem
+  ) {
+    return null
+  }
+
+  const tangent = rotateLocalXAxis(hostAsset.rotation.y)
+  const normal = rotateLocalZAxis(hostAsset.rotation.y)
+  const hitOffset = new THREE.Vector3(
+    hitPoint.x - hostAsset.position.x,
+    hitPoint.y - hostAsset.position.y,
+    hitPoint.z - hostAsset.position.z
+  )
+  const doorWidth = hostCatalogItem.dimensions.width * hostAsset.scale.x
+  const doorDepth = hostCatalogItem.dimensions.depth * hostAsset.scale.z
+  const doorHeight = hostCatalogItem.dimensions.height * hostAsset.scale.y
+  const lockDepth = catalogItem.dimensions.depth
+  const surfaceDot = hitNormal ? hitNormal.x * normal.x + hitNormal.z * normal.z : 0
+  const faceSign =
+    Math.sign(surfaceDot) ||
+    Math.sign(hitOffset.x * normal.x + hitOffset.z * normal.z) ||
+    1
+  const along = hitOffset.x * tangent.x + hitOffset.z * tangent.z
+  const sideSign = Math.sign(along) || 1
+  const maxOffset = Math.max(
+    catalogItem.dimensions.width / 2,
+    doorWidth / 2 - DOOR_LOCK_EDGE_PADDING
+  )
+  const alongOffset = tangent
+    .clone()
+    .multiplyScalar(
+      sideSign * Math.min(maxOffset, Math.max(catalogItem.dimensions.width / 2, doorWidth * DOOR_LOCK_EDGE_RATIO))
+    )
+  const normalOffset = normal
+    .clone()
+    .multiplyScalar(faceSign * (doorDepth / 2 + lockDepth / 2 + WALL_FACE_CLEARANCE))
+  const finalY = clampNumber(1.05, 0, Math.max(0, doorHeight - catalogItem.dimensions.height))
+  const surfaceNormal = { x: normal.x * faceSign, y: 0, z: normal.z * faceSign }
+  const doorSide = sideSign < 0 ? 'left' : 'right'
+
+  const finalPosition = new THREE.Vector3(
+    hostAsset.position.x,
+    hostAsset.position.y,
+    hostAsset.position.z
+  )
+    .add(alongOffset)
+    .add(normalOffset)
+
+  return {
+    position: {
+      x: finalPosition.x,
+      y: hostAsset.position.y + finalY,
+      z: finalPosition.z,
+    },
+    rotation: { x: 0, y: hostAsset.rotation.y + (faceSign < 0 ? Math.PI : 0), z: 0 },
+    elevationLocked: true,
+    metadata: {
+      hostStaticAssetId: hostAsset.id,
+      hostSurface: 'door-face',
+      hostDoorSide: doorSide,
+      surfaceNormal,
+    },
+    hostStaticAssetId: hostAsset.id,
+    hostSurface: 'door-face',
+    surfaceNormal,
+  }
+}
+
+function resolveHostedPlacementFromIntersection(
+  catalogId: string,
+  pickedIntersection: EditorPickedIntersection | null,
+  interactiveStaticAssets: Map<string, StaticAssetInstance>,
+  snapEnabled: boolean,
+  translateSnap: number
+) {
+  if (!pickedIntersection || pickedIntersection.target.kind !== 'static-asset') return null
+
+  const hostAsset = interactiveStaticAssets.get(pickedIntersection.target.id) ?? null
+  if (!hostAsset || !hostAsset.visible) return null
+
+  if (isDoorHostAssetKind(hostAsset.assetKind)) {
+    return resolveHostedDoorPlacement({
+      catalogId,
+      hostAsset,
+      hitPoint: pickedIntersection.point,
+      hitNormal: pickedIntersection.normal,
+    })
+  }
+
+  if (!isWallHostAssetKind(hostAsset.assetKind)) return null
+
+  return resolveHostedWallPlacement({
+    catalogId,
+    hostAsset,
+    hitPoint: pickedIntersection.point,
+    hitNormal: pickedIntersection.normal,
+    snapEnabled,
+    translateSnap,
+  })
+}
+
+interface CatalogPlacementPreviewInput {
+  catalogId: string
+  groundPoint: Vector3 | null
+  hostedWallPlacement: StaticAssetPlacementPreview | null
+  snapEnabled: boolean
+  translateSnap: number
+}
+
+export function resolveCatalogPlacementPreview({
+  catalogId,
+  groundPoint,
+  hostedWallPlacement,
+  snapEnabled,
+  translateSnap,
+}: CatalogPlacementPreviewInput): StaticAssetPlacementPreview | null {
+  const catalogItem = getStaticAssetCatalogItem(catalogId)
+  if (!catalogItem) return null
+
+  if (catalogItem.placementMode === 'opening-hosted') {
+    return hostedWallPlacement
+  }
+
+  if (catalogItem.placementMode === 'wall-mounted') {
+    return hostedWallPlacement
+  }
+
+  if (catalogItem.placementMode === 'ceiling-mounted') {
+    const positionSource = groundPoint
+      ? snapPlacementPoint(groundPoint, snapEnabled, translateSnap)
+      : hostedWallPlacement?.position ?? null
+    if (!positionSource) return null
+
+    const defaultHeight = resolveStaticAssetPlacementElevation(catalogItem, positionSource)
+    const hostedHeight = hostedWallPlacement?.position.y ?? Number.NEGATIVE_INFINITY
+    return {
+      position: {
+        x: positionSource.x,
+        y: Math.max(defaultHeight, hostedHeight),
+        z: positionSource.z,
+      },
+      rotation: hostedWallPlacement?.rotation ?? { x: 0, y: 0, z: 0 },
+      elevationLocked: true,
+      metadata: {
+        ...(hostedWallPlacement?.metadata ?? {}),
+        hostSurface: 'ceiling-plane',
+      },
+      hostStaticAssetId: hostedWallPlacement?.hostStaticAssetId ?? null,
+      hostSurface: 'ceiling-plane',
+      surfaceNormal: { x: 0, y: -1, z: 0 },
+    }
+  }
+
+  if (!groundPoint) return null
+  const position = snapPlacementPoint(groundPoint, snapEnabled, translateSnap)
+
+  return {
+    position: {
+      x: position.x,
+      y: resolveStaticAssetPlacementElevation(catalogItem, position),
+      z: position.z,
+    },
+    rotation: { x: 0, y: 0, z: 0 },
+    elevationLocked: true,
+    metadata: {
+      hostSurface: 'ground',
+    },
+    hostSurface: 'ground',
+    surfaceNormal: { x: 0, y: 1, z: 0 },
+  }
 }
 
 function createSelectionRect(start: PointerSample, end: PointerSample): SelectionRect {
@@ -165,6 +577,10 @@ function createSelectionRect(start: PointerSample, end: PointerSample): Selectio
 
 function isRectValid(rect: SelectionRect) {
   return rect.width >= MARQUEE_THRESHOLD && rect.height >= MARQUEE_THRESHOLD
+}
+
+function getPointerDistance(start: PointerSample, end: PointerSample) {
+  return Math.hypot(end.offsetX - start.offsetX, end.offsetY - start.offsetY)
 }
 
 export function resolveEditorMarqueeTarget(
@@ -218,7 +634,7 @@ export function resolveEditorMarqueeTarget(
   }
 }
 
-function buildStaticAssetTargets(
+function buildVisibleStaticAssets(
   staticAssets: Map<string, StaticAssetInstance>,
   draftStaticAsset: StaticAssetInstance | null,
   savedStaticAsset: StaticAssetInstance | null
@@ -239,13 +655,7 @@ function buildStaticAssetTargets(
     items.push(savedStaticAsset)
   }
 
-  return items
-    .filter((asset) => asset.visible)
-    .map((asset) => ({
-      kind: 'static-asset' as const,
-      id: asset.id,
-      position: asset.position,
-    }))
+  return items.filter((asset) => asset.visible)
 }
 
 function buildEntityTargets(entities: Map<string, Entity>, draftEntity: Entity | null) {
@@ -305,16 +715,29 @@ export function EditorScenePicking({
   const previousDraggingRef = useRef(isTransformDragging)
   const suppressClickRef = useRef(false)
   const pointerDownRef = useRef<PointerSample | null>(null)
+  const clickSuppressionStartRef = useRef<PointerSample | null>(null)
   const lastPointerRef = useRef<PointerSample | null>(null)
   const marqueeActiveRef = useRef(false)
   const rafRef = useRef<number | null>(null)
+  const visibleStaticAssets = useMemo(
+    () => buildVisibleStaticAssets(staticAssets, draftStaticAsset, savedStaticAsset),
+    [draftStaticAsset, savedStaticAsset, staticAssets]
+  )
+  const visibleStaticAssetsById = useMemo(
+    () => new Map(visibleStaticAssets.map((asset) => [asset.id, asset] as const)),
+    [visibleStaticAssets]
+  )
 
   const selectables = useMemo(
     () => [
-      ...buildStaticAssetTargets(staticAssets, draftStaticAsset, savedStaticAsset),
+      ...visibleStaticAssets.map((asset) => ({
+        kind: 'static-asset' as const,
+        id: asset.id,
+        position: asset.position,
+      })),
       ...buildEntityTargets(entities, draftEntity),
     ],
-    [draftEntity, draftStaticAsset, entities, savedStaticAsset, staticAssets]
+    [draftEntity, entities, visibleStaticAssets]
   )
 
   useEffect(() => {
@@ -344,11 +767,35 @@ export function EditorScenePicking({
   useEffect(() => {
     const domElement = gl.domElement
 
-    const resolvePlacementPoint = (pointer: PointerSample) => {
-      const groundPoint = resolveGroundIntersection(pointer, domElement, camera, raycaster)
-      if (!groundPoint) return null
+    const resolvePlacementPoint = (
+      pointer: PointerSample,
+      explicitCatalogId?: string | null
+    ) => {
+      const catalogId = explicitCatalogId ?? placementCatalogIdRef.current
+      if (!catalogId) return null
 
-      return snapPlacementPoint(groundPoint, snapEnabled, translateSnap)
+      const catalogItem = getStaticAssetCatalogItem(catalogId)
+      if (!catalogItem) return null
+
+      const groundPoint = resolveGroundIntersection(pointer, domElement, camera, raycaster)
+      const pickedIntersection = isHostedPlacementMode(catalogItem.placementMode)
+        ? resolvePickedIntersection(pointer, domElement, camera, raycaster, pickRootRef.current)
+        : null
+      const hostedWallPlacement = resolveHostedPlacementFromIntersection(
+        catalogId,
+        pickedIntersection,
+        visibleStaticAssetsById,
+        snapEnabled,
+        translateSnap
+      )
+
+      return resolveCatalogPlacementPreview({
+        catalogId,
+        groundPoint,
+        hostedWallPlacement,
+        snapEnabled,
+        translateSnap,
+      })
     }
 
     const clearMarquee = () => {
@@ -362,8 +809,13 @@ export function EditorScenePicking({
       if (event.button !== 0 || draggingRef.current || placementCatalogIdRef.current) return
       if (transformModeRef.current !== 'select') return
 
+      const pointer = { offsetX: event.offsetX, offsetY: event.offsetY }
+      clickSuppressionStartRef.current = pointer
+
+      if (!event.shiftKey) return
+
       const target = resolvePickedTarget(
-        { offsetX: event.offsetX, offsetY: event.offsetY },
+        pointer,
         domElement,
         camera,
         raycaster,
@@ -371,7 +823,11 @@ export function EditorScenePicking({
       )
       if (target) return
 
-      pointerDownRef.current = { offsetX: event.offsetX, offsetY: event.offsetY }
+      pointerDownRef.current = pointer
+      suppressClickRef.current = true
+      event.preventDefault()
+      event.stopPropagation()
+      event.stopImmediatePropagation?.()
     }
 
     const handlePointerMove = (event: PointerEvent) => {
@@ -379,6 +835,13 @@ export function EditorScenePicking({
 
       const currentPointer = { offsetX: event.offsetX, offsetY: event.offsetY }
       lastPointerRef.current = currentPointer
+
+      if (
+        clickSuppressionStartRef.current &&
+        getPointerDistance(clickSuppressionStartRef.current, currentPointer) >= MARQUEE_THRESHOLD
+      ) {
+        suppressClickRef.current = true
+      }
 
       if (placementCatalogIdRef.current) {
         const previewPoint = resolvePlacementPoint(currentPointer)
@@ -433,6 +896,7 @@ export function EditorScenePicking({
     const handlePointerUp = (event: PointerEvent) => {
       if (!marqueeActiveRef.current || !pointerDownRef.current) {
         pointerDownRef.current = null
+        clickSuppressionStartRef.current = null
         return
       }
 
@@ -453,6 +917,7 @@ export function EditorScenePicking({
 
       suppressClickRef.current = true
       clearMarquee()
+      clickSuppressionStartRef.current = null
       domElement.style.cursor = 'auto'
     }
 
@@ -462,6 +927,7 @@ export function EditorScenePicking({
         rafRef.current = null
       }
       lastPointerRef.current = null
+      clickSuppressionStartRef.current = null
       setHoveredEntity(null)
       setHoveredStaticAsset(null)
       setPlacementPreview(null)
@@ -539,7 +1005,7 @@ export function EditorScenePicking({
       const placementPoint = resolvePlacementPoint({
         offsetX: event.offsetX,
         offsetY: event.offsetY,
-      })
+      }, catalogId)
       setPlacementPreview(placementPoint)
       domElement.style.cursor = 'copy'
     }
@@ -556,7 +1022,7 @@ export function EditorScenePicking({
       const placementPoint = resolvePlacementPoint({
         offsetX: event.offsetX,
         offsetY: event.offsetY,
-      })
+      }, catalogId)
       if (placementPoint) {
         placeStaticAsset(placementPoint)
       } else {
@@ -570,7 +1036,7 @@ export function EditorScenePicking({
       domElement.style.cursor = 'auto'
     }
 
-    domElement.addEventListener('pointerdown', handlePointerDown)
+    domElement.addEventListener('pointerdown', handlePointerDown, { capture: true })
     domElement.addEventListener('pointermove', handlePointerMove, { passive: true })
     domElement.addEventListener('pointerup', handlePointerUp)
     domElement.addEventListener('pointerleave', handlePointerLeave)
@@ -580,7 +1046,7 @@ export function EditorScenePicking({
     domElement.addEventListener('drop', handleDrop)
 
     return () => {
-      domElement.removeEventListener('pointerdown', handlePointerDown)
+      domElement.removeEventListener('pointerdown', handlePointerDown, true)
       domElement.removeEventListener('pointermove', handlePointerMove)
       domElement.removeEventListener('pointerup', handlePointerUp)
       domElement.removeEventListener('pointerleave', handlePointerLeave)
@@ -613,6 +1079,7 @@ export function EditorScenePicking({
     setSelectionMarquee,
     snapEnabled,
     translateSnap,
+    visibleStaticAssetsById,
   ])
 
   return null

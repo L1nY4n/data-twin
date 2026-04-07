@@ -1,22 +1,39 @@
 'use client'
 
-import { useEffect, useId, useState, type KeyboardEvent, type ReactNode } from 'react'
-import { SlidersHorizontal } from 'lucide-react'
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+  type WheelEvent,
+} from 'react'
+import {
+  SlidersHorizontal,
+} from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { useEditorDigitalTwinStore } from '@/lib/digital-twin/editor-store'
-import { getStaticAssetCatalogItem } from '@/lib/digital-twin/static-asset-catalog'
+import {
+  getStaticAssetCatalogItem,
+  getStaticAssetKindLabel,
+} from '@/lib/digital-twin/static-asset-catalog'
 import type { Vector3 } from '@/lib/digital-twin/types'
-import { cn } from '@/lib/utils'
 import {
   resolveEditorTransformAxisConfig,
   type EditorTransformTargetKind,
 } from './scene/EditorTransformGizmo'
 
 const AXES: Array<keyof Vector3> = ['x', 'y', 'z']
+const NUMERIC_INPUT_SCRUB_THRESHOLD = 4
+const NUMERIC_INPUT_PIXELS_PER_STEP = 16
 
 function formatNumberInput(value: number) {
   const normalized = Object.is(value, -0) ? 0 : value
@@ -44,6 +61,155 @@ function getMetadataNumber(
   return typeof value === 'number' ? value : fallback
 }
 
+function clampNumericValue(value: number, min?: number, max?: number) {
+  const withMin = typeof min === 'number' ? Math.max(min, value) : value
+  return typeof max === 'number' ? Math.min(max, withMin) : withMin
+}
+
+function resolveNumericDraftValue(draftValue: string, fallback: number) {
+  const nextValue = Number(draftValue)
+  return Number.isFinite(nextValue) ? nextValue : fallback
+}
+
+function resolveNumericStep(step: string) {
+  const nextStep = Number(step)
+  return Number.isFinite(nextStep) && nextStep > 0 ? nextStep : 1
+}
+
+function useNumericInputInteractions({
+  draftValue,
+  value,
+  step,
+  min,
+  max,
+  disabled,
+  setDraftValue,
+  onCommit,
+}: {
+  draftValue: string
+  value: number
+  step: string
+  min?: number
+  max?: number
+  disabled?: boolean
+  setDraftValue: (value: string) => void
+  onCommit: (value: number) => void
+}) {
+  const stepValue = useMemo(() => resolveNumericStep(step), [step])
+  const [isScrubbing, setIsScrubbing] = useState(false)
+  const scrubSessionRef = useRef<{
+    pointerId: number
+    startY: number
+    startValue: number
+    lastStepOffset: number
+    engaged: boolean
+    handlePointerMove: (event: PointerEvent) => void
+    handlePointerUp: (event: PointerEvent) => void
+  } | null>(null)
+
+  const commitNumericValue = useCallback(
+    (nextValue: number) => {
+      const normalizedValue = clampNumericValue(nextValue, min, max)
+      const formattedValue = formatNumberInput(normalizedValue)
+      setDraftValue(formattedValue)
+      if (normalizedValue !== value) {
+        onCommit(normalizedValue)
+      }
+    },
+    [max, min, onCommit, setDraftValue, value]
+  )
+
+  const stopScrubbing = useCallback(() => {
+    const session = scrubSessionRef.current
+    if (!session) return
+
+    window.removeEventListener('pointermove', session.handlePointerMove)
+    window.removeEventListener('pointerup', session.handlePointerUp)
+    window.removeEventListener('pointercancel', session.handlePointerUp)
+    scrubSessionRef.current = null
+    setIsScrubbing(false)
+    document.body.style.removeProperty('cursor')
+    document.body.style.removeProperty('userSelect')
+  }, [])
+
+  useEffect(() => stopScrubbing, [stopScrubbing])
+
+  const handleWheel = useCallback(
+    (event: WheelEvent<HTMLInputElement>) => {
+      if (disabled || event.deltaY === 0) return
+
+      event.preventDefault()
+      const direction = event.deltaY < 0 ? 1 : -1
+      const baseValue = resolveNumericDraftValue(draftValue, value)
+      commitNumericValue(baseValue + direction * stepValue)
+      event.currentTarget.focus({ preventScroll: true })
+    },
+    [commitNumericValue, disabled, draftValue, stepValue, value]
+  )
+
+  const handlePointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLInputElement>) => {
+      if (disabled || event.button !== 0 || event.pointerType !== 'mouse') return
+
+      stopScrubbing()
+      const input = event.currentTarget
+      const startValue = resolveNumericDraftValue(draftValue, value)
+
+      const handlePointerMove = (moveEvent: PointerEvent) => {
+        const session = scrubSessionRef.current
+        if (!session || moveEvent.pointerId !== session.pointerId) return
+        if ((moveEvent.buttons & 1) === 0) {
+          stopScrubbing()
+          return
+        }
+
+        const deltaY = session.startY - moveEvent.clientY
+        if (!session.engaged) {
+          if (Math.abs(deltaY) < NUMERIC_INPUT_SCRUB_THRESHOLD) return
+          session.engaged = true
+          setIsScrubbing(true)
+          input.blur()
+          document.body.style.cursor = 'ns-resize'
+          document.body.style.userSelect = 'none'
+        }
+
+        moveEvent.preventDefault()
+        const nextStepOffset = Math.trunc(deltaY / NUMERIC_INPUT_PIXELS_PER_STEP)
+        if (nextStepOffset === session.lastStepOffset) return
+
+        session.lastStepOffset = nextStepOffset
+        commitNumericValue(session.startValue + nextStepOffset * stepValue)
+      }
+
+      const handlePointerUp = (upEvent: PointerEvent) => {
+        if (upEvent.pointerId !== scrubSessionRef.current?.pointerId) return
+        stopScrubbing()
+      }
+
+      scrubSessionRef.current = {
+        pointerId: event.pointerId,
+        startY: event.clientY,
+        startValue,
+        lastStepOffset: 0,
+        engaged: false,
+        handlePointerMove,
+        handlePointerUp,
+      }
+
+      window.addEventListener('pointermove', handlePointerMove, { passive: false })
+      window.addEventListener('pointerup', handlePointerUp)
+      window.addEventListener('pointercancel', handlePointerUp)
+    },
+    [commitNumericValue, disabled, draftValue, stepValue, stopScrubbing, value]
+  )
+
+  return {
+    isScrubbing,
+    handleWheel,
+    handlePointerDown,
+  }
+}
+
 function InspectorPanel({
   eyebrow,
   title,
@@ -58,17 +224,17 @@ function InspectorPanel({
   children?: ReactNode
 }) {
   return (
-    <section className="editor-panel p-3.5">
-      <div className="flex items-start justify-between gap-2.5">
+    <section className="editor-panel p-3">
+      <div className="flex items-start justify-between gap-2">
         <div>
           <p className="editor-kicker">{eyebrow}</p>
-          <h2 className="text-sm font-semibold text-white">{title}</h2>
-          <p className="mt-1 text-[11px] leading-4.5 text-white/52">{description}</p>
+          <h2 className="text-[12px] font-semibold text-white">{title}</h2>
+          <p className="mt-0.5 text-[10px] leading-4 text-white/52">{description}</p>
         </div>
         {badge}
       </div>
 
-      {children ? <div className="mt-3 space-y-2.5">{children}</div> : null}
+      {children ? <div className="mt-2.5 space-y-2">{children}</div> : null}
     </section>
   )
 }
@@ -81,9 +247,9 @@ function InspectorBlock({
   children: ReactNode
 }) {
   return (
-    <div className="editor-block p-3">
+    <div className="editor-block p-2.5">
       <p className="editor-kicker">{label}</p>
-      <div className="mt-2.5 space-y-3">{children}</div>
+      <div className="mt-2 space-y-2.5">{children}</div>
     </div>
   )
 }
@@ -202,6 +368,14 @@ function InspectorNumberField({
 }) {
   const [draftValue, setDraftValue] = useState(formatNumberInput(value))
   const inputId = useId()
+  const numericInputInteractions = useNumericInputInteractions({
+    draftValue,
+    value,
+    step,
+    disabled,
+    setDraftValue,
+    onCommit,
+  })
 
   useEffect(() => {
     setDraftValue(formatNumberInput(value))
@@ -244,9 +418,13 @@ function InspectorNumberField({
         disabled={disabled}
         value={draftValue}
         className="editor-input"
+        data-editor-scrubbable="true"
+        data-editor-scrubbing={numericInputInteractions.isScrubbing}
         onChange={(event) => setDraftValue(event.target.value)}
         onBlur={commitValue}
         onKeyDown={handleKeyDown}
+        onWheel={numericInputInteractions.handleWheel}
+        onPointerDown={numericInputInteractions.handlePointerDown}
       />
     </div>
   )
@@ -271,6 +449,15 @@ function InspectorScalarField({
 }) {
   const [draftValue, setDraftValue] = useState(formatNumberInput(value))
   const inputId = useId()
+  const numericInputInteractions = useNumericInputInteractions({
+    draftValue,
+    value,
+    step,
+    min,
+    max,
+    setDraftValue,
+    onCommit,
+  })
 
   useEffect(() => {
     setDraftValue(formatNumberInput(value))
@@ -283,8 +470,7 @@ function InspectorScalarField({
       return
     }
 
-    const withMin = typeof min === 'number' ? Math.max(min, nextValue) : nextValue
-    const normalizedValue = typeof max === 'number' ? Math.min(max, withMin) : withMin
+    const normalizedValue = clampNumericValue(nextValue, min, max)
     if (normalizedValue !== value) {
       onCommit(normalizedValue)
       return
@@ -310,8 +496,12 @@ function InspectorScalarField({
         min={min}
         max={max}
         className="editor-input"
+        data-editor-scrubbable="true"
+        data-editor-scrubbing={numericInputInteractions.isScrubbing}
         onChange={(event) => setDraftValue(event.target.value)}
         onBlur={commitValue}
+        onWheel={numericInputInteractions.handleWheel}
+        onPointerDown={numericInputInteractions.handlePointerDown}
       />
     </div>
   )
@@ -345,7 +535,7 @@ function InspectorColorField({
           name={inputId}
           type="color"
           value={swatchValue}
-          className="editor-input h-10 w-14 p-1"
+          className="editor-input h-8 w-14 p-1"
           onChange={(event) => onCommit(event.target.value)}
         />
         <Input
@@ -418,16 +608,22 @@ function buildSelectionBadges(values: string[]) {
 type EditorInspectorProps = {
   collapsed?: boolean
   onToggleCollapse?: () => void
+  onCreateStandardRoom?: () => void
+  createStandardRoomBusy?: boolean
 }
 
 export function EditorInspector({
   collapsed = false,
   onToggleCollapse,
+  onCreateStandardRoom,
+  createStandardRoomBusy = false,
 }: EditorInspectorProps) {
   return (
     <EditorInspectorContent
       collapsed={collapsed}
       onToggleCollapse={onToggleCollapse}
+      onCreateStandardRoom={onCreateStandardRoom}
+      createStandardRoomBusy={createStandardRoomBusy}
     />
   )
 }
@@ -440,8 +636,8 @@ function InspectorCollapseHeader({
   onToggleCollapse?: () => void
 }) {
   return (
-    <section className="editor-panel editor-panel--accent px-2.5 py-2">
-      <div className="flex min-w-0 items-center gap-2.5 rounded-[14px] text-white">
+    <section className="editor-panel editor-panel--accent editor-side-header px-2 py-1.5">
+      <div className="flex min-w-0 items-center gap-2 rounded-[12px] text-white">
         {onToggleCollapse ? (
           <Button
             type="button"
@@ -450,18 +646,18 @@ function InspectorCollapseHeader({
             aria-label={collapseLabel}
             title={collapseLabel}
             onClick={onToggleCollapse}
-            className="editor-control editor-header-icon size-8 rounded-[12px]"
+            className="editor-control editor-header-icon size-7 shrink-0 rounded-[8px]"
           >
-            <SlidersHorizontal className="size-4" />
+            <SlidersHorizontal className="size-3.5" />
           </Button>
         ) : (
-          <div className="editor-header-icon flex size-8 items-center justify-center rounded-[12px]">
-            <SlidersHorizontal className="size-4" />
+          <div className="editor-header-icon flex size-7 items-center justify-center rounded-[8px]">
+            <SlidersHorizontal className="size-3.5" />
           </div>
         )}
         <div className="grid min-w-0 flex-1 gap-1 text-left leading-tight">
-          <span className="truncate text-[13px] font-semibold">属性编辑 / 场景</span>
-          <span className="truncate text-[11px] text-white/54">
+          <span className="truncate text-[12px] font-semibold">属性编辑 / 场景</span>
+          <span className="truncate text-[10px] text-white/54">
             调整对象参数或场景级配置
           </span>
         </div>
@@ -488,30 +684,32 @@ function InspectorFrame({
   children: ReactNode
 }) {
   return (
-    <div className="editor-side-shell editor-panel editor-panel--soft flex h-full min-h-0 flex-col overflow-hidden px-2 py-2 text-white">
-      <div className="flex min-h-0 flex-1 flex-col gap-2">
-        <InspectorCollapseHeader
-          collapseLabel={collapseLabel}
-          onToggleCollapse={onToggleCollapse}
-        />
+    <div className="editor-side-shell-wrap editor-side-shell-wrap--right h-full">
+      <div className="editor-side-shell editor-panel editor-panel--soft flex h-full min-h-0 flex-col overflow-hidden px-2 py-2 text-white">
+        <div className="flex min-h-0 flex-1 flex-col gap-2">
+          <InspectorCollapseHeader
+            collapseLabel={collapseLabel}
+            onToggleCollapse={onToggleCollapse}
+          />
 
-        <div className="editor-group px-2.5 py-2">
-          <div className="flex items-center justify-between gap-2">
-            <div className="min-w-0">
-              <p className="editor-kicker">{summaryKicker}</p>
-              <p className="mt-1 truncate text-[13px] font-semibold leading-5">
-                {summaryTitle}
-              </p>
-              <p className="mt-0.5 truncate text-[11px] text-white/54">
-                {summaryDescription}
-              </p>
+          <div className="editor-group px-2 py-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <p className="editor-kicker">{summaryKicker}</p>
+                <p className="mt-1 truncate text-[12px] font-semibold leading-[1.05rem]">
+                  {summaryTitle}
+                </p>
+                <p className="mt-0.5 truncate text-[10px] text-white/54">
+                  {summaryDescription}
+                </p>
+              </div>
+              <Badge className="editor-pill">{summaryBadge}</Badge>
             </div>
-            <Badge className="editor-pill">{summaryBadge}</Badge>
           </div>
-        </div>
 
-        <div className="editor-scroll flex min-h-0 flex-1 flex-col gap-2 overflow-auto pr-0.5">
-          {children}
+          <div className="editor-scroll flex min-h-0 flex-1 flex-col gap-2 overflow-auto pr-0.5">
+            {children}
+          </div>
         </div>
       </div>
     </div>
@@ -521,6 +719,8 @@ function InspectorFrame({
 function EditorInspectorContent({
   collapsed = false,
   onToggleCollapse,
+  onCreateStandardRoom,
+  createStandardRoomBusy = false,
 }: EditorInspectorProps) {
   const draftEntity = useEditorDigitalTwinStore((state) => state.draftEntity)
   const savedEntity = useEditorDigitalTwinStore((state) => state.savedEntity)
@@ -528,25 +728,9 @@ function EditorInspectorContent({
   const savedStaticAsset = useEditorDigitalTwinStore((state) => state.savedStaticAsset)
   const placementCatalogId = useEditorDigitalTwinStore((state) => state.placementCatalogId)
   const sceneConfig = useEditorDigitalTwinStore((state) => state.sceneConfig)
-  const viewportProjection = useEditorDigitalTwinStore(
-    (state) => state.viewportProjection
-  )
-  const snapEnabled = useEditorDigitalTwinStore((state) => state.snapEnabled)
-  const translateSnap = useEditorDigitalTwinStore((state) => state.translateSnap)
-  const rotateSnapDegrees = useEditorDigitalTwinStore(
-    (state) => state.rotateSnapDegrees
-  )
   const isDirty = useEditorDigitalTwinStore((state) => state.isDirty)
   const error = useEditorDigitalTwinStore((state) => state.error)
   const setSceneConfig = useEditorDigitalTwinStore((state) => state.setSceneConfig)
-  const setViewportProjection = useEditorDigitalTwinStore(
-    (state) => state.setViewportProjection
-  )
-  const setSnapEnabled = useEditorDigitalTwinStore((state) => state.setSnapEnabled)
-  const setTranslateSnap = useEditorDigitalTwinStore((state) => state.setTranslateSnap)
-  const setRotateSnapDegrees = useEditorDigitalTwinStore(
-    (state) => state.setRotateSnapDegrees
-  )
   const updateDraftProperties = useEditorDigitalTwinStore(
     (state) => state.updateDraftProperties
   )
@@ -560,7 +744,7 @@ function EditorInspectorContent({
 
   if (collapsed) {
     return (
-      <div className="editor-side-shell editor-panel editor-panel--soft flex size-10 items-center justify-center p-1">
+      <div className="editor-side-shell editor-panel editor-panel--soft flex size-9 items-center justify-center p-1">
         <Button
           type="button"
           variant="ghost"
@@ -568,9 +752,9 @@ function EditorInspectorContent({
           aria-label={collapseLabel}
           title={collapseLabel}
           onClick={onToggleCollapse}
-          className="editor-control editor-header-icon size-8 rounded-[12px]"
+          className="editor-control editor-edge-toggle editor-edge-toggle--right editor-header-icon size-7 rounded-[8px]"
         >
-          <SlidersHorizontal className="size-4" />
+          <SlidersHorizontal className="size-3.5" />
         </Button>
       </div>
     )
@@ -644,18 +828,6 @@ function EditorInspectorContent({
           </InspectorBlock>
 
           <InspectorBlock label="Ground">
-            <InspectorToggleField
-              label="Show Grid"
-              hint="编辑网格。"
-              checked={sceneConfig.showGrid}
-              onCheckedChange={(checked) => setSceneConfig({ showGrid: checked })}
-            />
-            <InspectorToggleField
-              label="Show Axes"
-              hint="坐标轴。"
-              checked={sceneConfig.showAxes}
-              onCheckedChange={(checked) => setSceneConfig({ showAxes: checked })}
-            />
             <InspectorScalarField
               label="Grid Size"
               hint="网格覆盖范围。"
@@ -674,61 +846,29 @@ function EditorInspectorContent({
             />
           </InspectorBlock>
 
-          <InspectorBlock label="Camera">
-            <div className="flex flex-wrap gap-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                className={cn(
-                  'editor-control',
-                  viewportProjection === 'perspective' && 'is-active'
-                )}
-                onClick={() => setViewportProjection('perspective')}
-              >
-                Perspective
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                className={cn(
-                  'editor-control',
-                  viewportProjection === 'orthographic' && 'is-active'
-                )}
-                onClick={() => setViewportProjection('orthographic')}
-              >
-                Orthographic
-              </Button>
-            </div>
-          </InspectorBlock>
-
-          <InspectorBlock label="Snap">
-            <InspectorToggleField
-              label="Transform Snap"
-              hint="画布 gizmo 吸附。"
-              checked={snapEnabled}
-              onCheckedChange={setSnapEnabled}
-            />
-            <InspectorScalarField
-              label="Translate Step"
-              hint="平移步长。"
-              value={translateSnap}
-              step="0.1"
-              min={0.1}
-              onCommit={setTranslateSnap}
-            />
-            <InspectorScalarField
-              label="Rotate Step"
-              hint="旋转步长。"
-              value={rotateSnapDegrees}
-              step="1"
-              min={1}
-              onCommit={setRotateSnapDegrees}
-            />
-          </InspectorBlock>
+          {onCreateStandardRoom ? (
+            <InspectorBlock label="Quick Start">
+              <div className="space-y-2">
+                <p className="text-[10px] leading-4 text-white/52">
+                  以当前镜头中心快速落一间 6m × 4.8m 的标准房间，默认附带 4 段墙体和 1 樘入口门。
+                </p>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="editor-control w-full justify-center"
+                  onClick={onCreateStandardRoom}
+                  disabled={createStandardRoomBusy}
+                >
+                  创建标准房间
+                </Button>
+              </div>
+            </InspectorBlock>
+          ) : null}
 
           {error ? (
             <InspectorBlock label="Status">
-              <p className="text-sm text-[#ffb4b4]">{error}</p>
+              <p className="text-[11px] text-[#ffb4b4]">{error}</p>
             </InspectorBlock>
           ) : null}
         </InspectorPanel>
@@ -748,7 +888,7 @@ function EditorInspectorContent({
   const metadata = draftTarget.metadata
   const selectionBadges = draftStaticAsset
     ? [
-        draftStaticAsset.assetKind,
+        getStaticAssetKindLabel(draftStaticAsset.assetKind),
         draftStaticAsset.variant ?? 'default',
         draftTarget.visible ? 'Visible' : 'Hidden',
       ]
@@ -879,7 +1019,10 @@ function EditorInspectorContent({
         <InspectorBlock label="Classification">
           {buildSelectionBadges(
             draftStaticAsset
-              ? [draftStaticAsset.assetKind, draftStaticAsset.variant ?? 'default']
+              ? [
+                  getStaticAssetKindLabel(draftStaticAsset.assetKind),
+                  draftStaticAsset.variant ?? 'default',
+                ]
               : [draftEntity?.type ?? 'entity', draftEntity?.status ?? 'active']
           )}
           <InspectorTextField
