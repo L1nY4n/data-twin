@@ -26,6 +26,7 @@ import {
 import { useTheme } from 'next-themes'
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
 import type { ViewMode } from '@/lib/digital-twin/types'
+import { isRuntimeIncidentActive } from '@/lib/digital-twin/incident-utils'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
@@ -61,6 +62,10 @@ export function Toolbar() {
   const clearMeasurementPoints = useDigitalTwinStore((state) => state.clearMeasurementPoints)
   const isConnected = useDigitalTwinStore((state) => state.isConnected)
   const unacknowledgedAlarmCount = useDigitalTwinStore((state) => state.unacknowledgedAlarmCount)
+  const activeIncidentCount = useDigitalTwinStore(
+    (state) => state.incidents.filter((incident) => isRuntimeIncidentActive(incident)).length
+  )
+  const runtimeDataSource = useDigitalTwinStore((state) => state.runtimeDataSource)
   const toggleBottomPanel = useDigitalTwinStore((state) => state.toggleBottomPanel)
   const isPlayingTrajectory = useDigitalTwinStore((state) => state.isPlayingTrajectory)
   const setTrajectoryPlayback = useDigitalTwinStore((state) => state.setTrajectoryPlayback)
@@ -295,18 +300,24 @@ export function Toolbar() {
                 onClick={toggleBottomPanel}
               >
                 <Bell className="h-4 w-4" />
-                {unacknowledgedAlarmCount > 0 && (
+                {Math.max(unacknowledgedAlarmCount, activeIncidentCount) > 0 && (
                   <Badge 
                     variant="destructive" 
                     className="absolute -right-1 -top-1 h-4 min-w-4 px-1 text-[10px]"
                   >
-                    {unacknowledgedAlarmCount}
+                    {Math.max(unacknowledgedAlarmCount, activeIncidentCount)}
                   </Badge>
                 )}
               </Button>
             </TooltipTrigger>
-            <TooltipContent>告警通知</TooltipContent>
+            <TooltipContent>事件 / 告警通知</TooltipContent>
           </Tooltip>
+
+          {runtimeDataSource === 'mock' && (
+            <Badge variant="outline" className="border-sky-400/50 text-sky-500">
+              Mock
+            </Badge>
+          )}
 
           {/* 设置 */}
           <Tooltip>

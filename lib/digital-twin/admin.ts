@@ -50,6 +50,28 @@ export interface AdminOverview {
   recentChangeAt?: number | null
 }
 
+export type PublishState = 'published' | 'saved-unpublished' | 'publishing' | 'failed'
+
+export interface PublishStatus {
+  status: PublishState
+  currentSceneVersion: number
+  publishedSceneVersion: number
+  hasUnpublishedChanges: boolean
+  activePublishStartedAt?: number | null
+  activePublishHeartbeatAt?: number | null
+  lastPublishedAt?: number | null
+  lastPublishedVersion?: string | null
+  lastError?: string | null
+  publishedScene?: {
+    packageUrl: string
+    packageVersion: string
+    sceneId: string
+    generatedAt: string
+    staticAssetManifestUrl: string
+  } | null
+  compilerSource: string
+}
+
 export interface AuditEventRecord {
   id: string
   actor: string

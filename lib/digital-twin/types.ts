@@ -129,6 +129,45 @@ export interface Alarm {
   acknowledged: boolean
 }
 
+export type IncidentSeverity = Alarm['level']
+
+export type IncidentKind = 'near_miss' | 'zone_intrusion' | 'overspeed'
+
+export interface IncidentCitation {
+  id: string
+  label: string
+  value: string
+}
+
+export interface IncidentVideoFeed {
+  id: string
+  cameraName: string
+  title: string
+  status: 'live' | 'buffering' | 'review'
+  sceneLabel: string
+  badge: string
+  streamUrl?: string
+  posterTone?: string
+}
+
+export interface RuntimeIncident {
+  id: string
+  kind: IncidentKind
+  severity: IncidentSeverity
+  title: string
+  summary: string
+  message: string
+  primaryEntityId: string
+  entityIds: string[]
+  zoneId?: string
+  zoneName?: string
+  cameraName?: string
+  citations: IncidentCitation[]
+  videoFeed?: IncidentVideoFeed | null
+  acknowledged: boolean
+  timestamp: number
+}
+
 // 访问规则
 export interface AccessRule {
   id: string
@@ -169,6 +208,8 @@ export interface SceneConfig {
 // 视角模式
 export type ViewMode = 'orbit' | 'topdown' | 'follow' | 'firstperson'
 
+export type RuntimeDataSource = 'live' | 'mock'
+
 // 相机预设
 export interface CameraPreset {
   id: string
@@ -195,6 +236,12 @@ export type StaticAssetKind =
   | 'sphere-tank'
   | 'pump-manifold'
   | 'service-building'
+  | 'wall-system'
+  | 'door-system'
+  | 'window-system'
+  | 'security-device'
+  | 'smart-sensor'
+  | 'smart-control'
 
 export interface StaticAssetInstance {
   id: string
@@ -208,6 +255,24 @@ export interface StaticAssetInstance {
   metadata: Record<string, unknown>
   createdAt: number
   updatedAt: number
+}
+
+export interface StaticAssetPlacement {
+  position: Vector3
+  rotation?: Vector3
+  elevationLocked?: boolean
+  metadata?: Record<string, unknown>
+}
+
+export interface StaticAssetPlacementPreview extends StaticAssetPlacement {
+  hostStaticAssetId?: string | null
+  hostSurface?:
+    | 'ground'
+    | 'wall-face'
+    | 'ceiling-plane'
+    | 'opening-center'
+    | 'door-face'
+  surfaceNormal?: Vector3 | null
 }
 
 // 规则节点类型
@@ -263,6 +328,7 @@ export type WSMessageType =
   | 'position_update'
   | 'status_update'
   | 'alarm'
+  | 'incident'
   | 'config_changed'
   | 'entity_enter_zone'
   | 'entity_leave_zone'
@@ -299,10 +365,14 @@ export interface StatusUpdateMessage {
   parameters?: Record<string, unknown>
 }
 
+export interface IncidentMessage {
+  incident: RuntimeIncident
+}
+
 export interface ConfigChangedMessage {
   sceneVersion: number
   changedAt: number
-  scope: 'scene' | 'entity' | 'static_asset' | 'binding' | 'rule'
+  scope: 'scene' | 'entity' | 'static_asset' | 'binding' | 'rule' | 'publish'
   publishedScene?: PublishedSceneRuntimeDescriptor | null
 }
 

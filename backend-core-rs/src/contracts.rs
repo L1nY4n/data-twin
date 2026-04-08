@@ -35,6 +35,50 @@ pub struct SceneResponse {
     pub scene_config: SceneConfig,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum EditorSaveMode {
+    Create,
+    Update,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EditorEntitySave {
+    pub mode: EditorSaveMode,
+    pub entity: Entity,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EditorStaticAssetSave {
+    pub mode: EditorSaveMode,
+    pub static_asset: StaticAssetInstance,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EditorSaveRequest {
+    pub expected_scene_version: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scene_config: Option<SceneConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entity: Option<EditorEntitySave>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub static_asset: Option<EditorStaticAssetSave>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EditorSaveResponse {
+    pub scene_version: u64,
+    pub scene_config: SceneConfig,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub saved_entity: Option<Entity>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub saved_static_asset: Option<StaticAssetInstance>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AdminOverviewResponse {
@@ -46,6 +90,37 @@ pub struct AdminOverviewResponse {
     pub unacknowledged_alarm_count: u64,
     #[serde(default)]
     pub recent_change_at: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PublishStatusResponse {
+    pub status: PublishState,
+    pub current_scene_version: u64,
+    pub published_scene_version: u64,
+    pub has_unpublished_changes: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_publish_started_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_publish_heartbeat_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_published_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_published_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub published_scene: Option<PublishedSceneDescriptor>,
+    pub compiler_source: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum PublishState {
+    Published,
+    SavedUnpublished,
+    Publishing,
+    Failed,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -97,6 +172,12 @@ pub enum StaticAssetKind {
     SphereTank,
     PumpManifold,
     ServiceBuilding,
+    WallSystem,
+    DoorSystem,
+    WindowSystem,
+    SecurityDevice,
+    SmartSensor,
+    SmartControl,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -606,4 +687,5 @@ pub enum ConfigChangedScope {
     StaticAsset,
     Binding,
     Rule,
+    Publish,
 }

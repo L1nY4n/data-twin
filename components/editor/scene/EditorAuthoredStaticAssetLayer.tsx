@@ -3,22 +3,18 @@
 import { memo, useMemo } from 'react'
 import { AuthoredStaticAssetLayer } from '@/components/digital-twin/scene/AuthoredStaticAssetLayer'
 import type { PublishedStaticPalette } from '@/components/digital-twin/scene/PublishedStaticRecipeMount'
-import { useEditorDigitalTwinStore } from '@/lib/digital-twin/editor-store'
+import { useEditorSceneStore, useEditorViewerStore } from '@/lib/digital-twin/editor-store'
 
 export const EditorAuthoredStaticAssetLayer = memo(function EditorAuthoredStaticAssetLayer({
   palette,
 }: {
   palette: PublishedStaticPalette
 }) {
-  const staticAssets = useEditorDigitalTwinStore((state) => state.staticAssets)
-  const draftStaticAsset = useEditorDigitalTwinStore((state) => state.draftStaticAsset)
-  const savedStaticAsset = useEditorDigitalTwinStore((state) => state.savedStaticAsset)
-  const selectedStaticAssetId = useEditorDigitalTwinStore(
-    (state) => state.selectedStaticAssetId
-  )
-  const hoveredStaticAssetId = useEditorDigitalTwinStore(
-    (state) => state.hoveredStaticAssetId
-  )
+  const staticAssets = useEditorSceneStore((state) => state.staticAssets)
+  const draftStaticAsset = useEditorSceneStore((state) => state.draftStaticAsset)
+  const savedStaticAsset = useEditorSceneStore((state) => state.savedStaticAsset)
+  const selectedStaticAssetId = useEditorViewerStore((state) => state.selectedStaticAssetId)
+  const hoveredStaticAssetId = useEditorViewerStore((state) => state.hoveredStaticAssetId)
 
   const renderedAssets = useMemo(() => {
     const assets = [...staticAssets.values()]

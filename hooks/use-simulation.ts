@@ -24,10 +24,12 @@ export function useSimulation(options: UseSimulationOptions = {}) {
 
     const publishedScene = createPublishedCampusScenePackage(profile)
     const { persons, vehicles, equipment, zones } = hydratePublishedScenePackage(publishedScene)
-    const { addEntities, setConnectionStatus, resetRuntimeClock } = useDigitalTwinStore.getState()
+    const { addEntities, setConnectionStatus, resetRuntimeClock, setRuntimeDataSource } =
+      useDigitalTwinStore.getState()
 
     addEntities([...zones, ...persons, ...vehicles, ...equipment])
     setConnectionStatus(true, 'simulation://ecs-runtime')
+    setRuntimeDataSource('mock', '种子场景运行中')
     resetRuntimeClock()
     initialized.current = true
   }, [profile])

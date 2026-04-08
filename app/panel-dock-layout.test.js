@@ -33,4 +33,12 @@ describe('rules panel dock layout', () => {
       )
     ).toBe(true)
   })
+
+  test('wires the citation runtime hook and incident video dialog into the page shell', () => {
+    const pagePath = join(process.cwd(), 'app/page.tsx')
+    const source = readFileSync(pagePath, 'utf8')
+
+    expect(source.includes('useCitationRuntime()')).toBe(true)
+    expect(source.includes('<IncidentVideoDialog />')).toBe(true)
+  })
 })

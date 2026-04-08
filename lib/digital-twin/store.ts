@@ -19,6 +19,9 @@ import type {
   RuleConfig,
   EntityTrajectory,
   Alarm,
+  IncidentVideoFeed,
+  RuntimeDataSource,
+  RuntimeIncident,
   StaticAssetInstance,
 } from './types'
 import {
@@ -59,6 +62,10 @@ import {
   getRuntimePublishedStaticFeature,
   type RuntimePublishedStaticFeatureRegistry,
 } from './runtime/static/features'
+import {
+  isRuntimeIncidentActive,
+  shouldRetainRuntimeIncident,
+} from './incident-utils'
 
 export type QualityProfile = 'balanced' | 'performance'
 export type RendererMode = 'auto' | 'webgpu' | 'webgl2'
@@ -148,6 +155,15 @@ interface DigitalTwinState {
   alarms: Alarm[]
   unacknowledgedAlarmCount: number
 
+  // 事件 / Citation runtime
+  incidents: RuntimeIncident[]
+  activeIncidentId: string | null
+  incidentVideoFeed: IncidentVideoFeed | null
+  incidentVideoIncidentId: string | null
+  isIncidentVideoOpen: boolean
+  runtimeDataSource: RuntimeDataSource
+  runtimeNotice: string | null
+
   // UI状态
   leftPanelOpen: boolean
   rightPanelOpen: boolean
@@ -228,6 +244,16 @@ interface DigitalTwinActions {
   acknowledgeAlarm: (id: string) => void
   clearAlarms: () => void
 
+  // 事件操作
+  upsertIncident: (incident: RuntimeIncident) => void
+  acknowledgeIncident: (id: string) => void
+  setActiveIncident: (id: string | null) => void
+  openIncidentVideo: (feed: IncidentVideoFeed, incidentId?: string | null) => void
+  closeIncidentVideo: () => void
+  clearIncidents: () => void
+  pruneIncidents: (now?: number) => void
+  setRuntimeDataSource: (source: RuntimeDataSource, notice?: string | null) => void
+
   // UI操作
   toggleLeftPanel: () => void
   toggleRightPanel: () => void
@@ -298,6 +324,14 @@ const initialState: DigitalTwinState = {
 
   alarms: [],
   unacknowledgedAlarmCount: 0,
+
+  incidents: [],
+  activeIncidentId: null,
+  incidentVideoFeed: null,
+  incidentVideoIncidentId: null,
+  isIncidentVideoOpen: false,
+  runtimeDataSource: 'live',
+  runtimeNotice: null,
 
   leftPanelOpen: true,
   rightPanelOpen: true,
@@ -2085,6 +2119,143 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
 
       clearAlarms: () => set({ alarms: [], unacknowledgedAlarmCount: 0 }),
 
+      // 事件操作
+      upsertIncident: (incident) =>
+        set((state) => {
+          const now = Date.now()
+          const retainedIncidents = state.incidents.filter((entry) =>
+            shouldRetainRuntimeIncident(entry, now)
+          )
+          const existingIndex = state.incidents.findIndex((entry) => entry.id === incident.id)
+          if (existingIndex >= 0) {
+            const nextIncidents = retainedIncidents.slice()
+            const retainedIndex = nextIncidents.findIndex((entry) => entry.id === incident.id)
+            if (retainedIndex === -1) {
+              nextIncidents.unshift(incident)
+              return { incidents: nextIncidents.slice(0, 80) }
+            }
+            nextIncidents[retainedIndex] = incident
+            return { incidents: nextIncidents }
+          }
+
+          const nextIncidents = [incident, ...retainedIncidents]
+          const currentActiveIncident =
+            state.activeIncidentId
+              ? nextIncidents.find((entry) => entry.id === state.activeIncidentId) ?? null
+              : null
+          const nextActiveIncidentId =
+            currentActiveIncident && isRuntimeIncidentActive(currentActiveIncident, now)
+              ? currentActiveIncident.id
+              : incident.id
+
+          return {
+            incidents: nextIncidents.slice(0, 80),
+            activeIncidentId: nextActiveIncidentId,
+          }
+        }),
+
+      acknowledgeIncident: (id) =>
+        set((state) => {
+          const incidents = state.incidents.map((incident) =>
+            incident.id === id ? { ...incident, acknowledged: true } : incident
+          )
+          const now = Date.now()
+          const nextActiveIncident =
+            incidents.find((incident) => incident.id !== id && isRuntimeIncidentActive(incident, now)) ??
+            incidents.find((incident) => incident.id !== id) ??
+            null
+
+          return {
+            incidents,
+            ...(state.activeIncidentId === id
+              ? { activeIncidentId: nextActiveIncident?.id ?? null }
+              : {}),
+            ...(state.incidentVideoIncidentId === id
+              ? {
+                  incidentVideoFeed: null,
+                  incidentVideoIncidentId: null,
+                  isIncidentVideoOpen: false,
+                }
+              : {}),
+          }
+        }),
+
+      setActiveIncident: (id) => set({ activeIncidentId: id }),
+
+      openIncidentVideo: (feed, incidentId = null) =>
+        set({
+          incidentVideoFeed: feed,
+          incidentVideoIncidentId: incidentId,
+          isIncidentVideoOpen: true,
+          ...(incidentId ? { activeIncidentId: incidentId } : {}),
+        }),
+
+      closeIncidentVideo: () =>
+        set({
+          incidentVideoFeed: null,
+          incidentVideoIncidentId: null,
+          isIncidentVideoOpen: false,
+        }),
+
+      clearIncidents: () =>
+        set({
+          incidents: [],
+          activeIncidentId: null,
+          incidentVideoFeed: null,
+          incidentVideoIncidentId: null,
+          isIncidentVideoOpen: false,
+        }),
+
+      pruneIncidents: (now = Date.now()) =>
+        set((state) => {
+          const incidents = state.incidents.filter((incident) =>
+            shouldRetainRuntimeIncident(incident, now)
+          )
+
+          const nextActiveIncident =
+            incidents.find((incident) => isRuntimeIncidentActive(incident, now)) ??
+            incidents[0] ??
+            null
+
+          const currentActiveIncident =
+            state.activeIncidentId
+              ? incidents.find((incident) => incident.id === state.activeIncidentId) ?? null
+              : null
+          const shouldCloseVideo =
+            state.incidentVideoIncidentId !== null &&
+            !incidents.some((incident) => incident.id === state.incidentVideoIncidentId)
+          const nextActiveIncidentId =
+            currentActiveIncident && isRuntimeIncidentActive(currentActiveIncident, now)
+              ? currentActiveIncident.id
+              : nextActiveIncident?.id ?? null
+
+          if (
+            incidents.length === state.incidents.length &&
+            !shouldCloseVideo &&
+            nextActiveIncidentId === state.activeIncidentId
+          ) {
+            return state
+          }
+
+          return {
+            incidents,
+            activeIncidentId: nextActiveIncidentId,
+            ...(shouldCloseVideo
+              ? {
+                  incidentVideoFeed: null,
+                  incidentVideoIncidentId: null,
+                  isIncidentVideoOpen: false,
+                }
+              : {}),
+          }
+        }),
+
+      setRuntimeDataSource: (source, notice = null) =>
+        set({
+          runtimeDataSource: source,
+          runtimeNotice: notice,
+        }),
+
       // UI操作
       toggleLeftPanel: () => set((state) => ({ leftPanelOpen: !state.leftPanelOpen })),
 
@@ -2197,6 +2368,12 @@ export const useSelectedStaticFeature = () => {
   const selectedId = useDigitalTwinStore((state) => state.selectedStaticFeatureId)
   const staticFeatureRegistry = useDigitalTwinStore((state) => state.staticFeatureRegistry)
   return selectedId ? getRuntimePublishedStaticFeature(selectedId, staticFeatureRegistry) : null
+}
+export const useIncidents = () => useDigitalTwinStore((state) => state.incidents)
+export const useSelectedIncident = () => {
+  const activeIncidentId = useDigitalTwinStore((state) => state.activeIncidentId)
+  const incidents = useDigitalTwinStore((state) => state.incidents)
+  return activeIncidentId ? incidents.find((incident) => incident.id === activeIncidentId) ?? null : null
 }
 export const useSceneConfig = () => useDigitalTwinStore((state) => state.sceneConfig)
 export const useViewMode = () => useDigitalTwinStore((state) => state.viewMode)

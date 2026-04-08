@@ -50,4 +50,17 @@ describe('editor transform gizmo axis config', () => {
       showZ: false,
     })
   })
+
+  test('scale keeps ground-authored assets on XZ while elevated types retain Y', () => {
+    expect(resolveEditorTransformAxisConfig('static-asset', 'scale')).toEqual({
+      showX: true,
+      showY: false,
+      showZ: true,
+    })
+    expect(resolveEditorTransformAxisConfig('camera', 'scale')).toEqual({
+      showX: true,
+      showY: true,
+      showZ: true,
+    })
+  })
 })

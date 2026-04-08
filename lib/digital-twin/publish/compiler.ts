@@ -21,7 +21,17 @@ import {
   type SceneEntityCounts,
   type ZoneBlueprint,
 } from '../campus-layout'
-import type { SceneConfig, Vector3, VehicleEntity } from '../types'
+import type {
+  CameraPreset,
+  Entity,
+  EquipmentEntity,
+  PersonEntity,
+  SceneConfig,
+  StaticAssetInstance,
+  Vector3,
+  VehicleEntity,
+  ZoneEntity,
+} from '../types'
 import {
   createInterSectorStaticRenderRecipe,
   createSectorStaticRenderRecipe,
@@ -55,6 +65,14 @@ const DEFAULT_EQUIPMENT_SPREAD = { x: 1.2, z: 1.2 } as const
 interface BuildPublishedScenePackageOptions {
   generatedAt?: string
   profile?: PublishedSceneProfile
+  staticAssetManifestUrl?: string
+}
+
+export interface PublishedWorkingSnapshot {
+  sceneVersion: number
+  sceneConfig: SceneConfig
+  entities: Entity[]
+  staticAssets: StaticAssetInstance[]
 }
 
 function offsetPoint(value: Vector3, offset: Vector3): Vector3 {
@@ -70,6 +88,25 @@ function cloneVector3(value: Vector3): Vector3 {
     x: value.x,
     y: value.y,
     z: value.z,
+  }
+}
+
+function clampBounds(min: number, max: number, fallbackCenter: number, minimumSize: number) {
+  if (!Number.isFinite(min) || !Number.isFinite(max)) {
+    return {
+      min: fallbackCenter - minimumSize / 2,
+      max: fallbackCenter + minimumSize / 2,
+    }
+  }
+
+  if (max - min >= minimumSize) {
+    return { min, max }
+  }
+
+  const center = (min + max) / 2
+  return {
+    min: center - minimumSize / 2,
+    max: center + minimumSize / 2,
   }
 }
 
@@ -92,6 +129,22 @@ function createSceneConfig(): SceneConfig {
   }
 }
 
+function isZoneEntity(entity: Entity): entity is ZoneEntity {
+  return entity.type === 'zone'
+}
+
+function isPersonEntity(entity: Entity): entity is PersonEntity {
+  return entity.type === 'person'
+}
+
+function isVehicleEntity(entity: Entity): entity is VehicleEntity {
+  return entity.type === 'vehicle'
+}
+
+function isEquipmentEntity(entity: Entity): entity is EquipmentEntity {
+  return entity.type === 'equipment'
+}
+
 function createSectorBounds(sector: CampusSector): PublishedSceneBounds {
   return {
     min: {
@@ -109,6 +162,34 @@ function createSectorBounds(sector: CampusSector): PublishedSceneBounds {
 
 function getSectorStaticChunkId(sectorId: string) {
   return `chunk:${sectorId}:static`
+}
+
+function createZoneInteraction(zone: ZoneEntity, sectorId: string): PublishedInteractionZone {
+  const xs = zone.boundary.map((point) => point.x)
+  const zs = zone.boundary.map((point) => point.z)
+  const centerX =
+    xs.length > 0 ? (Math.min(...xs) + Math.max(...xs)) / 2 : zone.position.x
+  const centerZ =
+    zs.length > 0 ? (Math.min(...zs) + Math.max(...zs)) / 2 : zone.position.z
+  const width = xs.length > 0 ? Math.max(Math.max(...xs) - Math.min(...xs), 1) : 1
+  const depth = zs.length > 0 ? Math.max(Math.max(...zs) - Math.min(...zs), 1) : 1
+
+  return {
+    id: zone.id,
+    sectorId,
+    name: zone.name,
+    zoneType: zone.zoneType,
+    color: zone.color,
+    center: {
+      x: centerX,
+      y: zone.position.y,
+      z: centerZ,
+    },
+    size: {
+      width,
+      depth,
+    },
+  }
 }
 
 function pointInBounds(point: Vector3, bounds: PublishedSceneBounds) {
@@ -411,6 +492,264 @@ function buildEquipmentLayer(sector: CampusSector, count: number): PublishedEqui
   }
 }
 
+function createSnapshotBounds(snapshot: PublishedWorkingSnapshot): PublishedSceneBounds {
+  const points: Vector3[] = [
+    snapshot.sceneConfig.cameraPosition,
+    snapshot.sceneConfig.cameraTarget,
+    ...snapshot.entities.flatMap((entity) =>
+      isZoneEntity(entity) ? [entity.position, ...entity.boundary] : [entity.position]
+    ),
+    ...snapshot.staticAssets.map((asset) => asset.position),
+  ]
+
+  const xs = points.map((point) => point.x)
+  const ys = points.map((point) => point.y)
+  const zs = points.map((point) => point.z)
+
+  const boundedX = clampBounds(
+    Math.min(...xs),
+    Math.max(...xs),
+    snapshot.sceneConfig.cameraTarget.x,
+    48
+  )
+  const boundedY = clampBounds(
+    Math.min(...ys),
+    Math.max(...ys),
+    snapshot.sceneConfig.cameraTarget.y,
+    16
+  )
+  const boundedZ = clampBounds(
+    Math.min(...zs),
+    Math.max(...zs),
+    snapshot.sceneConfig.cameraTarget.z,
+    48
+  )
+
+  return {
+    min: {
+      x: boundedX.min - 12,
+      y: boundedY.min - 4,
+      z: boundedZ.min - 12,
+    },
+    max: {
+      x: boundedX.max + 12,
+      y: boundedY.max + 20,
+      z: boundedZ.max + 12,
+    },
+  }
+}
+
+function createSnapshotCameraPresets(
+  sceneConfig: SceneConfig,
+  bounds: PublishedSceneBounds
+): CameraPreset[] {
+  const center = {
+    x: (bounds.min.x + bounds.max.x) / 2,
+    y: Math.max(sceneConfig.cameraTarget.y, 0),
+    z: (bounds.min.z + bounds.max.z) / 2,
+  }
+  const extent = Math.max(bounds.max.x - bounds.min.x, bounds.max.z - bounds.min.z, 36)
+  const topHeight = Math.max(bounds.max.y + extent * 0.85, center.y + 28)
+
+  return [
+    {
+      id: 'snapshot-current',
+      name: '保存视角',
+      position: cloneVector3(sceneConfig.cameraPosition),
+      target: cloneVector3(sceneConfig.cameraTarget),
+      fov: 50,
+    },
+    {
+      id: 'top',
+      name: '俯视',
+      position: {
+        x: center.x,
+        y: topHeight,
+        z: center.z,
+      },
+      target: center,
+      fov: 45,
+    },
+  ]
+}
+
+function buildSnapshotPersonLayer(
+  sectorId: string,
+  bounds: PublishedSceneBounds,
+  entities: PersonEntity[]
+): PublishedPersonLayer {
+  return {
+    id: `layer:${sectorId}:persons`,
+    entityType: 'person',
+    sectorId,
+    bounds,
+    count: entities.length,
+    anchors: entities.map((entity) => createSpawnAnchor(entity.position, { x: 0, z: 0 })),
+  }
+}
+
+function buildSnapshotVehicleLayer(
+  sectorId: string,
+  bounds: PublishedSceneBounds,
+  entities: VehicleEntity[]
+): PublishedVehicleLayer {
+  const vehicleTypes: VehicleEntity['vehicleType'][] = ['car', 'truck', 'forklift', 'agv', 'other']
+
+  return {
+    id: `layer:${sectorId}:vehicles`,
+    entityType: 'vehicle',
+    sectorId,
+    bounds,
+    count: entities.length,
+    anchorsByType: Object.fromEntries(
+      vehicleTypes.map((vehicleType) => [
+        vehicleType,
+        entities
+          .filter((entity) => entity.vehicleType === vehicleType)
+          .map((entity) => createSpawnAnchor(entity.position, { x: 0, z: 0 })),
+      ])
+    ) as Record<VehicleEntity['vehicleType'], PublishedSpawnAnchor[]>,
+    minimumSeparation: 3,
+  }
+}
+
+function buildSnapshotEquipmentLayer(
+  sectorId: string,
+  bounds: PublishedSceneBounds,
+  entities: EquipmentEntity[]
+): PublishedEquipmentLayer {
+  return {
+    id: `layer:${sectorId}:equipment`,
+    entityType: 'equipment',
+    sectorId,
+    bounds,
+    count: entities.length,
+    placements: entities.map((entity) => ({
+      name: entity.name,
+      position: cloneVector3(entity.position),
+      repeatable: false,
+      spread: { x: 0, z: 0 },
+    })),
+  }
+}
+
+export function buildPublishedScenePackageFromSnapshot(
+  snapshot: PublishedWorkingSnapshot,
+  options: Omit<BuildPublishedScenePackageOptions, 'profile'> = {}
+): PublishedScenePackage {
+  const generatedAt = options.generatedAt ?? new Date().toISOString()
+  const bounds = createSnapshotBounds(snapshot)
+  const sectorId = 'sector-core'
+  const staticChunkId = getSectorStaticChunkId(sectorId)
+  const interactionZones = snapshot.entities.filter(isZoneEntity).map((entity) =>
+    createZoneInteraction(entity, sectorId)
+  )
+  const persons = snapshot.entities.filter(isPersonEntity)
+  const vehicles = snapshot.entities.filter(isVehicleEntity)
+  const equipment = snapshot.entities.filter(isEquipmentEntity)
+  const cameraPresets = createSnapshotCameraPresets(snapshot.sceneConfig, bounds)
+
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    sceneId: snapshot.sceneConfig.id,
+    profile: 'default',
+    generatedAt,
+    source: 'working-snapshot',
+    staticAssetManifestUrl:
+      options.staticAssetManifestUrl ?? PUBLISHED_STATIC_ASSET_MANIFEST_URL,
+    bounds,
+    sceneConfig: {
+      ...snapshot.sceneConfig,
+      cameraPosition: cloneVector3(snapshot.sceneConfig.cameraPosition),
+      cameraTarget: cloneVector3(snapshot.sceneConfig.cameraTarget),
+    },
+    sectors: [
+      {
+        id: sectorId,
+        name: snapshot.sceneConfig.name,
+        offset: {
+          x: (bounds.min.x + bounds.max.x) / 2,
+          y: (bounds.min.y + bounds.max.y) / 2,
+          z: (bounds.min.z + bounds.max.z) / 2,
+        },
+        bounds,
+        staticChunkId,
+        dynamicLayerIds: [
+          `layer:${sectorId}:persons`,
+          `layer:${sectorId}:vehicles`,
+          `layer:${sectorId}:equipment`,
+        ],
+        interactionLayerIds: interactionZones.length > 0 ? [`layer:${sectorId}:zones`] : [],
+      },
+    ],
+    staticChunks: [
+      {
+        id: staticChunkId,
+        label: `${snapshot.sceneConfig.name} 静态块`,
+        kind: 'sector',
+        sectorId,
+        bounds,
+        proxy: {
+          strategy: 'sector-proxy',
+          lodDistance: Math.max(bounds.max.x - bounds.min.x, bounds.max.z - bounds.min.z, 240),
+        },
+        runtimeMount: {
+          kind: 'sector-cluster',
+          renderer: 'campus-sector-cluster',
+        },
+        renderRecipe: {
+          detailed: [],
+        },
+        featureCount: 0,
+        features: [],
+      },
+    ],
+    interactionLayers:
+      interactionZones.length > 0
+        ? [
+            {
+              id: `layer:${sectorId}:zones`,
+              kind: 'zones',
+              sectorId,
+              bounds,
+              zones: interactionZones,
+            },
+          ]
+        : [],
+    zoneOverlays:
+      interactionZones.length > 0
+        ? [
+            {
+              id: `layer:${sectorId}:zones`,
+              kind: 'zones',
+              sectorId,
+              bounds,
+              zones: interactionZones,
+            },
+          ]
+        : [],
+    dynamicLayers: [
+      buildSnapshotPersonLayer(sectorId, bounds, persons),
+      buildSnapshotVehicleLayer(sectorId, bounds, vehicles),
+      buildSnapshotEquipmentLayer(sectorId, bounds, equipment),
+    ],
+    routingLayers: [],
+    cameraPresets,
+    entityCounts: {
+      default: {
+        persons: persons.length,
+        vehicles: vehicles.length,
+        equipment: equipment.length,
+      },
+      production: {
+        persons: persons.length,
+        vehicles: vehicles.length,
+        equipment: equipment.length,
+      },
+    },
+  }
+}
+
 export function buildPublishedScenePackage(
   options: BuildPublishedScenePackageOptions = {}
 ): PublishedScenePackage {
@@ -441,7 +780,8 @@ export function buildPublishedScenePackage(
     profile,
     generatedAt,
     source: 'campus-layout',
-    staticAssetManifestUrl: PUBLISHED_STATIC_ASSET_MANIFEST_URL,
+    staticAssetManifestUrl:
+      options.staticAssetManifestUrl ?? PUBLISHED_STATIC_ASSET_MANIFEST_URL,
     bounds,
     sceneConfig: createSceneConfig(),
     sectors: CAMPUS_SECTORS.map((sector) => buildSectorEntry(sector)),

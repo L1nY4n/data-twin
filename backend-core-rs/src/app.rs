@@ -10,9 +10,12 @@ use tower_http::{
     trace::TraceLayer,
 };
 
+pub use crate::publish_service::PublishConfig;
+
 use crate::{
     admin,
     health::{live, ready},
+    publish_service::PublishRuntime,
     realtime::{realtime_ws_handler, RealtimeState},
     site::bootstrap,
     store::{Store, StoreError},
@@ -21,7 +24,14 @@ use crate::{
 #[derive(Clone)]
 pub struct AppState {
     pub store: Store,
+    pub publish: PublishRuntime,
+    pub publish_config: PublishConfig,
     pub realtime: RealtimeState,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct AppBuildOptions {
+    pub publish_config: PublishConfig,
 }
 
 #[derive(Debug)]
@@ -60,6 +70,13 @@ impl From<StoreError> for AppBuildError {
 }
 
 pub async fn build_app(allowed_origin: &str) -> Result<Router, AppBuildError> {
+    build_app_with_options(allowed_origin, AppBuildOptions::default()).await
+}
+
+pub async fn build_app_with_options(
+    allowed_origin: &str,
+    options: AppBuildOptions,
+) -> Result<Router, AppBuildError> {
     let allowed_origins = parse_allowed_origins(allowed_origin)?;
     let realtime_origin = allowed_origins
         .first()
@@ -67,9 +84,12 @@ pub async fn build_app(allowed_origin: &str) -> Result<Router, AppBuildError> {
         .ok_or(AppBuildError::InvalidAllowedOriginSyntax)?;
     let realtime_state = RealtimeState::new(realtime_origin);
     let store = Store::from_env().await?;
+    let AppBuildOptions { publish_config } = options;
 
     let app_state = AppState {
         store,
+        publish: PublishRuntime::default(),
+        publish_config,
         realtime: realtime_state,
     };
 
@@ -78,10 +98,16 @@ pub async fn build_app(allowed_origin: &str) -> Result<Router, AppBuildError> {
         .route("/health/ready", get(ready))
         .route("/api/v1/site/bootstrap", get(bootstrap))
         .route("/api/v1/admin/overview", get(admin::get_overview))
+        .route("/api/v1/admin/bootstrap", get(admin::get_editor_bootstrap))
+        .route(
+            "/api/v1/admin/publish",
+            get(admin::get_publish_status).post(admin::post_publish),
+        )
         .route(
             "/api/v1/admin/scene",
             get(admin::get_scene).put(admin::put_scene),
         )
+        .route("/api/v1/admin/editor-save", post(admin::post_editor_save))
         .route(
             "/api/v1/admin/entities",
             get(admin::list_entities).post(admin::create_entity),

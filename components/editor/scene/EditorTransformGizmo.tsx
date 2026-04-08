@@ -3,16 +3,24 @@
 import { TransformControls } from '@react-three/drei'
 import { useLayoutEffect, useMemo, useRef } from 'react'
 import type * as THREE from 'three'
-import { useEditorDigitalTwinStore } from '@/lib/digital-twin/editor-store'
+import { useEditorSceneStore, useEditorUiStore } from '@/lib/digital-twin/editor-store'
 import type { EntityType } from '@/lib/digital-twin/types'
 
 export type EditorTransformTargetKind = EntityType | 'static-asset'
 
 export function resolveEditorTransformAxisConfig(
   targetKind: EditorTransformTargetKind | undefined,
-  transformMode: 'translate' | 'rotate'
+  transformMode: 'select' | 'translate' | 'rotate' | 'scale'
 ) {
   const allowVerticalTranslation = targetKind === 'sensor' || targetKind === 'camera'
+
+  if (transformMode === 'scale') {
+    return {
+      showX: true,
+      showY: allowVerticalTranslation,
+      showZ: true,
+    }
+  }
 
   if (transformMode === 'rotate') {
     return {
@@ -30,21 +38,16 @@ export function resolveEditorTransformAxisConfig(
 }
 
 export function EditorTransformGizmo() {
-  const draftEntity = useEditorDigitalTwinStore((state) => state.draftEntity)
-  const draftStaticAsset = useEditorDigitalTwinStore((state) => state.draftStaticAsset)
-  const transformMode = useEditorDigitalTwinStore((state) => state.transformMode)
-  const beginTransformSession = useEditorDigitalTwinStore(
-    (state) => state.beginTransformSession
-  )
-  const updateDraftTransform = useEditorDigitalTwinStore(
-    (state) => state.updateDraftTransform
-  )
-  const commitTransformSession = useEditorDigitalTwinStore(
-    (state) => state.commitTransformSession
-  )
-  const setTransformDragging = useEditorDigitalTwinStore(
-    (state) => state.setTransformDragging
-  )
+  const draftEntity = useEditorSceneStore((state) => state.draftEntity)
+  const draftStaticAsset = useEditorSceneStore((state) => state.draftStaticAsset)
+  const transformMode = useEditorUiStore((state) => state.transformMode)
+  const snapEnabled = useEditorUiStore((state) => state.snapEnabled)
+  const translateSnap = useEditorUiStore((state) => state.translateSnap)
+  const rotateSnapDegrees = useEditorUiStore((state) => state.rotateSnapDegrees)
+  const beginTransformSession = useEditorSceneStore((state) => state.beginTransformSession)
+  const updateDraftTransform = useEditorSceneStore((state) => state.updateDraftTransform)
+  const commitTransformSession = useEditorSceneStore((state) => state.commitTransformSession)
+  const setTransformDragging = useEditorUiStore((state) => state.setTransformDragging)
   const targetRef = useRef<THREE.Group>(null!)
 
   const draftTarget = draftStaticAsset ?? draftEntity
@@ -86,9 +89,15 @@ export function EditorTransformGizmo() {
           z: targetRef.current.position.z,
         },
         rotation: {
-          x: transformMode === 'rotate' ? draftTarget.rotation.x : targetRef.current.rotation.x,
+          x:
+            transformMode === 'rotate' || transformMode === 'scale'
+              ? draftTarget.rotation.x
+              : targetRef.current.rotation.x,
           y: targetRef.current.rotation.y,
-          z: transformMode === 'rotate' ? draftTarget.rotation.z : targetRef.current.rotation.z,
+          z:
+            transformMode === 'rotate' || transformMode === 'scale'
+              ? draftTarget.rotation.z
+              : targetRef.current.rotation.z,
         },
         scale: {
           x: targetRef.current.scale.x,
@@ -100,7 +109,7 @@ export function EditorTransformGizmo() {
     [allowVerticalTranslation, draftTarget, transformMode, updateDraftTransform]
   )
 
-  if (!draftTarget) return null
+  if (!draftTarget || transformMode === 'select') return null
 
   return (
     <>
@@ -122,6 +131,14 @@ export function EditorTransformGizmo() {
         showX={axisConfig.showX}
         showY={axisConfig.showY}
         showZ={axisConfig.showZ}
+        translationSnap={
+          snapEnabled && transformMode === 'translate' ? translateSnap : undefined
+        }
+        rotationSnap={
+          snapEnabled && transformMode === 'rotate'
+            ? (rotateSnapDegrees * Math.PI) / 180
+            : undefined
+        }
         onMouseDown={() => {
           beginTransformSession()
           setTransformDragging(true)

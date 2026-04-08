@@ -3,6 +3,7 @@ mod admin_service;
 pub mod app;
 pub mod contracts;
 mod health;
+mod publish_service;
 mod published_scene;
 pub mod realtime;
 mod seed_scene;
