@@ -20,7 +20,10 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
-import { useEditorDigitalTwinStore } from '@/lib/digital-twin/editor-store'
+import {
+  useEditorSceneStore,
+  useEditorUiStore,
+} from '@/lib/digital-twin/editor-store'
 import {
   getStaticAssetCatalogItem,
   getStaticAssetKindLabel,
@@ -722,24 +725,18 @@ function EditorInspectorContent({
   onCreateStandardRoom,
   createStandardRoomBusy = false,
 }: EditorInspectorProps) {
-  const draftEntity = useEditorDigitalTwinStore((state) => state.draftEntity)
-  const savedEntity = useEditorDigitalTwinStore((state) => state.savedEntity)
-  const draftStaticAsset = useEditorDigitalTwinStore((state) => state.draftStaticAsset)
-  const savedStaticAsset = useEditorDigitalTwinStore((state) => state.savedStaticAsset)
-  const placementCatalogId = useEditorDigitalTwinStore((state) => state.placementCatalogId)
-  const sceneConfig = useEditorDigitalTwinStore((state) => state.sceneConfig)
-  const isDirty = useEditorDigitalTwinStore((state) => state.isDirty)
-  const error = useEditorDigitalTwinStore((state) => state.error)
-  const setSceneConfig = useEditorDigitalTwinStore((state) => state.setSceneConfig)
-  const updateDraftProperties = useEditorDigitalTwinStore(
-    (state) => state.updateDraftProperties
-  )
-  const updateDraftMetadata = useEditorDigitalTwinStore(
-    (state) => state.updateDraftMetadata
-  )
-  const setDraftTransformField = useEditorDigitalTwinStore(
-    (state) => state.setDraftTransformField
-  )
+  const draftEntity = useEditorSceneStore((state) => state.draftEntity)
+  const savedEntity = useEditorSceneStore((state) => state.savedEntity)
+  const draftStaticAsset = useEditorSceneStore((state) => state.draftStaticAsset)
+  const savedStaticAsset = useEditorSceneStore((state) => state.savedStaticAsset)
+  const placementCatalogId = useEditorUiStore((state) => state.placementCatalogId)
+  const sceneConfig = useEditorSceneStore((state) => state.sceneConfig)
+  const isDirty = useEditorSceneStore((state) => state.isDirty)
+  const error = useEditorUiStore((state) => state.error)
+  const setSceneConfig = useEditorSceneStore((state) => state.setSceneConfig)
+  const updateDraftProperties = useEditorSceneStore((state) => state.updateDraftProperties)
+  const updateDraftMetadata = useEditorSceneStore((state) => state.updateDraftMetadata)
+  const setDraftTransformField = useEditorSceneStore((state) => state.setDraftTransformField)
   const collapseLabel = collapsed ? 'Expand inspector panel' : 'Collapse inspector panel'
 
   if (collapsed) {

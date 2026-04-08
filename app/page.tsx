@@ -9,11 +9,14 @@ import {
 } from 'lucide-react'
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
 import { useLiveDigitalTwin } from '@/hooks/use-live-digital-twin'
+import { useCitationRuntime } from '@/hooks/use-citation-runtime'
 import { EntityListPanel } from '@/components/digital-twin/panels/EntityListPanel'
 import { EntityDetailPanel } from '@/components/digital-twin/panels/EntityDetailPanel'
+import { IncidentVideoDialog } from '@/components/digital-twin/panels/IncidentVideoDialog'
 import { Toolbar } from '@/components/digital-twin/panels/Toolbar'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
+import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 
 // 动态导入3D场景，避免SSR问题
@@ -40,10 +43,13 @@ const BottomPanel = dynamic(
 
 export default function DigitalTwinPage() {
   const { isLoading, error } = useLiveDigitalTwin()
+  useCitationRuntime()
 
   const leftPanelOpen = useDigitalTwinStore((state) => state.leftPanelOpen)
   const rightPanelOpen = useDigitalTwinStore((state) => state.rightPanelOpen)
   const bottomPanelOpen = useDigitalTwinStore((state) => state.bottomPanelOpen)
+  const runtimeDataSource = useDigitalTwinStore((state) => state.runtimeDataSource)
+  const runtimeNotice = useDigitalTwinStore((state) => state.runtimeNotice)
   const toggleLeftPanel = useDigitalTwinStore((state) => state.toggleLeftPanel)
   const toggleRightPanel = useDigitalTwinStore((state) => state.toggleRightPanel)
   const toggleBottomPanel = useDigitalTwinStore((state) => state.toggleBottomPanel)
@@ -82,7 +88,15 @@ export default function DigitalTwinPage() {
         <div className="relative flex-1">
           <DigitalTwinCanvas />
 
-          {(isLoading || error) && (
+          {runtimeDataSource === 'mock' && runtimeNotice && (
+            <div className="pointer-events-none absolute left-3 top-14 z-30">
+              <Badge className="border border-sky-400/40 bg-sky-500/10 text-sky-100 shadow-lg">
+                {runtimeNotice}
+              </Badge>
+            </div>
+          )}
+
+          {(isLoading || (error && runtimeDataSource === 'live')) && (
             <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-background/60 backdrop-blur-sm">
               <div className="rounded-md border bg-background/90 px-4 py-3 text-sm shadow-sm">
                 {error ? `后端连接失败: ${error}` : '正在连接后端数据...'}
@@ -151,6 +165,8 @@ export default function DigitalTwinPage() {
           {rightPanelOpen && <EntityDetailPanel />}
         </div>
       </div>
+
+      <IncidentVideoDialog />
     </div>
   )
 }

@@ -16,10 +16,14 @@ import {
   Thermometer,
   Zap,
   Box,
+  Sparkles,
+  MonitorPlay,
 } from 'lucide-react'
 import { useDigitalTwinStore, useSelectedEntity, useSelectedStaticFeature } from '@/lib/digital-twin/store'
 import type { 
+  IncidentVideoFeed,
   PersonEntity, 
+  RuntimeIncident,
   VehicleEntity, 
   EquipmentEntity, 
   SensorEntity,
@@ -79,6 +83,10 @@ const CAMERA_TYPE_LABELS: Record<CameraEntity['cameraType'], string> = {
 export function EntityDetailPanel() {
   const entity = useSelectedEntity()
   const staticFeature = useSelectedStaticFeature()
+  const incidents = useDigitalTwinStore((state) => state.incidents)
+  const setActiveIncident = useDigitalTwinStore((state) => state.setActiveIncident)
+  const openIncidentVideo = useDigitalTwinStore((state) => state.openIncidentVideo)
+  const acknowledgeIncident = useDigitalTwinStore((state) => state.acknowledgeIncident)
   const setSelectedEntity = useDigitalTwinStore((state) => state.setSelectedEntity)
   const setSelectedStaticFeature = useDigitalTwinStore((state) => state.setSelectedStaticFeature)
 
@@ -189,6 +197,14 @@ export function EntityDetailPanel() {
           {entity.type === 'sensor' && <SensorDetails entity={entity} />}
           {entity.type === 'camera' && <CameraDetails entity={entity} />}
           {entity.type === 'zone' && <ZoneDetails entity={entity} />}
+
+          <EntityIncidentDetails
+            entityId={entity.id}
+            incidents={incidents.filter((incident) => incident.entityIds.includes(entity.id)).slice(0, 4)}
+            onSelectIncident={setActiveIncident}
+            onOpenIncidentVideo={(incidentId, feed) => openIncidentVideo(feed, incidentId)}
+            onAcknowledgeIncident={acknowledgeIncident}
+          />
 
           <Separator />
 
@@ -560,6 +576,102 @@ function CameraDetails({ entity }: { entity: CameraEntity }) {
             </div>
           )}
         </div>
+      </div>
+    </div>
+  )
+}
+
+function EntityIncidentDetails({
+  entityId,
+  incidents,
+  onSelectIncident,
+  onOpenIncidentVideo,
+  onAcknowledgeIncident,
+}: {
+  entityId: string
+  incidents: RuntimeIncident[]
+  onSelectIncident: (id: string | null) => void
+  onOpenIncidentVideo: (incidentId: string, feed: IncidentVideoFeed) => void
+  onAcknowledgeIncident: (id: string) => void
+}) {
+  if (incidents.length === 0) {
+    return (
+      <div>
+        <h4 className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+          <Sparkles className="h-3.5 w-3.5" />
+          事件联动
+        </h4>
+        <div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
+          当前对象暂无 Citation 事件，系统会在移动态势变化时自动生成联动卡片。
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div>
+      <h4 className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+        <Sparkles className="h-3.5 w-3.5" />
+        事件联动
+      </h4>
+      <div className="space-y-2">
+        {incidents.map((incident) => (
+          <div
+            key={incident.id}
+            className="rounded-lg border p-3"
+            onClick={() => onSelectIncident(incident.id)}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-medium">{incident.title}</div>
+                <div className="mt-1 text-xs text-muted-foreground">{incident.summary}</div>
+              </div>
+              <Badge variant="outline">{incident.severity}</Badge>
+            </div>
+
+            <div className="mt-2 flex flex-wrap gap-1">
+              {incident.citations.slice(0, 2).map((citation) => (
+                <Badge key={citation.id} variant="secondary" className="text-[10px]">
+                  {citation.label}: {citation.value}
+                </Badge>
+              ))}
+            </div>
+
+            <div className="mt-3 flex items-center justify-between gap-3">
+              <div className="text-[10px] text-muted-foreground">
+                {new Date(incident.timestamp).toLocaleString('zh-CN')} ·
+                {incident.entityIds.includes(entityId) ? ' 已绑定当前对象' : ' 关联事件'}
+              </div>
+              {incident.videoFeed && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    onOpenIncidentVideo(incident.id, incident.videoFeed!)
+                  }}
+                >
+                  <MonitorPlay className="mr-1 h-3.5 w-3.5" />
+                  视频
+                </Button>
+              )}
+              {!incident.acknowledged && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    onAcknowledgeIncident(incident.id)
+                  }}
+                >
+                  确认
+                </Button>
+              )}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   )

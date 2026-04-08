@@ -31,6 +31,8 @@ pub enum StoreError {
     Database(sqlx::Error),
     Serialization(serde_json::Error),
     Validation(String),
+    Conflict(String),
+    SceneVersionConflict { expected: u64, actual: u64 },
     NotFound(String),
 }
 
@@ -40,6 +42,11 @@ impl std::fmt::Display for StoreError {
             Self::Database(error) => write!(f, "database error: {error}"),
             Self::Serialization(error) => write!(f, "serialization error: {error}"),
             Self::Validation(message) => write!(f, "validation error: {message}"),
+            Self::Conflict(message) => write!(f, "conflict: {message}"),
+            Self::SceneVersionConflict { expected, actual } => write!(
+                f,
+                "conflict: editor save is based on scene version {expected}, but the current version is {actual}; reload the editor and retry"
+            ),
             Self::NotFound(message) => write!(f, "not found: {message}"),
         }
     }
@@ -94,6 +101,9 @@ struct MemoryStore {
     published_scene: Option<PublishedSceneDescriptor>,
     published_compiler_source: String,
     published_updated_at: u64,
+    active_publish_token: Option<String>,
+    active_publish_started_at: Option<u64>,
+    active_publish_heartbeat_at: Option<u64>,
     last_published_at: Option<u64>,
     last_published_version: Option<String>,
     last_publish_error: Option<String>,
@@ -124,6 +134,9 @@ pub struct PublishedStateRecord {
     pub published_scene: Option<PublishedSceneDescriptor>,
     pub compiler_source: String,
     pub updated_at: u64,
+    pub active_publish_token: Option<String>,
+    pub active_publish_started_at: Option<u64>,
+    pub active_publish_heartbeat_at: Option<u64>,
     pub last_published_at: Option<u64>,
     pub last_published_version: Option<String>,
     pub last_publish_error: Option<String>,
@@ -157,6 +170,9 @@ impl MemoryStore {
             published_scene: published_scene.clone(),
             published_compiler_source: "campus-layout".to_string(),
             published_updated_at: now,
+            active_publish_token: None,
+            active_publish_started_at: None,
+            active_publish_heartbeat_at: None,
             last_published_at: Some(now),
             last_published_version: published_scene
                 .as_ref()
@@ -289,6 +305,9 @@ impl Store {
                     published_scene: snapshot.published_scene.clone(),
                     compiler_source: snapshot.published_compiler_source.clone(),
                     updated_at: snapshot.published_updated_at,
+                    active_publish_token: snapshot.active_publish_token.clone(),
+                    active_publish_started_at: snapshot.active_publish_started_at,
+                    active_publish_heartbeat_at: snapshot.active_publish_heartbeat_at,
                     last_published_at: snapshot.last_published_at,
                     last_published_version: snapshot.last_published_version.clone(),
                     last_publish_error: snapshot.last_publish_error.clone(),
@@ -307,6 +326,9 @@ impl Store {
                         published_scene,
                         compiler_source,
                         updated_at,
+                        active_publish_token,
+                        active_publish_started_at,
+                        active_publish_heartbeat_at,
                         last_published_at,
                         last_published_version,
                         last_publish_error,
@@ -331,6 +353,13 @@ impl Store {
                         .transpose()?,
                     compiler_source: row.get("compiler_source"),
                     updated_at: row.get::<i64, _>("updated_at") as u64,
+                    active_publish_token: row.get("active_publish_token"),
+                    active_publish_started_at: row
+                        .get::<Option<i64>, _>("active_publish_started_at")
+                        .map(|value| value as u64),
+                    active_publish_heartbeat_at: row
+                        .get::<Option<i64>, _>("active_publish_heartbeat_at")
+                        .map(|value| value as u64),
                     last_published_at: row
                         .get::<Option<i64>, _>("last_published_at")
                         .map(|value| value as u64),
@@ -355,6 +384,9 @@ impl Store {
                         published_scene,
                         compiler_source,
                         updated_at,
+                        active_publish_token,
+                        active_publish_started_at,
+                        active_publish_heartbeat_at,
                         last_published_at,
                         last_published_version,
                         last_publish_error,
@@ -379,6 +411,13 @@ impl Store {
                         .transpose()?,
                     compiler_source: row.get("compiler_source"),
                     updated_at: row.get::<i64, _>("updated_at") as u64,
+                    active_publish_token: row.get("active_publish_token"),
+                    active_publish_started_at: row
+                        .get::<Option<i64>, _>("active_publish_started_at")
+                        .map(|value| value as u64),
+                    active_publish_heartbeat_at: row
+                        .get::<Option<i64>, _>("active_publish_heartbeat_at")
+                        .map(|value| value as u64),
                     last_published_at: row
                         .get::<Option<i64>, _>("last_published_at")
                         .map(|value| value as u64),
@@ -422,6 +461,9 @@ impl Store {
                 state.published_scene = published_scene.clone();
                 state.published_compiler_source = compiler_source.to_string();
                 state.published_updated_at = updated_at;
+                state.active_publish_token = None;
+                state.active_publish_started_at = None;
+                state.active_publish_heartbeat_at = None;
                 state.last_published_at = Some(updated_at);
                 state.last_published_version = last_published_version.clone();
                 state.last_publish_error = None;
@@ -462,6 +504,9 @@ impl Store {
             published_scene,
             compiler_source: compiler_source.to_string(),
             updated_at,
+            active_publish_token: None,
+            active_publish_started_at: None,
+            active_publish_heartbeat_at: None,
             last_published_at: Some(updated_at),
             last_published_version,
             last_publish_error: None,
@@ -480,6 +525,9 @@ impl Store {
         match &self.backend {
             StoreBackend::Memory(store) => {
                 let mut state = store.write().await;
+                state.active_publish_token = None;
+                state.active_publish_started_at = None;
+                state.active_publish_heartbeat_at = None;
                 state.last_publish_error = Some(error_message.to_string());
                 state.last_failure_scene_version = Some(scene_version);
                 state.last_failure_at = Some(failed_at);
@@ -489,7 +537,12 @@ impl Store {
                 sqlx::query(
                     r#"
                     UPDATE published_state
-                    SET last_publish_error = $1, last_failure_scene_version = $2, last_failure_at = $3
+                    SET active_publish_token = NULL,
+                        active_publish_started_at = NULL,
+                        active_publish_heartbeat_at = NULL,
+                        last_publish_error = $1,
+                        last_failure_scene_version = $2,
+                        last_failure_at = $3
                     WHERE site_id = $4
                     "#,
                 )
@@ -506,7 +559,12 @@ impl Store {
                 sqlx::query(
                     r#"
                     UPDATE published_state
-                    SET last_publish_error = ?, last_failure_scene_version = ?, last_failure_at = ?
+                    SET active_publish_token = NULL,
+                        active_publish_started_at = NULL,
+                        active_publish_heartbeat_at = NULL,
+                        last_publish_error = ?,
+                        last_failure_scene_version = ?,
+                        last_failure_at = ?
                     WHERE site_id = ?
                     "#,
                 )
@@ -521,6 +579,133 @@ impl Store {
         }
 
         Ok(())
+    }
+
+    pub async fn try_begin_publish(
+        &self,
+        publish_token: &str,
+        started_at: u64,
+        stale_after: u64,
+    ) -> Result<bool, StoreError> {
+        let stale_before = started_at.saturating_sub(stale_after);
+
+        match &self.backend {
+            StoreBackend::Memory(store) => {
+                let mut state = store.write().await;
+                let lock_stale = state
+                    .active_publish_heartbeat_at
+                    .or(state.active_publish_started_at)
+                    .map(|heartbeat| heartbeat <= stale_before)
+                    .unwrap_or(true);
+
+                if state.active_publish_token.is_some() && !lock_stale {
+                    return Ok(false);
+                }
+
+                state.active_publish_token = Some(publish_token.to_string());
+                state.active_publish_started_at = Some(started_at);
+                state.active_publish_heartbeat_at = Some(started_at);
+                Ok(true)
+            }
+            StoreBackend::Postgres(store) => {
+                let result = sqlx::query(
+                    r#"
+                    UPDATE published_state
+                    SET active_publish_token = $1,
+                        active_publish_started_at = $2,
+                        active_publish_heartbeat_at = $2
+                    WHERE site_id = $3
+                      AND (
+                        active_publish_token IS NULL
+                        OR active_publish_heartbeat_at IS NULL
+                        OR active_publish_heartbeat_at <= $4
+                      )
+                    "#,
+                )
+                .bind(publish_token)
+                .bind(started_at as i64)
+                .bind(seed_scene::SITE_ID)
+                .bind(stale_before as i64)
+                .execute(&store.pool)
+                .await?;
+
+                Ok(result.rows_affected() == 1)
+            }
+            StoreBackend::Sqlite(store) => {
+                let result = sqlx::query(
+                    r#"
+                    UPDATE published_state
+                    SET active_publish_token = ?,
+                        active_publish_started_at = ?,
+                        active_publish_heartbeat_at = ?
+                    WHERE site_id = ?
+                      AND (
+                        active_publish_token IS NULL
+                        OR active_publish_heartbeat_at IS NULL
+                        OR active_publish_heartbeat_at <= ?
+                      )
+                    "#,
+                )
+                .bind(publish_token)
+                .bind(started_at as i64)
+                .bind(started_at as i64)
+                .bind(seed_scene::SITE_ID)
+                .bind(stale_before as i64)
+                .execute(&store.pool)
+                .await?;
+
+                Ok(result.rows_affected() == 1)
+            }
+        }
+    }
+
+    pub async fn refresh_publish_heartbeat(
+        &self,
+        publish_token: &str,
+        heartbeat_at: u64,
+    ) -> Result<bool, StoreError> {
+        match &self.backend {
+            StoreBackend::Memory(store) => {
+                let mut state = store.write().await;
+                if state.active_publish_token.as_deref() != Some(publish_token) {
+                    return Ok(false);
+                }
+                state.active_publish_heartbeat_at = Some(heartbeat_at);
+                Ok(true)
+            }
+            StoreBackend::Postgres(store) => {
+                let result = sqlx::query(
+                    r#"
+                    UPDATE published_state
+                    SET active_publish_heartbeat_at = $1
+                    WHERE site_id = $2 AND active_publish_token = $3
+                    "#,
+                )
+                .bind(heartbeat_at as i64)
+                .bind(seed_scene::SITE_ID)
+                .bind(publish_token)
+                .execute(&store.pool)
+                .await?;
+
+                Ok(result.rows_affected() == 1)
+            }
+            StoreBackend::Sqlite(store) => {
+                let result = sqlx::query(
+                    r#"
+                    UPDATE published_state
+                    SET active_publish_heartbeat_at = ?
+                    WHERE site_id = ? AND active_publish_token = ?
+                    "#,
+                )
+                .bind(heartbeat_at as i64)
+                .bind(seed_scene::SITE_ID)
+                .bind(publish_token)
+                .execute(&store.pool)
+                .await?;
+
+                Ok(result.rows_affected() == 1)
+            }
+        }
     }
 
     pub async fn get_scene(&self) -> Result<SceneResponse, StoreError> {
@@ -672,6 +857,10 @@ impl Store {
         match &self.backend {
             StoreBackend::Memory(store) => {
                 let mut snapshot = store.write().await;
+                ensure_expected_scene_version(
+                    request.expected_scene_version,
+                    snapshot.scene_version,
+                )?;
                 let mut next_scene_config = snapshot.scene_config.clone();
                 let mut next_entities = snapshot.entities.clone();
                 let mut next_static_assets = snapshot.static_assets.clone();
@@ -790,6 +979,11 @@ impl Store {
             }
             StoreBackend::Postgres(store) => {
                 let mut tx = store.pool.begin().await?;
+                let current_scene_version = current_scene_version_tx(&mut tx).await?;
+                ensure_expected_scene_version(
+                    request.expected_scene_version,
+                    current_scene_version,
+                )?;
                 let mut saved_entity = None;
                 let mut saved_static_asset = None;
 
@@ -938,6 +1132,11 @@ impl Store {
             }
             StoreBackend::Sqlite(store) => {
                 let mut tx = store.pool.begin().await?;
+                let current_scene_version = current_scene_version_sqlite(&mut tx).await?;
+                ensure_expected_scene_version(
+                    request.expected_scene_version,
+                    current_scene_version,
+                )?;
                 let mut saved_entity = None;
                 let mut saved_static_asset = None;
 
@@ -2964,6 +3163,9 @@ async fn setup_postgres(pool: &PgPool) -> Result<(), StoreError> {
             published_scene JSONB,
             compiler_source TEXT NOT NULL,
             updated_at BIGINT NOT NULL,
+            active_publish_token TEXT,
+            active_publish_started_at BIGINT,
+            active_publish_heartbeat_at BIGINT,
             last_published_at BIGINT,
             last_published_version TEXT,
             last_publish_error TEXT,
@@ -3032,13 +3234,16 @@ async fn setup_postgres(pool: &PgPool) -> Result<(), StoreError> {
                 published_scene,
                 compiler_source,
                 updated_at,
+                active_publish_token,
+                active_publish_started_at,
+                active_publish_heartbeat_at,
                 last_published_at,
                 last_published_version,
                 last_publish_error,
                 last_failure_scene_version,
                 last_failure_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NULL, NULL, NULL)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULL, NULL, NULL, $9, $10, NULL, NULL, NULL)
             "#,
         )
         .bind(seed_scene::SITE_ID)
@@ -3225,6 +3430,9 @@ async fn setup_sqlite(pool: &SqlitePool) -> Result<(), StoreError> {
             published_scene TEXT,
             compiler_source TEXT NOT NULL,
             updated_at INTEGER NOT NULL,
+            active_publish_token TEXT,
+            active_publish_started_at INTEGER,
+            active_publish_heartbeat_at INTEGER,
             last_published_at INTEGER,
             last_published_version TEXT,
             last_publish_error TEXT,
@@ -3293,13 +3501,16 @@ async fn setup_sqlite(pool: &SqlitePool) -> Result<(), StoreError> {
                 published_scene,
                 compiler_source,
                 updated_at,
+                active_publish_token,
+                active_publish_started_at,
+                active_publish_heartbeat_at,
                 last_published_at,
                 last_published_version,
                 last_publish_error,
                 last_failure_scene_version,
                 last_failure_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, NULL, NULL, NULL)
             "#,
         )
         .bind(seed_scene::SITE_ID)
@@ -3783,6 +3994,34 @@ async fn bump_scene_version_sqlite(tx: &mut Transaction<'_, Sqlite>) -> Result<u
     Ok(scene_version as u64)
 }
 
+async fn current_scene_version_tx(tx: &mut Transaction<'_, Postgres>) -> Result<u64, StoreError> {
+    let scene_version: i64 =
+        sqlx::query_scalar(r#"SELECT scene_version FROM scene_configs WHERE site_id = $1"#)
+            .bind(seed_scene::SITE_ID)
+            .fetch_one(&mut **tx)
+            .await?;
+
+    Ok(scene_version as u64)
+}
+
+async fn current_scene_version_sqlite(tx: &mut Transaction<'_, Sqlite>) -> Result<u64, StoreError> {
+    let scene_version: i64 =
+        sqlx::query_scalar(r#"SELECT scene_version FROM scene_configs WHERE site_id = ?"#)
+            .bind(seed_scene::SITE_ID)
+            .fetch_one(&mut **tx)
+            .await?;
+
+    Ok(scene_version as u64)
+}
+
+fn ensure_expected_scene_version(expected: u64, actual: u64) -> Result<(), StoreError> {
+    if expected == actual {
+        return Ok(());
+    }
+
+    Err(StoreError::SceneVersionConflict { expected, actual })
+}
+
 fn validate_editor_save_request(request: &EditorSaveRequest) -> Result<(), StoreError> {
     if request.scene_config.is_none() && request.entity.is_none() && request.static_asset.is_none()
     {
@@ -3871,13 +4110,16 @@ async fn upsert_published_state_postgres(
             published_scene,
             compiler_source,
             updated_at,
+            active_publish_token,
+            active_publish_started_at,
+            active_publish_heartbeat_at,
             last_published_at,
             last_published_version,
             last_publish_error,
             last_failure_scene_version,
             last_failure_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9, $10, $11, $12)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULL, NULL, NULL, $8, $9, $10, $11, $12)
         ON CONFLICT (site_id) DO UPDATE
         SET
             published_scene_version = EXCLUDED.published_scene_version,
@@ -3887,6 +4129,9 @@ async fn upsert_published_state_postgres(
             published_scene = EXCLUDED.published_scene,
             compiler_source = EXCLUDED.compiler_source,
             updated_at = EXCLUDED.updated_at,
+            active_publish_token = EXCLUDED.active_publish_token,
+            active_publish_started_at = EXCLUDED.active_publish_started_at,
+            active_publish_heartbeat_at = EXCLUDED.active_publish_heartbeat_at,
             last_published_at = EXCLUDED.last_published_at,
             last_published_version = EXCLUDED.last_published_version,
             last_publish_error = EXCLUDED.last_publish_error,
@@ -3930,13 +4175,16 @@ async fn upsert_published_state_sqlite(
             published_scene,
             compiler_source,
             updated_at,
+            active_publish_token,
+            active_publish_started_at,
+            active_publish_heartbeat_at,
             last_published_at,
             last_published_version,
             last_publish_error,
             last_failure_scene_version,
             last_failure_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?, ?, ?)
         ON CONFLICT(site_id) DO UPDATE SET
             published_scene_version = excluded.published_scene_version,
             scene_config = excluded.scene_config,
@@ -3945,6 +4193,9 @@ async fn upsert_published_state_sqlite(
             published_scene = excluded.published_scene,
             compiler_source = excluded.compiler_source,
             updated_at = excluded.updated_at,
+            active_publish_token = excluded.active_publish_token,
+            active_publish_started_at = excluded.active_publish_started_at,
+            active_publish_heartbeat_at = excluded.active_publish_heartbeat_at,
             last_published_at = excluded.last_published_at,
             last_published_version = excluded.last_published_version,
             last_publish_error = excluded.last_publish_error,
@@ -4221,4 +4472,90 @@ fn now_millis() -> u64 {
 #[allow(dead_code)]
 fn _vector_to_json(point: Vector3) -> serde_json::Value {
     serde_json::json!({ "x": point.x, "y": point.y, "z": point.z })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Store;
+    use std::{
+        fs,
+        path::PathBuf,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    #[tokio::test]
+    async fn publish_lock_requires_expiry_before_another_owner_can_acquire() {
+        let store = Store::memory_backend();
+
+        assert!(store.try_begin_publish("token-a", 1_000, 50).await.unwrap());
+        assert!(!store.try_begin_publish("token-b", 1_020, 50).await.unwrap());
+        assert!(store
+            .refresh_publish_heartbeat("token-a", 1_030)
+            .await
+            .unwrap());
+        assert!(!store.try_begin_publish("token-b", 1_070, 50).await.unwrap());
+        assert!(store.try_begin_publish("token-b", 1_081, 50).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn publish_lock_heartbeat_rejects_non_owner_tokens() {
+        let store = Store::memory_backend();
+
+        assert!(store
+            .try_begin_publish("token-a", 5_000, 500)
+            .await
+            .unwrap());
+        assert!(!store
+            .refresh_publish_heartbeat("token-b", 5_050)
+            .await
+            .unwrap());
+        assert!(store
+            .refresh_publish_heartbeat("token-a", 5_100)
+            .await
+            .unwrap());
+    }
+
+    #[tokio::test]
+    async fn sqlite_publish_lock_coordinates_across_store_instances() {
+        let (url, db_root) = unique_sqlite_url("publish-lock-coordination");
+        let store_a = Store::from_database_url(&url).await.unwrap();
+        let store_b = Store::from_database_url(&url).await.unwrap();
+
+        assert!(store_a
+            .try_begin_publish("token-a", 10_000, 1_000)
+            .await
+            .unwrap());
+        assert!(!store_b
+            .try_begin_publish("token-b", 10_010, 1_000)
+            .await
+            .unwrap());
+
+        store_a
+            .record_publish_failure(10_000, "forced test failure")
+            .await
+            .unwrap();
+        assert!(store_b
+            .try_begin_publish("token-b", 10_020, 1_000)
+            .await
+            .unwrap());
+
+        drop(store_a);
+        drop(store_b);
+        let _ = fs::remove_dir_all(db_root);
+    }
+
+    fn unique_sqlite_url(label: &str) -> (String, PathBuf) {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "backend-core-rs-store-test-{label}-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let db_path = root.join("store.sqlite3");
+        let url = format!("sqlite://{}?mode=rwc", db_path.to_string_lossy());
+        (url, root)
+    }
 }

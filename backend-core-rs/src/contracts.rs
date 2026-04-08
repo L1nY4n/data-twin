@@ -59,6 +59,7 @@ pub struct EditorStaticAssetSave {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EditorSaveRequest {
+    pub expected_scene_version: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scene_config: Option<SceneConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -98,6 +99,10 @@ pub struct PublishStatusResponse {
     pub current_scene_version: u64,
     pub published_scene_version: u64,
     pub has_unpublished_changes: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_publish_started_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_publish_heartbeat_at: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_published_at: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

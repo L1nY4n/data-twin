@@ -15,7 +15,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { useEditorDigitalTwinStore } from '@/lib/digital-twin/editor-store'
+import {
+  useEditorSceneStore,
+  useEditorUiStore,
+  useEditorViewerStore,
+} from '@/lib/digital-twin/editor-store'
 import { cn } from '@/lib/utils'
 
 const STEP_PRESETS = [
@@ -42,27 +46,17 @@ const DOCK_READOUT_CONTROL_CLASS =
   'editor-control min-w-[7rem] shrink-0 justify-between gap-1.5 px-2 text-[12px]'
 
 export function EditorViewportDock() {
-  const sceneConfig = useEditorDigitalTwinStore((state) => state.sceneConfig)
-  const viewportProjection = useEditorDigitalTwinStore(
-    (state) => state.viewportProjection
-  )
-  const snapEnabled = useEditorDigitalTwinStore((state) => state.snapEnabled)
-  const translateSnap = useEditorDigitalTwinStore((state) => state.translateSnap)
-  const rotateSnapDegrees = useEditorDigitalTwinStore(
-    (state) => state.rotateSnapDegrees
-  )
-  const setSceneConfig = useEditorDigitalTwinStore((state) => state.setSceneConfig)
-  const setViewportProjection = useEditorDigitalTwinStore(
-    (state) => state.setViewportProjection
-  )
-  const focusCameraDirection = useEditorDigitalTwinStore(
-    (state) => state.focusCameraDirection
-  )
-  const setSnapEnabled = useEditorDigitalTwinStore((state) => state.setSnapEnabled)
-  const setTranslateSnap = useEditorDigitalTwinStore((state) => state.setTranslateSnap)
-  const setRotateSnapDegrees = useEditorDigitalTwinStore(
-    (state) => state.setRotateSnapDegrees
-  )
+  const sceneConfig = useEditorSceneStore((state) => state.sceneConfig)
+  const viewportProjection = useEditorViewerStore((state) => state.viewportProjection)
+  const snapEnabled = useEditorUiStore((state) => state.snapEnabled)
+  const translateSnap = useEditorUiStore((state) => state.translateSnap)
+  const rotateSnapDegrees = useEditorUiStore((state) => state.rotateSnapDegrees)
+  const setSceneConfig = useEditorSceneStore((state) => state.setSceneConfig)
+  const setViewportProjection = useEditorViewerStore((state) => state.setViewportProjection)
+  const focusCameraDirection = useEditorViewerStore((state) => state.focusCameraDirection)
+  const setSnapEnabled = useEditorUiStore((state) => state.setSnapEnabled)
+  const setTranslateSnap = useEditorUiStore((state) => state.setTranslateSnap)
+  const setRotateSnapDegrees = useEditorUiStore((state) => state.setRotateSnapDegrees)
 
   return (
     <div className="editor-dock flex w-max max-w-full flex-nowrap items-center justify-center gap-1 overflow-x-auto px-2 py-1 text-white">

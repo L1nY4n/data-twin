@@ -3,6 +3,7 @@ import type {
   WSMessageType, 
   PositionUpdateMessage, 
   StatusUpdateMessage,
+  IncidentMessage,
   Entity,
 } from './types'
 
@@ -207,6 +208,7 @@ export function useWebSocketConnection(url?: string) {
   const updateEntityPosition = useDigitalTwinStore((state) => state.updateEntityPosition)
   const updateEntity = useDigitalTwinStore((state) => state.updateEntity)
   const addAlarm = useDigitalTwinStore((state) => state.addAlarm)
+  const upsertIncident = useDigitalTwinStore((state) => state.upsertIncident)
 
   const connect = useCallback((wsUrl: string) => {
     if (wsRef.current) {
@@ -251,12 +253,17 @@ export function useWebSocketConnection(url?: string) {
             })
             break
           }
+          case 'incident': {
+            const payload = message.payload as IncidentMessage
+            upsertIncident(payload.incident)
+            break
+          }
         }
       },
     })
 
     wsRef.current.connect()
-  }, [setConnectionStatus, updateEntityPosition, updateEntity, addAlarm])
+  }, [setConnectionStatus, updateEntityPosition, updateEntity, addAlarm, upsertIncident])
 
   const disconnect = useCallback(() => {
     wsRef.current?.disconnect()

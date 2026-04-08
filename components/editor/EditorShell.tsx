@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPoi
 import { Spinner } from '@/components/ui/spinner'
 import { useIsMobile } from '@/hooks/use-mobile'
 import { useEditorDigitalTwin } from '@/hooks/use-editor-digital-twin'
-import { useEditorDigitalTwinStore } from '@/lib/digital-twin/editor-store'
+import { useEditorUiStore } from '@/lib/digital-twin/editor-store'
 import { cn } from '@/lib/utils'
 import { EditorAppSidebar } from './EditorAppSidebar'
 import { EditorInspector } from './EditorInspector'
@@ -55,7 +55,6 @@ function isPointerNearResizeEdge(
 
 export function EditorShell() {
   const {
-    reload,
     saveSelection,
     deleteSelection,
     duplicateSelection,
@@ -63,10 +62,11 @@ export function EditorShell() {
     publish,
     publishStatus,
     activityStatus,
+    retryActivity,
     canPublish,
   } = useEditorDigitalTwin()
   const isMobile = useIsMobile()
-  const error = useEditorDigitalTwinStore((state) => state.error)
+  const error = useEditorUiStore((state) => state.error)
   const [resourcesPanelOpen, setResourcesPanelOpen] = useState(true)
   const [inspectorCollapsed, setInspectorCollapsed] = useState(false)
   const [resourcesPanelWidth, setResourcesPanelWidth] = useState(
@@ -271,6 +271,7 @@ export function EditorShell() {
 
   const shouldShowStatusBanner =
     Boolean(error) || activityStatus.phase === 'recovering' || activityStatus.phase === 'error'
+  const canRetryCurrentOperation = Boolean(activityStatus.canRetry && activityStatus.retryAction)
   const statusBannerToneClass =
     activityStatus.tone === 'danger'
       ? 'border-[#ff9e9e]/40 bg-[#1b1014]/84 text-[#ffd4d4] shadow-[0_18px_44px_rgba(43,12,16,0.22)]'
@@ -385,13 +386,13 @@ export function EditorShell() {
                           </p>
                         </div>
 
-                        {activityStatus.canRetry ? (
+                        {canRetryCurrentOperation ? (
                           <button
                             type="button"
                             className="rounded-full border border-current/20 bg-black/10 px-2.5 py-1 text-[10px] font-semibold text-current transition hover:bg-black/20"
-                            onClick={() => void reload('manual')}
-                            title="Retry sync editor workspace"
-                            aria-label="Retry sync editor workspace"
+                            onClick={() => void retryActivity()}
+                            title={activityStatus.retryLabel ?? '重试当前操作'}
+                            aria-label={activityStatus.retryLabel ?? '重试当前操作'}
                           >
                             {activityStatus.retryLabel ?? '重试'}
                           </button>

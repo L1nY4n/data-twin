@@ -6,7 +6,9 @@ import * as THREE from 'three'
 import { EDITOR_CATALOG_TRANSFER_MIME } from '@/lib/digital-twin/editor-dnd'
 import {
   isEditorEntityEditable,
-  useEditorDigitalTwinStore,
+  useEditorSceneStore,
+  useEditorUiStore,
+  useEditorViewerStore,
 } from '@/lib/digital-twin/editor-store'
 import {
   getStaticAssetCatalogItem,
@@ -674,39 +676,27 @@ export function EditorScenePicking({
   pickRootRef: RefObject<THREE.Object3D | null>
 }) {
   const { camera, gl, raycaster } = useThree()
-  const entities = useEditorDigitalTwinStore((state) => state.entities)
-  const staticAssets = useEditorDigitalTwinStore((state) => state.staticAssets)
-  const draftEntity = useEditorDigitalTwinStore((state) => state.draftEntity)
-  const draftStaticAsset = useEditorDigitalTwinStore((state) => state.draftStaticAsset)
-  const savedStaticAsset = useEditorDigitalTwinStore((state) => state.savedStaticAsset)
-  const selectedEntityId = useEditorDigitalTwinStore((state) => state.selectedEntityId)
-  const selectedStaticAssetId = useEditorDigitalTwinStore(
-    (state) => state.selectedStaticAssetId
-  )
-  const placementCatalogId = useEditorDigitalTwinStore((state) => state.placementCatalogId)
-  const transformMode = useEditorDigitalTwinStore((state) => state.transformMode)
-  const isTransformDragging = useEditorDigitalTwinStore((state) => state.isTransformDragging)
-  const snapEnabled = useEditorDigitalTwinStore((state) => state.snapEnabled)
-  const translateSnap = useEditorDigitalTwinStore((state) => state.translateSnap)
-  const selectEntity = useEditorDigitalTwinStore((state) => state.selectEntity)
-  const selectStaticAsset = useEditorDigitalTwinStore((state) => state.selectStaticAsset)
-  const setHoveredEntity = useEditorDigitalTwinStore((state) => state.setHoveredEntity)
-  const setHoveredStaticAsset = useEditorDigitalTwinStore(
-    (state) => state.setHoveredStaticAsset
-  )
-  const armStaticAssetPlacement = useEditorDigitalTwinStore(
-    (state) => state.armStaticAssetPlacement
-  )
-  const placeStaticAsset = useEditorDigitalTwinStore((state) => state.placeStaticAsset)
-  const setPlacementPreview = useEditorDigitalTwinStore(
-    (state) => state.setPlacementPreview
-  )
-  const setMarqueeSelecting = useEditorDigitalTwinStore(
-    (state) => state.setMarqueeSelecting
-  )
-  const setSelectionMarquee = useEditorDigitalTwinStore(
-    (state) => state.setSelectionMarquee
-  )
+  const entities = useEditorSceneStore((state) => state.entities)
+  const staticAssets = useEditorSceneStore((state) => state.staticAssets)
+  const draftEntity = useEditorSceneStore((state) => state.draftEntity)
+  const draftStaticAsset = useEditorSceneStore((state) => state.draftStaticAsset)
+  const savedStaticAsset = useEditorSceneStore((state) => state.savedStaticAsset)
+  const selectedEntityId = useEditorViewerStore((state) => state.selectedEntityId)
+  const selectedStaticAssetId = useEditorViewerStore((state) => state.selectedStaticAssetId)
+  const placementCatalogId = useEditorUiStore((state) => state.placementCatalogId)
+  const transformMode = useEditorUiStore((state) => state.transformMode)
+  const isTransformDragging = useEditorUiStore((state) => state.isTransformDragging)
+  const snapEnabled = useEditorUiStore((state) => state.snapEnabled)
+  const translateSnap = useEditorUiStore((state) => state.translateSnap)
+  const selectEntity = useEditorViewerStore((state) => state.selectEntity)
+  const selectStaticAsset = useEditorViewerStore((state) => state.selectStaticAsset)
+  const setHoveredEntity = useEditorViewerStore((state) => state.setHoveredEntity)
+  const setHoveredStaticAsset = useEditorViewerStore((state) => state.setHoveredStaticAsset)
+  const armStaticAssetPlacement = useEditorUiStore((state) => state.armStaticAssetPlacement)
+  const placeStaticAsset = useEditorSceneStore((state) => state.placeStaticAsset)
+  const setPlacementPreview = useEditorUiStore((state) => state.setPlacementPreview)
+  const setMarqueeSelecting = useEditorUiStore((state) => state.setMarqueeSelecting)
+  const setSelectionMarquee = useEditorUiStore((state) => state.setSelectionMarquee)
   const selectedEntityIdRef = useRef(selectedEntityId)
   const selectedStaticAssetIdRef = useRef(selectedStaticAssetId)
   const placementCatalogIdRef = useRef(placementCatalogId)

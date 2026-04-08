@@ -41,6 +41,7 @@ export interface EditorStaticAssetSaveRequest {
 }
 
 export interface EditorSaveRequest {
+  expectedSceneVersion: number
   sceneConfig?: SceneConfig
   entity?: EditorEntitySaveRequest
   staticAsset?: EditorStaticAssetSaveRequest
@@ -61,6 +62,7 @@ interface RuleValidationResponse {
 export class AdminApiError extends Error {
   status: number
   payload: string
+  details: AdminApiErrorDetails | null
 
   constructor(
     message: string,
@@ -73,6 +75,7 @@ export class AdminApiError extends Error {
     this.name = 'AdminApiError'
     this.status = options.status
     this.payload = options.payload
+    this.details = parseAdminApiErrorPayload(options.payload)
     Object.setPrototypeOf(this, new.target.prototype)
   }
 }
@@ -81,22 +84,71 @@ export function isAdminApiError(error: unknown): error is AdminApiError {
   return error instanceof AdminApiError
 }
 
+export interface AdminApiErrorDetails {
+  error?: string
+  message?: string
+  code?: string
+  expectedSceneVersion?: number
+  currentSceneVersion?: number
+  recoveryAction?: string
+}
+
+function parseAdminApiErrorPayload(payload: string): AdminApiErrorDetails | null {
+  const trimmed = payload.trim()
+  if (!trimmed) return null
+
+  try {
+    const parsed = JSON.parse(trimmed) as Record<string, unknown>
+
+    return {
+      ...(typeof parsed.error === 'string' ? { error: parsed.error } : {}),
+      ...(typeof parsed.message === 'string' ? { message: parsed.message } : {}),
+      ...(typeof parsed.code === 'string' ? { code: parsed.code } : {}),
+      ...(typeof parsed.expectedSceneVersion === 'number'
+        ? { expectedSceneVersion: parsed.expectedSceneVersion }
+        : {}),
+      ...(typeof parsed.currentSceneVersion === 'number'
+        ? { currentSceneVersion: parsed.currentSceneVersion }
+        : {}),
+      ...(typeof parsed.recoveryAction === 'string'
+        ? { recoveryAction: parsed.recoveryAction }
+        : {}),
+    }
+  } catch {
+    return null
+  }
+}
+
 function normalizeErrorPayload(payload: string) {
   const trimmed = payload.trim()
   if (!trimmed) return ''
 
-  try {
-    const parsed = JSON.parse(trimmed) as {
-      error?: unknown
-      message?: unknown
-    }
-    if (typeof parsed.error === 'string') return parsed.error
-    if (typeof parsed.message === 'string') return parsed.message
-  } catch {
-    // Fall through to raw payload.
+  const parsed = parseAdminApiErrorPayload(payload)
+  if (typeof parsed?.error === 'string') return parsed.error
+  if (typeof parsed?.message === 'string') return parsed.message
+  return trimmed
+}
+
+export function getAdminApiSceneVersionConflict(error: AdminApiError): {
+  expectedSceneVersion: number
+  currentSceneVersion: number
+  recoveryAction?: string
+} | null {
+  if (error.details?.code !== 'scene_version_conflict') {
+    return null
+  }
+  if (
+    typeof error.details.expectedSceneVersion !== 'number' ||
+    typeof error.details.currentSceneVersion !== 'number'
+  ) {
+    return null
   }
 
-  return trimmed
+  return {
+    expectedSceneVersion: error.details.expectedSceneVersion,
+    currentSceneVersion: error.details.currentSceneVersion,
+    recoveryAction: error.details.recoveryAction,
+  }
 }
 
 function buildAdminApiErrorMessage(response: Response, payload: string) {

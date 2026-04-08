@@ -13,7 +13,11 @@ import { createPublishedStaticPalette } from '@/components/digital-twin/scene/pa
 import { SpaceGrid } from '@/components/digital-twin/scene/SpaceGrid'
 import { SceneLoading } from '@/components/digital-twin/scene/SceneLoading'
 import { createPreferredRenderer } from '@/lib/digital-twin/renderer/createPreferredRenderer'
-import { useEditorDigitalTwinStore } from '@/lib/digital-twin/editor-store'
+import {
+  useEditorSceneStore,
+  useEditorUiStore,
+  useEditorViewerStore,
+} from '@/lib/digital-twin/editor-store'
 import { getStaticAssetCatalogItem } from '@/lib/digital-twin/static-asset-catalog'
 import type { Vector3 } from '@/lib/digital-twin/types'
 import { EditorAuthoredStaticAssetLayer } from './scene/EditorAuthoredStaticAssetLayer'
@@ -31,6 +35,7 @@ const DEFAULT_ORBIT_MOUSE_BUTTONS = {
 function EditorOrbitControls({
   controlsRef,
   enabled,
+  makeDefault,
   maxDistance,
   maxPolarAngle,
   minDistance,
@@ -41,6 +46,7 @@ function EditorOrbitControls({
 }: {
   controlsRef: RefObject<OrbitControlsType | null>
   enabled: boolean
+  makeDefault: boolean
   maxDistance: number
   maxPolarAngle?: number
   minDistance: number
@@ -51,7 +57,9 @@ function EditorOrbitControls({
 }) {
   const camera = useThree((state) => state.camera)
   const gl = useThree((state) => state.gl)
+  const get = useThree((state) => state.get)
   const invalidate = useThree((state) => state.invalidate)
+  const set = useThree((state) => state.set)
   const controls = useMemo(() => new OrbitControlsImpl(camera, gl.domElement), [camera, gl])
   const onRestRef = useRef(onRest)
   const settleRequestedRef = useRef(false)
@@ -69,6 +77,19 @@ function EditorOrbitControls({
       }
     }
   }, [controls, controlsRef])
+
+  useEffect(() => {
+    if (!makeDefault) return
+
+    const previousControls = get().controls
+    set({ controls })
+
+    return () => {
+      if (get().controls === controls) {
+        set({ controls: previousControls })
+      }
+    }
+  }, [controls, get, makeDefault, set])
 
   useEffect(() => {
     controls.enabled = enabled
@@ -158,8 +179,8 @@ function EditorOrbitControls({
 }
 
 function EditorPlacementPreview() {
-  const placementCatalogId = useEditorDigitalTwinStore((state) => state.placementCatalogId)
-  const placementPreview = useEditorDigitalTwinStore((state) => state.placementPreview)
+  const placementCatalogId = useEditorUiStore((state) => state.placementCatalogId)
+  const placementPreview = useEditorUiStore((state) => state.placementPreview)
   const catalogItem = placementCatalogId ? getStaticAssetCatalogItem(placementCatalogId) : null
 
   if (!placementPreview) return null
@@ -206,29 +227,19 @@ const EditorSceneContent = memo(function EditorSceneContent({
   isDark: boolean
 }) {
   const invalidate = useThree((state) => state.invalidate)
-  const sceneConfig = useEditorDigitalTwinStore((state) => state.sceneConfig)
-  const editorCameraPosition = useEditorDigitalTwinStore((state) => state.editorCameraPosition)
-  const editorCameraTarget = useEditorDigitalTwinStore((state) => state.editorCameraTarget)
-  const publishedScenePackage = useEditorDigitalTwinStore(
-    (state) => state.publishedScenePackage
-  )
-  const viewMode = useEditorDigitalTwinStore((state) => state.viewMode)
-  const viewportProjection = useEditorDigitalTwinStore(
-    (state) => state.viewportProjection
-  )
-  const isTransformDragging = useEditorDigitalTwinStore(
-    (state) => state.isTransformDragging
-  )
-  const isMarqueeSelecting = useEditorDigitalTwinStore(
-    (state) => state.isMarqueeSelecting
-  )
-  const cameraFocusRequest = useEditorDigitalTwinStore(
-    (state) => state.cameraFocusRequest
-  )
-  const clearCameraFocusRequest = useEditorDigitalTwinStore(
+  const sceneConfig = useEditorSceneStore((state) => state.sceneConfig)
+  const editorCameraPosition = useEditorViewerStore((state) => state.editorCameraPosition)
+  const editorCameraTarget = useEditorViewerStore((state) => state.editorCameraTarget)
+  const publishedScenePackage = useEditorSceneStore((state) => state.publishedScenePackage)
+  const viewMode = useEditorViewerStore((state) => state.viewMode)
+  const viewportProjection = useEditorViewerStore((state) => state.viewportProjection)
+  const isTransformDragging = useEditorUiStore((state) => state.isTransformDragging)
+  const isMarqueeSelecting = useEditorUiStore((state) => state.isMarqueeSelecting)
+  const cameraFocusRequest = useEditorViewerStore((state) => state.cameraFocusRequest)
+  const clearCameraFocusRequest = useEditorViewerStore(
     (state) => state.clearCameraFocusRequest
   )
-  const setEditorCameraPose = useEditorDigitalTwinStore((state) => state.setEditorCameraPose)
+  const setEditorCameraPose = useEditorViewerStore((state) => state.setEditorCameraPose)
   const palette = useMemo(() => createPublishedStaticPalette(isDark), [isDark])
   const pickRootRef = useRef<THREE.Group>(null)
   const controlsRef = useRef<OrbitControlsType>(null)
@@ -398,6 +409,7 @@ const EditorSceneContent = memo(function EditorSceneContent({
       <EditorOrbitControls
         controlsRef={controlsRef}
         enabled={!isTransformDragging && !isMarqueeSelecting}
+        makeDefault
         mouseButtons={DEFAULT_ORBIT_MOUSE_BUTTONS}
         minDistance={8}
         maxDistance={320}
@@ -439,9 +451,9 @@ const EditorSceneContent = memo(function EditorSceneContent({
 
 export function EditorCanvas() {
   const { resolvedTheme } = useTheme()
-  const sceneConfig = useEditorDigitalTwinStore((state) => state.sceneConfig)
-  const selectionMarquee = useEditorDigitalTwinStore((state) => state.selectionMarquee)
-  const transformMode = useEditorDigitalTwinStore((state) => state.transformMode)
+  const sceneConfig = useEditorSceneStore((state) => state.sceneConfig)
+  const selectionMarquee = useEditorUiStore((state) => state.selectionMarquee)
+  const transformMode = useEditorUiStore((state) => state.transformMode)
   const isDark = resolvedTheme === 'dark'
   const canvasBackground = isDark ? sceneConfig.backgroundColor : '#eaf1fb'
   const canvasHint = useMemo(() => {

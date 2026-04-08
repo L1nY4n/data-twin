@@ -3,7 +3,7 @@
 import { TransformControls } from '@react-three/drei'
 import { useLayoutEffect, useMemo, useRef } from 'react'
 import type * as THREE from 'three'
-import { useEditorDigitalTwinStore } from '@/lib/digital-twin/editor-store'
+import { useEditorSceneStore, useEditorUiStore } from '@/lib/digital-twin/editor-store'
 import type { EntityType } from '@/lib/digital-twin/types'
 
 export type EditorTransformTargetKind = EntityType | 'static-asset'
@@ -38,26 +38,16 @@ export function resolveEditorTransformAxisConfig(
 }
 
 export function EditorTransformGizmo() {
-  const draftEntity = useEditorDigitalTwinStore((state) => state.draftEntity)
-  const draftStaticAsset = useEditorDigitalTwinStore((state) => state.draftStaticAsset)
-  const transformMode = useEditorDigitalTwinStore((state) => state.transformMode)
-  const snapEnabled = useEditorDigitalTwinStore((state) => state.snapEnabled)
-  const translateSnap = useEditorDigitalTwinStore((state) => state.translateSnap)
-  const rotateSnapDegrees = useEditorDigitalTwinStore(
-    (state) => state.rotateSnapDegrees
-  )
-  const beginTransformSession = useEditorDigitalTwinStore(
-    (state) => state.beginTransformSession
-  )
-  const updateDraftTransform = useEditorDigitalTwinStore(
-    (state) => state.updateDraftTransform
-  )
-  const commitTransformSession = useEditorDigitalTwinStore(
-    (state) => state.commitTransformSession
-  )
-  const setTransformDragging = useEditorDigitalTwinStore(
-    (state) => state.setTransformDragging
-  )
+  const draftEntity = useEditorSceneStore((state) => state.draftEntity)
+  const draftStaticAsset = useEditorSceneStore((state) => state.draftStaticAsset)
+  const transformMode = useEditorUiStore((state) => state.transformMode)
+  const snapEnabled = useEditorUiStore((state) => state.snapEnabled)
+  const translateSnap = useEditorUiStore((state) => state.translateSnap)
+  const rotateSnapDegrees = useEditorUiStore((state) => state.rotateSnapDegrees)
+  const beginTransformSession = useEditorSceneStore((state) => state.beginTransformSession)
+  const updateDraftTransform = useEditorSceneStore((state) => state.updateDraftTransform)
+  const commitTransformSession = useEditorSceneStore((state) => state.commitTransformSession)
+  const setTransformDragging = useEditorUiStore((state) => state.setTransformDragging)
   const targetRef = useRef<THREE.Group>(null!)
 
   const draftTarget = draftStaticAsset ?? draftEntity

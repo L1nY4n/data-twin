@@ -22,6 +22,7 @@ import { ZoneAreas } from '../entities/ZoneAreas'
 import { MeasurementTool } from '../overlays/MeasurementTool'
 import { TrajectoryOverlay } from '../overlays/TrajectoryLine'
 import { NearbyDistanceOverlay } from '../overlays/DistanceIndicator'
+import { IncidentEffects } from '../overlays/IncidentEffects'
 import { SceneLoading } from './SceneLoading'
 import { ScenePicking } from './ScenePicking'
 import { PublishedStaticFeaturePickingLayer } from './PublishedStaticFeaturePickingLayer'
@@ -230,6 +231,9 @@ const SceneContent = memo(function SceneContent({ backgroundColor }: SceneConten
 
       {/* 距离标注叠加层 */}
       <NearbyDistanceOverlay />
+
+      {/* 事件联动特效 */}
+      <IncidentEffects />
     </>
   )
 })

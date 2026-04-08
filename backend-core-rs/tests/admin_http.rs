@@ -1,7 +1,7 @@
 use std::{
     fs,
     path::{Path, PathBuf},
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use axum::{
@@ -134,6 +134,7 @@ async fn editor_save_commits_scene_and_static_asset_with_one_version_bump() {
             Method::POST,
             "/api/v1/admin/editor-save",
             json!({
+              "expectedSceneVersion": initial_version,
               "sceneConfig": {
                 "id": "editor-save-scene",
                 "name": "事务保存场景",
@@ -257,6 +258,7 @@ async fn editor_save_rolls_back_scene_when_selection_create_fails() {
             Method::POST,
             "/api/v1/admin/editor-save",
             json!({
+              "expectedSceneVersion": before_version,
               "sceneConfig": {
                 "id": "should-not-persist",
                 "name": "失败后不应落库",
@@ -314,6 +316,153 @@ async fn editor_save_rolls_back_scene_when_selection_create_fails() {
     let after_scene_body = parse_json(after_scene).await;
     assert_eq!(after_scene_body["sceneVersion"], json!(before_version));
     assert_eq!(after_scene_body["sceneConfig"]["id"], before_scene_id);
+}
+
+#[tokio::test]
+async fn editor_save_rejects_stale_scene_versions_without_writing_changes() {
+    init_test_database_url();
+    let app = backend_core_rs::app::build_app("http://localhost:3000")
+        .await
+        .expect("app should build");
+
+    let initial_scene = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/api/v1/admin/scene")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(initial_scene.status(), StatusCode::OK);
+    let initial_scene_body = parse_json(initial_scene).await;
+    let stale_version = initial_scene_body["sceneVersion"].as_u64().unwrap();
+
+    let updated_scene = app
+        .clone()
+        .oneshot(json_request(
+            Method::PUT,
+            "/api/v1/admin/scene",
+            json!({
+              "id": "scene-fresh-version",
+              "name": "Fresh scene version",
+              "gridSize": 88,
+              "gridDivisions": 44,
+              "backgroundColor": "#112233",
+              "ambientLightIntensity": 0.63,
+              "showAxes": true,
+              "showGrid": false,
+              "cameraPosition": {"x": 18.0, "y": 12.0, "z": 16.0},
+              "cameraTarget": {"x": 1.0, "y": 0.0, "z": -1.0}
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(updated_scene.status(), StatusCode::OK);
+    let updated_scene_body = parse_json(updated_scene).await;
+    let current_version = updated_scene_body["sceneVersion"].as_u64().unwrap();
+    assert_eq!(current_version, stale_version + 1);
+
+    let stale_save = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/admin/editor-save",
+            json!({
+              "expectedSceneVersion": stale_version,
+              "sceneConfig": {
+                "id": "scene-stale-save",
+                "name": "Stale save should fail",
+                "gridSize": 100,
+                "gridDivisions": 50,
+                "backgroundColor": "#221122",
+                "ambientLightIntensity": 0.4,
+                "showAxes": false,
+                "showGrid": true,
+                "cameraPosition": {"x": 30.0, "y": 20.0, "z": 10.0},
+                "cameraTarget": {"x": 0.0, "y": 0.0, "z": 0.0}
+              },
+              "entity": {
+                "mode": "create",
+                "entity": {
+                  "id": "entity-stale-save-01",
+                  "type": "equipment",
+                  "name": "Stale save entity",
+                  "position": {"x": 2.0, "y": 0.0, "z": 2.0},
+                  "rotation": {"x": 0.0, "y": 0.0, "z": 0.0},
+                  "scale": {"x": 1.0, "y": 1.0, "z": 1.0},
+                  "status": "active",
+                  "visible": true,
+                  "metadata": {},
+                  "modelId": "",
+                  "parameters": {},
+                  "alarms": [],
+                  "createdAt": 0,
+                  "updatedAt": 0
+                }
+              }
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(stale_save.status(), StatusCode::CONFLICT);
+    let stale_save_body = parse_json(stale_save).await;
+    assert_eq!(
+        stale_save_body["code"],
+        json!("scene_version_conflict")
+    );
+    assert_eq!(
+        stale_save_body["expectedSceneVersion"],
+        json!(stale_version)
+    );
+    assert_eq!(
+        stale_save_body["currentSceneVersion"],
+        json!(current_version)
+    );
+    assert_eq!(stale_save_body["recoveryAction"], json!("reload"));
+    assert!(stale_save_body["error"]
+        .as_str()
+        .unwrap()
+        .contains("reload the editor and retry"));
+
+    let final_scene = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/api/v1/admin/scene")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(final_scene.status(), StatusCode::OK);
+    let final_scene_body = parse_json(final_scene).await;
+    assert_eq!(final_scene_body["sceneVersion"], json!(current_version));
+    assert_eq!(
+        final_scene_body["sceneConfig"]["id"],
+        json!("scene-fresh-version")
+    );
+
+    let entities_response = app
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/api/v1/admin/entities")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(entities_response.status(), StatusCode::OK);
+    let entities_body = parse_json(entities_response).await;
+    assert!(!entities_body
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|entity| entity["id"] == json!("entity-stale-save-01")));
 }
 
 #[tokio::test]
@@ -799,6 +948,7 @@ async fn editor_save_batches_scene_and_entity_create_with_single_version_bump() 
             Method::POST,
             "/api/v1/admin/editor-save",
             json!({
+              "expectedSceneVersion": initial_version,
               "sceneConfig": {
                 "id": "editor-save-scene",
                 "name": "批量保存场景",
@@ -897,6 +1047,7 @@ async fn editor_save_rolls_back_scene_changes_when_selection_write_fails() {
             Method::POST,
             "/api/v1/admin/editor-save",
             json!({
+              "expectedSceneVersion": initial_scene_body["sceneVersion"].as_u64().unwrap(),
               "sceneConfig": {
                 "id": "rolled-back-scene",
                 "name": "不应落库的场景",
@@ -1013,6 +1164,7 @@ async fn editor_save_updates_static_asset_and_publish_works_afterwards() {
             Method::POST,
             "/api/v1/admin/editor-save",
             json!({
+              "expectedSceneVersion": version_before_save,
               "sceneConfig": {
                 "id": "editor-save-publish-scene",
                 "name": "编辑器保存发布场景",
@@ -1403,40 +1555,64 @@ async fn concurrent_publish_requests_return_conflict_while_publish_is_in_progres
         .unwrap();
     assert_eq!(create_asset_response.status(), StatusCode::OK);
 
-    let first_publish = app.clone().oneshot(
-        Request::builder()
-            .method(Method::POST)
-            .uri("/api/v1/admin/publish")
-            .body(Body::empty())
-            .unwrap(),
+    let first_publish_task = tokio::spawn({
+        let app = app.clone();
+        async move {
+            app.oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/admin/publish")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap()
+        }
+    });
+
+    tokio::time::sleep(Duration::from_millis(120)).await;
+
+    let in_progress_status = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/api/v1/admin/publish")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(in_progress_status.status(), StatusCode::OK);
+    let in_progress_body = parse_json(in_progress_status).await;
+    assert_eq!(in_progress_body["status"], json!("publishing"));
+    assert!(
+        in_progress_body["activePublishStartedAt"]
+            .as_u64()
+            .is_some(),
+        "publishing status should expose active publish start time"
     );
-    let second_publish = app.clone().oneshot(
-        Request::builder()
-            .method(Method::POST)
-            .uri("/api/v1/admin/publish")
-            .body(Body::empty())
-            .unwrap(),
+    assert!(
+        in_progress_body["activePublishHeartbeatAt"]
+            .as_u64()
+            .is_some(),
+        "publishing status should expose active publish heartbeat time"
     );
 
-    let (first_publish, second_publish) = tokio::join!(first_publish, second_publish);
-    let first_publish = first_publish.unwrap();
-    let second_publish = second_publish.unwrap();
-    let statuses = [first_publish.status(), second_publish.status()];
-
-    assert_eq!(
-        statuses
-            .iter()
-            .filter(|status| **status == StatusCode::OK)
-            .count(),
-        1
-    );
-    assert_eq!(
-        statuses
-            .iter()
-            .filter(|status| **status == StatusCode::CONFLICT)
-            .count(),
-        1
-    );
+    let second_publish = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/v1/admin/publish")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let first_publish = first_publish_task.await.unwrap();
+    assert_eq!(first_publish.status(), StatusCode::OK);
+    assert_eq!(second_publish.status(), StatusCode::CONFLICT);
 
     let final_status = app
         .oneshot(

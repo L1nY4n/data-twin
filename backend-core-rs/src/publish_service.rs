@@ -17,6 +17,9 @@ use crate::{
     store::{PublishedStateRecord, Store, StoreError, WorkingSnapshot},
 };
 
+const PUBLISH_LOCK_STALE_AFTER_MS: u64 = 120_000;
+pub const PUBLISH_HEARTBEAT_INTERVAL_MS: u64 = 10_000;
+
 #[derive(Clone, Debug)]
 pub struct PublishConfig {
     pub repo_root: PathBuf,
@@ -142,7 +145,7 @@ pub async fn load_publish_status(
         == Some(current_scene_version)
         && has_unpublished_changes;
 
-    let status = if runtime.is_publishing() {
+    let status = if runtime.is_publishing() || is_publish_lock_active(&published) {
         PublishState::Publishing
     } else if failed_current_version {
         PublishState::Failed
@@ -157,12 +160,18 @@ pub async fn load_publish_status(
         current_scene_version,
         published_scene_version: published.published_scene_version,
         has_unpublished_changes,
+        active_publish_started_at: published.active_publish_started_at,
+        active_publish_heartbeat_at: published.active_publish_heartbeat_at,
         last_published_at: published.last_published_at,
         last_published_version: published.last_published_version,
         last_error: published.last_publish_error,
         published_scene: published.published_scene,
         compiler_source: published.compiler_source,
     })
+}
+
+pub fn publish_lock_stale_after_ms() -> u64 {
+    PUBLISH_LOCK_STALE_AFTER_MS
 }
 
 pub async fn publish_working_snapshot(
@@ -277,4 +286,64 @@ fn current_publish_millis() -> u128 {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis())
         .unwrap_or_default()
+}
+
+fn is_publish_lock_active(published: &PublishedStateRecord) -> bool {
+    let Some(_) = published.active_publish_token else {
+        return false;
+    };
+
+    let heartbeat_at = published
+        .active_publish_heartbeat_at
+        .or(published.active_publish_started_at)
+        .unwrap_or_default();
+
+    now_millis().saturating_sub(heartbeat_at) <= PUBLISH_LOCK_STALE_AFTER_MS
+}
+
+fn now_millis() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{load_publish_status, publish_lock_stale_after_ms, PublishRuntime};
+    use crate::store::Store;
+
+    #[tokio::test]
+    async fn publish_status_uses_store_lock_across_runtime_instances() {
+        std::env::set_var("DATABASE_URL", "sqlite::memory:");
+        let store = Store::from_env().await.unwrap();
+        let runtime = PublishRuntime::default();
+
+        assert!(store
+            .try_begin_publish(
+                "token-live",
+                super::now_millis(),
+                publish_lock_stale_after_ms()
+            )
+            .await
+            .unwrap());
+
+        let status = load_publish_status(&store, &runtime).await.unwrap();
+        assert_eq!(status.status, crate::contracts::PublishState::Publishing);
+    }
+
+    #[tokio::test]
+    async fn stale_store_lock_does_not_report_publishing() {
+        std::env::set_var("DATABASE_URL", "sqlite::memory:");
+        let store = Store::from_env().await.unwrap();
+        let runtime = PublishRuntime::default();
+
+        assert!(store
+            .try_begin_publish("token-stale", 1, publish_lock_stale_after_ms())
+            .await
+            .unwrap());
+
+        let status = load_publish_status(&store, &runtime).await.unwrap();
+        assert_ne!(status.status, crate::contracts::PublishState::Publishing);
+    }
 }

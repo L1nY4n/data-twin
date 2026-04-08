@@ -57,6 +57,8 @@ export interface PublishStatus {
   currentSceneVersion: number
   publishedSceneVersion: number
   hasUnpublishedChanges: boolean
+  activePublishStartedAt?: number | null
+  activePublishHeartbeatAt?: number | null
   lastPublishedAt?: number | null
   lastPublishedVersion?: string | null
   lastError?: string | null

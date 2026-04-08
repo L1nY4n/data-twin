@@ -10,8 +10,12 @@ import {
   CheckCircle2,
   XCircle,
   Info,
+  MonitorPlay,
+  Sparkles,
+  LocateFixed,
 } from 'lucide-react'
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
+import { isRuntimeIncidentActive } from '@/lib/digital-twin/incident-utils'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -63,12 +67,30 @@ export function BottomPanel() {
   const bottomPanelTab = useDigitalTwinStore((state) => state.bottomPanelTab)
   const setBottomPanelTab = useDigitalTwinStore((state) => state.setBottomPanelTab)
   const alarms = useDigitalTwinStore((state) => state.alarms)
+  const incidents = useDigitalTwinStore((state) => state.incidents)
+  const activeIncidentId = useDigitalTwinStore((state) => state.activeIncidentId)
+  const setActiveIncident = useDigitalTwinStore((state) => state.setActiveIncident)
+  const openIncidentVideo = useDigitalTwinStore((state) => state.openIncidentVideo)
+  const focusCameraOnEntity = useDigitalTwinStore((state) => state.focusCameraOnEntity)
+  const acknowledgeIncident = useDigitalTwinStore((state) => state.acknowledgeIncident)
   const acknowledgeAlarm = useDigitalTwinStore((state) => state.acknowledgeAlarm)
   const entityDirectory = useDigitalTwinStore((state) => state.entityDirectory)
   const rules = useDigitalTwinStore((state) => Array.from(state.rules.values()))
   const unacknowledgedAlarmCount = useMemo(
     () => alarms.reduce((count, alarm) => (alarm.acknowledged ? count : count + 1), 0),
     [alarms]
+  )
+  const unacknowledgedIncidentCount = useMemo(
+    () => incidents.reduce((count, incident) => (isRuntimeIncidentActive(incident) ? count + 1 : count), 0),
+    [incidents]
+  )
+  const activeIncident = useMemo(
+    () =>
+      incidents.find((incident) => incident.id === activeIncidentId) ??
+      incidents.find((incident) => isRuntimeIncidentActive(incident)) ??
+      incidents[0] ??
+      null,
+    [activeIncidentId, incidents]
   )
 
   // 统计数据
@@ -145,6 +167,12 @@ export function BottomPanel() {
 
           {/* 告警摘要 */}
           <div className="flex items-center gap-2">
+            {unacknowledgedIncidentCount > 0 && (
+              <Badge variant="secondary" className="gap-1">
+                <Sparkles className="h-3 w-3" />
+                {unacknowledgedIncidentCount} 条活跃事件
+              </Badge>
+            )}
             {unacknowledgedAlarmCount > 0 && (
               <Badge variant="destructive" className="gap-1">
                 <AlertTriangle className="h-3 w-3" />
@@ -158,53 +186,103 @@ export function BottomPanel() {
           {/* 时间轴 */}
           <TabsContent value="timeline" className="m-0 h-full">
             <div className="flex h-full">
-              {/* 告警列表 */}
-              <div className="w-80 border-r">
+              {/* 事件流 */}
+              <div className="w-[360px] border-r">
                 <div className="flex items-center justify-between border-b px-3 py-2">
-                  <span className="text-sm font-medium">告警列表</span>
+                  <span className="text-sm font-medium">Citation / 事件流</span>
                   <Badge variant="outline" className="text-xs">
-                    {alarms.length}
+                    {incidents.length}
                   </Badge>
                 </div>
                 <ScrollArea className="h-[calc(100%-41px)]">
                   <div className="space-y-1 p-2">
-                    {alarms.length === 0 ? (
+                    {incidents.length === 0 ? (
                       <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
-                        <CheckCircle2 className="mb-2 h-8 w-8" />
-                        <span className="text-sm">暂无告警</span>
+                        <Sparkles className="mb-2 h-8 w-8" />
+                        <span className="text-sm">等待事件联动</span>
+                        <span className="mt-1 text-xs">移动中的人 / 车会持续生成 mock Citation</span>
                       </div>
                     ) : (
-                      alarms.map((alarm) => {
-                        const Icon = ALARM_ICON_MAP[alarm.level]
-                        const color = ALARM_COLOR_MAP[alarm.level]
+                      incidents.map((incident) => {
+                        const Icon = ALARM_ICON_MAP[incident.severity]
+                        const color = ALARM_COLOR_MAP[incident.severity]
                         return (
                           <div
-                            key={alarm.id}
+                            key={incident.id}
                             className={cn(
-                              'flex items-start gap-2 rounded-md border p-2',
-                              alarm.acknowledged && 'opacity-50'
+                              'rounded-md border p-3 transition-colors',
+                              incident.acknowledged && 'opacity-50',
+                              activeIncident?.id === incident.id && 'border-primary bg-primary/5'
                             )}
+                            onClick={() => setActiveIncident(incident.id)}
                           >
-                            <Icon
-                              className="mt-0.5 h-4 w-4 flex-shrink-0"
-                              style={{ color }}
-                            />
-                            <div className="flex-1 min-w-0">
-                              <p className="text-xs">{alarm.message}</p>
-                              <p className="mt-0.5 text-[10px] text-muted-foreground">
-                                {new Date(alarm.timestamp).toLocaleString('zh-CN')}
-                              </p>
+                            <div className="flex items-start gap-2">
+                              <Icon
+                                className="mt-0.5 h-4 w-4 flex-shrink-0"
+                                style={{ color }}
+                              />
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2">
+                                  <p className="text-sm font-medium">{incident.title}</p>
+                                  <Badge variant="outline" className="text-[10px]">
+                                    {incident.kind}
+                                  </Badge>
+                                </div>
+                                <p className="mt-1 text-xs text-muted-foreground">{incident.summary}</p>
+                                <div className="mt-2 flex flex-wrap gap-1">
+                                  {incident.citations.slice(0, 2).map((citation) => (
+                                    <Badge key={citation.id} variant="secondary" className="text-[10px]">
+                                      {citation.label}: {citation.value}
+                                    </Badge>
+                                  ))}
+                                </div>
+                                <p className="mt-2 text-[10px] text-muted-foreground">
+                                  {new Date(incident.timestamp).toLocaleString('zh-CN')}
+                                </p>
+                              </div>
                             </div>
-                            {!alarm.acknowledged && (
+                            <div className="mt-3 flex items-center gap-2">
                               <Button
-                                variant="ghost"
+                                variant="outline"
                                 size="sm"
-                                className="h-6 px-2 text-xs"
-                                onClick={() => acknowledgeAlarm(alarm.id)}
+                                className="h-7 px-2 text-xs"
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  focusCameraOnEntity(incident.primaryEntityId)
+                                  setActiveIncident(incident.id)
+                                }}
                               >
-                                确认
+                                <LocateFixed className="mr-1 h-3.5 w-3.5" />
+                                聚焦
                               </Button>
-                            )}
+                              {incident.videoFeed && (
+                                <Button
+                                  variant="secondary"
+                                  size="sm"
+                                  className="h-7 px-2 text-xs"
+                                  onClick={(event) => {
+                                    event.stopPropagation()
+                                    openIncidentVideo(incident.videoFeed!, incident.id)
+                                  }}
+                                >
+                                  <MonitorPlay className="mr-1 h-3.5 w-3.5" />
+                                  视频弹窗
+                                </Button>
+                              )}
+                              {!incident.acknowledged && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 px-2 text-xs"
+                                  onClick={(event) => {
+                                    event.stopPropagation()
+                                    acknowledgeIncident(incident.id)
+                                  }}
+                                >
+                                  确认事件
+                                </Button>
+                              )}
+                            </div>
                           </div>
                         )
                       })
@@ -213,9 +291,49 @@ export function BottomPanel() {
                 </ScrollArea>
               </div>
 
-              {/* 实时统计 */}
+              {/* 事件详情与实时统计 */}
               <div className="flex-1 p-4">
-                <div className="grid grid-cols-4 gap-4">
+                <div className="mb-4 rounded-xl border p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-xs uppercase tracking-[0.22em] text-muted-foreground">
+                        Focus incident
+                      </div>
+                      <h4 className="mt-2 text-base font-semibold">
+                        {activeIncident?.title ?? '暂无活跃事件'}
+                      </h4>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {activeIncident?.message ?? '系统会根据人 / 车移动状态自动生成证据化事件卡片。'}
+                      </p>
+                    </div>
+                    {activeIncident && (
+                      <Badge variant="destructive" className="capitalize">
+                        {activeIncident.severity}
+                      </Badge>
+                    )}
+                  </div>
+
+                  {activeIncident?.citations?.length ? (
+                    <div className="mt-4 grid gap-2 md:grid-cols-2">
+                      {activeIncident.citations.map((citation) => (
+                        <div key={citation.id} className="rounded-lg border bg-muted/30 p-3">
+                          <div className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+                            {citation.label}
+                          </div>
+                          <div className="mt-1 text-sm">{citation.value}</div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="grid grid-cols-2 gap-4 xl:grid-cols-5">
+                  <StatCard
+                    label="活跃事件"
+                    value={unacknowledgedIncidentCount}
+                    color="#8b5cf6"
+                    isWarning={unacknowledgedIncidentCount > 0}
+                  />
                   <StatCard 
                     label="在线人员" 
                     value={stats.persons} 
@@ -238,6 +356,45 @@ export function BottomPanel() {
                     color="#ef4444"
                     isWarning
                   />
+                </div>
+
+                <div className="mt-4 rounded-xl border p-4">
+                  <div className="mb-3 flex items-center justify-between">
+                    <span className="text-sm font-medium">告警摘要</span>
+                    <Badge variant="outline">{alarms.length}</Badge>
+                  </div>
+                  <div className="space-y-2">
+                    {alarms.slice(0, 4).map((alarm) => {
+                      const Icon = ALARM_ICON_MAP[alarm.level]
+                      return (
+                        <div key={alarm.id} className="flex items-center gap-3 rounded-lg border p-2.5">
+                          <Icon className="h-4 w-4" style={{ color: ALARM_COLOR_MAP[alarm.level] }} />
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate text-sm">{alarm.message}</div>
+                            <div className="text-[10px] text-muted-foreground">
+                              {new Date(alarm.timestamp).toLocaleString('zh-CN')}
+                            </div>
+                          </div>
+                          {!alarm.acknowledged && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 px-2 text-xs"
+                              onClick={() => acknowledgeAlarm(alarm.id)}
+                            >
+                              确认
+                            </Button>
+                          )}
+                        </div>
+                      )
+                    })}
+                    {alarms.length === 0 && (
+                      <div className="flex items-center gap-2 rounded-lg border border-dashed p-3 text-sm text-muted-foreground">
+                        <CheckCircle2 className="h-4 w-4 text-green-500" />
+                        当前无传统告警，重点关注事件联动卡片。
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>

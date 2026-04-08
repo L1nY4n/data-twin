@@ -23,7 +23,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { EDITOR_CATALOG_TRANSFER_MIME } from '@/lib/digital-twin/editor-dnd'
 import {
   isEditorEntityEditable,
-  useEditorDigitalTwinStore,
+  useEditorSceneStore,
+  useEditorUiStore,
+  useEditorViewerStore,
 } from '@/lib/digital-twin/editor-store'
 import {
   type StaticAssetCatalogDomain,
@@ -169,20 +171,16 @@ export function EditorAppSidebar({
   collapsed = false,
   onToggleCollapse,
 }: EditorAppSidebarProps) {
-  const entities = useEditorDigitalTwinStore((state) => state.entities)
-  const staticAssets = useEditorDigitalTwinStore((state) => state.staticAssets)
-  const draftStaticAsset = useEditorDigitalTwinStore((state) => state.draftStaticAsset)
-  const selectedEntityId = useEditorDigitalTwinStore((state) => state.selectedEntityId)
-  const selectedStaticAssetId = useEditorDigitalTwinStore(
-    (state) => state.selectedStaticAssetId
-  )
-  const placementCatalogId = useEditorDigitalTwinStore((state) => state.placementCatalogId)
-  const selectEntity = useEditorDigitalTwinStore((state) => state.selectEntity)
-  const selectStaticAsset = useEditorDigitalTwinStore((state) => state.selectStaticAsset)
-  const armStaticAssetPlacement = useEditorDigitalTwinStore(
-    (state) => state.armStaticAssetPlacement
-  )
-  const isLoading = useEditorDigitalTwinStore((state) => state.isLoading)
+  const entities = useEditorSceneStore((state) => state.entities)
+  const staticAssets = useEditorSceneStore((state) => state.staticAssets)
+  const draftStaticAsset = useEditorSceneStore((state) => state.draftStaticAsset)
+  const selectedEntityId = useEditorViewerStore((state) => state.selectedEntityId)
+  const selectedStaticAssetId = useEditorViewerStore((state) => state.selectedStaticAssetId)
+  const placementCatalogId = useEditorUiStore((state) => state.placementCatalogId)
+  const selectEntity = useEditorViewerStore((state) => state.selectEntity)
+  const selectStaticAsset = useEditorViewerStore((state) => state.selectStaticAsset)
+  const armStaticAssetPlacement = useEditorUiStore((state) => state.armStaticAssetPlacement)
+  const isLoading = useEditorUiStore((state) => state.isLoading)
   const [resourceTab, setResourceTab] = useState<ResourceTab>('catalog')
   const [catalogSearch, setCatalogSearch] = useState('')
   const [sceneSearch, setSceneSearch] = useState('')

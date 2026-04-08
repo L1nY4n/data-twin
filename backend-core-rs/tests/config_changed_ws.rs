@@ -271,7 +271,6 @@ fn init_test_database_url() {
 struct PublishTestHarness {
     root: PathBuf,
     generated_root: PathBuf,
-    mode_file: PathBuf,
     bun_wrapper: PathBuf,
 }
 
@@ -297,7 +296,6 @@ impl PublishTestHarness {
         Self {
             root,
             generated_root,
-            mode_file,
             bun_wrapper,
         }
     }

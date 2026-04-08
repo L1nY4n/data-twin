@@ -8,6 +8,7 @@ import {
   deleteAdminStaticAsset,
   fetchAdminPublishStatus,
   fetchEditorBootstrap,
+  getAdminApiSceneVersionConflict,
   isAdminApiError,
   saveAdminEditorDrafts,
   triggerAdminPublish,
@@ -15,9 +16,14 @@ import {
 import type { PublishStatus } from '@/lib/digital-twin/admin'
 import {
   buildEditorSceneSavePayload,
+  getEditorSceneState,
+  getEditorUiState,
+  getEditorViewerState,
   getEditorSelectionKind,
   type EditorDigitalTwinStore,
-  useEditorDigitalTwinStore,
+  useEditorSceneStore,
+  useEditorUiStore,
+  useEditorViewerStore,
 } from '@/lib/digital-twin/editor-store'
 import {
   DEFAULT_PUBLISHED_SCENE_PACKAGE,
@@ -43,6 +49,12 @@ type EditorActivityPhase =
   | 'error'
 
 type EditorActivityTone = 'neutral' | 'info' | 'success' | 'warning' | 'danger'
+export type EditorRetryAction =
+  | 'reload'
+  | 'save'
+  | 'delete'
+  | 'publish'
+  | 'create_standard_room'
 
 type ReloadReason = 'initial' | 'manual' | 'publish'
 
@@ -54,6 +66,7 @@ export interface EditorActivityStatus {
   isBusy: boolean
   canRetry?: boolean
   retryLabel?: string
+  retryAction?: EditorRetryAction
 }
 
 async function resolvePublishedScenePackage(
@@ -75,17 +88,43 @@ async function resolvePublishedScenePackage(
   )
 }
 
-function describeEditorOperationError(error: unknown, fallback: string) {
+export function describeEditorOperationError(error: unknown, fallback: string) {
   if (isAdminApiError(error)) {
-    switch (error.status) {
-      case 409:
-        return '已有发布任务正在执行，工作台会自动接管最新状态。'
-      default:
-        return error.message
-    }
+    return error.message
   }
 
   return error instanceof Error ? error.message : fallback
+}
+
+export function resolveEditorSaveFailureStatus(error: unknown): EditorActivityStatus {
+  if (isAdminApiError(error) && error.status === 409) {
+    const conflict = getAdminApiSceneVersionConflict(error)
+
+    return {
+      phase: 'error',
+      tone: 'warning',
+      title: '检测到编辑版本冲突',
+      detail: conflict
+        ? `当前编辑基于场景版本 ${conflict.expectedSceneVersion}，但服务端最新版本已是 ${conflict.currentSceneVersion}。请先重新同步，再重试保存。`
+        : describeEditorOperationError(error, '保存编辑内容失败'),
+      isBusy: false,
+      canRetry: true,
+      retryLabel: '重新同步',
+      retryAction: 'reload',
+    }
+  }
+
+  const message = describeEditorOperationError(error, '保存编辑内容失败')
+  return {
+    phase: 'error',
+    tone: 'danger',
+    title: '保存失败',
+    detail: message,
+    isBusy: false,
+    canRetry: true,
+    retryLabel: '重试保存',
+    retryAction: 'save',
+  }
 }
 
 function createReadyStatus(detail = '场景、发布状态与资源库已同步。'): EditorActivityStatus {
@@ -110,6 +149,7 @@ export function createEditorSaveRequest(
     EditorDigitalTwinStore,
     | 'sceneConfig'
     | 'savedSceneConfig'
+    | 'sceneVersion'
     | 'hasSceneChanges'
     | 'hasSelectionChanges'
     | 'draftEntity'
@@ -126,6 +166,7 @@ export function createEditorSaveRequest(
   }
 
   return {
+    expectedSceneVersion: store.sceneVersion,
     ...(store.hasSceneChanges
       ? {
           sceneConfig: createEditorSceneSavePayload(
@@ -173,6 +214,161 @@ export function restoreSelectionAfterReload({
   if (savedEntityId) return selectEntity(savedEntityId)
   if (savedStaticAssetId) return selectStaticAsset(savedStaticAssetId)
   return true
+}
+
+export type EditorSaveSelectionResult =
+  | {
+      status: 'noop'
+      persisted: false
+      synced: false
+      requiresReload: false
+      reloadSucceeded: false
+      selectionRestored: false
+    }
+  | {
+      status: 'failed'
+      persisted: false
+      synced: false
+      requiresReload: false
+      reloadSucceeded: false
+      selectionRestored: false
+    }
+  | {
+      status: 'saved'
+      persisted: true
+      synced: true
+      requiresReload: false
+      reloadSucceeded: true
+      selectionRestored: boolean
+    }
+  | {
+      status: 'saved_with_reload_warning'
+      persisted: true
+      synced: false
+      requiresReload: true
+      reloadSucceeded: false
+      selectionRestored: false
+    }
+  | {
+      status: 'saved_with_selection_warning'
+      persisted: true
+      synced: false
+      requiresReload: true
+      reloadSucceeded: true
+      selectionRestored: false
+    }
+
+export function resolveEditorSaveSelectionResult({
+  reloadSucceeded,
+  selectionRestored,
+  savedEntityId,
+  savedStaticAssetId,
+}: {
+  reloadSucceeded: boolean
+  selectionRestored: boolean
+  savedEntityId?: string | null
+  savedStaticAssetId?: string | null
+}): Extract<EditorSaveSelectionResult, { persisted: true }> {
+  if (!reloadSucceeded) {
+    return {
+      status: 'saved_with_reload_warning',
+      persisted: true,
+      synced: false,
+      requiresReload: true,
+      reloadSucceeded: false,
+      selectionRestored: false,
+    }
+  }
+
+  if ((savedEntityId || savedStaticAssetId) && !selectionRestored) {
+    return {
+      status: 'saved_with_selection_warning',
+      persisted: true,
+      synced: false,
+      requiresReload: true,
+      reloadSucceeded: true,
+      selectionRestored: false,
+    }
+  }
+
+  return {
+    status: 'saved',
+    persisted: true,
+    synced: true,
+    requiresReload: false,
+    reloadSucceeded: true,
+    selectionRestored,
+  }
+}
+
+export type EditorPublishResult =
+  | {
+      status: 'blocked'
+      completed: false
+      inProgress: false
+      recovered: false
+    }
+  | {
+      status: 'failed'
+      completed: false
+      inProgress: false
+      recovered: false
+    }
+  | {
+      status: 'published'
+      completed: true
+      inProgress: false
+      recovered: boolean
+    }
+  | {
+      status: 'publish_in_progress'
+      completed: false
+      inProgress: true
+      recovered: true
+    }
+
+export function resolveEditorPublishResult({
+  publishStatus,
+  recovered,
+}: {
+  publishStatus: PublishStatus
+  recovered: boolean
+}): Extract<EditorPublishResult, { status: 'published' | 'publish_in_progress' }> {
+  if (publishStatus.status === 'publishing') {
+    return {
+      status: 'publish_in_progress',
+      completed: false,
+      inProgress: true,
+      recovered: true,
+    }
+  }
+
+  return {
+    status: 'published',
+    completed: true,
+    inProgress: false,
+    recovered,
+  }
+}
+
+export function canEditorPublish({
+  publishStatus,
+  isDirty,
+  isSaving,
+  isPublishing,
+}: {
+  publishStatus: PublishStatus | null
+  isDirty: boolean
+  isSaving: boolean
+  isPublishing: boolean
+}) {
+  return (
+    Boolean(publishStatus?.hasUnpublishedChanges) &&
+    publishStatus?.status !== 'publishing' &&
+    !isDirty &&
+    !isSaving &&
+    !isPublishing
+  )
 }
 
 export class StandardRoomCreationError extends Error {
@@ -259,19 +455,15 @@ export function useEditorDigitalTwin() {
     detail: '正在载入场景、发布状态与资源库。',
     isBusy: true,
   })
-  const selectedEntityId = useEditorDigitalTwinStore((state) => state.selectedEntityId)
-  const selectedStaticAssetId = useEditorDigitalTwinStore(
-    (state) => state.selectedStaticAssetId
-  )
-  const duplicateSelectionState = useEditorDigitalTwinStore(
-    (state) => state.duplicateSelection
-  )
-  const isDirty = useEditorDigitalTwinStore((state) => state.isDirty)
-  const isSaving = useEditorDigitalTwinStore((state) => state.isSaving)
+  const selectedEntityId = useEditorViewerStore((state) => state.selectedEntityId)
+  const selectedStaticAssetId = useEditorViewerStore((state) => state.selectedStaticAssetId)
+  const duplicateSelectionState = useEditorSceneStore((state) => state.duplicateSelection)
+  const isDirty = useEditorSceneStore((state) => state.isDirty)
+  const isSaving = useEditorUiStore((state) => state.isSaving)
 
   const reload = useCallback(
     async (reason: ReloadReason = 'manual') => {
-      const store = useEditorDigitalTwinStore.getState()
+      const uiStore = getEditorUiState()
       const syncDetail =
         reason === 'publish'
           ? '正在刷新发布结果与当前工作台上下文。'
@@ -279,7 +471,7 @@ export function useEditorDigitalTwin() {
             ? '正在载入场景、发布状态与资源库。'
             : '正在重新同步场景、资源与发布状态。'
 
-      store.setLoading(true)
+      uiStore.setLoading(true)
       setActivityStatus({
         phase: 'loading',
         tone: 'info',
@@ -294,7 +486,7 @@ export function useEditorDigitalTwin() {
           fetchAdminPublishStatus(),
         ])
         const publishedScenePackage = await resolvePublishedScenePackage(payload.publishedScene)
-        useEditorDigitalTwinStore.getState().hydrateFromBootstrap(
+        getEditorSceneState().hydrateFromBootstrap(
           payload,
           publishedScenePackage,
           {
@@ -302,7 +494,7 @@ export function useEditorDigitalTwin() {
           }
         )
         setPublishStatus(nextPublishStatus)
-        useEditorDigitalTwinStore.getState().setError(null)
+        getEditorUiState().setError(null)
         setActivityStatus(
           createReadyStatus(
             reason === 'publish'
@@ -313,7 +505,7 @@ export function useEditorDigitalTwin() {
         return true
       } catch (error) {
         const message = describeEditorOperationError(error, '加载 3D 编辑器数据失败')
-        useEditorDigitalTwinStore.getState().setError(message)
+        getEditorUiState().setError(message)
         setActivityStatus({
           phase: 'error',
           tone: 'danger',
@@ -322,23 +514,39 @@ export function useEditorDigitalTwin() {
           isBusy: false,
           canRetry: true,
           retryLabel: '重新同步',
+          retryAction: 'reload',
         })
         return false
       } finally {
-        useEditorDigitalTwinStore.getState().setLoading(false)
+        getEditorUiState().setLoading(false)
       }
     },
     []
   )
 
-  const saveSelection = useCallback(async () => {
-    const store = useEditorDigitalTwinStore.getState()
+  const saveSelection = useCallback(async (): Promise<EditorSaveSelectionResult> => {
+    const sceneStore = getEditorSceneState()
+    const viewerStore = getEditorViewerState()
+    const uiStore = getEditorUiState()
+    const store = {
+      ...sceneStore,
+      ...viewerStore,
+    }
     const hasSceneChanges = store.hasSceneChanges
     const hasSelectionChanges = store.hasSelectionChanges
 
-    if (!hasSceneChanges && !hasSelectionChanges) return false
-    store.setSaving(true)
-    store.setError(null)
+    if (!hasSceneChanges && !hasSelectionChanges) {
+      return {
+        status: 'noop',
+        persisted: false,
+        synced: false,
+        requiresReload: false,
+        reloadSucceeded: false,
+        selectionRestored: false,
+      }
+    }
+    uiStore.setSaving(true)
+    uiStore.setError(null)
     setActivityStatus({
       phase: 'saving',
       tone: 'info',
@@ -358,7 +566,16 @@ export function useEditorDigitalTwin() {
 
     try {
       const request = createEditorSaveRequest(store)
-      if (!request) return false
+      if (!request) {
+        return {
+          status: 'noop',
+          persisted: false,
+          synced: false,
+          requiresReload: false,
+          reloadSucceeded: false,
+          selectionRestored: false,
+        }
+      }
       const response = await saveAdminEditorDrafts(request)
 
       const focusEntityId = response.savedEntity?.id ?? null
@@ -370,18 +587,24 @@ export function useEditorDigitalTwin() {
         savedEntityId: focusEntityId,
         savedStaticAssetId: focusStaticAssetId,
         selectEntity: (id) => {
-          useEditorDigitalTwinStore.getState().selectEntity(id)
-          return useEditorDigitalTwinStore.getState().selectedEntityId === id
+          getEditorViewerState().selectEntity(id)
+          return getEditorViewerState().selectedEntityId === id
         },
         selectStaticAsset: (id) => {
-          useEditorDigitalTwinStore.getState().selectStaticAsset(id)
-          return useEditorDigitalTwinStore.getState().selectedStaticAssetId === id
+          getEditorViewerState().selectStaticAsset(id)
+          return getEditorViewerState().selectedStaticAssetId === id
         },
       })
+      const result = resolveEditorSaveSelectionResult({
+        reloadSucceeded,
+        selectionRestored,
+        savedEntityId: focusEntityId,
+        savedStaticAssetId: focusStaticAssetId,
+      })
 
-      if (!reloadSucceeded) {
+      if (result.status === 'saved_with_reload_warning') {
         const message = '编辑内容已保存，但工作台重新同步失败。请重新同步后继续编辑。'
-        useEditorDigitalTwinStore.getState().setError(message)
+        getEditorUiState().setError(message)
         setActivityStatus({
           phase: 'error',
           tone: 'warning',
@@ -390,13 +613,14 @@ export function useEditorDigitalTwin() {
           isBusy: false,
           canRetry: true,
           retryLabel: '重新同步',
+          retryAction: 'reload',
         })
-        return false
+        return result
       }
 
-      if ((focusEntityId || focusStaticAssetId) && !selectionRestored) {
+      if (result.status === 'saved_with_selection_warning') {
         const message = '编辑内容已保存，但刷新后未恢复当前选中对象。请重新同步后继续编辑。'
-        useEditorDigitalTwinStore.getState().setError(message)
+        getEditorUiState().setError(message)
         setActivityStatus({
           phase: 'error',
           tone: 'warning',
@@ -405,8 +629,9 @@ export function useEditorDigitalTwin() {
           isBusy: false,
           canRetry: true,
           retryLabel: '重新同步',
+          retryAction: 'reload',
         })
-        return false
+        return result
       }
 
       setActivityStatus({
@@ -422,31 +647,37 @@ export function useEditorDigitalTwin() {
           hasSceneChanges && hasSelectionChanges
             ? '场景配置与对象草稿已同步到作者工作区。'
             : hasSceneChanges
-              ? '场景级配置已同步到作者工作区。'
-              : '作者工作区已同步最新对象状态。',
+            ? '场景级配置已同步到作者工作区。'
+            : '作者工作区已同步最新对象状态。',
         isBusy: false,
       })
-      return true
+      return result
     } catch (error) {
-      const message = describeEditorOperationError(error, '保存编辑内容失败')
-      useEditorDigitalTwinStore.getState().setError(message)
-      setActivityStatus({
-        phase: 'error',
-        tone: 'danger',
-        title: '保存失败',
-        detail: message,
-        isBusy: false,
-        canRetry: true,
-        retryLabel: '重试保存',
-      })
-      return false
+      const nextStatus = resolveEditorSaveFailureStatus(error)
+      getEditorUiState().setError(nextStatus.detail)
+      setActivityStatus(nextStatus)
+      return {
+        status: 'failed',
+        persisted: false,
+        synced: false,
+        requiresReload: false,
+        reloadSucceeded: false,
+        selectionRestored: false,
+      }
     } finally {
-      useEditorDigitalTwinStore.getState().setSaving(false)
+      getEditorUiState().setSaving(false)
     }
   }, [reload])
 
   const deleteSelection = useCallback(async () => {
-    const store = useEditorDigitalTwinStore.getState()
+    const sceneStore = getEditorSceneState()
+    const viewerStore = getEditorViewerState()
+    const uiStore = getEditorUiState()
+    const store = {
+      ...sceneStore,
+      ...viewerStore,
+      ...uiStore,
+    }
     const selectionKind = getEditorSelectionKind(store)
     if (!selectionKind) return false
 
@@ -465,8 +696,8 @@ export function useEditorDigitalTwin() {
       return true
     }
 
-    store.setSaving(true)
-    store.setError(null)
+    uiStore.setSaving(true)
+    uiStore.setError(null)
     setActivityStatus({
       phase: 'saving',
       tone: 'info',
@@ -494,7 +725,7 @@ export function useEditorDigitalTwin() {
       return true
     } catch (error) {
       const message = describeEditorOperationError(error, '删除静态资产失败')
-      useEditorDigitalTwinStore.getState().setError(message)
+      getEditorUiState().setError(message)
       setActivityStatus({
         phase: 'error',
         tone: 'danger',
@@ -503,10 +734,11 @@ export function useEditorDigitalTwin() {
         isBusy: false,
         canRetry: true,
         retryLabel: '重试删除',
+        retryAction: 'delete',
       })
       return false
     } finally {
-      useEditorDigitalTwinStore.getState().setSaving(false)
+      getEditorUiState().setSaving(false)
     }
   }, [reload, selectedEntityId, selectedStaticAssetId])
 
@@ -525,11 +757,18 @@ export function useEditorDigitalTwin() {
   }, [duplicateSelectionState])
 
   const createStandardRoom = useCallback(async () => {
-    const store = useEditorDigitalTwinStore.getState()
+    const sceneStore = getEditorSceneState()
+    const viewerStore = getEditorViewerState()
+    const uiStore = getEditorUiState()
+    const store = {
+      ...sceneStore,
+      ...viewerStore,
+      ...uiStore,
+    }
     if (store.isLoading || store.isSaving) return false
 
-    store.setSaving(true)
-    store.setError(null)
+    uiStore.setSaving(true)
+    uiStore.setError(null)
     setActivityStatus({
       phase: 'saving',
       tone: 'info',
@@ -544,14 +783,14 @@ export function useEditorDigitalTwin() {
         createStaticAsset: createAdminStaticAsset,
         reload: () => reload('manual'),
         selectStaticAsset: (id) => {
-          useEditorDigitalTwinStore.getState().selectStaticAsset(id)
-          return useEditorDigitalTwinStore.getState().selectedStaticAssetId === id
+          getEditorViewerState().selectStaticAsset(id)
+          return getEditorViewerState().selectedStaticAssetId === id
         },
       })
 
       if (!result.reloadSucceeded) {
         const message = '标准房间已创建，但工作台重新同步失败。请重新同步后继续编辑。'
-        useEditorDigitalTwinStore.getState().setError(message)
+        getEditorUiState().setError(message)
         setActivityStatus({
           phase: 'error',
           tone: 'warning',
@@ -560,13 +799,14 @@ export function useEditorDigitalTwin() {
           isBusy: false,
           canRetry: true,
           retryLabel: '重新同步',
+          retryAction: 'reload',
         })
         return false
       }
 
       if (!result.focusAssetId || !result.selectionRestored) {
         const message = '标准房间已创建，但入口门在刷新后未恢复选中。请重新同步后继续编辑。'
-        useEditorDigitalTwinStore.getState().setError(message)
+        getEditorUiState().setError(message)
         setActivityStatus({
           phase: 'error',
           tone: 'warning',
@@ -575,6 +815,7 @@ export function useEditorDigitalTwin() {
           isBusy: false,
           canRetry: true,
           retryLabel: '重新同步',
+          retryAction: 'reload',
         })
         return false
       }
@@ -594,12 +835,12 @@ export function useEditorDigitalTwin() {
       if (createdCount > 0) {
         partialReloadSucceeded = await reload('manual')
         if (partialReloadSucceeded && focusAssetId) {
-          useEditorDigitalTwinStore.getState().selectStaticAsset(focusAssetId)
+          getEditorViewerState().selectStaticAsset(focusAssetId)
         }
       }
 
       const message = describeEditorOperationError(error, '生成标准房间失败')
-      useEditorDigitalTwinStore.getState().setError(message)
+      getEditorUiState().setError(message)
       setActivityStatus({
         phase: 'error',
         tone: 'danger',
@@ -613,18 +854,24 @@ export function useEditorDigitalTwin() {
         isBusy: false,
         canRetry: createdCount > 0,
         retryLabel: createdCount > 0 ? '重新同步' : undefined,
+        retryAction: createdCount > 0 ? 'reload' : undefined,
       })
       return false
     } finally {
-      useEditorDigitalTwinStore.getState().setSaving(false)
+      getEditorUiState().setSaving(false)
     }
   }, [reload])
 
-  const publish = useCallback(async () => {
-    const store = useEditorDigitalTwinStore.getState()
+  const publish = useCallback(async (): Promise<EditorPublishResult> => {
+    const sceneStore = getEditorSceneState()
+    const uiStore = getEditorUiState()
+    const store = {
+      ...sceneStore,
+      ...uiStore,
+    }
     if (store.isDirty || store.isSaving) {
       const message = '请先保存当前编辑内容，再执行 Publish'
-      store.setError(message)
+      uiStore.setError(message)
       setActivityStatus({
         phase: 'error',
         tone: 'warning',
@@ -632,10 +879,15 @@ export function useEditorDigitalTwin() {
         detail: message,
         isBusy: false,
       })
-      return false
+      return {
+        status: 'blocked',
+        completed: false,
+        inProgress: false,
+        recovered: false,
+      }
     }
 
-    store.setError(null)
+    uiStore.setError(null)
     setIsPublishing(true)
     setActivityStatus({
       phase: 'publishing',
@@ -656,7 +908,10 @@ export function useEditorDigitalTwin() {
         detail: '最新发布结果已同步回编辑工作台。',
         isBusy: false,
       })
-      return true
+      return resolveEditorPublishResult({
+        publishStatus: nextStatus,
+        recovered: false,
+      })
     } catch (error) {
       let failure = error
 
@@ -686,7 +941,10 @@ export function useEditorDigitalTwin() {
                 : '最新发布状态已经同步回工作台。',
             isBusy: syncedStatus.status === 'publishing',
           })
-          return true
+          return resolveEditorPublishResult({
+            publishStatus: syncedStatus,
+            recovered: true,
+          })
         } catch (syncError) {
           failure = syncError
         }
@@ -699,7 +957,7 @@ export function useEditorDigitalTwin() {
       }
 
       const message = describeEditorOperationError(failure, '发布运行时场景失败')
-      useEditorDigitalTwinStore.getState().setError(message)
+      getEditorUiState().setError(message)
       setActivityStatus({
         phase: 'error',
         tone: 'danger',
@@ -708,8 +966,14 @@ export function useEditorDigitalTwin() {
         isBusy: false,
         canRetry: true,
         retryLabel: '重新发布',
+        retryAction: 'publish',
       })
-      return false
+      return {
+        status: 'failed',
+        completed: false,
+        inProgress: false,
+        recovered: false,
+      }
     } finally {
       setIsPublishing(false)
     }
@@ -725,6 +989,35 @@ export function useEditorDigitalTwin() {
     } satisfies PublishStatus
   }, [isPublishing, publishStatus])
 
+  const retryActivity = useCallback(async () => {
+    switch (activityStatus.retryAction) {
+      case 'reload':
+        await reload('manual')
+        return
+      case 'save':
+        await saveSelection()
+        return
+      case 'delete':
+        await deleteSelection()
+        return
+      case 'publish':
+        await publish()
+        return
+      case 'create_standard_room':
+        await createStandardRoom()
+        return
+      default:
+        return
+    }
+  }, [
+    activityStatus.retryAction,
+    createStandardRoom,
+    deleteSelection,
+    publish,
+    reload,
+    saveSelection,
+  ])
+
   useEffect(() => {
     void reload('initial')
   }, [reload])
@@ -738,10 +1031,12 @@ export function useEditorDigitalTwin() {
     publish,
     publishStatus: effectivePublishStatus,
     activityStatus,
-    canPublish:
-      Boolean(effectivePublishStatus?.hasUnpublishedChanges) &&
-      !isDirty &&
-      !isSaving &&
-      !isPublishing,
+    retryActivity,
+    canPublish: canEditorPublish({
+      publishStatus: effectivePublishStatus,
+      isDirty,
+      isSaving,
+      isPublishing,
+    }),
   }
 }

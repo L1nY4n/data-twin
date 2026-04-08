@@ -52,6 +52,7 @@ type EditableDraftPatch = Pick<TransformableDraft, 'name' | 'visible'>
 
 interface EditorDigitalTwinState {
   publishedScenePackage: PublishedScenePackage
+  sceneVersion: number
   sceneConfig: SceneConfig
   savedSceneConfig: SceneConfig
   entities: Map<string, Entity>
@@ -144,6 +145,95 @@ interface EditorDigitalTwinActions {
 }
 
 export type EditorDigitalTwinStore = EditorDigitalTwinState & EditorDigitalTwinActions
+
+export type EditorSceneStoreSlice = Pick<
+  EditorDigitalTwinStore,
+  | 'publishedScenePackage'
+  | 'sceneVersion'
+  | 'sceneConfig'
+  | 'savedSceneConfig'
+  | 'entities'
+  | 'staticAssets'
+  | 'draftEntity'
+  | 'savedEntity'
+  | 'draftStaticAsset'
+  | 'savedStaticAsset'
+  | 'transformSessionStart'
+  | 'history'
+  | 'redoHistory'
+  | 'hasSceneChanges'
+  | 'hasSelectionChanges'
+  | 'isDirty'
+  | 'hydrateFromBootstrap'
+  | 'setSceneConfig'
+  | 'updateDraftProperties'
+  | 'updateDraftField'
+  | 'updateDraftMetadata'
+  | 'setDraftTransformField'
+  | 'beginTransformSession'
+  | 'updateDraftTransform'
+  | 'commitTransformSession'
+  | 'duplicateSelection'
+  | 'placeStaticAsset'
+  | 'placeStaticAssetFromCatalog'
+  | 'undo'
+  | 'redo'
+  | 'resetDraft'
+  | 'reset'
+>
+
+export type EditorViewerStoreSlice = Pick<
+  EditorDigitalTwinStore,
+  | 'selectedEntityId'
+  | 'selectedStaticAssetId'
+  | 'hoveredEntityId'
+  | 'hoveredStaticAssetId'
+  | 'viewMode'
+  | 'viewportProjection'
+  | 'cameraPresets'
+  | 'activeCameraPreset'
+  | 'editorCameraPosition'
+  | 'editorCameraTarget'
+  | 'cameraFocusRequest'
+  | 'selectEntity'
+  | 'selectStaticAsset'
+  | 'setHoveredEntity'
+  | 'setHoveredStaticAsset'
+  | 'setViewMode'
+  | 'setViewportProjection'
+  | 'setEditorCameraPose'
+  | 'focusCameraPreset'
+  | 'focusCameraDirection'
+  | 'clearCameraFocusRequest'
+>
+
+export type EditorUiStoreSlice = Pick<
+  EditorDigitalTwinStore,
+  | 'placementCatalogId'
+  | 'transformMode'
+  | 'snapEnabled'
+  | 'translateSnap'
+  | 'rotateSnapDegrees'
+  | 'placementPreview'
+  | 'isLoading'
+  | 'isSaving'
+  | 'isTransformDragging'
+  | 'isMarqueeSelecting'
+  | 'selectionMarquee'
+  | 'error'
+  | 'setLoading'
+  | 'setSaving'
+  | 'setError'
+  | 'armStaticAssetPlacement'
+  | 'setTransformMode'
+  | 'setSnapEnabled'
+  | 'setTranslateSnap'
+  | 'setRotateSnapDegrees'
+  | 'setPlacementPreview'
+  | 'setTransformDragging'
+  | 'setMarqueeSelecting'
+  | 'setSelectionMarquee'
+>
 
 export function isEditorEntityEditable(
   entity: Entity | null | undefined
@@ -357,6 +447,7 @@ const DEFAULT_ROTATE_SNAP_DEGREES = 15
 
 const initialState: EditorDigitalTwinState = {
   publishedScenePackage: defaultPublishedScenePackage,
+  sceneVersion: 1,
   sceneConfig: cloneSceneDraft(defaultPublishedScenePackage.sceneConfig),
   savedSceneConfig: cloneSceneDraft(defaultPublishedScenePackage.sceneConfig),
   entities: new Map(),
@@ -420,6 +511,7 @@ export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, ge
       if (selectedStaticAsset) {
         return {
           publishedScenePackage,
+          sceneVersion: payload.sceneVersion,
           sceneConfig: cloneSceneDraft(payload.sceneConfig),
           savedSceneConfig: cloneSceneDraft(payload.sceneConfig),
           cameraPresets,
@@ -459,6 +551,7 @@ export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, ge
 
       return {
         publishedScenePackage,
+        sceneVersion: payload.sceneVersion,
         sceneConfig: cloneSceneDraft(payload.sceneConfig),
         savedSceneConfig: cloneSceneDraft(payload.sceneConfig),
         cameraPresets,
@@ -983,3 +1076,123 @@ export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, ge
 
   reset: () => set(initialState),
 }))
+
+function selectEditorSceneSlice(state: EditorDigitalTwinStore): EditorSceneStoreSlice {
+  return {
+    publishedScenePackage: state.publishedScenePackage,
+    sceneVersion: state.sceneVersion,
+    sceneConfig: state.sceneConfig,
+    savedSceneConfig: state.savedSceneConfig,
+    entities: state.entities,
+    staticAssets: state.staticAssets,
+    draftEntity: state.draftEntity,
+    savedEntity: state.savedEntity,
+    draftStaticAsset: state.draftStaticAsset,
+    savedStaticAsset: state.savedStaticAsset,
+    transformSessionStart: state.transformSessionStart,
+    history: state.history,
+    redoHistory: state.redoHistory,
+    hasSceneChanges: state.hasSceneChanges,
+    hasSelectionChanges: state.hasSelectionChanges,
+    isDirty: state.isDirty,
+    hydrateFromBootstrap: state.hydrateFromBootstrap,
+    setSceneConfig: state.setSceneConfig,
+    updateDraftProperties: state.updateDraftProperties,
+    updateDraftField: state.updateDraftField,
+    updateDraftMetadata: state.updateDraftMetadata,
+    setDraftTransformField: state.setDraftTransformField,
+    beginTransformSession: state.beginTransformSession,
+    updateDraftTransform: state.updateDraftTransform,
+    commitTransformSession: state.commitTransformSession,
+    duplicateSelection: state.duplicateSelection,
+    placeStaticAsset: state.placeStaticAsset,
+    placeStaticAssetFromCatalog: state.placeStaticAssetFromCatalog,
+    undo: state.undo,
+    redo: state.redo,
+    resetDraft: state.resetDraft,
+    reset: state.reset,
+  }
+}
+
+function selectEditorViewerSlice(state: EditorDigitalTwinStore): EditorViewerStoreSlice {
+  return {
+    selectedEntityId: state.selectedEntityId,
+    selectedStaticAssetId: state.selectedStaticAssetId,
+    hoveredEntityId: state.hoveredEntityId,
+    hoveredStaticAssetId: state.hoveredStaticAssetId,
+    viewMode: state.viewMode,
+    viewportProjection: state.viewportProjection,
+    cameraPresets: state.cameraPresets,
+    activeCameraPreset: state.activeCameraPreset,
+    editorCameraPosition: state.editorCameraPosition,
+    editorCameraTarget: state.editorCameraTarget,
+    cameraFocusRequest: state.cameraFocusRequest,
+    selectEntity: state.selectEntity,
+    selectStaticAsset: state.selectStaticAsset,
+    setHoveredEntity: state.setHoveredEntity,
+    setHoveredStaticAsset: state.setHoveredStaticAsset,
+    setViewMode: state.setViewMode,
+    setViewportProjection: state.setViewportProjection,
+    setEditorCameraPose: state.setEditorCameraPose,
+    focusCameraPreset: state.focusCameraPreset,
+    focusCameraDirection: state.focusCameraDirection,
+    clearCameraFocusRequest: state.clearCameraFocusRequest,
+  }
+}
+
+function selectEditorUiSlice(state: EditorDigitalTwinStore): EditorUiStoreSlice {
+  return {
+    placementCatalogId: state.placementCatalogId,
+    transformMode: state.transformMode,
+    snapEnabled: state.snapEnabled,
+    translateSnap: state.translateSnap,
+    rotateSnapDegrees: state.rotateSnapDegrees,
+    placementPreview: state.placementPreview,
+    isLoading: state.isLoading,
+    isSaving: state.isSaving,
+    isTransformDragging: state.isTransformDragging,
+    isMarqueeSelecting: state.isMarqueeSelecting,
+    selectionMarquee: state.selectionMarquee,
+    error: state.error,
+    setLoading: state.setLoading,
+    setSaving: state.setSaving,
+    setError: state.setError,
+    armStaticAssetPlacement: state.armStaticAssetPlacement,
+    setTransformMode: state.setTransformMode,
+    setSnapEnabled: state.setSnapEnabled,
+    setTranslateSnap: state.setTranslateSnap,
+    setRotateSnapDegrees: state.setRotateSnapDegrees,
+    setPlacementPreview: state.setPlacementPreview,
+    setTransformDragging: state.setTransformDragging,
+    setMarqueeSelecting: state.setMarqueeSelecting,
+    setSelectionMarquee: state.setSelectionMarquee,
+  }
+}
+
+export function useEditorSceneStore<T>(
+  selector: (state: EditorSceneStoreSlice) => T
+): T {
+  return useEditorDigitalTwinStore((state) => selector(selectEditorSceneSlice(state)))
+}
+
+export function useEditorViewerStore<T>(
+  selector: (state: EditorViewerStoreSlice) => T
+): T {
+  return useEditorDigitalTwinStore((state) => selector(selectEditorViewerSlice(state)))
+}
+
+export function useEditorUiStore<T>(selector: (state: EditorUiStoreSlice) => T): T {
+  return useEditorDigitalTwinStore((state) => selector(selectEditorUiSlice(state)))
+}
+
+export function getEditorSceneState(): EditorSceneStoreSlice {
+  return selectEditorSceneSlice(useEditorDigitalTwinStore.getState())
+}
+
+export function getEditorViewerState(): EditorViewerStoreSlice {
+  return selectEditorViewerSlice(useEditorDigitalTwinStore.getState())
+}
+
+export function getEditorUiState(): EditorUiStoreSlice {
+  return selectEditorUiSlice(useEditorDigitalTwinStore.getState())
+}

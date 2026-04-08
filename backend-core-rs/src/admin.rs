@@ -5,6 +5,8 @@ use axum::{
     Json,
 };
 use serde::Deserialize;
+use tokio::sync::watch;
+use uuid::Uuid;
 
 use crate::{
     admin_service,
@@ -23,34 +25,73 @@ use crate::{
 pub struct ApiError {
     status: StatusCode,
     message: String,
+    code: Option<&'static str>,
+    expected_scene_version: Option<u64>,
+    current_scene_version: Option<u64>,
+    recovery_action: Option<&'static str>,
 }
 
 impl ApiError {
+    fn simple(status: StatusCode, message: String) -> Self {
+        Self {
+            status,
+            message,
+            code: None,
+            expected_scene_version: None,
+            current_scene_version: None,
+            recovery_action: None,
+        }
+    }
+
     fn from_store(error: StoreError) -> Self {
         match error {
-            StoreError::Validation(message) => Self {
-                status: StatusCode::BAD_REQUEST,
-                message,
+            StoreError::Validation(message) => Self::simple(StatusCode::BAD_REQUEST, message),
+            StoreError::Conflict(message) => Self::simple(StatusCode::CONFLICT, message),
+            StoreError::SceneVersionConflict { expected, actual } => Self {
+                status: StatusCode::CONFLICT,
+                message: format!(
+                    "editor save is based on scene version {expected}, but the current version is {actual}; reload the editor and retry"
+                ),
+                code: Some("scene_version_conflict"),
+                expected_scene_version: Some(expected),
+                current_scene_version: Some(actual),
+                recovery_action: Some("reload"),
             },
-            StoreError::NotFound(message) => Self {
-                status: StatusCode::NOT_FOUND,
-                message,
-            },
-            other => Self {
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-                message: other.to_string(),
-            },
+            StoreError::NotFound(message) => Self::simple(StatusCode::NOT_FOUND, message),
+            other => Self::simple(StatusCode::INTERNAL_SERVER_ERROR, other.to_string()),
         }
     }
 }
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
+        let mut payload = serde_json::Map::new();
+        payload.insert("error".to_string(), serde_json::Value::String(self.message));
+        if let Some(code) = self.code {
+            payload.insert("code".to_string(), serde_json::Value::String(code.to_string()));
+        }
+        if let Some(expected_scene_version) = self.expected_scene_version {
+            payload.insert(
+                "expectedSceneVersion".to_string(),
+                serde_json::Value::Number(expected_scene_version.into()),
+            );
+        }
+        if let Some(current_scene_version) = self.current_scene_version {
+            payload.insert(
+                "currentSceneVersion".to_string(),
+                serde_json::Value::Number(current_scene_version.into()),
+            );
+        }
+        if let Some(recovery_action) = self.recovery_action {
+            payload.insert(
+                "recoveryAction".to_string(),
+                serde_json::Value::String(recovery_action.to_string()),
+            );
+        }
+
         (
             self.status,
-            Json(serde_json::json!({
-                "error": self.message,
-            })),
+            Json(serde_json::Value::Object(payload)),
         )
             .into_response()
     }
@@ -116,6 +157,10 @@ pub async fn post_publish(State(state): State<AppState>) -> ApiResult<PublishSta
     let lease = state.publish.try_acquire().ok_or(ApiError {
         status: StatusCode::CONFLICT,
         message: "publish already in progress".to_string(),
+        code: None,
+        expected_scene_version: None,
+        current_scene_version: None,
+        recovery_action: None,
     })?;
     let snapshot = state
         .store
@@ -123,9 +168,60 @@ pub async fn post_publish(State(state): State<AppState>) -> ApiResult<PublishSta
         .await
         .map_err(ApiError::from_store)?;
 
-    match publish_service::publish_working_snapshot(&state.store, &snapshot, &state.publish_config)
+    let publish_token = Uuid::new_v4().to_string();
+    let lock_acquired = state
+        .store
+        .try_begin_publish(
+            &publish_token,
+            now_millis(),
+            publish_service::publish_lock_stale_after_ms(),
+        )
         .await
-    {
+        .map_err(ApiError::from_store)?;
+    if !lock_acquired {
+        drop(lease);
+        return Err(ApiError {
+            status: StatusCode::CONFLICT,
+            message: "publish already in progress".to_string(),
+            code: None,
+            expected_scene_version: None,
+            current_scene_version: None,
+            recovery_action: None,
+        });
+    }
+
+    let (heartbeat_stop_tx, mut heartbeat_stop_rx) = watch::channel(false);
+    let heartbeat_store = state.store.clone();
+    let heartbeat_token = publish_token.clone();
+    let heartbeat_task = tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(std::time::Duration::from_millis(
+            publish_service::PUBLISH_HEARTBEAT_INTERVAL_MS,
+        ));
+        loop {
+            tokio::select! {
+                _ = heartbeat_stop_rx.changed() => {
+                    break;
+                }
+                _ = ticker.tick() => {
+                    let refreshed = heartbeat_store
+                        .refresh_publish_heartbeat(&heartbeat_token, now_millis())
+                        .await
+                        .unwrap_or(false);
+                    if !refreshed {
+                        break;
+                    }
+                }
+            }
+        }
+    });
+
+    let publish_result =
+        publish_service::publish_working_snapshot(&state.store, &snapshot, &state.publish_config)
+            .await;
+    let _ = heartbeat_stop_tx.send(true);
+    let _ = heartbeat_task.await;
+
+    match publish_result {
         Ok(published) => {
             let published_scene = published.published_scene.clone();
             let scene_version = published.published_scene_version;
@@ -146,9 +242,22 @@ pub async fn post_publish(State(state): State<AppState>) -> ApiResult<PublishSta
             Err(ApiError {
                 status: StatusCode::INTERNAL_SERVER_ERROR,
                 message: error.to_string(),
+                code: None,
+                expected_scene_version: None,
+                current_scene_version: None,
+                recovery_action: None,
             })
         }
     }
+}
+
+fn now_millis() -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or_default()
 }
 
 pub async fn put_scene(
@@ -203,10 +312,7 @@ pub async fn get_entity(
         .get_entity(&id)
         .await
         .map_err(ApiError::from_store)?
-        .ok_or_else(|| ApiError {
-            status: StatusCode::NOT_FOUND,
-            message: format!("entity {id} not found"),
-        })?;
+        .ok_or_else(|| ApiError::simple(StatusCode::NOT_FOUND, format!("entity {id} not found")))?;
 
     Ok(Json(entity))
 }
@@ -259,10 +365,10 @@ pub async fn delete_entity(
         .map_err(ApiError::from_store)?;
 
     if !deleted {
-        return Err(ApiError {
-            status: StatusCode::NOT_FOUND,
-            message: format!("entity {id} not found"),
-        });
+        return Err(ApiError::simple(
+            StatusCode::NOT_FOUND,
+            format!("entity {id} not found"),
+        ));
     }
 
     let scene_version = state
@@ -294,9 +400,8 @@ pub async fn get_static_asset(
         .get_static_asset(&id)
         .await
         .map_err(ApiError::from_store)?
-        .ok_or_else(|| ApiError {
-            status: StatusCode::NOT_FOUND,
-            message: format!("static asset {id} not found"),
+        .ok_or_else(|| {
+            ApiError::simple(StatusCode::NOT_FOUND, format!("static asset {id} not found"))
         })?;
 
     Ok(Json(static_asset))
@@ -350,10 +455,10 @@ pub async fn delete_static_asset(
         .map_err(ApiError::from_store)?;
 
     if !deleted {
-        return Err(ApiError {
-            status: StatusCode::NOT_FOUND,
-            message: format!("static asset {id} not found"),
-        });
+        return Err(ApiError::simple(
+            StatusCode::NOT_FOUND,
+            format!("static asset {id} not found"),
+        ));
     }
 
     let scene_version = state
@@ -436,10 +541,10 @@ pub async fn delete_data_source(
         .map_err(ApiError::from_store)?;
 
     if !deleted {
-        return Err(ApiError {
-            status: StatusCode::NOT_FOUND,
-            message: format!("data source {id} not found"),
-        });
+        return Err(ApiError::simple(
+            StatusCode::NOT_FOUND,
+            format!("data source {id} not found"),
+        ));
     }
 
     let scene_version = state
@@ -522,10 +627,7 @@ pub async fn get_rule(
         .get_rule(&id)
         .await
         .map_err(ApiError::from_store)?
-        .ok_or_else(|| ApiError {
-            status: StatusCode::NOT_FOUND,
-            message: format!("rule {id} not found"),
-        })?;
+        .ok_or_else(|| ApiError::simple(StatusCode::NOT_FOUND, format!("rule {id} not found")))?;
 
     Ok(Json(rule))
 }
@@ -562,10 +664,10 @@ pub async fn delete_rule(
         .map_err(ApiError::from_store)?;
 
     if !deleted {
-        return Err(ApiError {
-            status: StatusCode::NOT_FOUND,
-            message: format!("rule {id} not found"),
-        });
+        return Err(ApiError::simple(
+            StatusCode::NOT_FOUND,
+            format!("rule {id} not found"),
+        ));
     }
 
     let scene_version = state
@@ -591,9 +693,8 @@ pub async fn validate_rule(
             .get_rule(&id)
             .await
             .map_err(ApiError::from_store)?
-            .ok_or_else(|| ApiError {
-                status: StatusCode::NOT_FOUND,
-                message: format!("rule {id} not found"),
+            .ok_or_else(|| {
+                ApiError::simple(StatusCode::NOT_FOUND, format!("rule {id} not found"))
             })?
     };
 

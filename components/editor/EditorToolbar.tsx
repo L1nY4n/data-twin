@@ -24,7 +24,9 @@ import { cn } from '@/lib/utils'
 import type { PublishStatus } from '@/lib/digital-twin/admin'
 import {
   getEditorSelectionKind,
-  useEditorDigitalTwinStore,
+  useEditorSceneStore,
+  useEditorUiStore,
+  useEditorViewerStore,
 } from '@/lib/digital-twin/editor-store'
 import {
   getStaticAssetCatalogItem,
@@ -53,22 +55,20 @@ export function EditorToolbar({
   activityStatus,
   className,
 }: EditorToolbarProps) {
-  const selectedEntityId = useEditorDigitalTwinStore((state) => state.selectedEntityId)
-  const selectedStaticAssetId = useEditorDigitalTwinStore(
-    (state) => state.selectedStaticAssetId
-  )
-  const placementCatalogId = useEditorDigitalTwinStore((state) => state.placementCatalogId)
-  const draftEntity = useEditorDigitalTwinStore((state) => state.draftEntity)
-  const draftStaticAsset = useEditorDigitalTwinStore((state) => state.draftStaticAsset)
-  const transformMode = useEditorDigitalTwinStore((state) => state.transformMode)
-  const historyLength = useEditorDigitalTwinStore((state) => state.history.length)
-  const redoLength = useEditorDigitalTwinStore((state) => state.redoHistory.length)
-  const hasSceneChanges = useEditorDigitalTwinStore((state) => state.hasSceneChanges)
-  const isDirty = useEditorDigitalTwinStore((state) => state.isDirty)
-  const isSaving = useEditorDigitalTwinStore((state) => state.isSaving)
-  const setTransformMode = useEditorDigitalTwinStore((state) => state.setTransformMode)
-  const undo = useEditorDigitalTwinStore((state) => state.undo)
-  const redo = useEditorDigitalTwinStore((state) => state.redo)
+  const selectedEntityId = useEditorViewerStore((state) => state.selectedEntityId)
+  const selectedStaticAssetId = useEditorViewerStore((state) => state.selectedStaticAssetId)
+  const placementCatalogId = useEditorUiStore((state) => state.placementCatalogId)
+  const draftEntity = useEditorSceneStore((state) => state.draftEntity)
+  const draftStaticAsset = useEditorSceneStore((state) => state.draftStaticAsset)
+  const transformMode = useEditorUiStore((state) => state.transformMode)
+  const historyLength = useEditorSceneStore((state) => state.history.length)
+  const redoLength = useEditorSceneStore((state) => state.redoHistory.length)
+  const hasSceneChanges = useEditorSceneStore((state) => state.hasSceneChanges)
+  const isDirty = useEditorSceneStore((state) => state.isDirty)
+  const isSaving = useEditorUiStore((state) => state.isSaving)
+  const setTransformMode = useEditorUiStore((state) => state.setTransformMode)
+  const undo = useEditorSceneStore((state) => state.undo)
+  const redo = useEditorSceneStore((state) => state.redo)
   const selectionKind = getEditorSelectionKind({
     selectedEntityId,
     selectedStaticAssetId,
@@ -98,6 +98,31 @@ export function EditorToolbar({
   const publishMeta =
     publishStatus?.status === 'failed'
       ? publishStatus.lastError ?? '发布失败，请重试'
+      : publishStatus?.status === 'publishing'
+        ? [
+            publishStatus.activePublishStartedAt
+              ? `开始 ${new Date(publishStatus.activePublishStartedAt).toLocaleTimeString(
+                  'zh-CN',
+                  {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                  }
+                )}`
+              : null,
+            publishStatus.activePublishHeartbeatAt
+              ? `心跳 ${new Date(publishStatus.activePublishHeartbeatAt).toLocaleTimeString(
+                  'zh-CN',
+                  {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                  }
+                )}`
+              : null,
+          ]
+            .filter(Boolean)
+            .join(' · ') || '正在发布并持续同步进度'
       : publishStatus?.lastPublishedAt
         ? `v${publishStatus.lastPublishedVersion ?? '--'} · ${new Date(
             publishStatus.lastPublishedAt

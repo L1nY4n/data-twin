@@ -129,6 +129,45 @@ export interface Alarm {
   acknowledged: boolean
 }
 
+export type IncidentSeverity = Alarm['level']
+
+export type IncidentKind = 'near_miss' | 'zone_intrusion' | 'overspeed'
+
+export interface IncidentCitation {
+  id: string
+  label: string
+  value: string
+}
+
+export interface IncidentVideoFeed {
+  id: string
+  cameraName: string
+  title: string
+  status: 'live' | 'buffering' | 'review'
+  sceneLabel: string
+  badge: string
+  streamUrl?: string
+  posterTone?: string
+}
+
+export interface RuntimeIncident {
+  id: string
+  kind: IncidentKind
+  severity: IncidentSeverity
+  title: string
+  summary: string
+  message: string
+  primaryEntityId: string
+  entityIds: string[]
+  zoneId?: string
+  zoneName?: string
+  cameraName?: string
+  citations: IncidentCitation[]
+  videoFeed?: IncidentVideoFeed | null
+  acknowledged: boolean
+  timestamp: number
+}
+
 // 访问规则
 export interface AccessRule {
   id: string
@@ -168,6 +207,8 @@ export interface SceneConfig {
 
 // 视角模式
 export type ViewMode = 'orbit' | 'topdown' | 'follow' | 'firstperson'
+
+export type RuntimeDataSource = 'live' | 'mock'
 
 // 相机预设
 export interface CameraPreset {
@@ -287,6 +328,7 @@ export type WSMessageType =
   | 'position_update'
   | 'status_update'
   | 'alarm'
+  | 'incident'
   | 'config_changed'
   | 'entity_enter_zone'
   | 'entity_leave_zone'
@@ -321,6 +363,10 @@ export interface StatusUpdateMessage {
   entityId: string
   status: EntityStatus
   parameters?: Record<string, unknown>
+}
+
+export interface IncidentMessage {
+  incident: RuntimeIncident
 }
 
 export interface ConfigChangedMessage {

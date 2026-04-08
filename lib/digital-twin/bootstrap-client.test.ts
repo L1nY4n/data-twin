@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   AdminApiError,
   fetchAdminPublishStatus,
+  getAdminApiSceneVersionConflict,
   isAdminApiError,
   saveAdminEditorDrafts,
 } from './bootstrap-client'
@@ -86,6 +87,7 @@ describe('bootstrap client', () => {
       }) as typeof fetch
 
       await saveAdminEditorDrafts({
+        expectedSceneVersion: 3,
         sceneConfig: {
           id: 'scene-1',
           name: 'Editor scene',
@@ -122,12 +124,60 @@ describe('bootstrap client', () => {
       expect(requestUrl).toContain('/api/v1/admin/editor-save')
       expect(requestMethod).toBe('POST')
       expect(JSON.parse(requestBody)).toMatchObject({
+        expectedSceneVersion: 3,
         entity: {
           mode: 'update',
           entity: {
             id: 'entity-1',
           },
         },
+      })
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  test('surfaces structured scene-version conflict metadata from admin errors', async () => {
+    try {
+      globalThis.fetch = (async () =>
+        new Response(
+          JSON.stringify({
+            error:
+              'editor save is based on scene version 3, but the current version is 4; reload the editor and retry',
+            code: 'scene_version_conflict',
+            expectedSceneVersion: 3,
+            currentSceneVersion: 4,
+            recoveryAction: 'reload',
+          }),
+          {
+            status: 409,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        )) as typeof fetch
+
+      await saveAdminEditorDrafts({
+        expectedSceneVersion: 3,
+        sceneConfig: {
+          id: 'scene-1',
+          name: 'Editor scene',
+          gridSize: 80,
+          gridDivisions: 40,
+          backgroundColor: '#10151d',
+          ambientLightIntensity: 0.5,
+          showAxes: false,
+          showGrid: true,
+          cameraPosition: { x: 1, y: 2, z: 3 },
+          cameraTarget: { x: 0, y: 0, z: 0 },
+        },
+      })
+      throw new Error('expected saveAdminEditorDrafts to fail')
+    } catch (error) {
+      expect(isAdminApiError(error)).toBe(true)
+      expect((error as AdminApiError).status).toBe(409)
+      expect(getAdminApiSceneVersionConflict(error as AdminApiError)).toEqual({
+        expectedSceneVersion: 3,
+        currentSceneVersion: 4,
+        recoveryAction: 'reload',
       })
     } finally {
       globalThis.fetch = originalFetch

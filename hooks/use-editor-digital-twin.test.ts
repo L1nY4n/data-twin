@@ -1,12 +1,19 @@
 import { describe, expect, test } from 'bun:test'
+import { AdminApiError } from '@/lib/digital-twin/bootstrap-client'
 import type { Entity, SceneConfig, StaticAssetInstance } from '@/lib/digital-twin/types'
 import {
+  canEditorPublish,
   createEditorSceneSavePayload,
   createEditorSaveRequest,
+  describeEditorOperationError,
+  resolveEditorPublishResult,
+  resolveEditorSaveFailureStatus,
+  resolveEditorSaveSelectionResult,
   restoreSelectionAfterReload,
   StandardRoomCreationError,
   executeStandardRoomCreation,
 } from './use-editor-digital-twin'
+import type { PublishStatus } from '@/lib/digital-twin/admin'
 
 function createSavedAsset(
   asset: StaticAssetInstance,
@@ -57,6 +64,20 @@ function createEntityDraft(overrides: Partial<Entity> = {}): Entity {
   } as Entity
 }
 
+function createPublishStatus(overrides: Partial<PublishStatus> = {}): PublishStatus {
+  return {
+    status: 'published',
+    currentSceneVersion: 1,
+    publishedSceneVersion: 1,
+    lastPublishedAt: null,
+    lastPublishedVersion: null,
+    lastError: null,
+    hasUnpublishedChanges: false,
+    compilerSource: 'test',
+    ...overrides,
+  }
+}
+
 describe('useEditorDigitalTwin standard room workflow', () => {
   test('creates a scene save payload that keeps persisted camera fields', () => {
     const savedSceneConfig = createSceneConfig()
@@ -79,6 +100,7 @@ describe('useEditorDigitalTwin standard room workflow', () => {
   test('returns null when there are no scene or selection changes to save', () => {
     expect(
       createEditorSaveRequest({
+        sceneVersion: 7,
         sceneConfig: createSceneConfig(),
         savedSceneConfig: createSceneConfig(),
         hasSceneChanges: false,
@@ -104,6 +126,7 @@ describe('useEditorDigitalTwin standard room workflow', () => {
     const draftEntity = createEntityDraft()
 
     const request = createEditorSaveRequest({
+      sceneVersion: 7,
       sceneConfig: nextSceneConfig,
       savedSceneConfig,
       hasSceneChanges: true,
@@ -117,6 +140,7 @@ describe('useEditorDigitalTwin standard room workflow', () => {
     })
 
     expect(request).not.toBeNull()
+    expect(request?.expectedSceneVersion).toBe(7)
     expect(request?.sceneConfig).toEqual({
       ...nextSceneConfig,
       cameraPosition: savedSceneConfig.cameraPosition,
@@ -124,6 +148,196 @@ describe('useEditorDigitalTwin standard room workflow', () => {
     })
     expect(request?.entity?.mode).toBe('update')
     expect(request?.entity?.entity.id).toBe('entity-1')
+  })
+
+  test('reports saved_with_reload_warning when persistence succeeds but reload fails', () => {
+    expect(
+      resolveEditorSaveSelectionResult({
+        reloadSucceeded: false,
+        selectionRestored: false,
+        savedEntityId: 'entity-1',
+      })
+    ).toEqual({
+      status: 'saved_with_reload_warning',
+      persisted: true,
+      synced: false,
+      requiresReload: true,
+      reloadSucceeded: false,
+      selectionRestored: false,
+    })
+  })
+
+  test('reports saved_with_selection_warning when reload succeeds but selection restoration fails', () => {
+    expect(
+      resolveEditorSaveSelectionResult({
+        reloadSucceeded: true,
+        selectionRestored: false,
+        savedStaticAssetId: 'asset-42',
+      })
+    ).toEqual({
+      status: 'saved_with_selection_warning',
+      persisted: true,
+      synced: false,
+      requiresReload: true,
+      reloadSucceeded: true,
+      selectionRestored: false,
+    })
+  })
+
+  test('reports saved when persistence and reload complete cleanly', () => {
+    expect(
+      resolveEditorSaveSelectionResult({
+        reloadSucceeded: true,
+        selectionRestored: true,
+        savedEntityId: 'entity-1',
+      })
+    ).toEqual({
+      status: 'saved',
+      persisted: true,
+      synced: true,
+      requiresReload: false,
+      reloadSucceeded: true,
+      selectionRestored: true,
+    })
+  })
+
+  test('reports publish_in_progress when a recovered publish is still running', () => {
+    expect(
+      resolveEditorPublishResult({
+        publishStatus: createPublishStatus({ status: 'publishing' }),
+        recovered: true,
+      })
+    ).toEqual({
+      status: 'publish_in_progress',
+      completed: false,
+      inProgress: true,
+      recovered: true,
+    })
+  })
+
+  test('reports published when publish recovery sync finds a completed publish', () => {
+    expect(
+      resolveEditorPublishResult({
+        publishStatus: createPublishStatus({
+          status: 'published',
+          lastPublishedVersion: '42',
+        }),
+        recovered: true,
+      })
+    ).toEqual({
+      status: 'published',
+      completed: true,
+      inProgress: false,
+      recovered: true,
+    })
+  })
+
+  test('reports published when a direct publish call completes', () => {
+    expect(
+      resolveEditorPublishResult({
+        publishStatus: createPublishStatus({
+          status: 'published',
+          lastPublishedVersion: '42',
+        }),
+        recovered: false,
+      })
+    ).toEqual({
+      status: 'published',
+      completed: true,
+      inProgress: false,
+      recovered: false,
+    })
+  })
+
+  test('disables publish while a recovered publish is still running remotely', () => {
+    expect(
+      canEditorPublish({
+        publishStatus: createPublishStatus({
+          status: 'publishing',
+          hasUnpublishedChanges: true,
+        }),
+        isDirty: false,
+        isSaving: false,
+        isPublishing: false,
+      })
+    ).toBe(false)
+  })
+
+  test('allows publish only when unpublished changes are ready and no publish is active', () => {
+    expect(
+      canEditorPublish({
+        publishStatus: createPublishStatus({
+          status: 'saved-unpublished',
+          hasUnpublishedChanges: true,
+        }),
+        isDirty: false,
+        isSaving: false,
+        isPublishing: false,
+      })
+    ).toBe(true)
+
+    expect(
+      canEditorPublish({
+        publishStatus: createPublishStatus({
+          status: 'saved-unpublished',
+          hasUnpublishedChanges: true,
+        }),
+        isDirty: false,
+        isSaving: false,
+        isPublishing: true,
+      })
+    ).toBe(false)
+  })
+
+  test('preserves backend conflict messaging for editor save concurrency errors', () => {
+    expect(
+      describeEditorOperationError(
+        new AdminApiError('Request failed 409: reload the editor and retry', {
+          status: 409,
+          payload: '{"error":"reload the editor and retry"}',
+        }),
+        '保存编辑内容失败'
+      )
+    ).toBe('Request failed 409: reload the editor and retry')
+  })
+
+  test('maps editor save concurrency conflicts to a reload-first recovery status', () => {
+    expect(
+      resolveEditorSaveFailureStatus(
+        new AdminApiError(
+          'Request failed 409: editor save is based on scene version 3, but the current version is 4; reload the editor and retry',
+          {
+            status: 409,
+            payload:
+              '{"error":"editor save is based on scene version 3, but the current version is 4; reload the editor and retry","code":"scene_version_conflict","expectedSceneVersion":3,"currentSceneVersion":4,"recoveryAction":"reload"}',
+          }
+        )
+      )
+    ).toEqual({
+      phase: 'error',
+      tone: 'warning',
+      title: '检测到编辑版本冲突',
+      detail: '当前编辑基于场景版本 3，但服务端最新版本已是 4。请先重新同步，再重试保存。',
+      isBusy: false,
+      canRetry: true,
+      retryLabel: '重新同步',
+      retryAction: 'reload',
+    })
+  })
+
+  test('keeps generic save failures on the retry-save path', () => {
+    expect(
+      resolveEditorSaveFailureStatus(new Error('network request failed'))
+    ).toEqual({
+      phase: 'error',
+      tone: 'danger',
+      title: '保存失败',
+      detail: 'network request failed',
+      isBusy: false,
+      canRetry: true,
+      retryLabel: '重试保存',
+      retryAction: 'save',
+    })
   })
 
   test('builds a transactional scene and static-asset save request without persisting editor-only camera pose', () => {
@@ -153,6 +367,7 @@ describe('useEditorDigitalTwin standard room workflow', () => {
     }
 
     const request = createEditorSaveRequest({
+      sceneVersion: 7,
       sceneConfig: nextSceneConfig,
       savedSceneConfig,
       hasSceneChanges: true,
@@ -166,6 +381,7 @@ describe('useEditorDigitalTwin standard room workflow', () => {
     })
 
     expect(request).not.toBeNull()
+    expect(request?.expectedSceneVersion).toBe(7)
     expect(request?.sceneConfig).toEqual({
       ...nextSceneConfig,
       cameraPosition: savedSceneConfig.cameraPosition,
@@ -200,6 +416,7 @@ describe('useEditorDigitalTwin standard room workflow', () => {
     }
 
     const request = createEditorSaveRequest({
+      sceneVersion: 7,
       sceneConfig: nextSceneConfig,
       savedSceneConfig,
       hasSceneChanges: true,
@@ -213,6 +430,7 @@ describe('useEditorDigitalTwin standard room workflow', () => {
     })
 
     expect(request).not.toBeNull()
+    expect(request?.expectedSceneVersion).toBe(7)
     expect(request?.sceneConfig).toEqual({
       ...nextSceneConfig,
       cameraPosition: savedSceneConfig.cameraPosition,
@@ -243,6 +461,7 @@ describe('useEditorDigitalTwin standard room workflow', () => {
     }
 
     const request = createEditorSaveRequest({
+      sceneVersion: 7,
       sceneConfig: createSceneConfig(),
       savedSceneConfig: createSceneConfig(),
       hasSceneChanges: false,
@@ -277,6 +496,7 @@ describe('useEditorDigitalTwin standard room workflow', () => {
     }
 
     const request = createEditorSaveRequest({
+      sceneVersion: 7,
       sceneConfig: createSceneConfig(),
       savedSceneConfig: createSceneConfig(),
       hasSceneChanges: false,

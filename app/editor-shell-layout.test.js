@@ -130,7 +130,10 @@ describe('editor shell layout and control affordances', () => {
     expect(inspectorSource.includes("label=\"Show Grid\"")).toBe(false)
     expect(inspectorSource.includes("label=\"Show Axes\"")).toBe(false)
     expect(inspectorSource.includes("label=\"Transform Snap\"")).toBe(false)
-    expect(shellSource.includes('title="Retry sync editor workspace"')).toBe(true)
+    expect(shellSource.includes('const canRetryCurrentOperation = Boolean(activityStatus.canRetry && activityStatus.retryAction)')).toBe(true)
+    expect(shellSource.includes('void retryActivity()')).toBe(true)
+    expect(shellSource.includes("title={activityStatus.retryLabel ?? '重试当前操作'}")).toBe(true)
+    expect(shellSource.includes("aria-label={activityStatus.retryLabel ?? '重试当前操作'}")).toBe(true)
     expect(shellSource.includes('activityStatus={activityStatus}')).toBe(true)
     expect(shellSource.includes('pointer-events-auto w-full max-w-[22rem] self-end')).toBe(true)
     expect(

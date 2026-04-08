@@ -8,14 +8,15 @@ import { SensorMarker } from '@/components/digital-twin/entities/SensorMarker'
 import { VehicleMarker } from '@/components/digital-twin/entities/VehicleMarker'
 import {
   isEditorEntityEditable,
-  useEditorDigitalTwinStore,
+  useEditorSceneStore,
+  useEditorViewerStore,
 } from '@/lib/digital-twin/editor-store'
 
 export function EditorEntityLayer() {
-  const entities = useEditorDigitalTwinStore((state) => state.entities)
-  const draftEntity = useEditorDigitalTwinStore((state) => state.draftEntity)
-  const selectedEntityId = useEditorDigitalTwinStore((state) => state.selectedEntityId)
-  const hoveredEntityId = useEditorDigitalTwinStore((state) => state.hoveredEntityId)
+  const entities = useEditorSceneStore((state) => state.entities)
+  const draftEntity = useEditorSceneStore((state) => state.draftEntity)
+  const selectedEntityId = useEditorViewerStore((state) => state.selectedEntityId)
+  const hoveredEntityId = useEditorViewerStore((state) => state.hoveredEntityId)
 
   const editableEntities = useMemo(() => {
     return [...entities.values()]
