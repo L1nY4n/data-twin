@@ -37,6 +37,17 @@ import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Progress } from '@/components/ui/progress'
+import {
+  ViewerAdminEmptyCard,
+  ViewerAdminInfoList,
+  ViewerAdminInfoRow,
+  ViewerAdminPanelHeader,
+  ViewerAdminSection,
+  ViewerAdminSidePanelBody,
+  ViewerAdminSoftCard,
+  ViewerAdminStatCell,
+  ViewerAdminStatGrid,
+} from '@/components/viewer-admin/primitives'
 import { cn } from '@/lib/utils'
 
 const STATUS_CONFIG = {
@@ -101,11 +112,11 @@ export function EntityDetailPanel() {
 
   if (!entity && !staticFeature) {
     return (
-      <div className="flex h-full flex-col items-center justify-center p-4 text-center">
+      <ViewerAdminSidePanelBody className="items-center justify-center p-4 text-center">
         <Map className="mb-3 h-12 w-12 text-muted-foreground/30" />
         <p className="text-sm text-muted-foreground">选择一个对象查看详情</p>
         <p className="mt-1 text-xs text-muted-foreground/70">在3D场景或左侧列表中点击选择</p>
-      </div>
+      </ViewerAdminSidePanelBody>
     )
   }
 
@@ -118,30 +129,22 @@ export function EntityDetailPanel() {
   const statusConfig = STATUS_CONFIG[entity.status]
 
   return (
-    <div className="flex h-full flex-col">
-      {/* 标题栏 */}
-      <div className="flex items-center justify-between border-b p-3">
-        <div className="flex items-center gap-2">
-          <EntityTypeIcon type={entity.type} />
-          <div>
-            <h3 className="text-sm font-medium">{entity.name}</h3>
-            <p className="text-xs text-muted-foreground">ID: {entity.id.slice(-8)}</p>
-          </div>
-        </div>
-        <Button 
-          variant="ghost" 
-          size="icon" 
-          className="h-7 w-7"
-          onClick={handleClose}
-        >
-          <X className="h-4 w-4" />
-        </Button>
-      </div>
+    <ViewerAdminSidePanelBody>
+      <ViewerAdminPanelHeader
+        title={entity.name}
+        description={`ID: ${entity.id.slice(-8)}`}
+        leading={<EntityTypeIcon type={entity.type} />}
+        trailing={
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleClose}>
+            <X className="h-4 w-4" />
+          </Button>
+        }
+      />
 
       <ScrollArea className="flex-1">
         <div className="space-y-4 p-3">
           {/* 状态 */}
-          <div className={cn("rounded-lg p-3", statusConfig.bg)}>
+          <ViewerAdminSoftCard className={cn('rounded-2xl p-3', statusConfig.bg)}>
             <div className="flex items-center justify-between">
               <span className="text-sm">状态</span>
               <Badge 
@@ -151,42 +154,25 @@ export function EntityDetailPanel() {
                 {statusConfig.label}
               </Badge>
             </div>
-          </div>
+          </ViewerAdminSoftCard>
 
           {/* 位置信息 */}
-          <div>
-            <h4 className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-              <MapPin className="h-3.5 w-3.5" />
-              位置信息
-            </h4>
-            <div className="grid grid-cols-3 gap-2 rounded-lg border p-2.5">
-              <div className="text-center">
-                <span className="text-xs text-muted-foreground">X</span>
-                <p className="text-sm font-medium">{entity.position.x.toFixed(1)}m</p>
-              </div>
-              <div className="text-center">
-                <span className="text-xs text-muted-foreground">Y</span>
-                <p className="text-sm font-medium">{entity.position.y.toFixed(1)}m</p>
-              </div>
-              <div className="text-center">
-                <span className="text-xs text-muted-foreground">Z</span>
-                <p className="text-sm font-medium">{entity.position.z.toFixed(1)}m</p>
-              </div>
-            </div>
-          </div>
+          <ViewerAdminSection icon={MapPin} title="位置信息">
+            <ViewerAdminStatGrid>
+              <ViewerAdminStatCell label="X" value={`${entity.position.x.toFixed(1)}m`} />
+              <ViewerAdminStatCell label="Y" value={`${entity.position.y.toFixed(1)}m`} />
+              <ViewerAdminStatCell label="Z" value={`${entity.position.z.toFixed(1)}m`} />
+            </ViewerAdminStatGrid>
+          </ViewerAdminSection>
 
           {/* 朝向信息 */}
-          <div>
-            <h4 className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-              <RotateCw className="h-3.5 w-3.5" />
-              朝向
-            </h4>
-            <div className="rounded-lg border p-2.5">
+          <ViewerAdminSection icon={RotateCw} title="朝向">
+            <ViewerAdminSoftCard className="p-2.5">
               <p className="text-sm">
                 {formatAngle((entity.rotation.y * 180) / Math.PI)}
               </p>
-            </div>
-          </div>
+            </ViewerAdminSoftCard>
+          </ViewerAdminSection>
 
           <Separator />
 
@@ -209,25 +195,21 @@ export function EntityDetailPanel() {
           <Separator />
 
           {/* 时间信息 */}
-          <div>
-            <h4 className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-              <Clock className="h-3.5 w-3.5" />
-              时间信息
-            </h4>
-            <div className="space-y-1 rounded-lg border p-2.5 text-xs">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">创建时间</span>
-                <span>{new Date(entity.createdAt).toLocaleString('zh-CN')}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">更新时间</span>
-                <span>{new Date(entity.updatedAt).toLocaleString('zh-CN')}</span>
-              </div>
-            </div>
-          </div>
+          <ViewerAdminSection icon={Clock} title="时间信息">
+            <ViewerAdminInfoList className="space-y-1 text-xs">
+              <ViewerAdminInfoRow
+                label="创建时间"
+                value={new Date(entity.createdAt).toLocaleString('zh-CN')}
+              />
+              <ViewerAdminInfoRow
+                label="更新时间"
+                value={new Date(entity.updatedAt).toLocaleString('zh-CN')}
+              />
+            </ViewerAdminInfoList>
+          </ViewerAdminSection>
         </div>
       </ScrollArea>
-    </div>
+    </ViewerAdminSidePanelBody>
   )
 }
 
@@ -242,123 +224,66 @@ function StaticFeatureDetailPanel({
   const kindLabel = STATIC_FEATURE_KIND_LABELS[feature.kind] ?? feature.kind
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b p-3">
-        <div className="flex items-center gap-2">
-          <Box className="h-5 w-5 text-sky-500" />
-          <div>
-            <h3 className="text-sm font-medium">{feature.label}</h3>
-            <p className="text-xs text-muted-foreground">ID: {feature.id.slice(-8)}</p>
-          </div>
-        </div>
-        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onClose}>
-          <X className="h-4 w-4" />
-        </Button>
-      </div>
+    <ViewerAdminSidePanelBody>
+      <ViewerAdminPanelHeader
+        title={feature.label}
+        description={`ID: ${feature.id.slice(-8)}`}
+        leading={<Box className="h-5 w-5 text-sky-500" />}
+        trailing={
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onClose}>
+            <X className="h-4 w-4" />
+          </Button>
+        }
+      />
 
       <ScrollArea className="flex-1">
         <div className="space-y-4 p-3">
-          <div className="rounded-lg border p-3">
+          <ViewerAdminSoftCard className="p-3">
             <div className="flex items-center justify-between">
               <span className="text-sm">类型</span>
               <Badge variant="outline">{kindLabel}</Badge>
             </div>
-          </div>
+          </ViewerAdminSoftCard>
 
-          <div>
-            <h4 className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-              <Map className="h-3.5 w-3.5" />
-              归属信息
-            </h4>
-            <div className="space-y-2 rounded-lg border p-2.5 text-sm">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Sector</span>
-                <span>{sector?.name ?? '全局静态层'}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">District</span>
-                <span>{feature.districtId}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Chunk</span>
-                <span>{chunk.label}</span>
-              </div>
+          <ViewerAdminSection icon={Map} title="归属信息">
+            <ViewerAdminInfoList>
+              <ViewerAdminInfoRow label="Sector" value={sector?.name ?? '全局静态层'} />
+              <ViewerAdminInfoRow label="District" value={feature.districtId} />
+              <ViewerAdminInfoRow label="Chunk" value={chunk.label} />
               {feature.variant ? (
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Variant</span>
-                  <span>{feature.variant}</span>
-                </div>
+                <ViewerAdminInfoRow label="Variant" value={feature.variant} />
               ) : null}
-            </div>
-          </div>
+            </ViewerAdminInfoList>
+          </ViewerAdminSection>
 
-          <div>
-            <h4 className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-              <MapPin className="h-3.5 w-3.5" />
-              空间位置
-            </h4>
-            <div className="grid grid-cols-3 gap-2 rounded-lg border p-2.5">
-              <div className="text-center">
-                <span className="text-xs text-muted-foreground">X</span>
-                <p className="text-sm font-medium">{feature.center.x.toFixed(1)}m</p>
-              </div>
-              <div className="text-center">
-                <span className="text-xs text-muted-foreground">Y</span>
-                <p className="text-sm font-medium">{feature.center.y.toFixed(1)}m</p>
-              </div>
-              <div className="text-center">
-                <span className="text-xs text-muted-foreground">Z</span>
-                <p className="text-sm font-medium">{feature.center.z.toFixed(1)}m</p>
-              </div>
-            </div>
-          </div>
+          <ViewerAdminSection icon={MapPin} title="空间位置">
+            <ViewerAdminStatGrid>
+              <ViewerAdminStatCell label="X" value={`${feature.center.x.toFixed(1)}m`} />
+              <ViewerAdminStatCell label="Y" value={`${feature.center.y.toFixed(1)}m`} />
+              <ViewerAdminStatCell label="Z" value={`${feature.center.z.toFixed(1)}m`} />
+            </ViewerAdminStatGrid>
+          </ViewerAdminSection>
 
-          <div>
-            <h4 className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-              <Box className="h-3.5 w-3.5" />
-              尺寸
-            </h4>
-            <div className="grid grid-cols-3 gap-2 rounded-lg border p-2.5">
-              <div className="text-center">
-                <span className="text-xs text-muted-foreground">宽</span>
-                <p className="text-sm font-medium">{feature.width.toFixed(1)}m</p>
-              </div>
-              <div className="text-center">
-                <span className="text-xs text-muted-foreground">高</span>
-                <p className="text-sm font-medium">{feature.height.toFixed(1)}m</p>
-              </div>
-              <div className="text-center">
-                <span className="text-xs text-muted-foreground">深</span>
-                <p className="text-sm font-medium">{feature.depth.toFixed(1)}m</p>
-              </div>
-            </div>
-          </div>
+          <ViewerAdminSection icon={Box} title="尺寸">
+            <ViewerAdminStatGrid>
+              <ViewerAdminStatCell label="宽" value={`${feature.width.toFixed(1)}m`} />
+              <ViewerAdminStatCell label="高" value={`${feature.height.toFixed(1)}m`} />
+              <ViewerAdminStatCell label="深" value={`${feature.depth.toFixed(1)}m`} />
+            </ViewerAdminStatGrid>
+          </ViewerAdminSection>
 
           <Separator />
 
-          <div>
-            <h4 className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-              <Activity className="h-3.5 w-3.5" />
-              语义属性
-            </h4>
-            <div className="space-y-2 rounded-lg border p-2.5 text-sm">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">核心设施</span>
-                <span>{feature.major ? '是' : '否'}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">阻挡车辆</span>
-                <span>{feature.blocksVehicle ? '是' : '否'}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">阻挡人员</span>
-                <span>{feature.blocksPerson ? '是' : '否'}</span>
-              </div>
-            </div>
-          </div>
+          <ViewerAdminSection icon={Activity} title="语义属性">
+            <ViewerAdminInfoList>
+              <ViewerAdminInfoRow label="核心设施" value={feature.major ? '是' : '否'} />
+              <ViewerAdminInfoRow label="阻挡车辆" value={feature.blocksVehicle ? '是' : '否'} />
+              <ViewerAdminInfoRow label="阻挡人员" value={feature.blocksPerson ? '是' : '否'} />
+            </ViewerAdminInfoList>
+          </ViewerAdminSection>
         </div>
       </ScrollArea>
-    </div>
+    </ViewerAdminSidePanelBody>
   )
 }
 
@@ -384,28 +309,18 @@ function EntityTypeIcon({ type }: { type: string }) {
 
 function PersonDetails({ entity }: { entity: PersonEntity }) {
   return (
-    <div>
-      <h4 className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-        <User className="h-3.5 w-3.5" />
-        人员信息
-      </h4>
-      <div className="space-y-2 rounded-lg border p-2.5 text-sm">
-        <div className="flex justify-between">
-          <span className="text-muted-foreground">角色</span>
-          <Badge variant="outline">{entity.role}</Badge>
-        </div>
-        <div className="flex justify-between">
-          <span className="text-muted-foreground">部门</span>
-          <span>{entity.department}</span>
-        </div>
-        {entity.currentActivity && (
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">当前活动</span>
-            <Badge variant="secondary">{entity.currentActivity}</Badge>
-          </div>
-        )}
-      </div>
-    </div>
+    <ViewerAdminSection icon={User} title="人员信息">
+      <ViewerAdminInfoList>
+        <ViewerAdminInfoRow label="角色" value={<Badge variant="outline">{entity.role}</Badge>} />
+        <ViewerAdminInfoRow label="部门" value={entity.department} />
+        {entity.currentActivity ? (
+          <ViewerAdminInfoRow
+            label="当前活动"
+            value={<Badge variant="secondary">{entity.currentActivity}</Badge>}
+          />
+        ) : null}
+      </ViewerAdminInfoList>
+    </ViewerAdminSection>
   )
 }
 
@@ -416,42 +331,30 @@ function VehicleDetails({ entity }: { entity: VehicleEntity }) {
 
   return (
     <div className="space-y-3">
-      <div>
-        <h4 className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-          <Car className="h-3.5 w-3.5" />
-          车辆信息
-        </h4>
-        <div className="space-y-2 rounded-lg border p-2.5 text-sm">
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">车牌号</span>
-            <span className="font-mono">{entity.plateNumber}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">类型</span>
-            <Badge variant="outline">
-              {entity.vehicleType === 'car' ? '轿车' :
-               entity.vehicleType === 'truck' ? '货车' :
-               entity.vehicleType === 'forklift' ? '叉车' :
-               entity.vehicleType === 'agv' ? 'AGV' : entity.vehicleType}
-            </Badge>
-          </div>
-        </div>
-      </div>
+      <ViewerAdminSection icon={Car} title="车辆信息">
+        <ViewerAdminInfoList>
+          <ViewerAdminInfoRow
+            label="车牌号"
+            value={<span className="font-mono">{entity.plateNumber}</span>}
+          />
+          <ViewerAdminInfoRow
+            label="类型"
+            value={
+              <Badge variant="outline">
+                {entity.vehicleType === 'car' ? '轿车' :
+                 entity.vehicleType === 'truck' ? '货车' :
+                 entity.vehicleType === 'forklift' ? '叉车' :
+                 entity.vehicleType === 'agv' ? 'AGV' : entity.vehicleType}
+              </Badge>
+            }
+          />
+        </ViewerAdminInfoList>
+      </ViewerAdminSection>
 
-      <div>
-        <h4 className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-          <Gauge className="h-3.5 w-3.5" />
-          运行状态
-        </h4>
-        <div className="space-y-2 rounded-lg border p-2.5 text-sm">
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">速度</span>
-            <span>{entity.speed.toFixed(1)} m/s</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">航向</span>
-            <span>{entity.heading.toFixed(0)}°</span>
-          </div>
+      <ViewerAdminSection icon={Gauge} title="运行状态">
+        <ViewerAdminSoftCard className="space-y-2 p-2.5 text-sm">
+          <ViewerAdminInfoRow label="速度" value={`${entity.speed.toFixed(1)} m/s`} />
+          <ViewerAdminInfoRow label="航向" value={`${entity.heading.toFixed(0)}°`} />
           {entity.capacity && (
             <div>
               <div className="mb-1 flex justify-between">
@@ -461,20 +364,16 @@ function VehicleDetails({ entity }: { entity: VehicleEntity }) {
               <Progress value={loadPercent} className="h-1.5" />
             </div>
           )}
-        </div>
-      </div>
+        </ViewerAdminSoftCard>
+      </ViewerAdminSection>
     </div>
   )
 }
 
 function EquipmentDetails({ entity }: { entity: EquipmentEntity }) {
   return (
-    <div>
-      <h4 className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-        <Activity className="h-3.5 w-3.5" />
-        设备参数
-      </h4>
-      <div className="space-y-2 rounded-lg border p-2.5">
+    <ViewerAdminSection icon={Activity} title="设备参数">
+      <ViewerAdminSoftCard className="space-y-2 p-2.5">
         {Object.entries(entity.parameters).map(([key, value]) => (
           <div key={key} className="flex items-center justify-between text-sm">
             <span className="flex items-center gap-1.5 text-muted-foreground">
@@ -498,8 +397,8 @@ function EquipmentDetails({ entity }: { entity: EquipmentEntity }) {
             </span>
           </div>
         )}
-      </div>
-    </div>
+      </ViewerAdminSoftCard>
+    </ViewerAdminSection>
   )
 }
 
@@ -509,75 +408,54 @@ function SensorDetails({ entity }: { entity: SensorEntity }) {
     : '未设置'
 
   return (
-    <div className="space-y-3">
-      <div>
-        <h4 className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-          <Radar className="h-3.5 w-3.5" />
-          传感器信息
-        </h4>
-        <div className="space-y-2 rounded-lg border p-2.5 text-sm">
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">类型</span>
-            <Badge variant="outline">{SENSOR_TYPE_LABELS[entity.sensorType] ?? entity.sensorType}</Badge>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">当前值</span>
-            <span className="font-mono">
-              {entity.reading.toFixed(2)} {entity.unit}
-            </span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">阈值范围</span>
-            <span>{rangeLabel}</span>
-          </div>
-        </div>
-      </div>
-    </div>
+    <ViewerAdminSection icon={Radar} title="传感器信息">
+      <ViewerAdminInfoList>
+        <ViewerAdminInfoRow
+          label="类型"
+          value={<Badge variant="outline">{SENSOR_TYPE_LABELS[entity.sensorType] ?? entity.sensorType}</Badge>}
+        />
+        <ViewerAdminInfoRow
+          label="当前值"
+          value={<span className="font-mono">{entity.reading.toFixed(2)} {entity.unit}</span>}
+        />
+        <ViewerAdminInfoRow label="阈值范围" value={rangeLabel} />
+      </ViewerAdminInfoList>
+    </ViewerAdminSection>
   )
 }
 
 function CameraDetails({ entity }: { entity: CameraEntity }) {
   return (
-    <div className="space-y-3">
-      <div>
-        <h4 className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-          <CameraIcon className="h-3.5 w-3.5" />
-          摄像头信息
-        </h4>
-        <div className="space-y-2 rounded-lg border p-2.5 text-sm">
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">类型</span>
-            <Badge variant="outline">{CAMERA_TYPE_LABELS[entity.cameraType] ?? entity.cameraType}</Badge>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">视场角</span>
-            <span>{entity.fov.toFixed(0)}°</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">朝向</span>
-            <span>{entity.heading.toFixed(0)}°</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">覆盖范围</span>
-            <span>{entity.range ? `${entity.range.toFixed(1)} m` : '未设置'}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">录像状态</span>
+    <ViewerAdminSection icon={CameraIcon} title="摄像头信息">
+      <ViewerAdminInfoList>
+        <ViewerAdminInfoRow
+          label="类型"
+          value={<Badge variant="outline">{CAMERA_TYPE_LABELS[entity.cameraType] ?? entity.cameraType}</Badge>}
+        />
+        <ViewerAdminInfoRow label="视场角" value={`${entity.fov.toFixed(0)}°`} />
+        <ViewerAdminInfoRow label="朝向" value={`${entity.heading.toFixed(0)}°`} />
+        <ViewerAdminInfoRow
+          label="覆盖范围"
+          value={entity.range ? `${entity.range.toFixed(1)} m` : '未设置'}
+        />
+        <ViewerAdminInfoRow
+          label="录像状态"
+          value={
             <Badge variant={entity.recording ? 'secondary' : 'outline'}>
               {entity.recording ? '录制中' : '未录制'}
             </Badge>
+          }
+        />
+        {entity.streamUrl && (
+          <div className="space-y-1">
+            <span className="text-muted-foreground">视频流</span>
+            <ViewerAdminSoftCard className="break-all rounded-md px-2 py-1 font-mono text-xs">
+              {entity.streamUrl}
+            </ViewerAdminSoftCard>
           </div>
-          {entity.streamUrl && (
-            <div className="space-y-1">
-              <span className="text-muted-foreground">视频流</span>
-              <div className="break-all rounded bg-muted px-2 py-1 font-mono text-xs">
-                {entity.streamUrl}
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
+        )}
+      </ViewerAdminInfoList>
+    </ViewerAdminSection>
   )
 }
 
@@ -596,29 +474,21 @@ function EntityIncidentDetails({
 }) {
   if (incidents.length === 0) {
     return (
-      <div>
-        <h4 className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-          <Sparkles className="h-3.5 w-3.5" />
-          事件联动
-        </h4>
-        <div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
+      <ViewerAdminSection icon={Sparkles} title="事件联动">
+        <ViewerAdminEmptyCard className="border-dashed p-3 text-xs text-muted-foreground">
           当前对象暂无 Citation 事件，系统会在移动态势变化时自动生成联动卡片。
-        </div>
-      </div>
+        </ViewerAdminEmptyCard>
+      </ViewerAdminSection>
     )
   }
 
   return (
-    <div>
-      <h4 className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-        <Sparkles className="h-3.5 w-3.5" />
-        事件联动
-      </h4>
+    <ViewerAdminSection icon={Sparkles} title="事件联动">
       <div className="space-y-2">
         {incidents.map((incident) => (
-          <div
+          <ViewerAdminSoftCard
             key={incident.id}
-            className="rounded-lg border p-3"
+            className="rounded-xl p-3"
             onClick={() => onSelectIncident(incident.id)}
           >
             <div className="flex items-start justify-between gap-3">
@@ -670,10 +540,10 @@ function EntityIncidentDetails({
                 </Button>
               )}
             </div>
-          </div>
+          </ViewerAdminSoftCard>
         ))}
       </div>
-    </div>
+    </ViewerAdminSection>
   )
 }
 
@@ -685,47 +555,38 @@ function ZoneDetails({ entity }: { entity: ZoneEntity }) {
 
   return (
     <div className="space-y-3">
-      <div>
-        <h4 className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-          <Map className="h-3.5 w-3.5" />
-          区域信息
-        </h4>
-        <div className="space-y-2 rounded-lg border p-2.5 text-sm">
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">类型</span>
-            <Badge 
-              variant="outline" 
-              style={{ borderColor: entity.color, color: entity.color }}
-            >
-              {entity.zoneType === 'work' ? '作业区' :
-               entity.zoneType === 'storage' ? '存储区' :
-               entity.zoneType === 'passage' ? '通道' :
-               entity.zoneType === 'restricted' ? '限制区' :
-               entity.zoneType === 'danger' ? '危险区' : entity.zoneType}
-            </Badge>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">面积</span>
-            <span>{area.toFixed(1)} m²</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">边界点数</span>
-            <span>{entity.boundary.length}</span>
-          </div>
-        </div>
-      </div>
+      <ViewerAdminSection icon={Map} title="区域信息">
+        <ViewerAdminInfoList>
+          <ViewerAdminInfoRow
+            label="类型"
+            value={
+              <Badge
+                variant="outline"
+                style={{ borderColor: entity.color, color: entity.color }}
+              >
+                {entity.zoneType === 'work' ? '作业区' :
+                 entity.zoneType === 'storage' ? '存储区' :
+                 entity.zoneType === 'passage' ? '通道' :
+                 entity.zoneType === 'restricted' ? '限制区' :
+                 entity.zoneType === 'danger' ? '危险区' : entity.zoneType}
+              </Badge>
+            }
+          />
+          <ViewerAdminInfoRow label="面积" value={`${area.toFixed(1)} m²`} />
+          <ViewerAdminInfoRow label="边界点数" value={entity.boundary.length} />
+        </ViewerAdminInfoList>
+      </ViewerAdminSection>
 
       {entity.capacity && (
-        <div>
-          <h4 className="mb-2 text-xs font-medium text-muted-foreground">容量</h4>
-          <div className="rounded-lg border p-2.5">
+        <ViewerAdminSection title="容量">
+          <ViewerAdminSoftCard className="p-2.5">
             <div className="mb-1 flex justify-between text-sm">
               <span className="text-muted-foreground">当前/最大</span>
               <span>{entity.currentOccupancy || 0} / {entity.capacity}</span>
             </div>
             <Progress value={occupancyPercent} className="h-1.5" />
-          </div>
-        </div>
+          </ViewerAdminSoftCard>
+        </ViewerAdminSection>
       )}
     </div>
   )

@@ -4,7 +4,7 @@ use crate::contracts::{
     AccessAction, AccessRule, CameraEntity, CameraType, ContractValue, Entity, EntityBase,
     EntityStatus, EquipmentEntity, GraphPosition, PersonEntity, RuleConfig, RuleEdge, RuleNode,
     RuleNodeData, RuleNodeType, SceneConfig, SensorEntity, SensorType, TimeRange, Vector3,
-    VehicleEntity, VehicleType, ZoneEntity, ZoneType,
+    VehicleEntity, VehicleRouteTrack, VehicleTrackPosition, VehicleType, ZoneEntity, ZoneType,
 };
 
 pub const SITE_ID: &str = "factory-demo-site";
@@ -31,7 +31,7 @@ pub fn seed_snapshot() -> SeedSnapshot {
 fn seed_scene_config() -> SceneConfig {
     SceneConfig {
         id: SCENE_ID.to_string(),
-        name: "工厂演示场景".to_string(),
+        name: "数字孪生演示场景".to_string(),
         grid_size: 100,
         grid_divisions: 100,
         background_color: "#0a0a0f".to_string(),
@@ -52,17 +52,20 @@ fn seed_scene_config() -> SceneConfig {
 }
 
 fn seed_entities() -> Vec<Entity> {
-    vec![
+    let mut entities = vec![
         Entity::Zone(seed_workshop_zone()),
         Entity::Person(seed_operator()),
-        Entity::Vehicle(seed_forklift()),
+    ];
+    entities.extend(seed_forklifts().into_iter().map(Entity::Vehicle));
+    entities.extend([
         Entity::Equipment(seed_cnc_equipment()),
         Entity::Sensor(seed_temperature_sensor()),
         Entity::Sensor(seed_gas_sensor()),
         Entity::Sensor(seed_pressure_sensor()),
         Entity::Camera(seed_gate_camera()),
         Entity::Camera(seed_yard_camera()),
-    ]
+    ]);
+    entities
 }
 
 fn seed_workshop_zone() -> ZoneEntity {
@@ -141,24 +144,191 @@ fn seed_operator() -> PersonEntity {
     }
 }
 
-fn seed_forklift() -> VehicleEntity {
-    VehicleEntity {
-        base: entity_base(
+fn seed_forklifts() -> Vec<VehicleEntity> {
+    vec![
+        seed_forklift(
             "vehicle-forklift-01",
             "叉车 01",
-            Vector3 {
-                x: 9.0,
-                y: 0.0,
-                z: -1.5,
-            },
+            "沪A12345",
             EntityStatus::Warning,
+            90.0,
+            2.6,
+            560.0,
+            build_forklift_route_track(
+                "forklift-track-01",
+                "装卸主环线",
+                vec![
+                    Vector3 { x: -92.0, y: 0.0, z: 54.0 },
+                    Vector3 { x: -28.0, y: 0.0, z: 54.0 },
+                    Vector3 { x: 36.0, y: 0.0, z: 54.0 },
+                    Vector3 { x: 96.0, y: 0.0, z: 54.0 },
+                    Vector3 { x: 86.0, y: 0.0, z: 30.0 },
+                    Vector3 { x: 86.0, y: 0.0, z: 2.0 },
+                    Vector3 { x: 86.0, y: 0.0, z: -72.0 },
+                    Vector3 { x: 0.0, y: 0.0, z: -72.0 },
+                    Vector3 { x: -88.0, y: 0.0, z: -72.0 },
+                    Vector3 { x: -88.0, y: 0.0, z: 2.0 },
+                    Vector3 { x: -88.0, y: 0.0, z: 30.0 },
+                ],
+            ),
         ),
-        plate_number: "沪A12345".to_string(),
+        seed_forklift(
+            "vehicle-forklift-02",
+            "叉车 02",
+            "沪A22346",
+            EntityStatus::Active,
+            180.0,
+            2.2,
+            820.0,
+            build_forklift_route_track(
+                "forklift-track-02",
+                "货架补料线",
+                vec![
+                    Vector3 { x: -68.0, y: 0.0, z: 72.0 },
+                    Vector3 { x: 68.0, y: 0.0, z: 72.0 },
+                    Vector3 { x: 96.0, y: 0.0, z: 54.0 },
+                    Vector3 { x: 68.0, y: 0.0, z: 54.0 },
+                    Vector3 { x: 4.0, y: 0.0, z: 54.0 },
+                    Vector3 { x: -60.0, y: 0.0, z: 54.0 },
+                    Vector3 { x: -92.0, y: 0.0, z: 54.0 },
+                    Vector3 { x: -88.0, y: 0.0, z: 30.0 },
+                    Vector3 { x: -88.0, y: 0.0, z: 2.0 },
+                ],
+            ),
+        ),
+        seed_forklift(
+            "vehicle-forklift-03",
+            "叉车 03",
+            "沪A32347",
+            EntityStatus::Active,
+            270.0,
+            2.4,
+            410.0,
+            build_forklift_route_track(
+                "forklift-track-03",
+                "北侧周转线",
+                vec![
+                    Vector3 { x: -84.0, y: 0.0, z: -4.0 },
+                    Vector3 { x: -36.0, y: 0.0, z: -4.0 },
+                    Vector3 { x: 32.0, y: 0.0, z: -4.0 },
+                    Vector3 { x: 86.0, y: 0.0, z: -4.0 },
+                    Vector3 { x: 86.0, y: 0.0, z: -26.0 },
+                    Vector3 { x: 86.0, y: 0.0, z: -72.0 },
+                    Vector3 { x: 0.0, y: 0.0, z: -72.0 },
+                    Vector3 { x: -88.0, y: 0.0, z: -72.0 },
+                    Vector3 { x: -88.0, y: 0.0, z: -26.0 },
+                ],
+            ),
+        ),
+        seed_forklift(
+            "vehicle-forklift-04",
+            "叉车 04",
+            "沪A42348",
+            EntityStatus::Active,
+            0.0,
+            2.1,
+            1230.0,
+            build_forklift_route_track(
+                "forklift-track-04",
+                "西侧回库线",
+                vec![
+                    Vector3 { x: 0.0, y: 0.0, z: 32.0 },
+                    Vector3 { x: 0.0, y: 0.0, z: 4.0 },
+                    Vector3 { x: 0.0, y: 0.0, z: -24.0 },
+                    Vector3 { x: 0.0, y: 0.0, z: -72.0 },
+                    Vector3 { x: 86.0, y: 0.0, z: -72.0 },
+                    Vector3 { x: 86.0, y: 0.0, z: 2.0 },
+                    Vector3 { x: 68.0, y: 0.0, z: 54.0 },
+                    Vector3 { x: 4.0, y: 0.0, z: 54.0 },
+                    Vector3 { x: -60.0, y: 0.0, z: 54.0 },
+                    Vector3 { x: -88.0, y: 0.0, z: 30.0 },
+                ],
+            ),
+        ),
+        seed_forklift(
+            "vehicle-forklift-05",
+            "叉车 05",
+            "沪A52349",
+            EntityStatus::Active,
+            45.0,
+            2.8,
+            260.0,
+            build_forklift_route_track(
+                "forklift-track-05",
+                "南北穿梭线",
+                vec![
+                    Vector3 { x: -88.0, y: 0.0, z: 30.0 },
+                    Vector3 { x: -88.0, y: 0.0, z: 2.0 },
+                    Vector3 { x: -88.0, y: 0.0, z: -72.0 },
+                    Vector3 { x: 0.0, y: 0.0, z: -72.0 },
+                    Vector3 { x: 86.0, y: 0.0, z: -72.0 },
+                    Vector3 { x: 86.0, y: 0.0, z: 2.0 },
+                    Vector3 { x: 86.0, y: 0.0, z: 30.0 },
+                    Vector3 { x: 36.0, y: 0.0, z: 54.0 },
+                    Vector3 { x: -28.0, y: 0.0, z: 54.0 },
+                ],
+            ),
+        ),
+    ]
+}
+
+fn seed_forklift(
+    id: &str,
+    name: &str,
+    plate_number: &str,
+    status: EntityStatus,
+    heading: f32,
+    speed: f32,
+    current_load: f32,
+    route_track: VehicleRouteTrack,
+) -> VehicleEntity {
+    let position = route_track.waypoints[0];
+    let mut base = entity_base(id, name, position, status);
+    base.rotation = Vector3 {
+        x: 0.0,
+        y: heading.to_radians(),
+        z: 0.0,
+    };
+
+    VehicleEntity {
+        base,
+        plate_number: plate_number.to_string(),
         vehicle_type: VehicleType::Forklift,
-        speed: 3.2,
-        heading: 90.0,
+        speed,
+        heading,
         capacity: Some(2000.0),
-        current_load: Some(560.0),
+        current_load: Some(current_load),
+        track_position: Some(build_track_position(&route_track, 0, 0.0)),
+        route_track: Some(route_track),
+    }
+}
+
+fn build_forklift_route_track(
+    track_id: &str,
+    label: &str,
+    waypoints: Vec<Vector3>,
+) -> VehicleRouteTrack {
+    VehicleRouteTrack {
+        route_id: "factory-yard-circulation".to_string(),
+        track_id: track_id.to_string(),
+        label: label.to_string(),
+        looped: true,
+        waypoints,
+    }
+}
+
+fn build_track_position(
+    route_track: &VehicleRouteTrack,
+    segment_index: u32,
+    segment_progress: f32,
+) -> VehicleTrackPosition {
+    let next_waypoint_index = ((segment_index as usize + 1) % route_track.waypoints.len()) as u32;
+    VehicleTrackPosition {
+        route_id: route_track.route_id.clone(),
+        track_id: route_track.track_id.clone(),
+        segment_index,
+        next_waypoint_index,
+        segment_progress,
     }
 }
 

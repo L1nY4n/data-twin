@@ -1,35 +1,15 @@
 import { describe, expect, test } from 'bun:test'
-import { fallbackToMockRuntimeIfDisconnected } from './use-live-digital-twin'
-import { useDigitalTwinStore } from '@/lib/digital-twin/store'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 
-describe('useLiveDigitalTwin fallback behavior', () => {
-  test('falls back to mock runtime after a live disconnect', () => {
-    useDigitalTwinStore.getState().reset()
-    const store = useDigitalTwinStore.getState()
-    store.setRuntimeDataSource('live')
-    store.setConnectionStatus(false)
+describe('useLiveDigitalTwin live-only behavior', () => {
+  test('keeps disconnect handling on the live runtime instead of falling back to mock data', () => {
+    const source = readFileSync(join(process.cwd(), 'hooks/use-live-digital-twin.ts'), 'utf8')
 
-    const fellBack = fallbackToMockRuntimeIfDisconnected('实时连接已断开')
-    const nextState = useDigitalTwinStore.getState()
-
-    expect(fellBack).toBe(true)
-    expect(nextState.runtimeDataSource).toBe('mock')
-    expect(nextState.runtimeNotice).toContain('实时连接已断开')
-    expect(nextState.runtimeRunning).toBe(true)
-    expect(nextState.entities.size).toBeGreaterThan(0)
-  })
-
-  test('does not replace a healthy live runtime while still connected', () => {
-    useDigitalTwinStore.getState().reset()
-    const store = useDigitalTwinStore.getState()
-    store.setRuntimeDataSource('live')
-    store.setConnectionStatus(true, 'ws://runtime.local/ws')
-
-    const fellBack = fallbackToMockRuntimeIfDisconnected('实时连接已断开')
-    const nextState = useDigitalTwinStore.getState()
-
-    expect(fellBack).toBe(false)
-    expect(nextState.runtimeDataSource).toBe('live')
-    expect(nextState.connectionUrl).toBe('ws://runtime.local/ws')
+    expect(source.includes('fallbackToMockRuntimeIfDisconnected')).toBe(false)
+    expect(source.includes('hydrateMockState')).toBe(false)
+    expect(source.includes("setRuntimeDataSource('mock'")).toBe(false)
+    expect(source.includes("setRuntimeDataSource('live', '实时连接已断开')")).toBe(true)
+    expect(source.includes("setRuntimeDataSource('live', '实时连接异常')")).toBe(true)
   })
 })

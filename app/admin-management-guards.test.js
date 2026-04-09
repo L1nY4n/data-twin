@@ -45,11 +45,16 @@ describe('admin management guards', () => {
       join(process.cwd(), 'components/admin/AdminConsole.tsx'),
       'utf8'
     )
+    const adminSurface = readFileSync(
+      join(process.cwd(), 'components/admin/admin-surface.tsx'),
+      'utf8'
+    )
 
     expect(consoleSource.includes('fetchAdminOverview')).toBe(true)
     expect(consoleSource.includes('listAdminAlarms')).toBe(true)
     expect(consoleSource.includes('listAdminAuditEvents')).toBe(true)
-    expect(consoleSource.includes('SaveLiveWarning')).toBe(true)
+    expect(consoleSource.includes("@/components/admin/admin-surface")).toBe(true)
+    expect(adminSurface.includes('export function SaveLiveWarning')).toBe(true)
     expect(consoleSource.includes('AdvancedJsonEditor')).toBe(true)
     expect(consoleSource.includes('createEntityTemplate')).toBe(true)
     expect(consoleSource.includes('createConnectorTemplate')).toBe(true)

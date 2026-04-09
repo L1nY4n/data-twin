@@ -21,6 +21,7 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from '@/components/ui/sidebar'
+import { ViewerAdminPanel } from '@/components/viewer-admin/primitives'
 import { cn } from '@/lib/utils'
 
 export function AdminAppSidebar({
@@ -33,7 +34,7 @@ export function AdminAppSidebar({
   return (
     <Sidebar
       collapsible="icon"
-      className="top-[var(--header-height)]! h-[calc(100svh-var(--header-height))]! border-r"
+      className="top-[calc(var(--header-height)+0.5rem)]! h-[calc(100svh-var(--header-height)-0.5rem)]! border-r border-white/8"
     >
       <SidebarHeader className="border-b px-2 py-2">
         <SidebarMenu>
@@ -58,10 +59,13 @@ export function AdminAppSidebar({
           </SidebarMenuItem>
         </SidebarMenu>
 
-        <div className="rounded-xl border bg-sidebar-accent/40 p-3 group-data-[collapsible=icon]:hidden">
+        <ViewerAdminPanel
+          variant="soft"
+          className="rounded-xl p-3 group-data-[collapsible=icon]:hidden"
+        >
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-[11px] uppercase tracking-[0.22em] text-sidebar-foreground/60">
+              <p className="viewer-admin-kicker">
                 当前模块
               </p>
               <p className="mt-1 text-sm font-medium">{activeMeta.title}</p>
@@ -73,7 +77,7 @@ export function AdminAppSidebar({
           <p className="mt-3 text-xs leading-5 text-sidebar-foreground/70">
             {activeMeta.operatorHint}
           </p>
-        </div>
+        </ViewerAdminPanel>
       </SidebarHeader>
 
       <SidebarContent className="gap-0">
@@ -119,7 +123,10 @@ export function AdminAppSidebar({
       </SidebarContent>
 
       <SidebarFooter className="border-t px-2 py-2">
-        <div className="space-y-2 rounded-xl border bg-sidebar-accent/30 p-3 text-xs group-data-[collapsible=icon]:hidden">
+        <ViewerAdminPanel
+          variant="soft"
+          className="space-y-2 rounded-xl p-3 text-xs group-data-[collapsible=icon]:hidden"
+        >
           <div className="flex items-center gap-2 font-medium">
             <ShieldCheck className="size-3.5" />
             <span>Live Config</span>
@@ -137,7 +144,7 @@ export function AdminAppSidebar({
               接入治理
             </Badge>
           </div>
-        </div>
+        </ViewerAdminPanel>
         <SidebarMenu className="hidden group-data-[collapsible=icon]:flex">
           <SidebarMenuItem>
             <SidebarMenuButton asChild tooltip="回到总览">

@@ -209,7 +209,7 @@ impl Store {
         Self::from_database_url(&default_sqlite_url).await
     }
 
-    async fn from_database_url(url: &str) -> Result<Self, StoreError> {
+    pub(crate) async fn from_database_url(url: &str) -> Result<Self, StoreError> {
         if is_memory_backend_url(url) {
             return Ok(Self::memory_backend());
         }
@@ -339,39 +339,50 @@ impl Store {
                     "#,
                 )
                 .bind(seed_scene::SITE_ID)
-                .fetch_one(&store.pool)
+                .fetch_optional(&store.pool)
                 .await?;
 
-                Ok(PublishedStateRecord {
-                    published_scene_version: row.get::<i64, _>("published_scene_version") as u64,
-                    scene_config: serde_json::from_value(row.get("scene_config"))?,
-                    entities: serde_json::from_value(row.get("entities"))?,
-                    static_assets: serde_json::from_value(row.get("static_assets"))?,
-                    published_scene: row
-                        .get::<Option<serde_json::Value>, _>("published_scene")
-                        .map(serde_json::from_value)
-                        .transpose()?,
-                    compiler_source: row.get("compiler_source"),
-                    updated_at: row.get::<i64, _>("updated_at") as u64,
-                    active_publish_token: row.get("active_publish_token"),
-                    active_publish_started_at: row
-                        .get::<Option<i64>, _>("active_publish_started_at")
-                        .map(|value| value as u64),
-                    active_publish_heartbeat_at: row
-                        .get::<Option<i64>, _>("active_publish_heartbeat_at")
-                        .map(|value| value as u64),
-                    last_published_at: row
-                        .get::<Option<i64>, _>("last_published_at")
-                        .map(|value| value as u64),
-                    last_published_version: row.get("last_published_version"),
-                    last_publish_error: row.get("last_publish_error"),
-                    last_failure_scene_version: row
-                        .get::<Option<i64>, _>("last_failure_scene_version")
-                        .map(|value| value as u64),
-                    last_failure_at: row
-                        .get::<Option<i64>, _>("last_failure_at")
-                        .map(|value| value as u64),
-                })
+                if let Some(row) = row {
+                    Ok(PublishedStateRecord {
+                        published_scene_version: row.get::<i64, _>("published_scene_version")
+                            as u64,
+                        scene_config: serde_json::from_value(row.get("scene_config"))?,
+                        entities: serde_json::from_value(row.get("entities"))?,
+                        static_assets: serde_json::from_value(row.get("static_assets"))?,
+                        published_scene: row
+                            .get::<Option<serde_json::Value>, _>("published_scene")
+                            .map(serde_json::from_value)
+                            .transpose()?,
+                        compiler_source: row.get("compiler_source"),
+                        updated_at: row.get::<i64, _>("updated_at") as u64,
+                        active_publish_token: row.get("active_publish_token"),
+                        active_publish_started_at: row
+                            .get::<Option<i64>, _>("active_publish_started_at")
+                            .map(|value| value as u64),
+                        active_publish_heartbeat_at: row
+                            .get::<Option<i64>, _>("active_publish_heartbeat_at")
+                            .map(|value| value as u64),
+                        last_published_at: row
+                            .get::<Option<i64>, _>("last_published_at")
+                            .map(|value| value as u64),
+                        last_published_version: row.get("last_published_version"),
+                        last_publish_error: row.get("last_publish_error"),
+                        last_failure_scene_version: row
+                            .get::<Option<i64>, _>("last_failure_scene_version")
+                            .map(|value| value as u64),
+                        last_failure_at: row
+                            .get::<Option<i64>, _>("last_failure_at")
+                            .map(|value| value as u64),
+                    })
+                } else {
+                    let snapshot = self.load_working_snapshot().await?;
+                    self.promote_working_snapshot(
+                        &snapshot,
+                        load_published_scene_descriptor(),
+                        "recovered-working-snapshot",
+                    )
+                    .await
+                }
             }
             StoreBackend::Sqlite(store) => {
                 let row = sqlx::query(
@@ -397,39 +408,52 @@ impl Store {
                     "#,
                 )
                 .bind(seed_scene::SITE_ID)
-                .fetch_one(&store.pool)
+                .fetch_optional(&store.pool)
                 .await?;
 
-                Ok(PublishedStateRecord {
-                    published_scene_version: row.get::<i64, _>("published_scene_version") as u64,
-                    scene_config: serde_json::from_str(&row.get::<String, _>("scene_config"))?,
-                    entities: serde_json::from_str(&row.get::<String, _>("entities"))?,
-                    static_assets: serde_json::from_str(&row.get::<String, _>("static_assets"))?,
-                    published_scene: row
-                        .get::<Option<String>, _>("published_scene")
-                        .map(|value| serde_json::from_str(&value))
-                        .transpose()?,
-                    compiler_source: row.get("compiler_source"),
-                    updated_at: row.get::<i64, _>("updated_at") as u64,
-                    active_publish_token: row.get("active_publish_token"),
-                    active_publish_started_at: row
-                        .get::<Option<i64>, _>("active_publish_started_at")
-                        .map(|value| value as u64),
-                    active_publish_heartbeat_at: row
-                        .get::<Option<i64>, _>("active_publish_heartbeat_at")
-                        .map(|value| value as u64),
-                    last_published_at: row
-                        .get::<Option<i64>, _>("last_published_at")
-                        .map(|value| value as u64),
-                    last_published_version: row.get("last_published_version"),
-                    last_publish_error: row.get("last_publish_error"),
-                    last_failure_scene_version: row
-                        .get::<Option<i64>, _>("last_failure_scene_version")
-                        .map(|value| value as u64),
-                    last_failure_at: row
-                        .get::<Option<i64>, _>("last_failure_at")
-                        .map(|value| value as u64),
-                })
+                if let Some(row) = row {
+                    Ok(PublishedStateRecord {
+                        published_scene_version: row.get::<i64, _>("published_scene_version")
+                            as u64,
+                        scene_config: serde_json::from_str(&row.get::<String, _>("scene_config"))?,
+                        entities: serde_json::from_str(&row.get::<String, _>("entities"))?,
+                        static_assets: serde_json::from_str(
+                            &row.get::<String, _>("static_assets"),
+                        )?,
+                        published_scene: row
+                            .get::<Option<String>, _>("published_scene")
+                            .map(|value| serde_json::from_str(&value))
+                            .transpose()?,
+                        compiler_source: row.get("compiler_source"),
+                        updated_at: row.get::<i64, _>("updated_at") as u64,
+                        active_publish_token: row.get("active_publish_token"),
+                        active_publish_started_at: row
+                            .get::<Option<i64>, _>("active_publish_started_at")
+                            .map(|value| value as u64),
+                        active_publish_heartbeat_at: row
+                            .get::<Option<i64>, _>("active_publish_heartbeat_at")
+                            .map(|value| value as u64),
+                        last_published_at: row
+                            .get::<Option<i64>, _>("last_published_at")
+                            .map(|value| value as u64),
+                        last_published_version: row.get("last_published_version"),
+                        last_publish_error: row.get("last_publish_error"),
+                        last_failure_scene_version: row
+                            .get::<Option<i64>, _>("last_failure_scene_version")
+                            .map(|value| value as u64),
+                        last_failure_at: row
+                            .get::<Option<i64>, _>("last_failure_at")
+                            .map(|value| value as u64),
+                    })
+                } else {
+                    let snapshot = self.load_working_snapshot().await?;
+                    self.promote_working_snapshot(
+                        &snapshot,
+                        load_published_scene_descriptor(),
+                        "recovered-working-snapshot",
+                    )
+                    .await
+                }
             }
         }
     }

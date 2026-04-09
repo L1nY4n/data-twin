@@ -175,6 +175,30 @@ describe('performance guards', () => {
     expect(source.includes('DYNAMIC_NEIGHBOR_QUERY_RADIUS')).toBe(true)
   })
 
+  test('runtime movement scheduling should reduce cadence for offscreen or far entities while preserving focused ones', () => {
+    const store = readFileSync(
+      join(process.cwd(), 'lib/digital-twin/store.ts'),
+      'utf8'
+    )
+    const canvas = readFileSync(
+      join(process.cwd(), 'components/digital-twin/scene/DigitalTwinCanvas.tsx'),
+      'utf8'
+    )
+    const cadence = readFileSync(
+      join(process.cwd(), 'lib/digital-twin/runtime-simulation-cadence.ts'),
+      'utf8'
+    )
+
+    expect(store.includes('resolveEntitySimulationCadence')).toBe(true)
+    expect(store.includes('shouldSimulateEntityThisTick')).toBe(true)
+    expect(store.includes('latestCameraTarget')).toBe(true)
+    expect(store.includes('fixedTickCount += 1')).toBe(true)
+    expect(store.includes("snapshot.labelMode === 'html'")).toBe(true)
+    expect(canvas.includes('controlsRef.current.target')).toBe(true)
+    expect(cadence.includes('OFFSCREEN_DOT_THRESHOLD')).toBe(true)
+    expect(cadence.includes('EXTREME_DISTANCE_SQUARED')).toBe(true)
+  })
+
   test('entity marker components should be memoized and avoid per-entity useFrame loops', () => {
     const person = readFileSync(
       join(process.cwd(), 'components/digital-twin/entities/PersonMarker.tsx'),
@@ -311,6 +335,9 @@ describe('performance guards', () => {
     expect(store.includes('entityDirectory: Map<string, EntityDirectoryEntry>')).toBe(true)
     expect(entityList.includes('state.entityDirectory')).toBe(true)
     expect(bottomPanel.includes('state.entityDirectory')).toBe(true)
+    expect(bottomPanel.includes('const ruleMap = useDigitalTwinStore((state) => state.rules)')).toBe(true)
+    expect(bottomPanel.includes('const rules = useMemo(() => Array.from(ruleMap.values()), [ruleMap])')).toBe(true)
+    expect(bottomPanel.includes('Array.from(state.rules.values())')).toBe(false)
     expect(entityList.includes('state.entities')).toBe(false)
     expect(bottomPanel.includes('state.entities')).toBe(false)
   })

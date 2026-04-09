@@ -8,6 +8,7 @@ describe('backend runtime guards', () => {
 
     expect(source.includes('useLiveDigitalTwin')).toBe(true)
     expect(source.includes('useSimulation')).toBe(false)
+    expect(source.includes('useCitationRuntime')).toBe(false)
     expect(source.includes('正在连接后端数据')).toBe(true)
   })
 
@@ -22,6 +23,9 @@ describe('backend runtime guards', () => {
     expect(source.includes('getRealtimeWsUrl')).toBe(true)
     expect(source.includes("case 'config_changed'")) .toBe(true)
     expect(source.includes('hydrateBootstrapState')).toBe(true)
+    expect(source.includes('fallbackToMockRuntimeIfDisconnected')).toBe(false)
+    expect(source.includes('hydrateMockState')).toBe(false)
+    expect(source.includes('needsBootstrapResyncRef')).toBe(true)
   })
 
   test('backend config helper should expose bootstrap and admin API base urls', () => {

@@ -22,23 +22,17 @@ describe('rules panel dock layout', () => {
     const pagePath = join(process.cwd(), 'app/page.tsx')
     const source = readFileSync(pagePath, 'utf8')
 
-    expect(
-      source.includes(
-        "'relative flex shrink-0 flex-col overflow-hidden border-r bg-background transition-all duration-300'"
-      )
-    ).toBe(true)
-    expect(
-      source.includes(
-        "'relative flex shrink-0 flex-col overflow-hidden border-l bg-background transition-all duration-300'"
-      )
-    ).toBe(true)
+    expect(source.includes('ViewerAdminEdgePanel')).toBe(true)
+    expect(source.includes("leftPanelOpen ? 'w-[230px]' : 'w-0'")).toBe(true)
+    expect(source.includes("rightPanelOpen ? 'w-64' : 'w-0'")).toBe(true)
+    expect(source.includes("leftPanelOpen ? 'left-[226px]' : 'left-4'")).toBe(true)
   })
 
-  test('wires the citation runtime hook and incident video dialog into the page shell', () => {
+  test('keeps incident video dialog in the page shell without the old mock citation hook', () => {
     const pagePath = join(process.cwd(), 'app/page.tsx')
     const source = readFileSync(pagePath, 'utf8')
 
-    expect(source.includes('useCitationRuntime()')).toBe(true)
+    expect(source.includes('useCitationRuntime()')).toBe(false)
     expect(source.includes('<IncidentVideoDialog />')).toBe(true)
   })
 })

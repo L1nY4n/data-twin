@@ -39,6 +39,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { ViewerAdminToolbarBar } from '@/components/viewer-admin/primitives'
 import { cn } from '@/lib/utils'
 
 const VIEW_MODE_CONFIG: Record<ViewMode, { icon: typeof Move; label: string }> = {
@@ -65,7 +66,6 @@ export function Toolbar() {
   const activeIncidentCount = useDigitalTwinStore(
     (state) => state.incidents.filter((incident) => isRuntimeIncidentActive(incident)).length
   )
-  const runtimeDataSource = useDigitalTwinStore((state) => state.runtimeDataSource)
   const toggleBottomPanel = useDigitalTwinStore((state) => state.toggleBottomPanel)
   const isPlayingTrajectory = useDigitalTwinStore((state) => state.isPlayingTrajectory)
   const setTrajectoryPlayback = useDigitalTwinStore((state) => state.setTrajectoryPlayback)
@@ -77,10 +77,21 @@ export function Toolbar() {
   const rendererBackend = useDigitalTwinStore((state) => state.rendererBackend)
   const setRendererMode = useDigitalTwinStore((state) => state.setRendererMode)
   const isDarkTheme = resolvedTheme === 'dark'
+  const sceneTitle = sceneConfig.name?.trim() || '数字孪生平台'
+
+  const handleViewModeSelect = (mode: ViewMode) => {
+    if (mode === 'topdown') {
+      setViewMode('orbit')
+      setActiveCameraPreset('top')
+      return
+    }
+
+    setViewMode(mode)
+  }
 
   return (
     <TooltipProvider delayDuration={300}>
-      <div className="flex h-12 items-center justify-between border-b bg-background px-4">
+      <ViewerAdminToolbarBar className="editor-toolbar mx-2 mt-2 flex h-12 items-center justify-between rounded-[22px] px-4">
         {/* 左侧：视图控制 */}
         <div className="flex items-center gap-1">
           {/* 网格开关 */}
@@ -142,7 +153,7 @@ export function Toolbar() {
                 return (
                   <DropdownMenuItem
                     key={mode}
-                    onClick={() => setViewMode(mode)}
+                    onClick={() => handleViewModeSelect(mode)}
                     className={cn(viewMode === mode && 'bg-accent')}
                   >
                     <Icon className="mr-2 h-4 w-4" />
@@ -243,7 +254,7 @@ export function Toolbar() {
 
         {/* 中间：标题 */}
         <div className="absolute left-1/2 -translate-x-1/2">
-          <h1 className="text-sm font-medium">化工厂数字孪生</h1>
+          <h1 className="text-sm font-medium">{sceneTitle}</h1>
         </div>
 
         {/* 右侧：状态和控制 */}
@@ -312,12 +323,6 @@ export function Toolbar() {
             </TooltipTrigger>
             <TooltipContent>事件 / 告警通知</TooltipContent>
           </Tooltip>
-
-          {runtimeDataSource === 'mock' && (
-            <Badge variant="outline" className="border-sky-400/50 text-sky-500">
-              Mock
-            </Badge>
-          )}
 
           {/* 设置 */}
           <Tooltip>
@@ -415,7 +420,7 @@ export function Toolbar() {
             </TooltipContent>
           </Tooltip>
         </div>
-      </div>
+      </ViewerAdminToolbarBar>
     </TooltipProvider>
   )
 }

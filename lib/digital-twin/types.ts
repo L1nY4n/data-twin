@@ -60,6 +60,8 @@ export interface VehicleEntity extends BaseEntity {
   heading: number
   capacity?: number
   currentLoad?: number
+  routeTrack?: VehicleTrackContract
+  trackPosition?: VehicleRouteContract
 }
 
 // 设备实体
@@ -349,6 +351,22 @@ export interface PublishedSceneRuntimeDescriptor {
   staticAssetManifestUrl: string
 }
 
+export interface VehicleTrackContract {
+  id: string
+  points: Vector3[]
+  loop: boolean
+}
+
+export type VehicleRouteDirection = 'forward' | 'reverse'
+
+export interface VehicleRouteContract {
+  trackId: string
+  segmentIndex: number
+  segmentProgress: number
+  target?: Vector3
+  direction?: VehicleRouteDirection
+}
+
 // 位置更新消息
 export interface PositionUpdateMessage {
   entityId: string
@@ -356,6 +374,10 @@ export interface PositionUpdateMessage {
   rotation?: Vector3
   speed?: number
   heading?: number
+  routeTrack?: VehicleTrackContract
+  trackPosition?: VehicleRouteContract
+  track?: VehicleTrackContract
+  route?: VehicleRouteContract
 }
 
 // 状态更新消息

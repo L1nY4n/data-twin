@@ -276,6 +276,31 @@ pub struct VehicleEntity {
     pub capacity: Option<f32>,
     #[serde(default)]
     pub current_load: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub route_track: Option<VehicleRouteTrack>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub track_position: Option<VehicleTrackPosition>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VehicleRouteTrack {
+    pub route_id: String,
+    pub track_id: String,
+    pub label: String,
+    #[serde(default)]
+    pub looped: bool,
+    pub waypoints: Vec<Vector3>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VehicleTrackPosition {
+    pub route_id: String,
+    pub track_id: String,
+    pub segment_index: u32,
+    pub next_waypoint_index: u32,
+    pub segment_progress: f32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -633,6 +658,10 @@ pub enum RealtimeEvent {
         timestamp: u64,
         payload: AlarmEventPayload,
     },
+    Incident {
+        timestamp: u64,
+        payload: IncidentEventPayload,
+    },
     ConfigChanged {
         timestamp: u64,
         payload: ConfigChangedPayload,
@@ -650,6 +679,10 @@ pub struct PositionUpdatePayload {
     pub speed: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub heading: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub route_track: Option<VehicleRouteTrack>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub track_position: Option<VehicleTrackPosition>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -667,6 +700,52 @@ pub struct AlarmEventPayload {
     pub id: String,
     pub level: AlarmLevel,
     pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IncidentEventPayload {
+    pub incident: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeIngestRequest {
+    pub source: String,
+    pub events: Vec<RuntimeIngestEvent>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum RuntimeIngestEvent {
+    PositionUpdate {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        timestamp: Option<u64>,
+        payload: PositionUpdatePayload,
+    },
+    StatusUpdate {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        timestamp: Option<u64>,
+        payload: StatusUpdatePayload,
+    },
+    Alarm {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        timestamp: Option<u64>,
+        payload: AlarmEventPayload,
+    },
+    Incident {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        timestamp: Option<u64>,
+        payload: IncidentEventPayload,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeIngestResponse {
+    pub source: String,
+    pub accepted_count: usize,
+    pub received_at: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

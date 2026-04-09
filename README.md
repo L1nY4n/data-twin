@@ -106,3 +106,11 @@ bun test app/backend-runtime-guards.test.js
 - `BACKEND_ALLOWED_ORIGIN`
 
 参考：`backend-core-rs/.env.example`
+
+## 7. 路线 / 轨道运行时设计文档
+
+- 架构说明：`docs/architecture/vehicle-route-track-runtime.md`
+- 代码审查记录：`docs/reviews/vehicle-route-track-runtime-review.md`
+
+这两份文档用于说明车辆 route/track contract 应如何贯穿 publish、simulator、live ingest 与 viewer。
+

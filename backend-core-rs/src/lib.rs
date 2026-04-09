@@ -6,6 +6,7 @@ mod health;
 mod publish_service;
 mod published_scene;
 pub mod realtime;
+mod runtime_ingest;
 mod seed_scene;
 mod site;
 pub mod store;

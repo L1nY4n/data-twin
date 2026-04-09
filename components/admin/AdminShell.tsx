@@ -28,6 +28,10 @@ import {
   SidebarProvider,
   SidebarTrigger,
 } from '@/components/ui/sidebar'
+import {
+  ViewerAdminSurfaceShell,
+  ViewerAdminToolbarBar,
+} from '@/components/viewer-admin/primitives'
 
 function resolveActiveSection(pathname: string): AdminSection {
   const section = pathname.replace('/admin/', '') as AdminSection
@@ -57,7 +61,10 @@ function AdminSiteHeader({
   const groupTitle = findActiveGroupTitle(activeSection)
 
   return (
-    <header className="sticky top-0 z-50 flex h-(--header-height) items-center border-b bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+    <ViewerAdminToolbarBar
+      as="header"
+      className="sticky top-0 z-50 mx-2 mt-2 flex h-(--header-height) items-center rounded-[22px] px-4"
+    >
       <div className="flex min-w-0 flex-1 items-center gap-3">
         <div className="flex size-9 items-center justify-center rounded-xl border bg-muted/40">
           <LayoutPanelLeft className="size-4 text-muted-foreground" />
@@ -83,7 +90,7 @@ function AdminSiteHeader({
           配置与治理工作台
         </Badge>
       </div>
-    </header>
+    </ViewerAdminToolbarBar>
   )
 }
 
@@ -97,7 +104,10 @@ function AdminInsetHeader({
   const groupTitle = findActiveGroupTitle(activeSection)
 
   return (
-    <header className="sticky top-[var(--header-height)] z-40 flex h-14 shrink-0 items-center gap-2 border-b bg-background/80 px-4 backdrop-blur">
+    <ViewerAdminToolbarBar
+      as="header"
+      className="sticky top-[calc(var(--header-height)+0.5rem)] z-40 flex h-14 shrink-0 items-center gap-2 rounded-[20px] px-4 backdrop-blur"
+    >
       <SidebarTrigger className="-ml-1" />
       <Separator orientation="vertical" className="mr-2 data-[orientation=vertical]:h-4" />
       <Breadcrumb>
@@ -139,7 +149,7 @@ function AdminInsetHeader({
           运行页共享数据
         </Badge>
       </div>
-    </header>
+    </ViewerAdminToolbarBar>
   )
 }
 
@@ -148,12 +158,15 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
   const activeSection = resolveActiveSection(pathname)
 
   return (
-    <div className="[--header-height:calc(--spacing(14))]">
+    <ViewerAdminSurfaceShell
+      className="min-h-svh overflow-hidden [--header-height:calc(--spacing(14))]"
+      innerClassName="min-h-svh"
+    >
       <SidebarProvider defaultOpen className="flex min-h-svh flex-col">
         <AdminSiteHeader activeSection={activeSection} />
-        <div className="flex flex-1">
+        <div className="relative flex flex-1">
           <AdminAppSidebar activeSection={activeSection} />
-          <SidebarInset className="bg-muted/25 md:peer-data-[variant=inset]:m-0 md:peer-data-[variant=inset]:rounded-none md:peer-data-[variant=inset]:shadow-none">
+          <SidebarInset className="viewer-admin-content bg-transparent md:peer-data-[variant=inset]:m-0 md:peer-data-[variant=inset]:rounded-none md:peer-data-[variant=inset]:shadow-none">
             <AdminInsetHeader activeSection={activeSection} />
             <main className="min-h-[calc(100svh-var(--header-height)-3.5rem)] p-4 md:p-6">
               <div className="mx-auto flex max-w-[1680px] flex-1 flex-col gap-6">
@@ -163,6 +176,6 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
           </SidebarInset>
         </div>
       </SidebarProvider>
-    </div>
+    </ViewerAdminSurfaceShell>
   )
 }

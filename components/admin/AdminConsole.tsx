@@ -9,7 +9,6 @@ import {
   Plus,
   RefreshCw,
   Save,
-  ShieldAlert,
   Trash2,
   Workflow,
 } from 'lucide-react'
@@ -55,8 +54,13 @@ import type {
 } from '@/lib/digital-twin/admin'
 import {
   ADMIN_NAV_GROUPS,
-  ADMIN_SECTION_META,
 } from '@/components/admin/admin-meta'
+import {
+  AdminSectionFrame,
+  MetricCard,
+  SectionPanel,
+  WorkspaceEmptyState,
+} from '@/components/admin/admin-surface'
 import type {
   Alarm,
   CameraEntity,
@@ -73,18 +77,16 @@ import type {
 import { RuleEditor } from '@/components/digital-twin/rules/RuleEditor'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Textarea } from '@/components/ui/textarea'
+import {
+  ViewerAdminEmptyCard,
+  ViewerAdminSoftCard,
+} from '@/components/viewer-admin/primitives'
 import { cn } from '@/lib/utils'
 
 const ENTITY_STATUSES: EntityStatus[] = ['active', 'inactive', 'warning', 'error']
@@ -98,50 +100,6 @@ const SENSOR_TYPES: SensorType[] = [
   'other',
 ]
 const CAMERA_TYPES: CameraType[] = ['fixed', 'dome', 'ptz', 'thermal']
-
-function StatusBanner({
-  message,
-  isLoading,
-  inverted = false,
-}: {
-  message: string
-  isLoading?: boolean
-  inverted?: boolean
-}) {
-  return (
-    <div
-      className={cn(
-        'rounded-2xl border px-3 py-2 text-xs',
-        inverted
-          ? 'border-white/10 bg-white/5 text-slate-200'
-          : 'bg-background text-muted-foreground'
-      )}
-    >
-      {isLoading ? '正在加载...' : message || '就绪'}
-    </div>
-  )
-}
-
-function SaveLiveWarning({ inverted = false }: { inverted?: boolean }) {
-  return (
-    <div
-      className={cn(
-        'rounded-2xl border px-3 py-2 text-xs',
-        inverted
-          ? 'border-amber-400/25 bg-amber-300/10 text-amber-50'
-          : 'border-amber-200 bg-amber-50 text-amber-900'
-      )}
-    >
-      <div className="flex items-center gap-2 font-medium">
-        <ShieldAlert className="h-4 w-4" />
-        保存后即时生效
-      </div>
-      <p className="mt-1 text-[11px]">
-        当前阶段未启用发布流，后台保存会直接触发运行态配置刷新，请先确认变更影响范围。
-      </p>
-    </div>
-  )
-}
 
 function AdvancedJsonEditor({
   value,
@@ -239,235 +197,6 @@ function useStructuredDraft<T>(initialValue: T | null, clone: (value: T) => T) {
     updateDraft,
     applyDraftText,
   }
-}
-
-function MetricCard({
-  label,
-  value,
-  hint,
-}: {
-  label: string
-  value: number | string
-  hint?: string
-}) {
-  return (
-    <Card className="border-slate-200/80 bg-white/85 shadow-[0_20px_60px_-40px_rgba(15,23,42,0.45)] backdrop-blur">
-      <CardHeader className="gap-2 pb-2">
-        <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">{label}</p>
-      </CardHeader>
-      <CardContent>
-        <div className="text-3xl font-semibold">{value}</div>
-        {hint ? <p className="mt-2 text-xs text-muted-foreground">{hint}</p> : null}
-      </CardContent>
-    </Card>
-  )
-}
-
-interface SectionMetric {
-  label: string
-  value: number | string
-  detail?: string
-}
-
-interface SectionRailCard {
-  title: string
-  value: string
-  detail: string
-}
-
-function SectionPanel({
-  eyebrow,
-  title,
-  description,
-  action,
-  className,
-  children,
-}: React.PropsWithChildren<{
-  eyebrow?: string
-  title: string
-  description?: string
-  action?: React.ReactNode
-  className?: string
-}>) {
-  return (
-    <Card
-      className={cn(
-        'border-slate-200/80 bg-white/90 shadow-[0_24px_70px_-48px_rgba(15,23,42,0.45)] backdrop-blur',
-        className
-      )}
-    >
-      <CardHeader className="gap-3 border-b border-slate-200/80 bg-slate-50/80">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="space-y-1.5">
-            {eyebrow ? (
-              <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">
-                {eyebrow}
-              </p>
-            ) : null}
-            <CardTitle className="text-lg">{title}</CardTitle>
-            {description ? <CardDescription>{description}</CardDescription> : null}
-          </div>
-          {action ? <div className="flex items-center gap-2">{action}</div> : null}
-        </div>
-      </CardHeader>
-      <CardContent className="pt-6">{children}</CardContent>
-    </Card>
-  )
-}
-
-function WorkspaceEmptyState({
-  eyebrow,
-  title,
-  description,
-  cues,
-  asideTitle,
-  asideDetail,
-}: {
-  eyebrow: string
-  title: string
-  description: string
-  cues: Array<{ title: string; detail: string }>
-  asideTitle: string
-  asideDetail: string
-}) {
-  return (
-    <div className="grid gap-4 rounded-[24px] border border-dashed border-slate-200/90 bg-[radial-gradient(circle_at_top_left,_rgba(15,23,42,0.06),_transparent_38%),linear-gradient(180deg,_rgba(248,250,252,0.96)_0%,_rgba(241,245,249,0.72)_100%)] p-5 xl:grid-cols-[minmax(0,1fr)_220px]">
-      <div className="space-y-4">
-        <div className="space-y-2">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">
-            {eyebrow}
-          </p>
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 bg-white shadow-sm">
-              <Workflow className="h-4 w-4 text-slate-700" />
-            </div>
-            <div className="space-y-1">
-              <h4 className="text-lg font-semibold text-slate-950">{title}</h4>
-              <p className="text-sm leading-6 text-muted-foreground">{description}</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="grid gap-3 md:grid-cols-3">
-          {cues.map((cue) => (
-            <div
-              key={cue.title}
-              className="rounded-2xl border border-slate-200/80 bg-white/80 p-4 shadow-[0_18px_50px_-40px_rgba(15,23,42,0.45)]"
-            >
-              <p className="text-xs font-medium text-slate-900">{cue.title}</p>
-              <p className="mt-2 text-xs leading-5 text-muted-foreground">{cue.detail}</p>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="rounded-2xl border border-slate-200/80 bg-white/80 p-4 shadow-[0_18px_50px_-40px_rgba(15,23,42,0.45)]">
-        <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">{asideTitle}</p>
-        <p className="mt-3 text-sm leading-6 text-slate-700">{asideDetail}</p>
-      </div>
-    </div>
-  )
-}
-
-function AdminSectionFrame({
-  section,
-  statusMessage,
-  isLoading,
-  actions,
-  metrics = [],
-  railCards = [],
-  showLiveWarning = true,
-  children,
-}: React.PropsWithChildren<{
-  section: AdminSection
-  statusMessage: string
-  isLoading?: boolean
-  actions?: React.ReactNode
-  metrics?: SectionMetric[]
-  railCards?: SectionRailCard[]
-  showLiveWarning?: boolean
-}>) {
-  const meta = ADMIN_SECTION_META[section]
-  const resolvedRailCards =
-    railCards.length > 0
-      ? railCards
-      : [
-          {
-            title: '操作模式',
-            value: 'Live Config',
-            detail: '当前保存会直接刷新运行态配置，没有额外发布门。',
-          },
-          {
-            title: '当前模块',
-            value: meta.shortTitle,
-            detail: meta.operatorHint,
-          },
-        ]
-
-  return (
-    <div className="space-y-6">
-      <section className="overflow-hidden rounded-[28px] border border-slate-800 bg-[radial-gradient(circle_at_top_left,_rgba(56,189,248,0.18),_transparent_28%),linear-gradient(135deg,_#0f172a_0%,_#111827_52%,_#1e293b_100%)] text-white shadow-[0_40px_120px_-56px_rgba(15,23,42,0.9)]">
-        <div className="grid gap-6 px-6 py-6 xl:grid-cols-[minmax(0,1fr)_320px] xl:px-8 xl:py-8">
-          <div className="space-y-5">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div className="space-y-3">
-                <p className="text-[11px] uppercase tracking-[0.28em] text-sky-200/70">
-                  {meta.kicker}
-                </p>
-                <div className="flex flex-wrap items-center gap-3">
-                  <h2 className="text-2xl font-semibold tracking-tight">{meta.title}</h2>
-                  <Badge className="rounded-full border border-white/10 bg-white/10 px-3 text-[11px] font-medium text-white hover:bg-white/10">
-                    {meta.shortTitle}
-                  </Badge>
-                </div>
-                <p className="max-w-2xl text-sm leading-6 text-slate-300">{meta.description}</p>
-              </div>
-              {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
-            </div>
-
-            <StatusBanner message={statusMessage} isLoading={isLoading} inverted />
-            {showLiveWarning ? <SaveLiveWarning inverted /> : null}
-
-            {metrics.length > 0 ? (
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                {metrics.map((metric) => (
-                  <div
-                    key={metric.label}
-                    className="rounded-2xl border border-white/10 bg-white/5 p-4"
-                  >
-                    <p className="text-[11px] uppercase tracking-[0.22em] text-slate-400">
-                      {metric.label}
-                    </p>
-                    <div className="mt-3 text-2xl font-semibold">{metric.value}</div>
-                    {metric.detail ? (
-                      <p className="mt-2 text-xs leading-5 text-slate-300">{metric.detail}</p>
-                    ) : null}
-                  </div>
-                ))}
-              </div>
-            ) : null}
-          </div>
-
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-1">
-            {resolvedRailCards.map((card) => (
-              <div
-                key={card.title}
-                className="rounded-2xl border border-white/10 bg-black/20 p-4 backdrop-blur"
-              >
-                <p className="text-[11px] uppercase tracking-[0.22em] text-slate-400">
-                  {card.title}
-                </p>
-                <div className="mt-3 text-lg font-semibold">{card.value}</div>
-                <p className="mt-2 text-xs leading-5 text-slate-300">{card.detail}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {children}
-    </div>
-  )
 }
 
 function OverviewSection() {
@@ -584,10 +313,7 @@ function OverviewSection() {
               <p className="text-sm text-muted-foreground">当前无持久化告警。</p>
             ) : (
               alarms.slice(0, 8).map((alarm) => (
-                <div
-                  key={alarm.id}
-                  className="rounded-2xl border border-slate-200/80 bg-slate-50/70 p-4"
-                >
+                <ViewerAdminSoftCard key={alarm.id} className="p-4">
                   <div className="flex items-center justify-between">
                     <span className="font-medium">{alarm.message}</span>
                     <Badge variant={alarm.acknowledged ? 'outline' : 'destructive'}>
@@ -597,7 +323,7 @@ function OverviewSection() {
                   <p className="mt-2 text-xs text-muted-foreground">
                     {new Date(alarm.timestamp).toLocaleString('zh-CN')} · {alarm.level}
                   </p>
-                </div>
+                </ViewerAdminSoftCard>
               ))
             )}
           </div>
@@ -613,10 +339,7 @@ function OverviewSection() {
               <p className="text-sm text-muted-foreground">当前暂无审计事件。</p>
             ) : (
               auditEvents.slice(0, 8).map((event) => (
-                <div
-                  key={event.id}
-                  className="rounded-2xl border border-slate-200/80 bg-slate-50/70 p-4"
-                >
+                <ViewerAdminSoftCard key={event.id} className="p-4">
                   <div className="flex items-center justify-between gap-3">
                     <span className="font-medium">{event.action}</span>
                     <Badge variant="outline">{event.resourceType}</Badge>
@@ -625,7 +348,7 @@ function OverviewSection() {
                     {event.actor} · {event.resourceId} ·{' '}
                     {new Date(event.createdAt).toLocaleString('zh-CN')}
                   </p>
-                </div>
+                </ViewerAdminSoftCard>
               ))
             )}
           </div>
@@ -643,16 +366,16 @@ function OverviewSection() {
               <Link
                 key={item.href}
                 href={item.href}
-                className="group rounded-2xl border border-slate-200/80 bg-slate-50/70 p-4 transition hover:border-slate-300 hover:bg-white"
+                className="viewer-admin-link-card group p-4"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <p className="font-medium text-slate-900">{item.title}</p>
+                    <p className="font-medium text-foreground">{item.title}</p>
                     <p className="mt-2 text-sm leading-6 text-muted-foreground">
                       {item.description}
                     </p>
                   </div>
-                  <ArrowUpRight className="h-4 w-4 text-slate-400 transition group-hover:text-slate-900" />
+                  <ArrowUpRight className="h-4 w-4 text-muted-foreground transition group-hover:text-foreground" />
                 </div>
               </Link>
             ))}
@@ -665,20 +388,20 @@ function OverviewSection() {
           description="总览页要给出一条明确的后台工作路径。"
         >
           <div className="space-y-3 text-sm text-muted-foreground">
-            <div className="rounded-2xl border border-slate-200/80 bg-slate-50/70 p-4">
-              <div className="flex items-center gap-2 font-medium text-slate-900">
+            <ViewerAdminSoftCard className="p-4">
+              <div className="flex items-center gap-2 font-medium text-foreground">
                 <Clock3 className="h-4 w-4" />
                 先刷新治理数据
               </div>
               <p className="mt-2 leading-6">先确认告警与最近变更，再决定是处理现场问题还是进入配置编辑。</p>
-            </div>
-            <div className="rounded-2xl border border-slate-200/80 bg-slate-50/70 p-4">
-              <div className="flex items-center gap-2 font-medium text-slate-900">
+            </ViewerAdminSoftCard>
+            <ViewerAdminSoftCard className="p-4">
+              <div className="flex items-center gap-2 font-medium text-foreground">
                 <Workflow className="h-4 w-4" />
                 变更后回到总览复核
               </div>
               <p className="mt-2 leading-6">后台保存会立即生效，回到总览确认结果应是默认闭环动作。</p>
-            </div>
+            </ViewerAdminSoftCard>
           </div>
         </SectionPanel>
       </div>
@@ -1618,7 +1341,7 @@ function EntitiesSection() {
                         'w-full rounded-2xl border px-3 py-3 text-left text-sm transition',
                         selectedEntityId === entity.id && draftSeed === null
                           ? 'border-primary bg-primary/10 shadow-[0_20px_50px_-42px_rgba(14,165,233,0.8)]'
-                          : 'border-slate-200/80 bg-slate-50/70 hover:border-slate-300 hover:bg-white'
+                          : 'viewer-admin-soft-card'
                       )}
                       onClick={() => {
                         setDraftSeed(null)
@@ -1627,7 +1350,7 @@ function EntitiesSection() {
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div>
-                          <div className="font-medium text-slate-950">{entity.name}</div>
+                          <div className="font-medium text-foreground">{entity.name}</div>
                           <div className="mt-1 text-xs text-muted-foreground">{entity.id}</div>
                         </div>
                         <Badge variant="outline" className="rounded-full">
@@ -1672,20 +1395,17 @@ function EntitiesSection() {
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             {typeSummary.length > 0 ? (
               typeSummary.map(([type, count]) => (
-                <div
-                  key={type}
-                  className="rounded-2xl border border-slate-200/80 bg-slate-50/70 p-4"
-                >
+                <ViewerAdminSoftCard key={type} className="p-4">
                   <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
                     {type}
                   </p>
                   <div className="mt-2 text-2xl font-semibold">{count}</div>
-                </div>
+                </ViewerAdminSoftCard>
               ))
             ) : (
-              <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50/70 p-4 text-sm text-muted-foreground">
+              <ViewerAdminEmptyCard className="border-dashed p-4 text-sm text-muted-foreground">
                 当前实体列表为空，先从左侧创建模板。
-              </div>
+              </ViewerAdminEmptyCard>
             )}
           </div>
 
@@ -1897,7 +1617,7 @@ function ConnectorsSection() {
                         'w-full rounded-2xl border px-3 py-3 text-left text-sm transition',
                         selectedConnectorId === connector.id && draftSeed === null
                           ? 'border-primary bg-primary/10 shadow-[0_20px_50px_-42px_rgba(14,165,233,0.8)]'
-                          : 'border-slate-200/80 bg-slate-50/70 hover:border-slate-300 hover:bg-white'
+                          : 'viewer-admin-soft-card'
                       )}
                       onClick={() => {
                         setDraftSeed(null)
@@ -1906,7 +1626,7 @@ function ConnectorsSection() {
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div>
-                          <div className="font-medium text-slate-950">{connector.name}</div>
+                          <div className="font-medium text-foreground">{connector.name}</div>
                           <div className="mt-1 text-xs text-muted-foreground">{connector.id}</div>
                         </div>
                         <Badge variant="outline" className="rounded-full">
@@ -2736,7 +2456,7 @@ function AlarmsSection() {
             alarms.map((alarm) => (
               <div
                 key={alarm.id}
-                className="rounded-2xl border border-slate-200/80 bg-slate-50/70 p-4"
+                className="viewer-admin-soft-card p-4"
               >
                 <div className="flex items-center justify-between gap-3">
                   <div>
@@ -2829,7 +2549,7 @@ function AuditSection() {
             auditEvents.map((event) => (
               <div
                 key={event.id}
-                className="rounded-2xl border border-slate-200/80 bg-slate-50/70 p-4"
+                className="viewer-admin-soft-card p-4"
               >
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>

@@ -40,10 +40,11 @@ const SceneContent = memo(function SceneContent({ backgroundColor }: SceneConten
   const pickRootRef = useRef<THREE.Group>(null)
   const lastDrawCallsRef = useRef(0)
   const sampledDrawCallsRef = useRef(0)
+  const hasInitializedPresetRef = useRef(false)
+  const previousActiveCameraPresetRef = useRef<string | null>(null)
   const { resolvedTheme } = useTheme()
   const gl = useThree((state) => state.gl)
   const sceneConfig = useDigitalTwinStore((state) => state.sceneConfig)
-  const viewMode = useDigitalTwinStore((state) => state.viewMode)
   const activeCameraPreset = useDigitalTwinStore((state) => state.activeCameraPreset)
   const cameraFocusRequest = useDigitalTwinStore((state) => state.cameraFocusRequest)
   const cameraPresets = useDigitalTwinStore((state) => state.cameraPresets)
@@ -86,19 +87,33 @@ const SceneContent = memo(function SceneContent({ backgroundColor }: SceneConten
 
   // 应用相机预设
   useEffect(() => {
-    if (!controlsRef.current || !activeCameraPreset) return
-    
+    const controls = controlsRef.current
+    if (!controls || !activeCameraPreset) {
+      previousActiveCameraPresetRef.current = activeCameraPreset
+      return
+    }
+
     const preset = cameraPresets.find((p) => p.id === activeCameraPreset)
     if (!preset) return
 
-    controlsRef.current.object.position.set(
-      preset.position.x,
-      preset.position.y,
-      preset.position.z
-    )
-    controlsRef.current.target.set(preset.target.x, preset.target.y, preset.target.z)
-    focusAnimationRef.current = null
-    controlsRef.current.update()
+    const shouldAnimatePreset =
+      hasInitializedPresetRef.current &&
+      previousActiveCameraPresetRef.current !== activeCameraPreset
+
+    if (shouldAnimatePreset) {
+      focusAnimationRef.current = {
+        position: preset.position,
+        target: preset.target,
+      }
+    } else {
+      controls.object.position.set(preset.position.x, preset.position.y, preset.position.z)
+      controls.target.set(preset.target.x, preset.target.y, preset.target.z)
+      focusAnimationRef.current = null
+      controls.update()
+      hasInitializedPresetRef.current = true
+    }
+
+    previousActiveCameraPresetRef.current = activeCameraPreset
   }, [activeCameraPreset, cameraPresets])
 
   useEffect(() => {
@@ -111,6 +126,7 @@ const SceneContent = memo(function SceneContent({ backgroundColor }: SceneConten
   }, [cameraFocusRequest])
 
   useFrame(({ clock, camera }, delta) => {
+    const controls = controlsRef.current
     if (controlsRef.current && focusAnimationRef.current) {
       const { position, target } = focusAnimationRef.current
       const smoothing = 1 - Math.exp(-delta * 8)
@@ -143,11 +159,20 @@ const SceneContent = memo(function SceneContent({ backgroundColor }: SceneConten
       }
     }
 
+    const runtimeCameraTarget = controls
+      ? {
+          x: controls.target.x,
+          y: controls.target.y,
+          z: controls.target.z,
+        }
+      : sceneConfig.cameraTarget
+
     advanceRuntime(
       clock.elapsedTime * 1000,
       delta * 1000,
       { x: camera.position.x, y: camera.position.y, z: camera.position.z },
-      sampledDrawCallsRef.current
+      sampledDrawCallsRef.current,
+      runtimeCameraTarget
     )
   })
 
@@ -195,7 +220,7 @@ const SceneContent = memo(function SceneContent({ backgroundColor }: SceneConten
         dampingFactor={0.05}
         minDistance={5}
         maxDistance={280}
-        maxPolarAngle={viewMode === 'topdown' ? 0 : Math.PI / 2.1}
+        maxPolarAngle={Math.PI / 2.1}
         target={[sceneConfig.cameraTarget.x, sceneConfig.cameraTarget.y, sceneConfig.cameraTarget.z]}
       />
       <ScenePicking pickRootRef={pickRootRef} />

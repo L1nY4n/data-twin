@@ -2,14 +2,14 @@
 
 import { useMemo, useState } from 'react'
 import {
-  User, 
-  Car, 
-  Cog, 
+  User,
+  Car,
+  Cog,
   Radar,
   Camera,
-  MapPin, 
+  MapPin,
   LocateFixed,
-  Search, 
+  Search,
   ChevronRight,
   Circle,
   AlertTriangle,
@@ -19,10 +19,14 @@ import { useDigitalTwinStore } from '@/lib/digital-twin/store'
 import type { EntityType, EntityStatus } from '@/lib/digital-twin/types'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Checkbox } from '@/components/ui/checkbox'
+import {
+  ViewerAdminPanelHeader,
+  ViewerAdminSidePanelBody,
+  ViewerAdminSoftCard,
+} from '@/components/viewer-admin/primitives'
 import { cn } from '@/lib/utils'
 
 const ENTITY_TYPE_CONFIG: Record<EntityType, { icon: typeof User; label: string; color: string }> = {
@@ -131,28 +135,28 @@ export function EntityListPanel() {
   }
 
   return (
-    <div className="flex h-full flex-col">
-      {/* 标题和添加按钮 */}
-      <div className="flex items-center justify-between border-b px-3 py-2">
-        <span className="text-sm font-medium">实体列表</span>
-        <span className="text-[11px] text-muted-foreground">运行态只读</span>
-      </div>
+    <ViewerAdminSidePanelBody>
+      <ViewerAdminPanelHeader
+        title="实体列表"
+        trailing={<span className="viewer-admin-kicker text-[11px]">运行态只读</span>}
+        className="viewer-admin-entity-panel-header px-3 py-2"
+      />
 
       {/* 搜索栏 */}
-      <div className="border-b p-3">
+      <div className="border-b px-3 py-2">
         <div className="relative">
-          <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
             placeholder="搜索实体..."
             value={entityFilters.searchQuery}
             onChange={(e) => setEntityFilters({ searchQuery: e.target.value })}
-            className="h-8 pl-8 text-sm"
+            className="viewer-admin-entity-search"
           />
         </div>
         <Button
           variant="ghost"
           size="sm"
-          className="mt-2 h-7 w-full text-xs"
+          className="viewer-admin-entity-filter-toggle mt-2 w-full"
           onClick={() => setShowFilters(!showFilters)}
         >
           {showFilters ? '隐藏筛选' : '显示筛选'}
@@ -160,7 +164,7 @@ export function EntityListPanel() {
 
         {/* 筛选选项 */}
         {showFilters && (
-          <div className="mt-2 space-y-2 rounded-md border p-2">
+          <ViewerAdminSoftCard className="mt-2 space-y-2 p-2">
             <div>
               <span className="text-xs text-muted-foreground">类型</span>
               <div className="mt-1 flex flex-wrap gap-1">
@@ -191,13 +195,13 @@ export function EntityListPanel() {
                 ))}
               </div>
             </div>
-          </div>
+          </ViewerAdminSoftCard>
         )}
       </div>
 
       {/* 实体列表 */}
       <ScrollArea className="flex-1">
-        <div className="p-2">
+        <div className="px-2 py-1.5">
           {(Object.keys(ENTITY_TYPE_CONFIG) as EntityType[]).map((type) => {
             const config = ENTITY_TYPE_CONFIG[type]
             const Icon = config.icon
@@ -214,37 +218,35 @@ export function EntityListPanel() {
                 <CollapsibleTrigger asChild>
                   <Button
                     variant="ghost"
-                    className="h-9 w-full justify-between px-2 hover:bg-accent"
+                    className="viewer-admin-entity-group-trigger w-full justify-between"
                   >
                     <div className="flex items-center gap-2">
                       <ChevronRight
                         className={cn(
-                          'h-4 w-4 transition-transform',
+                          'h-3.5 w-3.5 transition-transform',
                           isExpanded && 'rotate-90'
                         )}
                       />
-                      <Icon className="h-4 w-4" style={{ color: config.color }} />
-                      <span className="text-sm">{config.label}</span>
+                      <Icon className="h-3.5 w-3.5" style={{ color: config.color }} />
+                      <span>{config.label}</span>
                     </div>
-                    <div className="flex items-center gap-1">
-                      <Badge variant="secondary" className="h-5 px-1.5 text-xs">
-                        {typeEntities.length}
-                      </Badge>
+                    <div className="viewer-admin-entity-group-meta flex items-center gap-1.5">
+                      <span>{typeEntities.length}</span>
                       {counts[type].warning > 0 && (
-                        <Badge variant="outline" className="h-5 px-1 text-xs text-amber-500">
+                        <span className="text-amber-400/90">
                           {counts[type].warning}
-                        </Badge>
+                        </span>
                       )}
                       {counts[type].error > 0 && (
-                        <Badge variant="outline" className="h-5 px-1 text-xs text-red-500">
+                        <span className="text-red-400/90">
                           {counts[type].error}
-                        </Badge>
+                        </span>
                       )}
                     </div>
                   </Button>
                 </CollapsibleTrigger>
                 <CollapsibleContent>
-                  <div className="ml-6 space-y-0.5 py-1">
+                  <div className="ml-4 space-y-0 py-1">
                     {typeEntities.map((entity) => (
                       <EntityListItem
                         key={entity.id}
@@ -266,7 +268,7 @@ export function EntityListPanel() {
           })}
         </div>
       </ScrollArea>
-    </div>
+    </ViewerAdminSidePanelBody>
   )
 }
 
@@ -284,16 +286,16 @@ function EntityListItem({ entity, isSelected, onSelect, onFocus }: EntityListIte
   return (
     <div
       className={cn(
-        'flex items-center gap-1 rounded-md transition-colors',
-        isSelected && 'bg-accent'
+        'viewer-admin-list-item flex items-center gap-1 transition-colors',
+        isSelected && 'is-active'
       )}
     >
       <button
         type="button"
         onClick={onSelect}
         className={cn(
-          'flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors',
-          !isSelected && 'hover:bg-accent'
+          'viewer-admin-entity-row-main flex min-w-0 flex-1 items-center gap-2 text-left transition-colors',
+          !isSelected && 'hover:bg-transparent'
         )}
       >
         <StatusIcon
@@ -305,15 +307,14 @@ function EntityListItem({ entity, isSelected, onSelect, onFocus }: EntityListIte
       </button>
       <Button
         type="button"
-        variant={isSelected ? 'secondary' : 'ghost'}
+        variant="ghost"
         size="sm"
-        className="h-7 px-2 text-xs"
+        className="viewer-admin-entity-focus h-6 w-6 rounded-lg p-0"
         onClick={onFocus}
         title={`定位到 ${entity.name}`}
         aria-label={`定位到 ${entity.name}`}
       >
         <LocateFixed className="h-3.5 w-3.5" />
-        定位
       </Button>
     </div>
   )

@@ -409,10 +409,7 @@ async fn editor_save_rejects_stale_scene_versions_without_writing_changes() {
         .unwrap();
     assert_eq!(stale_save.status(), StatusCode::CONFLICT);
     let stale_save_body = parse_json(stale_save).await;
-    assert_eq!(
-        stale_save_body["code"],
-        json!("scene_version_conflict")
-    );
+    assert_eq!(stale_save_body["code"], json!("scene_version_conflict"));
     assert_eq!(
         stale_save_body["expectedSceneVersion"],
         json!(stale_version)
@@ -486,7 +483,7 @@ async fn overview_alarm_and_audit_endpoints_reflect_admin_state() {
     assert_eq!(initial_overview.status(), StatusCode::OK);
     let initial_overview_body = parse_json(initial_overview).await;
     assert_eq!(initial_overview_body["sceneVersion"], json!(1));
-    assert_eq!(initial_overview_body["entityCount"], json!(9));
+    assert_eq!(initial_overview_body["entityCount"], json!(13));
     assert_eq!(initial_overview_body["ruleCount"], json!(1));
     assert_eq!(initial_overview_body["connectorCount"], json!(0));
     assert_eq!(initial_overview_body["bindingCount"], json!(0));

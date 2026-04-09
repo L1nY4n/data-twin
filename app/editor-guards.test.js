@@ -24,6 +24,8 @@ describe('editor guards', () => {
     expect(sidebar.includes('/admin/overview')).toBe(false)
     expect(sidebar.includes('搜索墙体、门、摄像头、传感器、温控器')).toBe(true)
     expect(sidebar.includes('EDITOR_CATALOG_TRANSFER_MIME')).toBe(true)
+    expect(sidebar.includes('buildEditorSceneTree')).toBe(true)
+    expect(sidebar.includes('未分区 / 场景根')).toBe(true)
     expect(sidebar.includes("from '@/components/ui/sidebar'")).toBe(false)
   })
 

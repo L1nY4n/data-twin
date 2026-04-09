@@ -21,6 +21,12 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
+  ViewerAdminEmptyCard,
+  ViewerAdminPanelHeader,
+  ViewerAdminSidePanelBody,
+  ViewerAdminSoftCard,
+} from '@/components/viewer-admin/primitives'
+import {
   LineChart,
   Line,
   XAxis,
@@ -75,7 +81,8 @@ export function BottomPanel() {
   const acknowledgeIncident = useDigitalTwinStore((state) => state.acknowledgeIncident)
   const acknowledgeAlarm = useDigitalTwinStore((state) => state.acknowledgeAlarm)
   const entityDirectory = useDigitalTwinStore((state) => state.entityDirectory)
-  const rules = useDigitalTwinStore((state) => Array.from(state.rules.values()))
+  const ruleMap = useDigitalTwinStore((state) => state.rules)
+  const rules = useMemo(() => Array.from(ruleMap.values()), [ruleMap])
   const unacknowledgedAlarmCount = useMemo(
     () => alarms.reduce((count, alarm) => (alarm.acknowledged ? count : count + 1), 0),
     [alarms]
@@ -143,13 +150,13 @@ export function BottomPanel() {
   }, [])
 
   return (
-    <div className="flex h-full flex-col">
+    <ViewerAdminSidePanelBody>
       <Tabs 
         value={bottomPanelTab} 
         onValueChange={(v) => setBottomPanelTab(v as typeof bottomPanelTab)}
         className="flex h-full flex-col"
       >
-        <div className="flex items-center justify-between border-b px-4">
+        <div className="flex items-center justify-between border-b border-white/8 px-4">
           <TabsList className="h-10">
             <TabsTrigger value="timeline" className="gap-1.5 text-xs">
               <Clock className="h-3.5 w-3.5" />
@@ -187,32 +194,36 @@ export function BottomPanel() {
           <TabsContent value="timeline" className="m-0 h-full">
             <div className="flex h-full">
               {/* 事件流 */}
-              <div className="w-[360px] border-r">
-                <div className="flex items-center justify-between border-b px-3 py-2">
-                  <span className="text-sm font-medium">Citation / 事件流</span>
-                  <Badge variant="outline" className="text-xs">
-                    {incidents.length}
-                  </Badge>
-                </div>
+              <div className="w-[360px] border-r border-white/8">
+                <ViewerAdminPanelHeader
+                  title="Citation / 事件流"
+                  trailing={
+                    <Badge variant="outline" className="text-xs">
+                      {incidents.length}
+                    </Badge>
+                  }
+                  className="px-3 py-2"
+                />
                 <ScrollArea className="h-[calc(100%-41px)]">
                   <div className="space-y-1 p-2">
                     {incidents.length === 0 ? (
                       <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
                         <Sparkles className="mb-2 h-8 w-8" />
                         <span className="text-sm">等待事件联动</span>
-                        <span className="mt-1 text-xs">移动中的人 / 车会持续生成 mock Citation</span>
+                        <span className="mt-1 text-xs">等待外部数据源推送事件与告警</span>
                       </div>
                     ) : (
                       incidents.map((incident) => {
                         const Icon = ALARM_ICON_MAP[incident.severity]
                         const color = ALARM_COLOR_MAP[incident.severity]
                         return (
-                          <div
+                          <ViewerAdminSoftCard
                             key={incident.id}
                             className={cn(
-                              'rounded-md border p-3 transition-colors',
+                              'rounded-xl p-3 transition-colors',
                               incident.acknowledged && 'opacity-50',
-                              activeIncident?.id === incident.id && 'border-primary bg-primary/5'
+                              activeIncident?.id === incident.id &&
+                                'border-primary/50 bg-primary/10'
                             )}
                             onClick={() => setActiveIncident(incident.id)}
                           >
@@ -283,7 +294,7 @@ export function BottomPanel() {
                                 </Button>
                               )}
                             </div>
-                          </div>
+                          </ViewerAdminSoftCard>
                         )
                       })
                     )}
@@ -293,7 +304,7 @@ export function BottomPanel() {
 
               {/* 事件详情与实时统计 */}
               <div className="flex-1 p-4">
-                <div className="mb-4 rounded-xl border p-4">
+                <ViewerAdminSoftCard className="mb-4 p-4">
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <div className="text-xs uppercase tracking-[0.22em] text-muted-foreground">
@@ -316,16 +327,16 @@ export function BottomPanel() {
                   {activeIncident?.citations?.length ? (
                     <div className="mt-4 grid gap-2 md:grid-cols-2">
                       {activeIncident.citations.map((citation) => (
-                        <div key={citation.id} className="rounded-lg border bg-muted/30 p-3">
+                        <ViewerAdminSoftCard key={citation.id} className="rounded-xl p-3">
                           <div className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
                             {citation.label}
                           </div>
                           <div className="mt-1 text-sm">{citation.value}</div>
-                        </div>
+                        </ViewerAdminSoftCard>
                       ))}
                     </div>
                   ) : null}
-                </div>
+                </ViewerAdminSoftCard>
 
                 <div className="grid grid-cols-2 gap-4 xl:grid-cols-5">
                   <StatCard
@@ -358,7 +369,7 @@ export function BottomPanel() {
                   />
                 </div>
 
-                <div className="mt-4 rounded-xl border p-4">
+                <ViewerAdminSoftCard className="mt-4 p-4">
                   <div className="mb-3 flex items-center justify-between">
                     <span className="text-sm font-medium">告警摘要</span>
                     <Badge variant="outline">{alarms.length}</Badge>
@@ -367,7 +378,10 @@ export function BottomPanel() {
                     {alarms.slice(0, 4).map((alarm) => {
                       const Icon = ALARM_ICON_MAP[alarm.level]
                       return (
-                        <div key={alarm.id} className="flex items-center gap-3 rounded-lg border p-2.5">
+                        <ViewerAdminSoftCard
+                          key={alarm.id}
+                          className="flex items-center gap-3 rounded-xl p-2.5"
+                        >
                           <Icon className="h-4 w-4" style={{ color: ALARM_COLOR_MAP[alarm.level] }} />
                           <div className="min-w-0 flex-1">
                             <div className="truncate text-sm">{alarm.message}</div>
@@ -385,17 +399,17 @@ export function BottomPanel() {
                               确认
                             </Button>
                           )}
-                        </div>
+                        </ViewerAdminSoftCard>
                       )
                     })}
                     {alarms.length === 0 && (
-                      <div className="flex items-center gap-2 rounded-lg border border-dashed p-3 text-sm text-muted-foreground">
+                      <ViewerAdminEmptyCard className="flex items-center gap-2 border-dashed p-3 text-sm text-muted-foreground">
                         <CheckCircle2 className="h-4 w-4 text-green-500" />
                         当前无传统告警，重点关注事件联动卡片。
-                      </div>
+                      </ViewerAdminEmptyCard>
                     )}
                   </div>
-                </div>
+                </ViewerAdminSoftCard>
               </div>
             </div>
           </TabsContent>
@@ -403,11 +417,11 @@ export function BottomPanel() {
           {/* 规则摘要 */}
           <TabsContent value="rules" className="m-0 h-full">
             <div className="flex h-full flex-col gap-4 p-4">
-              <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+              <ViewerAdminSoftCard className="border-amber-300/30 bg-amber-300/10 p-4">
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <h4 className="text-sm font-medium text-amber-950">规则配置已迁移到后台管理中心</h4>
-                    <p className="mt-1 text-xs text-amber-900">
+                    <h4 className="text-sm font-medium text-amber-100/90">规则配置已迁移到后台管理中心</h4>
+                    <p className="mt-1 text-xs text-amber-100/70">
                       运行态仅展示规则摘要和告警结果，规则作者入口、保存与校验统一在后台完成。
                     </p>
                   </div>
@@ -415,7 +429,7 @@ export function BottomPanel() {
                     <Link href="/admin/rules">前往管理中心</Link>
                   </Button>
                 </div>
-              </div>
+              </ViewerAdminSoftCard>
 
               <div className="grid gap-4 md:grid-cols-3">
                 <StatCard label="规则总数" value={rules.length} color="#8b5cf6" />
@@ -431,15 +445,15 @@ export function BottomPanel() {
                 />
               </div>
 
-              <ScrollArea className="flex-1 rounded-lg border">
+              <ScrollArea className="viewer-admin-soft-card flex-1 rounded-2xl">
                 <div className="space-y-3 p-4">
                   {rules.length === 0 ? (
-                    <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+                    <ViewerAdminEmptyCard className="border-dashed p-6 text-center text-sm text-muted-foreground">
                       当前未加载规则配置。
-                    </div>
+                    </ViewerAdminEmptyCard>
                   ) : (
                     rules.map((rule) => (
-                      <div key={rule.id} className="rounded-lg border p-4">
+                      <ViewerAdminSoftCard key={rule.id} className="rounded-xl p-4">
                         <div className="flex items-start justify-between gap-4">
                           <div>
                             <div className="text-sm font-medium">{rule.name}</div>
@@ -456,7 +470,7 @@ export function BottomPanel() {
                           <span>{rule.edges.length} 条连线</span>
                           <span>version {rule.version ?? 1}</span>
                         </div>
-                      </div>
+                      </ViewerAdminSoftCard>
                     ))
                   )}
                 </div>
@@ -468,7 +482,7 @@ export function BottomPanel() {
           <TabsContent value="charts" className="m-0 h-full p-4">
             <div className="grid h-full grid-cols-2 gap-4">
               {/* 人员活动趋势 */}
-              <div className="rounded-lg border p-3">
+              <ViewerAdminSoftCard className="p-3">
                 <h4 className="mb-2 text-sm font-medium">实时活动趋势</h4>
                 <ResponsiveContainer width="100%" height={160}>
                   <AreaChart data={chartData}>
@@ -509,10 +523,10 @@ export function BottomPanel() {
                     />
                   </AreaChart>
                 </ResponsiveContainer>
-              </div>
+              </ViewerAdminSoftCard>
 
               {/* 设备状态 */}
-              <div className="rounded-lg border p-3">
+              <ViewerAdminSoftCard className="p-3">
                 <h4 className="mb-2 text-sm font-medium">设备运行状态</h4>
                 <ResponsiveContainer width="100%" height={160}>
                   <LineChart data={chartData}>
@@ -545,12 +559,12 @@ export function BottomPanel() {
                     />
                   </LineChart>
                 </ResponsiveContainer>
-              </div>
+              </ViewerAdminSoftCard>
             </div>
           </TabsContent>
         </div>
       </Tabs>
-    </div>
+    </ViewerAdminSidePanelBody>
   )
 }
 
@@ -564,10 +578,12 @@ interface StatCardProps {
 
 function StatCard({ label, value, total, color, isWarning }: StatCardProps) {
   return (
-    <div className={cn(
-      'rounded-lg border p-3',
-      isWarning && value > 0 && 'border-red-500/50 bg-red-500/5'
-    )}>
+    <ViewerAdminSoftCard
+      className={cn(
+        'p-3',
+        isWarning && value > 0 && 'border-red-400/40 bg-red-500/10'
+      )}
+    >
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className="mt-1 text-2xl font-bold" style={{ color }}>
         {value}
@@ -577,6 +593,6 @@ function StatCard({ label, value, total, color, isWarning }: StatCardProps) {
           </span>
         )}
       </p>
-    </div>
+    </ViewerAdminSoftCard>
   )
 }

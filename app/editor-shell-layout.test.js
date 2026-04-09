@@ -119,6 +119,8 @@ describe('editor shell layout and control affordances', () => {
     expect(sidebarSource.includes('item.thumbnailUrl')).toBe(true)
     expect(sidebarSource.includes('loading="lazy"')).toBe(true)
     expect(sidebarSource.includes('Math.round(item.dimensions.width)')).toBe(true)
+    expect(sidebarSource.includes('场景树')).toBe(true)
+    expect(sidebarSource.includes('未分区 / 场景根')).toBe(true)
     expect(inspectorSource.includes('Expand inspector panel')).toBe(true)
     expect(inspectorSource.includes('Collapse inspector panel')).toBe(true)
     expect(inspectorSource.includes('editor-edge-toggle--right')).toBe(true)

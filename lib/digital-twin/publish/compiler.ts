@@ -117,7 +117,7 @@ function resolveEquipmentSpread(placement: EquipmentPlacement) {
 function createSceneConfig(): SceneConfig {
   return {
     id: 'published-campus-runtime',
-    name: '化工园区数字孪生',
+    name: '数字孪生运行时场景',
     gridSize: CAMPUS_SCENE_CONFIG.gridSize,
     gridDivisions: CAMPUS_SCENE_CONFIG.gridDivisions,
     backgroundColor: '#09131d',

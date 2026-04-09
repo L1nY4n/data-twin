@@ -8,9 +8,12 @@ import {
   type ReactNode,
 } from 'react'
 import {
+  ChevronDown,
+  ChevronRight,
   Box,
   Factory,
   Layers3,
+  MapPinned,
   Search,
   TowerControl,
   Workflow,
@@ -36,11 +39,29 @@ import {
   listStaticAssetCatalog,
   matchesStaticAssetCatalogDomain,
 } from '@/lib/digital-twin/static-asset-catalog'
+import type {
+  Entity,
+  StaticAssetInstance,
+  Vector3,
+  ZoneEntity,
+} from '@/lib/digital-twin/types'
 import { cn } from '@/lib/utils'
 
 type ResourceTab = 'catalog' | 'scene'
 type CatalogFilter = 'all' | StaticAssetCatalogDomain
 type SceneLayerFilter = 'all' | 'static-assets' | 'runtime-entities'
+type TreeNodeKind = 'zone' | 'root'
+
+export type EditorSceneTreeSection = {
+  id: string
+  kind: TreeNodeKind
+  label: string
+  subtitle: string
+  assetCount: number
+  entityCount: number
+  assets: StaticAssetInstance[]
+  entities: Entity[]
+}
 
 type EditorAppSidebarProps = {
   className?: string
@@ -166,6 +187,111 @@ function matchesSceneGroup(
   return true
 }
 
+export function isPointInsideZoneBoundary(point: Vector3, boundary: Vector3[]) {
+  if (boundary.length < 3) return false
+
+  let inside = false
+  for (let i = 0, j = boundary.length - 1; i < boundary.length; j = i++) {
+    const xi = boundary[i].x
+    const zi = boundary[i].z
+    const xj = boundary[j].x
+    const zj = boundary[j].z
+
+    const intersects =
+      zi > point.z !== zj > point.z &&
+      point.x < ((xj - xi) * (point.z - zi)) / (zj - zi || Number.EPSILON) + xi
+
+    if (intersects) inside = !inside
+  }
+
+  return inside
+}
+
+export function buildEditorSceneTree(
+  zones: ZoneEntity[],
+  assets: StaticAssetInstance[],
+  entities: Entity[]
+): EditorSceneTreeSection[] {
+  const orderedZones = [...zones].sort((left, right) =>
+    left.name.localeCompare(right.name, 'zh-CN')
+  )
+  const zoneSections = orderedZones.map<EditorSceneTreeSection>((zone) => ({
+    id: zone.id,
+    kind: 'zone',
+    label: zone.name,
+    subtitle: `区域 · ${zone.zoneType}`,
+    assetCount: 0,
+    entityCount: 0,
+    assets: [],
+    entities: [],
+  }))
+
+  const rootSection: EditorSceneTreeSection = {
+    id: 'scene-root',
+    kind: 'root',
+    label: '未分区 / 场景根',
+    subtitle: '未落入任何区域边界的对象',
+    assetCount: 0,
+    entityCount: 0,
+    assets: [],
+    entities: [],
+  }
+
+  const findSectionForPoint = (point: Vector3) =>
+    zoneSections.find((section) => {
+      const zone = orderedZones.find((item) => item.id === section.id)
+      return zone ? isPointInsideZoneBoundary(point, zone.boundary) : false
+    }) ?? rootSection
+
+  for (const asset of assets) {
+    const section = findSectionForPoint(asset.position)
+    section.assets.push(asset)
+    section.assetCount += 1
+  }
+
+  for (const entity of entities) {
+    const section = findSectionForPoint(entity.position)
+    section.entities.push(entity)
+    section.entityCount += 1
+  }
+
+  return [...zoneSections, rootSection].filter(
+    (section) => section.assetCount > 0 || section.entityCount > 0
+  )
+}
+
+function TreeSectionTrigger({
+  label,
+  subtitle,
+  open,
+  onToggle,
+  assetCount,
+  entityCount,
+}: {
+  label: string
+  subtitle: string
+  open: boolean
+  onToggle: () => void
+  assetCount: number
+  entityCount: number
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className="editor-menu-button flex w-full items-center gap-2 px-2.5 py-2 text-left"
+    >
+      {open ? <ChevronDown className="size-4 shrink-0" /> : <ChevronRight className="size-4 shrink-0" />}
+      <MapPinned className="size-4 shrink-0 text-white/58" />
+      <div className="grid min-w-0 flex-1 gap-0.5 leading-tight">
+        <span className="truncate text-[11px] font-medium">{label}</span>
+        <span className="truncate text-[10px] text-white/38">{subtitle}</span>
+      </div>
+      <span className="editor-mini-pill">{assetCount + entityCount}</span>
+    </button>
+  )
+}
+
 export function EditorAppSidebar({
   className,
   collapsed = false,
@@ -187,6 +313,7 @@ export function EditorAppSidebar({
   const [catalogFilter, setCatalogFilter] = useState<CatalogFilter>('all')
   const [sceneLayerFilter, setSceneLayerFilter] = useState<SceneLayerFilter>('all')
   const [sceneGroupFilter, setSceneGroupFilter] = useState('all')
+  const [collapsedTreeSections, setCollapsedTreeSections] = useState<Record<string, boolean>>({})
 
   const catalogItems = listStaticAssetCatalog()
 
@@ -194,6 +321,14 @@ export function EditorAppSidebar({
     () =>
       [...entities.values()]
         .filter((entity) => entity.visible && isEditorEntityEditable(entity))
+        .sort((left, right) => left.name.localeCompare(right.name, 'zh-CN')),
+    [entities]
+  )
+
+  const visibleZones = useMemo(
+    () =>
+      [...entities.values()]
+        .filter((entity): entity is ZoneEntity => entity.visible && entity.type === 'zone')
         .sort((left, right) => left.name.localeCompare(right.name, 'zh-CN')),
     [entities]
   )
@@ -259,6 +394,11 @@ export function EditorAppSidebar({
       return normalizeText(`${entity.name} ${entity.type} ${entity.status}`).includes(keyword)
     })
   }, [editableEntities, sceneGroupFilter, sceneLayerFilter, sceneSearch])
+
+  const sceneTreeSections = useMemo(
+    () => buildEditorSceneTree(visibleZones, filteredAuthoredStaticAssets, filteredEditableEntities),
+    [filteredAuthoredStaticAssets, filteredEditableEntities, visibleZones]
+  )
 
   const sceneGroupOptions = useMemo(() => {
     const assetGroups = new Map<string, { label: string; count: number }>()
@@ -541,71 +681,93 @@ export function EditorAppSidebar({
                 <section className="editor-group p-1.5">
                   <div className="flex items-center justify-between px-2">
                     <div className="flex items-center gap-2">
-                      <Factory className="size-4 text-white/44" />
+                      <MapPinned className="size-4 text-white/44" />
                       <span className="text-[10px] font-medium uppercase tracking-[0.28em] text-white/38">
-                        已摆放对象
+                        场景树
                       </span>
                     </div>
-                    <span className="editor-mini-pill">{filteredAuthoredStaticAssets.length}</span>
+                    <span className="editor-mini-pill">{sceneTreeSections.length}</span>
                   </div>
-                  {filteredAuthoredStaticAssets.length > 0 ? (
+                  {sceneTreeSections.length > 0 ? (
                     <ul className="mt-1 flex flex-col gap-1">
-                      {filteredAuthoredStaticAssets.map((asset) => (
-                        <li key={asset.id}>
-                          <PanelMenuButton
-                            active={selectedStaticAssetId === asset.id}
-                            title={asset.name}
-                            onClick={() => selectStaticAsset(asset.id)}
-                          >
-                            <Factory className="mt-0.5 size-4 shrink-0" />
-                            <div className="grid min-w-0 flex-1 gap-1 text-left leading-tight">
-                              <span className="truncate font-medium">{asset.name}</span>
-                              <span className="line-clamp-1 text-[11px] text-white/46">
-                                {getStaticAssetKindLabel(asset.assetKind)}
-                                {asset.variant ? ` · ${asset.variant}` : ''}
-                              </span>
-                            </div>
-                          </PanelMenuButton>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <div className="mt-2 editor-empty">当前筛选下没有已摆放对象。</div>
-                  )}
-                </section>
+                      {sceneTreeSections.map((section) => {
+                        const open = !collapsedTreeSections[section.id]
 
-                <section className="editor-group p-1.5">
-                  <div className="flex items-center justify-between px-2">
-                    <div className="flex items-center gap-2">
-                      <Box className="size-4 text-white/44" />
-                      <span className="text-[10px] font-medium uppercase tracking-[0.28em] text-white/38">
-                        运行实体
-                      </span>
-                    </div>
-                    <span className="editor-mini-pill">{filteredEditableEntities.length}</span>
-                  </div>
-                  {filteredEditableEntities.length > 0 ? (
-                    <ul className="mt-1 flex flex-col gap-1">
-                      {filteredEditableEntities.map((entity) => (
-                        <li key={entity.id}>
-                          <PanelMenuButton
-                            active={selectedEntityId === entity.id}
-                            title={entity.name}
-                            onClick={() => selectEntity(entity.id)}
-                          >
-                            <Box className="mt-0.5 size-4 shrink-0" />
-                            <div className="grid min-w-0 flex-1 gap-1 text-left leading-tight">
-                              <span className="truncate font-medium">{entity.name}</span>
-                              <span className="line-clamp-1 text-[11px] text-white/46">
-                                {ENTITY_TYPE_LABELS[entity.type] ?? entity.type} · {entity.status}
-                              </span>
-                            </div>
-                          </PanelMenuButton>
-                        </li>
-                      ))}
+                        return (
+                          <li key={section.id} className="rounded-[14px] border border-white/6 bg-white/[0.02]">
+                            <TreeSectionTrigger
+                              label={section.label}
+                              subtitle={section.subtitle}
+                              open={open}
+                              onToggle={() =>
+                                setCollapsedTreeSections((current) => ({
+                                  ...current,
+                                  [section.id]: !current[section.id],
+                                }))
+                              }
+                              assetCount={section.assetCount}
+                              entityCount={section.entityCount}
+                            />
+                            {open ? (
+                              <div className="space-y-1 px-2 pb-2">
+                                {section.assets.length > 0 ? (
+                                  <div className="space-y-1 rounded-[12px] border border-white/6 bg-black/10 p-1.5">
+                                    <p className="px-2 text-[10px] uppercase tracking-[0.22em] text-white/34">
+                                      资产
+                                    </p>
+                                    {section.assets.map((asset) => (
+                                      <PanelMenuButton
+                                        key={asset.id}
+                                        active={selectedStaticAssetId === asset.id}
+                                        title={asset.name}
+                                        className="pl-7"
+                                        onClick={() => selectStaticAsset(asset.id)}
+                                      >
+                                        <Factory className="mt-0.5 size-4 shrink-0" />
+                                        <div className="grid min-w-0 flex-1 gap-1 text-left leading-tight">
+                                          <span className="truncate font-medium">{asset.name}</span>
+                                          <span className="line-clamp-1 text-[11px] text-white/46">
+                                            {getStaticAssetKindLabel(asset.assetKind)}
+                                            {asset.variant ? ` · ${asset.variant}` : ''}
+                                          </span>
+                                        </div>
+                                      </PanelMenuButton>
+                                    ))}
+                                  </div>
+                                ) : null}
+
+                                {section.entities.length > 0 ? (
+                                  <div className="space-y-1 rounded-[12px] border border-white/6 bg-black/10 p-1.5">
+                                    <p className="px-2 text-[10px] uppercase tracking-[0.22em] text-white/34">
+                                      实体
+                                    </p>
+                                    {section.entities.map((entity) => (
+                                      <PanelMenuButton
+                                        key={entity.id}
+                                        active={selectedEntityId === entity.id}
+                                        title={entity.name}
+                                        className="pl-7"
+                                        onClick={() => selectEntity(entity.id)}
+                                      >
+                                        <Box className="mt-0.5 size-4 shrink-0" />
+                                        <div className="grid min-w-0 flex-1 gap-1 text-left leading-tight">
+                                          <span className="truncate font-medium">{entity.name}</span>
+                                          <span className="line-clamp-1 text-[11px] text-white/46">
+                                            {ENTITY_TYPE_LABELS[entity.type] ?? entity.type} · {entity.status}
+                                          </span>
+                                        </div>
+                                      </PanelMenuButton>
+                                    ))}
+                                  </div>
+                                ) : null}
+                              </div>
+                            ) : null}
+                          </li>
+                        )
+                      })}
                     </ul>
                   ) : (
-                    <div className="mt-2 editor-empty">当前筛选下没有运行实体。</div>
+                    <div className="mt-2 editor-empty">当前筛选下没有可显示的场景树节点。</div>
                   )}
                 </section>
               </TabsContent>

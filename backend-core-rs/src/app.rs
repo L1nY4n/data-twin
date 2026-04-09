@@ -1,7 +1,7 @@
-use std::{error::Error, fmt};
+use std::{env, error::Error, fmt};
 
 use axum::{
-    http::{header::InvalidHeaderValue, HeaderValue, Method, Uri},
+    http::{header::InvalidHeaderValue, HeaderName, HeaderValue, Method, Uri},
     routing::{get, post, put},
     Router,
 };
@@ -17,6 +17,7 @@ use crate::{
     health::{live, ready},
     publish_service::PublishRuntime,
     realtime::{realtime_ws_handler, RealtimeState},
+    runtime_ingest::{post_runtime_ingest, RuntimeIngestState},
     site::bootstrap,
     store::{Store, StoreError},
 };
@@ -27,6 +28,8 @@ pub struct AppState {
     pub publish: PublishRuntime,
     pub publish_config: PublishConfig,
     pub realtime: RealtimeState,
+    pub runtime_ingest_token: Option<String>,
+    pub runtime_ingest_state: RuntimeIngestState,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -73,8 +76,28 @@ pub async fn build_app(allowed_origin: &str) -> Result<Router, AppBuildError> {
     build_app_with_options(allowed_origin, AppBuildOptions::default()).await
 }
 
+pub async fn build_app_with_database_url(
+    allowed_origin: &str,
+    database_url: &str,
+) -> Result<Router, AppBuildError> {
+    build_app_with_store(
+        allowed_origin,
+        Store::from_database_url(database_url).await?,
+        AppBuildOptions::default(),
+    )
+    .await
+}
+
 pub async fn build_app_with_options(
     allowed_origin: &str,
+    options: AppBuildOptions,
+) -> Result<Router, AppBuildError> {
+    build_app_with_store(allowed_origin, Store::from_env().await?, options).await
+}
+
+async fn build_app_with_store(
+    allowed_origin: &str,
+    store: Store,
     options: AppBuildOptions,
 ) -> Result<Router, AppBuildError> {
     let allowed_origins = parse_allowed_origins(allowed_origin)?;
@@ -83,14 +106,23 @@ pub async fn build_app_with_options(
         .cloned()
         .ok_or(AppBuildError::InvalidAllowedOriginSyntax)?;
     let realtime_state = RealtimeState::new(realtime_origin);
-    let store = Store::from_env().await?;
     let AppBuildOptions { publish_config } = options;
+    let runtime_ingest_token = env::var("RUNTIME_INGEST_TOKEN").ok().and_then(|value| {
+        let trimmed = value.trim().to_string();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed)
+        }
+    });
 
     let app_state = AppState {
         store,
         publish: PublishRuntime::default(),
         publish_config,
         realtime: realtime_state,
+        runtime_ingest_token,
+        runtime_ingest_state: RuntimeIngestState::default(),
     };
 
     Ok(Router::new()
@@ -156,6 +188,7 @@ pub async fn build_app_with_options(
             "/api/v1/admin/rules/:id/validate",
             post(admin::validate_rule),
         )
+        .route("/api/v1/runtime/ingest", post(post_runtime_ingest))
         .route("/ws/realtime", get(realtime_ws_handler))
         .with_state(app_state)
         .layer(
@@ -171,6 +204,7 @@ pub async fn build_app_with_options(
                 .allow_headers([
                     axum::http::header::CONTENT_TYPE,
                     axum::http::header::AUTHORIZATION,
+                    HeaderName::from_static("x-runtime-ingest-token"),
                 ]),
         )
         .layer(TraceLayer::new_for_http()))

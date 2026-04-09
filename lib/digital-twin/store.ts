@@ -23,6 +23,8 @@ import type {
   RuntimeDataSource,
   RuntimeIncident,
   StaticAssetInstance,
+  VehicleRouteContract,
+  VehicleTrackContract,
 } from './types'
 import {
   createEcsWorld,
@@ -51,6 +53,10 @@ import { createTickScheduler } from './ecs/scheduler'
 import { CAMPUS_BOUNDS } from './campus-layout'
 import { getEquipmentSimulationIntervalMs, shouldRunEquipmentSimulation } from './equipment-runtime'
 import { aggregatePoolMetrics } from './performance-runtime'
+import {
+  resolveEntitySimulationCadence,
+  shouldSimulateEntityThisTick,
+} from './runtime-simulation-cadence'
 import type { PublishedScenePackage } from './publish'
 import { DEFAULT_PUBLISHED_SCENE_PACKAGE } from './publish'
 import {
@@ -223,7 +229,13 @@ interface DigitalTwinActions {
   // ECS命令缓冲
   enqueueCommands: (commands: EcsCommand[]) => void
   flushCommands: () => void
-  advanceRuntime: (nowMs: number, deltaMs: number, cameraPosition: Vector3, drawCalls: number) => void
+  advanceRuntime: (
+    nowMs: number,
+    deltaMs: number,
+    cameraPosition: Vector3,
+    drawCalls: number,
+    cameraTarget?: Vector3
+  ) => void
   setRuntimeRunning: (running: boolean) => void
   resetRuntimeClock: () => void
 
@@ -343,7 +355,7 @@ const initialState: DigitalTwinState = {
 
   isConnected: false,
   connectionUrl: null,
-  rendererMode: 'webgl2',
+  rendererMode: 'webgpu',
   rendererBackend: 'unknown',
 
   qualityProfile: 'balanced',
@@ -482,6 +494,75 @@ function cloneAccessRules(rules: AccessRule[] | undefined): AccessRule[] | undef
     : undefined
 }
 
+function cloneRouteTrack(track: VehicleTrackContract | undefined): VehicleTrackContract | undefined {
+  return track
+    ? {
+        id: track.id,
+        loop: track.loop,
+        points: track.points.map((point) => ({ ...point })),
+      }
+    : undefined
+}
+
+function cloneTrackPosition(route: VehicleRouteContract | undefined): VehicleRouteContract | undefined {
+  return route
+    ? {
+        trackId: route.trackId,
+        segmentIndex: route.segmentIndex,
+        segmentProgress: route.segmentProgress,
+        ...(route.target ? { target: { ...route.target } } : {}),
+        ...(route.direction ? { direction: route.direction } : {}),
+      }
+    : undefined
+}
+
+function routeTrackEquals(
+  left: VehicleTrackContract | undefined,
+  right: VehicleTrackContract | undefined
+) {
+  if (!left && !right) return true
+  if (!left || !right) return false
+  if (left.id !== right.id || left.loop !== right.loop || left.points.length !== right.points.length) {
+    return false
+  }
+  for (let index = 0; index < left.points.length; index += 1) {
+    const leftPoint = left.points[index]
+    const rightPoint = right.points[index]
+    if (
+      !rightPoint ||
+      leftPoint.x !== rightPoint.x ||
+      leftPoint.y !== rightPoint.y ||
+      leftPoint.z !== rightPoint.z
+    ) {
+      return false
+    }
+  }
+  return true
+}
+
+function trackPositionEquals(
+  left: VehicleRouteContract | undefined,
+  right: VehicleRouteContract | undefined
+) {
+  if (!left && !right) return true
+  if (!left || !right) return false
+  if (
+    left.trackId !== right.trackId ||
+    left.segmentIndex !== right.segmentIndex ||
+    left.segmentProgress !== right.segmentProgress ||
+    left.direction !== right.direction
+  ) {
+    return false
+  }
+  if (!left.target && !right.target) return true
+  if (!left.target || !right.target) return false
+  return (
+    left.target.x === right.target.x &&
+    left.target.y === right.target.y &&
+    left.target.z === right.target.z
+  )
+}
+
 function toCreatePayload(entity: Entity): EcsCreatePayload {
   const payload: EcsCreatePayload = {
     id: entity.id,
@@ -513,6 +594,8 @@ function toCreatePayload(entity: Entity): EcsCreatePayload {
     payload.speed = entity.speed
     payload.capacity = entity.capacity
     payload.currentLoad = entity.currentLoad
+    payload.routeTrack = cloneRouteTrack(entity.routeTrack)
+    payload.trackPosition = cloneTrackPosition(entity.trackPosition)
     return payload
   }
 
@@ -597,6 +680,8 @@ function snapshotToEntity(snapshot: EcsEntitySnapshot): Entity {
       heading: snapshot.heading ?? 0,
       capacity: snapshot.capacity,
       currentLoad: snapshot.currentLoad,
+      routeTrack: cloneRouteTrack(snapshot.routeTrack),
+      trackPosition: cloneTrackPosition(snapshot.trackPosition),
       labelMode: snapshot.labelMode,
     }
   }
@@ -729,6 +814,8 @@ function canReuseProjectedEntity(previous: Entity, snapshot: EcsEntitySnapshot):
       && entity.vehicleType === (snapshot.vehicleType ?? entity.vehicleType)
       && entity.capacity === snapshot.capacity
       && entity.currentLoad === snapshot.currentLoad
+      && routeTrackEquals(entity.routeTrack, snapshot.routeTrack)
+      && trackPositionEquals(entity.trackPosition, snapshot.trackPosition)
   }
 
   if (snapshot.type === 'equipment') {
@@ -1351,8 +1438,10 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
     let lastEquipmentSimulationAt = 0
     let lastHtmlLabelCount = 0
     let smoothFramesStreak = 0
+    let fixedTickCount = 0
     const frameTimes: number[] = []
     let latestCamera: Vector3 = { x: 0, y: 0, z: 0 }
+    let latestCameraTarget: Vector3 | null = null
     let latestDrawCalls = 0
 
     function syncImmediateLabelLod() {
@@ -1388,6 +1477,7 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
         const updates: EcsCommand[] = []
         const trajectoryUpdates: Array<{ entityId: string; point: { position: Vector3; timestamp: number } }> = []
         const newAlarms: Alarm[] = []
+        fixedTickCount += 1
         const movingSnapshots = collectVisibleSnapshotsByTypes(ecsWorld, [
           'person',
           'vehicle',
@@ -1401,6 +1491,20 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
         )
 
         for (const snapshot of movingSnapshots) {
+          const simulationCadence = resolveEntitySimulationCadence({
+            entityPosition: snapshot.position,
+            cameraPosition: latestCamera,
+            cameraTarget: latestCameraTarget,
+            isInteractionCritical:
+              snapshot.id === selectedEntityId ||
+              snapshot.id === hoveredEntityId ||
+              snapshot.labelMode === 'html' ||
+              (isPlayingTrajectory && snapshot.id === selectedEntityId),
+          })
+          if (!shouldSimulateEntityThisTick(fixedTickCount, simulationCadence)) {
+            continue
+          }
+
           const movement = simulateEntityMovement(
             {
               type: snapshot.type,
@@ -1696,6 +1800,7 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
       lastEquipmentSimulationAt = 0
       lastHtmlLabelCount = 0
       smoothFramesStreak = 0
+      fixedTickCount = 0
       frameTimes.length = 0
     }
 
@@ -2038,8 +2143,9 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
         }
       },
 
-      advanceRuntime: (nowMs, _deltaMs, cameraPosition, drawCalls) => {
+      advanceRuntime: (nowMs, _deltaMs, cameraPosition, drawCalls, cameraTarget) => {
         latestCamera = cameraPosition
+        latestCameraTarget = cameraTarget ? { ...cameraTarget } : latestCameraTarget
         latestDrawCalls = drawCalls
         scheduler.advance(nowMs)
       },

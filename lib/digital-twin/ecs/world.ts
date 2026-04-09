@@ -16,6 +16,8 @@ import type {
   SensorType,
   TimeRange,
   Vector3,
+  VehicleRouteContract,
+  VehicleTrackContract,
 } from '@/lib/digital-twin/types'
 import { ObjectPool } from './pool'
 import type { LabelMode } from './label-lod'
@@ -104,6 +106,8 @@ export interface EcsEntitySnapshot {
   vehicleType?: 'car' | 'truck' | 'forklift' | 'agv' | 'other'
   capacity?: number
   currentLoad?: number
+  routeTrack?: VehicleTrackContract
+  trackPosition?: VehicleRouteContract
   modelId?: string
   modelUrl?: string
   parameters?: Record<string, number | string | boolean>
@@ -149,6 +153,8 @@ export interface EcsCreatePayload {
   vehicleType?: 'car' | 'truck' | 'forklift' | 'agv' | 'other'
   capacity?: number
   currentLoad?: number
+  routeTrack?: VehicleTrackContract
+  trackPosition?: VehicleRouteContract
   modelId?: string
   modelUrl?: string
   parameters?: Record<string, number | string | boolean>
@@ -356,6 +362,8 @@ function applyCreate(world: EcsWorld, eid: number, payload: EcsCreatePayload) {
     vehicleType: payload.vehicleType,
     capacity: payload.capacity,
     currentLoad: payload.currentLoad,
+    routeTrack: cloneRouteTrack(payload.routeTrack),
+    trackPosition: cloneTrackPosition(payload.trackPosition),
     modelId: payload.modelId,
     modelUrl: payload.modelUrl,
     parameters: payload.parameters ? { ...payload.parameters } : undefined,
@@ -399,6 +407,10 @@ function applyUpdate(world: EcsWorld, eid: number, payload: EcsUpdatePayload) {
   if (updates.vehicleType !== undefined) existing.vehicleType = updates.vehicleType
   if (updates.capacity !== undefined) existing.capacity = updates.capacity
   if (updates.currentLoad !== undefined) existing.currentLoad = updates.currentLoad
+  if (updates.routeTrack !== undefined) existing.routeTrack = cloneRouteTrack(updates.routeTrack)
+  if (updates.trackPosition !== undefined) {
+    existing.trackPosition = cloneTrackPosition(updates.trackPosition)
+  }
   if (updates.modelId !== undefined) existing.modelId = updates.modelId
   if (updates.modelUrl !== undefined) existing.modelUrl = updates.modelUrl
   if (updates.parameters !== undefined) existing.parameters = { ...updates.parameters }
@@ -531,6 +543,28 @@ function cloneAccessRules(rules: AccessRule[] | undefined): AccessRule[] | undef
         allowedDepartments: [...rule.allowedDepartments],
         timeRanges: cloneTimeRanges(rule.timeRanges) ?? [],
       }))
+    : undefined
+}
+
+function cloneRouteTrack(track: VehicleTrackContract | undefined): VehicleTrackContract | undefined {
+  return track
+    ? {
+        id: track.id,
+        loop: track.loop,
+        points: track.points.map((point) => ({ ...point })),
+      }
+    : undefined
+}
+
+function cloneTrackPosition(route: VehicleRouteContract | undefined): VehicleRouteContract | undefined {
+  return route
+    ? {
+        trackId: route.trackId,
+        segmentIndex: route.segmentIndex,
+        segmentProgress: route.segmentProgress,
+        ...(route.target ? { target: { ...route.target } } : {}),
+        ...(route.direction ? { direction: route.direction } : {}),
+      }
     : undefined
 }
 

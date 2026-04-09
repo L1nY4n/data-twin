@@ -9,7 +9,6 @@ import {
 } from 'lucide-react'
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
 import { useLiveDigitalTwin } from '@/hooks/use-live-digital-twin'
-import { useCitationRuntime } from '@/hooks/use-citation-runtime'
 import { EntityListPanel } from '@/components/digital-twin/panels/EntityListPanel'
 import { EntityDetailPanel } from '@/components/digital-twin/panels/EntityDetailPanel'
 import { IncidentVideoDialog } from '@/components/digital-twin/panels/IncidentVideoDialog'
@@ -17,6 +16,11 @@ import { Toolbar } from '@/components/digital-twin/panels/Toolbar'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { Badge } from '@/components/ui/badge'
+import {
+  ViewerAdminEdgePanel,
+  ViewerAdminPanel,
+  ViewerAdminSurfaceShell,
+} from '@/components/viewer-admin/primitives'
 import { cn } from '@/lib/utils'
 
 // 动态导入3D场景，避免SSR问题
@@ -43,130 +47,145 @@ const BottomPanel = dynamic(
 
 export default function DigitalTwinPage() {
   const { isLoading, error } = useLiveDigitalTwin()
-  useCitationRuntime()
 
   const leftPanelOpen = useDigitalTwinStore((state) => state.leftPanelOpen)
   const rightPanelOpen = useDigitalTwinStore((state) => state.rightPanelOpen)
   const bottomPanelOpen = useDigitalTwinStore((state) => state.bottomPanelOpen)
-  const runtimeDataSource = useDigitalTwinStore((state) => state.runtimeDataSource)
   const runtimeNotice = useDigitalTwinStore((state) => state.runtimeNotice)
   const toggleLeftPanel = useDigitalTwinStore((state) => state.toggleLeftPanel)
   const toggleRightPanel = useDigitalTwinStore((state) => state.toggleRightPanel)
   const toggleBottomPanel = useDigitalTwinStore((state) => state.toggleBottomPanel)
 
   return (
-    <div className="flex h-screen flex-col bg-background">
+    <ViewerAdminSurfaceShell
+      className="h-screen overflow-hidden"
+      innerClassName="viewer-admin-content flex h-screen flex-col"
+    >
       {/* 顶部工具栏 */}
       <Toolbar />
 
       {/* 主内容区域 */}
-      <div className="relative flex flex-1 overflow-hidden">
-        {/* 左侧面板 */}
-        <div
-          className={cn(
-            'relative flex shrink-0 flex-col overflow-hidden border-r bg-background transition-all duration-300',
-            leftPanelOpen ? 'w-64' : 'w-0'
-          )}
-        >
-          {leftPanelOpen && <EntityListPanel />}
-        </div>
-
-        {/* 左侧面板切换按钮 */}
-        <Button
-          variant="ghost"
-          size="icon"
-          className={cn(
-            'absolute top-2 z-10 h-8 w-8 transition-all duration-300',
-            leftPanelOpen ? 'left-[252px]' : 'left-2'
-          )}
-          onClick={toggleLeftPanel}
-        >
-          <PanelLeft className="h-4 w-4" />
-        </Button>
-
+      <div className="relative flex flex-1 overflow-hidden px-2 pb-2">
         {/* 3D场景区域 */}
-        <div className="relative flex-1">
-          <DigitalTwinCanvas />
+        <div className="relative flex-1 pt-2">
+          <div className="viewer-admin-canvas-frame editor-canvas-frame relative h-full overflow-hidden rounded-[30px]">
+            <DigitalTwinCanvas />
 
-          {runtimeDataSource === 'mock' && runtimeNotice && (
-            <div className="pointer-events-none absolute left-3 top-14 z-30">
-              <Badge className="border border-sky-400/40 bg-sky-500/10 text-sky-100 shadow-lg">
-                {runtimeNotice}
-              </Badge>
-            </div>
-          )}
-
-          {(isLoading || (error && runtimeDataSource === 'live')) && (
-            <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-background/60 backdrop-blur-sm">
-              <div className="rounded-md border bg-background/90 px-4 py-3 text-sm shadow-sm">
-                {error ? `后端连接失败: ${error}` : '正在连接后端数据...'}
+            {runtimeNotice && (
+              <div className="pointer-events-none absolute left-3 top-14 z-30">
+                <Badge className="border border-amber-300/40 bg-amber-500/10 text-amber-50 shadow-lg">
+                  {runtimeNotice}
+                </Badge>
               </div>
-            </div>
-          )}
-
-          {/* 规则与图表右侧Dock切换按钮 */}
-          <Button
-            variant="secondary"
-            size="sm"
-            className="absolute right-3 top-14 z-30 gap-1.5 shadow-sm"
-            onClick={toggleBottomPanel}
-          >
-            {bottomPanelOpen ? (
-              <>
-                <ChevronRight className="h-4 w-4" />
-                <span className="text-xs">收起面板</span>
-              </>
-            ) : (
-              <>
-                <ChevronLeft className="h-4 w-4" />
-                <span className="text-xs">摘要与图表</span>
-              </>
             )}
-          </Button>
 
-          {/* 摘要与图表右侧Dock */}
-          <div
-            className={cn(
-              'pointer-events-none absolute inset-y-2 right-2 z-20 overflow-hidden transition-all duration-300',
-              bottomPanelOpen ? 'w-[420px]' : 'w-0'
+            {(isLoading || error) && (
+              <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-background/60 backdrop-blur-sm">
+                <ViewerAdminPanel className="rounded-2xl px-4 py-3 text-sm shadow-sm">
+                  {error ? `后端连接失败: ${error}` : '正在连接后端数据...'}
+                </ViewerAdminPanel>
+              </div>
             )}
-          >
+
+            {/* 规则与图表右侧Dock切换按钮 */}
+            <Button
+              variant="secondary"
+              size="sm"
+              className={cn(
+                'absolute top-14 z-30 gap-1.5 shadow-sm transition-all duration-300',
+                rightPanelOpen ? 'right-[266px]' : 'right-3'
+              )}
+              onClick={toggleBottomPanel}
+            >
+              {bottomPanelOpen ? (
+                <>
+                  <ChevronRight className="h-4 w-4" />
+                  <span className="text-xs">收起面板</span>
+                </>
+              ) : (
+                <>
+                  <ChevronLeft className="h-4 w-4" />
+                  <span className="text-xs">摘要与图表</span>
+                </>
+              )}
+            </Button>
+
+            {/* 摘要与图表右侧Dock */}
             <div
               className={cn(
-                'pointer-events-auto h-full rounded-xl border bg-background/95 shadow-xl backdrop-blur-sm transition-all duration-300 supports-[backdrop-filter]:bg-background/80',
-                bottomPanelOpen ? 'translate-x-0 opacity-100' : 'translate-x-6 opacity-0'
+                'pointer-events-none absolute inset-y-2 z-20 overflow-hidden transition-all duration-300',
+                rightPanelOpen ? 'right-[264px]' : 'right-2',
+                bottomPanelOpen ? 'w-[420px]' : 'w-0'
               )}
             >
-              {bottomPanelOpen && <BottomPanel />}
+              <div
+                className={cn(
+                  'viewer-admin-panel viewer-admin-side-panel pointer-events-auto h-full rounded-2xl transition-all duration-300',
+                  bottomPanelOpen ? 'translate-x-0 opacity-100' : 'translate-x-6 opacity-0'
+                )}
+              >
+                {bottomPanelOpen && <BottomPanel />}
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* 右侧面板切换按钮 */}
-        <Button
-          variant="ghost"
-          size="icon"
-          className={cn(
-            'absolute top-2 z-10 h-8 w-8 transition-all duration-300',
-            rightPanelOpen ? 'right-[252px]' : 'right-2'
-          )}
-          onClick={toggleRightPanel}
-        >
-          <PanelRight className="h-4 w-4" />
-        </Button>
+          {/* 左侧面板 */}
+          <ViewerAdminEdgePanel
+            variant="soft"
+            widthClass={leftPanelOpen ? 'w-[230px]' : 'w-0'}
+            className={cn(
+              'absolute inset-y-2 left-2 z-20 mt-0',
+              leftPanelOpen
+                ? 'pointer-events-auto translate-x-0 opacity-100'
+                : 'pointer-events-none -translate-x-6 opacity-0'
+            )}
+          >
+            {leftPanelOpen && <EntityListPanel />}
+          </ViewerAdminEdgePanel>
 
-        {/* 右侧面板 */}
-        <div
-          className={cn(
-            'relative flex shrink-0 flex-col overflow-hidden border-l bg-background transition-all duration-300',
-            rightPanelOpen ? 'w-64' : 'w-0'
-          )}
-        >
-          {rightPanelOpen && <EntityDetailPanel />}
+          {/* 左侧面板切换按钮 */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn(
+              'absolute top-4 z-30 h-8 w-8 transition-all duration-300',
+              leftPanelOpen ? 'left-[226px]' : 'left-4'
+            )}
+            onClick={toggleLeftPanel}
+          >
+            <PanelLeft className="h-4 w-4" />
+          </Button>
+
+          {/* 右侧面板 */}
+          <ViewerAdminEdgePanel
+            variant="soft"
+            widthClass={rightPanelOpen ? 'w-64' : 'w-0'}
+            className={cn(
+              'absolute inset-y-2 right-2 z-20 mt-0',
+              rightPanelOpen
+                ? 'pointer-events-auto translate-x-0 opacity-100'
+                : 'pointer-events-none translate-x-6 opacity-0'
+            )}
+          >
+            {rightPanelOpen && <EntityDetailPanel />}
+          </ViewerAdminEdgePanel>
+
+          {/* 右侧面板切换按钮 */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn(
+              'absolute top-4 z-30 h-8 w-8 transition-all duration-300',
+              rightPanelOpen ? 'right-[252px]' : 'right-4'
+            )}
+            onClick={toggleRightPanel}
+          >
+            <PanelRight className="h-4 w-4" />
+          </Button>
         </div>
       </div>
 
       <IncidentVideoDialog />
-    </div>
+    </ViewerAdminSurfaceShell>
   )
 }

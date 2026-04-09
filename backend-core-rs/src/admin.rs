@@ -68,7 +68,10 @@ impl IntoResponse for ApiError {
         let mut payload = serde_json::Map::new();
         payload.insert("error".to_string(), serde_json::Value::String(self.message));
         if let Some(code) = self.code {
-            payload.insert("code".to_string(), serde_json::Value::String(code.to_string()));
+            payload.insert(
+                "code".to_string(),
+                serde_json::Value::String(code.to_string()),
+            );
         }
         if let Some(expected_scene_version) = self.expected_scene_version {
             payload.insert(
@@ -89,11 +92,7 @@ impl IntoResponse for ApiError {
             );
         }
 
-        (
-            self.status,
-            Json(serde_json::Value::Object(payload)),
-        )
-            .into_response()
+        (self.status, Json(serde_json::Value::Object(payload))).into_response()
     }
 }
 
@@ -401,7 +400,10 @@ pub async fn get_static_asset(
         .await
         .map_err(ApiError::from_store)?
         .ok_or_else(|| {
-            ApiError::simple(StatusCode::NOT_FOUND, format!("static asset {id} not found"))
+            ApiError::simple(
+                StatusCode::NOT_FOUND,
+                format!("static asset {id} not found"),
+            )
         })?;
 
     Ok(Json(static_asset))

@@ -1,6 +1,9 @@
 import type { Metadata } from 'next'
 import { ThemeProvider } from '@/components/theme-provider'
 import './globals.css'
+import './editor/editor-theme.css'
+import './editor/editor-global.css'
+import './viewer-admin-surface.css'
 
 export const metadata: Metadata = {
   title: '数字孪生平台 | Digital Twin Platform',

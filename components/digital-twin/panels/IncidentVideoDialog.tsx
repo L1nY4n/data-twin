@@ -38,7 +38,7 @@ export function IncidentVideoDialog() {
                 <div>
                   <div className="flex items-center gap-2 text-xs uppercase tracking-[0.28em] text-slate-400">
                     <RadioTower className="h-3.5 w-3.5" />
-                    Mock CCTV Linkage
+                    CCTV Linkage
                   </div>
                   <h3 className="mt-3 text-2xl font-semibold">{videoFeed?.title ?? '事件视频联动面板'}</h3>
                   <p className="mt-2 max-w-xl text-sm text-slate-300">
@@ -53,7 +53,7 @@ export function IncidentVideoDialog() {
               <div className="grid gap-3 md:grid-cols-3">
                 <div className="rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur">
                   <div className="text-xs uppercase tracking-[0.24em] text-slate-400">Camera</div>
-                  <div className="mt-2 text-sm font-medium">{videoFeed?.cameraName ?? 'Mock Camera'}</div>
+                  <div className="mt-2 text-sm font-medium">{videoFeed?.cameraName ?? 'Runtime Camera'}</div>
                 </div>
                 <div className="rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur">
                   <div className="text-xs uppercase tracking-[0.24em] text-slate-400">Scene</div>
@@ -77,7 +77,7 @@ export function IncidentVideoDialog() {
                 事件 Citation
               </DialogTitle>
               <DialogDescription className="text-slate-400">
-                {incident?.message ?? '展示事件证据、关联对象与监控引用，支持 mock 数据演示。'}
+                {incident?.message ?? '展示事件证据、关联对象与监控引用。'}
               </DialogDescription>
             </DialogHeader>
 
@@ -101,7 +101,7 @@ export function IncidentVideoDialog() {
                 <Video className="h-4 w-4 text-sky-300" />
                 流地址
               </div>
-              <div className="mt-2 break-all font-mono">{videoFeed?.streamUrl ?? 'mock://incident-feed'}</div>
+              <div className="mt-2 break-all font-mono">{videoFeed?.streamUrl ?? 'runtime://incident-feed'}</div>
             </div>
           </div>
         </div>
