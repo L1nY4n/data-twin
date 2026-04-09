@@ -1,5 +1,8 @@
 import { describe, expect, test } from 'bun:test'
-import { resolveEditorTransformAxisConfig } from './EditorTransformGizmo'
+import {
+  resolveEditorTransformAxisConfig,
+  setEditorCanvasControlsEnabled,
+} from './EditorTransformGizmo'
 
 describe('editor transform gizmo axis config', () => {
   test('keeps ground entities on XZ translation only', () => {
@@ -62,5 +65,17 @@ describe('editor transform gizmo axis config', () => {
       showY: true,
       showZ: true,
     })
+  })
+
+  test('only toggles canvas controls that expose an enabled flag', () => {
+    const orbitLikeControls = { enabled: true }
+    const unrelatedControls = { axis: 'X' }
+
+    setEditorCanvasControlsEnabled(orbitLikeControls, false)
+    setEditorCanvasControlsEnabled(unrelatedControls as never, false)
+    setEditorCanvasControlsEnabled(null, true)
+
+    expect(orbitLikeControls.enabled).toBe(false)
+    expect(unrelatedControls).toEqual({ axis: 'X' })
   })
 })

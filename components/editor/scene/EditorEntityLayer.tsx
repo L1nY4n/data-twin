@@ -9,23 +9,34 @@ import { VehicleMarker } from '@/components/digital-twin/entities/VehicleMarker'
 import {
   isEditorEntityEditable,
   useEditorSceneStore,
+  useEditorUiStore,
   useEditorViewerStore,
 } from '@/lib/digital-twin/editor-store'
 
 export function EditorEntityLayer() {
   const entities = useEditorSceneStore((state) => state.entities)
   const draftEntity = useEditorSceneStore((state) => state.draftEntity)
+  const transformPreview = useEditorUiStore((state) => state.transformPreview)
+  const isTransformDragging = useEditorUiStore((state) => state.isTransformDragging)
   const selectedEntityId = useEditorViewerStore((state) => state.selectedEntityId)
   const hoveredEntityId = useEditorViewerStore((state) => state.hoveredEntityId)
 
   const editableEntities = useMemo(() => {
     return [...entities.values()]
       .filter((entity) => entity.visible && isEditorEntityEditable(entity))
-      .map((entity) =>
-        selectedEntityId === entity.id && draftEntity ? draftEntity : entity
-      )
+      .map((entity) => {
+        if (selectedEntityId !== entity.id || !draftEntity) return entity
+        if (!isTransformDragging || !transformPreview) return draftEntity
+
+        return {
+          ...draftEntity,
+          position: transformPreview.position,
+          rotation: transformPreview.rotation,
+          scale: transformPreview.scale,
+        }
+      })
       .sort((left, right) => left.name.localeCompare(right.name, 'zh-CN'))
-  }, [draftEntity, entities, selectedEntityId])
+  }, [draftEntity, entities, isTransformDragging, selectedEntityId, transformPreview])
 
   return (
     <group name="editor-entities">

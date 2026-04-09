@@ -118,6 +118,51 @@ describe('editor store', () => {
     expect(useEditorDigitalTwinStore.getState().isDirty).toBe(false)
   })
 
+  test('ignores redundant draft transform snapshots', () => {
+    useEditorDigitalTwinStore.getState().reset()
+    const entity = createEntity()
+
+    useEditorDigitalTwinStore
+      .getState()
+      .hydrateFromBootstrap(createBootstrapPayload(entity), DEFAULT_PUBLISHED_SCENE_PACKAGE)
+    useEditorDigitalTwinStore.getState().selectEntity(entity.id)
+
+    const before = useEditorDigitalTwinStore.getState().draftEntity
+    expect(before).not.toBeNull()
+
+    useEditorDigitalTwinStore.getState().updateDraftTransform({
+      position: { x: 10, y: 0, z: 20 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 1, y: 1, z: 1 },
+    })
+
+    const after = useEditorDigitalTwinStore.getState().draftEntity
+    expect(after).toBe(before)
+  })
+
+  test('keeps drag preview ephemeral and clears it when dragging stops', () => {
+    useEditorDigitalTwinStore.getState().reset()
+    const entity = createEntity()
+
+    useEditorDigitalTwinStore
+      .getState()
+      .hydrateFromBootstrap(createBootstrapPayload(entity), DEFAULT_PUBLISHED_SCENE_PACKAGE)
+    useEditorDigitalTwinStore.getState().selectEntity(entity.id)
+    useEditorDigitalTwinStore.getState().setTransformDragging(true)
+    useEditorDigitalTwinStore.getState().setTransformPreview({
+      position: { x: 14, y: 0, z: 24 },
+      rotation: { x: 0, y: 0.2, z: 0 },
+      scale: { x: 1, y: 1, z: 1 },
+    })
+
+    expect(useEditorDigitalTwinStore.getState().transformPreview?.position.x).toBe(14)
+    expect(useEditorDigitalTwinStore.getState().isDirty).toBe(false)
+
+    useEditorDigitalTwinStore.getState().setTransformDragging(false)
+
+    expect(useEditorDigitalTwinStore.getState().transformPreview).toBeNull()
+  })
+
   test('supports direct inspector property edits on selected entity drafts', () => {
     useEditorDigitalTwinStore.getState().reset()
     const entity = createEntity()
@@ -446,6 +491,31 @@ describe('editor store', () => {
     expect(state.sceneConfig.cameraPosition).toEqual(
       DEFAULT_PUBLISHED_SCENE_PACKAGE.sceneConfig.cameraPosition
     )
+  })
+
+  test('top focus keeps the current view mode and only applies a one-shot camera pose change', () => {
+    useEditorDigitalTwinStore.getState().reset()
+    const entity = createEntity()
+    const store = useEditorDigitalTwinStore.getState()
+
+    store.hydrateFromBootstrap(
+      createBootstrapPayload(entity),
+      DEFAULT_PUBLISHED_SCENE_PACKAGE
+    )
+    store.setViewMode('orbit')
+    const before = useEditorDigitalTwinStore.getState()
+
+    store.focusCameraDirection('top')
+
+    const state = useEditorDigitalTwinStore.getState()
+
+    expect(state.viewMode).toBe('orbit')
+    expect(state.activeCameraPreset).toBeNull()
+    expect(state.cameraFocusRequest).not.toBeNull()
+    expect(state.editorCameraTarget).toEqual(before.editorCameraTarget)
+    expect(state.editorCameraPosition.x).toBe(state.editorCameraTarget.x)
+    expect(state.editorCameraPosition.z).toBe(state.editorCameraTarget.z)
+    expect(state.editorCameraPosition.y).toBeGreaterThan(before.editorCameraPosition.y)
   })
 
   test('tracks scene workspace changes separately from camera pose updates', () => {

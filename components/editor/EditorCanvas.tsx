@@ -14,6 +14,10 @@ import { SpaceGrid } from '@/components/digital-twin/scene/SpaceGrid'
 import { SceneLoading } from '@/components/digital-twin/scene/SceneLoading'
 import { createPreferredRenderer } from '@/lib/digital-twin/renderer/createPreferredRenderer'
 import {
+  type EditorTransformMode,
+  getEditorViewerState,
+  isEditorEntityEditable,
+  useEditorDigitalTwinStore,
   useEditorSceneStore,
   useEditorUiStore,
   useEditorViewerStore,
@@ -25,11 +29,66 @@ import { EditorEntityLayer } from './scene/EditorEntityLayer'
 import { EditorScenePicking } from './scene/EditorScenePicking'
 import { EditorStaticEnvironment } from './scene/EditorStaticEnvironment'
 import { EditorTransformGizmo } from './scene/EditorTransformGizmo'
+import {
+  installEditorDragCheckBridge,
+  setEditorDragCheckCameraProvider,
+  setEditorDragCheckPrepareTargetProvider,
+  setEditorDragCheckSelectionProvider,
+} from './scene/editor-drag-check-bridge'
 
-const DEFAULT_ORBIT_MOUSE_BUTTONS = {
+type EditorOrbitMouseButtons = {
+  LEFT: number
+  MIDDLE: number
+  RIGHT: number
+}
+
+const DEFAULT_ORBIT_MOUSE_BUTTONS: EditorOrbitMouseButtons = {
   LEFT: THREE.MOUSE.ROTATE,
   MIDDLE: THREE.MOUSE.DOLLY,
   RIGHT: THREE.MOUSE.PAN,
+}
+
+export function resolveEditorCanvasHintCopy(
+  transformMode: EditorTransformMode,
+  hasActiveTransformTarget: boolean
+) {
+  switch (transformMode) {
+    case 'translate':
+      return hasActiveTransformTarget
+        ? {
+            label: '移动对象',
+            lines: ['拖拽 Gizmo 移动物体', '空白处仍可拖动画面', '滚轮/中键缩放 · 右键平移'],
+          }
+        : {
+            label: '移动对象',
+            lines: ['选中对象后显示 Gizmo', '左键拖动画面', '滚轮/中键缩放 · 右键平移'],
+          }
+    case 'rotate':
+      return hasActiveTransformTarget
+        ? {
+            label: '旋转对象',
+            lines: ['拖拽 Gizmo 旋转对象', '空白处仍可拖动画面', '滚轮/中键缩放 · 右键平移'],
+          }
+        : {
+            label: '旋转对象',
+            lines: ['选中对象后显示 Gizmo', '左键拖动画面', '滚轮/中键缩放 · 右键平移'],
+          }
+    case 'scale':
+      return hasActiveTransformTarget
+        ? {
+            label: '缩放对象',
+            lines: ['拖拽 Gizmo 缩放对象', '空白处仍可拖动画面', '滚轮/中键缩放 · 右键平移'],
+          }
+        : {
+            label: '缩放对象',
+            lines: ['选中对象后显示 Gizmo', '左键拖动画面', '滚轮/中键缩放 · 右键平移'],
+          }
+    default:
+      return {
+        label: '选择模式',
+        lines: ['左键拖动画面', 'Shift + 左键框选', '单击选择对象'],
+      }
+  }
 }
 
 function EditorOrbitControls({
@@ -51,7 +110,7 @@ function EditorOrbitControls({
   maxPolarAngle?: number
   minDistance: number
   minPolarAngle?: number
-  mouseButtons: typeof DEFAULT_ORBIT_MOUSE_BUTTONS
+  mouseButtons: EditorOrbitMouseButtons
   onRest: () => void
   target: [number, number, number]
 }) {
@@ -226,12 +285,13 @@ const EditorSceneContent = memo(function EditorSceneContent({
   backgroundColor: string
   isDark: boolean
 }) {
+  const sceneCamera = useThree((state) => state.camera)
+  const gl = useThree((state) => state.gl)
   const invalidate = useThree((state) => state.invalidate)
   const sceneConfig = useEditorSceneStore((state) => state.sceneConfig)
   const editorCameraPosition = useEditorViewerStore((state) => state.editorCameraPosition)
   const editorCameraTarget = useEditorViewerStore((state) => state.editorCameraTarget)
   const publishedScenePackage = useEditorSceneStore((state) => state.publishedScenePackage)
-  const viewMode = useEditorViewerStore((state) => state.viewMode)
   const viewportProjection = useEditorViewerStore((state) => state.viewportProjection)
   const isTransformDragging = useEditorUiStore((state) => state.isTransformDragging)
   const isMarqueeSelecting = useEditorUiStore((state) => state.isMarqueeSelecting)
@@ -249,9 +309,100 @@ const EditorSceneContent = memo(function EditorSceneContent({
     position: Vector3
     target: Vector3
   } | null>(null)
+  const lockedCameraPoseRef = useRef<{
+    position: Vector3
+    target: Vector3
+  } | null>(null)
   const environmentFile = isDark
     ? '/hdr/dikhololo_night_1k.hdr'
     : '/hdr/potsdamer_platz_1k.hdr'
+
+  useEffect(() => {
+    installEditorDragCheckBridge()
+
+    setEditorDragCheckSelectionProvider(() => {
+      const state = useEditorDigitalTwinStore.getState()
+      return {
+        selectedTargetId: state.selectedStaticAssetId ?? state.selectedEntityId,
+        selectedTargetKind: state.draftStaticAsset ? 'static-asset' : state.draftEntity?.type ?? null,
+        transformMode: state.transformMode,
+        isTransformDragging: state.isTransformDragging,
+      }
+    })
+
+    setEditorDragCheckCameraProvider(() => {
+      const viewerState = getEditorViewerState()
+      const activeCamera =
+        viewerState.viewportProjection === 'orthographic'
+          ? orthographicCameraRef.current
+          : perspectiveCameraRef.current
+      const controls = controlsRef.current
+      if (!activeCamera || !controls) {
+        return { position: null, target: null }
+      }
+      return {
+        position: {
+          x: activeCamera.position.x,
+          y: activeCamera.position.y,
+          z: activeCamera.position.z,
+        },
+        target: {
+          x: controls.target.x,
+          y: controls.target.y,
+          z: controls.target.z,
+        },
+      }
+    })
+
+    setEditorDragCheckPrepareTargetProvider(() => {
+      const state = useEditorDigitalTwinStore.getState()
+
+      if (!(state.draftStaticAsset ?? state.draftEntity)) {
+        const firstStaticAsset = state.staticAssets.values().next().value
+        if (firstStaticAsset) {
+          state.selectStaticAsset(firstStaticAsset.id)
+        } else {
+          const firstEditableEntity = Array.from(state.entities.values()).find((entity) =>
+            isEditorEntityEditable(entity)
+          )
+          if (firstEditableEntity) {
+            state.selectEntity(firstEditableEntity.id)
+          }
+        }
+      }
+
+      useEditorDigitalTwinStore.getState().setTransformMode('translate')
+
+      const next = useEditorDigitalTwinStore.getState()
+      const draftTarget = next.draftStaticAsset ?? next.draftEntity
+      if (draftTarget) {
+        next.setEditorCameraPose(
+          {
+            x: draftTarget.position.x + 56,
+            y: draftTarget.position.y + 44,
+            z: draftTarget.position.z + 56,
+          },
+          {
+            x: draftTarget.position.x,
+            y: draftTarget.position.y,
+            z: draftTarget.position.z,
+          }
+        )
+      }
+
+      return {
+        prepared: Boolean(draftTarget),
+        selectedTargetId: next.selectedStaticAssetId ?? next.selectedEntityId,
+      }
+    })
+
+    return () => {
+      setEditorDragCheckSelectionProvider(null)
+      setEditorDragCheckCameraProvider(null)
+      setEditorDragCheckPrepareTargetProvider(null)
+    }
+  }, [])
+
   useEffect(() => {
     if (!cameraFocusRequest) return
     focusAnimationRef.current = {
@@ -294,13 +445,61 @@ const EditorSceneContent = memo(function EditorSceneContent({
     viewportProjection,
   ])
 
+  useEffect(() => {
+    if (!isTransformDragging) {
+      lockedCameraPoseRef.current = null
+      return
+    }
+
+    const activeCamera =
+      viewportProjection === 'orthographic'
+        ? orthographicCameraRef.current
+        : perspectiveCameraRef.current
+    const controls = controlsRef.current
+    if (!activeCamera || !controls || lockedCameraPoseRef.current) return
+
+    // OrbitControls can still advance the camera during the same gesture that
+    // TransformControls claims, so pin the pose for the active gizmo drag.
+    lockedCameraPoseRef.current = {
+      position: {
+        x: activeCamera.position.x,
+        y: activeCamera.position.y,
+        z: activeCamera.position.z,
+      },
+      target: {
+        x: controls.target.x,
+        y: controls.target.y,
+        z: controls.target.z,
+      },
+    }
+  }, [isTransformDragging, viewportProjection])
+
   useFrame((_, delta) => {
     const controls = controlsRef.current
     const activeCamera =
       viewportProjection === 'orthographic'
         ? orthographicCameraRef.current
         : perspectiveCameraRef.current
-    if (!controls || !activeCamera || !focusAnimationRef.current) return
+    if (!controls || !activeCamera) return
+
+    const lockedPose = lockedCameraPoseRef.current
+    if (lockedPose) {
+      activeCamera.position.set(
+        lockedPose.position.x,
+        lockedPose.position.y,
+        lockedPose.position.z
+      )
+      controls.target.set(
+        lockedPose.target.x,
+        lockedPose.target.y,
+        lockedPose.target.z
+      )
+      activeCamera.updateProjectionMatrix()
+      controls.update()
+      return
+    }
+
+    if (!focusAnimationRef.current) return
     invalidate()
 
     const { position, target } = focusAnimationRef.current
@@ -406,6 +605,8 @@ const EditorSceneContent = memo(function EditorSceneContent({
         near={0.1}
         far={1200}
       />
+      <EditorScenePicking pickRootRef={pickRootRef} />
+
       <EditorOrbitControls
         controlsRef={controlsRef}
         enabled={!isTransformDragging && !isMarqueeSelecting}
@@ -413,8 +614,7 @@ const EditorSceneContent = memo(function EditorSceneContent({
         mouseButtons={DEFAULT_ORBIT_MOUSE_BUTTONS}
         minDistance={8}
         maxDistance={320}
-        minPolarAngle={viewMode === 'topdown' ? 0 : undefined}
-        maxPolarAngle={viewMode === 'topdown' ? 0 : Math.PI / 2.05}
+        maxPolarAngle={Math.PI / 2.05}
         onRest={persistCameraPose}
         target={[
           editorCameraTarget.x,
@@ -422,8 +622,6 @@ const EditorSceneContent = memo(function EditorSceneContent({
           editorCameraTarget.z,
         ]}
       />
-
-      <EditorScenePicking pickRootRef={pickRootRef} />
 
       <SpaceGrid
         size={sceneConfig.gridSize}
@@ -444,7 +642,15 @@ const EditorSceneContent = memo(function EditorSceneContent({
       </group>
 
       <EditorPlacementPreview />
-      <EditorTransformGizmo />
+      <EditorTransformGizmo
+        camera={
+          viewportProjection === 'orthographic'
+            ? orthographicCameraRef.current ?? perspectiveCameraRef.current ?? sceneCamera
+            : perspectiveCameraRef.current ?? orthographicCameraRef.current ?? sceneCamera
+        }
+        domElement={gl.domElement}
+        orbitControlsRef={controlsRef}
+      />
     </>
   )
 })
@@ -452,38 +658,39 @@ const EditorSceneContent = memo(function EditorSceneContent({
 export function EditorCanvas() {
   const { resolvedTheme } = useTheme()
   const sceneConfig = useEditorSceneStore((state) => state.sceneConfig)
+  const draftEntity = useEditorSceneStore((state) => state.draftEntity)
+  const draftStaticAsset = useEditorSceneStore((state) => state.draftStaticAsset)
   const selectionMarquee = useEditorUiStore((state) => state.selectionMarquee)
   const transformMode = useEditorUiStore((state) => state.transformMode)
   const isDark = resolvedTheme === 'dark'
   const canvasBackground = isDark ? sceneConfig.backgroundColor : '#eaf1fb'
+  const hasActiveTransformTarget = Boolean(draftStaticAsset ?? draftEntity)
   const canvasHint = useMemo(() => {
+    const hintCopy = resolveEditorCanvasHintCopy(transformMode, hasActiveTransformTarget)
+
     switch (transformMode) {
       case 'translate':
         return {
           icon: Move,
-          label: '移动对象',
-          lines: ['拖拽 Gizmo 移动物体', '左键拖动画面', '滚轮缩放 / 右键平移'],
+          ...hintCopy,
         }
       case 'rotate':
         return {
           icon: RotateCcw,
-          label: '旋转对象',
-          lines: ['拖拽 Gizmo 旋转对象', '左键拖动画面', '滚轮缩放 / 右键平移'],
+          ...hintCopy,
         }
       case 'scale':
         return {
           icon: Expand,
-          label: '缩放对象',
-          lines: ['拖拽 Gizmo 缩放对象', '左键拖动画面', '滚轮缩放 / 右键平移'],
+          ...hintCopy,
         }
       default:
         return {
           icon: MousePointer2,
-          label: '选择模式',
-          lines: ['左键拖动画面', 'Shift + 左键框选', '单击选择对象'],
+          ...hintCopy,
         }
     }
-  }, [transformMode])
+  }, [hasActiveTransformTarget, transformMode])
   const HintIcon = canvasHint.icon
 
   const createRenderer = useMemo(

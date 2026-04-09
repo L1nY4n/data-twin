@@ -639,16 +639,31 @@ export function resolveEditorMarqueeTarget(
 function buildVisibleStaticAssets(
   staticAssets: Map<string, StaticAssetInstance>,
   draftStaticAsset: StaticAssetInstance | null,
-  savedStaticAsset: StaticAssetInstance | null
+  savedStaticAsset: StaticAssetInstance | null,
+  transformPreview: {
+    position: { x: number; y: number; z: number }
+    rotation: { x: number; y: number; z: number }
+    scale: { x: number; y: number; z: number }
+  } | null,
+  isTransformDragging: boolean
 ) {
   const items = [...staticAssets.values()]
 
   if (draftStaticAsset) {
+    const renderedDraftStaticAsset =
+      isTransformDragging && transformPreview
+        ? {
+            ...draftStaticAsset,
+            position: transformPreview.position,
+            rotation: transformPreview.rotation,
+            scale: transformPreview.scale,
+          }
+        : draftStaticAsset
     const existingIndex = items.findIndex((asset) => asset.id === draftStaticAsset.id)
     if (existingIndex >= 0) {
-      items[existingIndex] = draftStaticAsset
+      items[existingIndex] = renderedDraftStaticAsset
     } else {
-      items.push(draftStaticAsset)
+      items.push(renderedDraftStaticAsset)
     }
   } else if (
     savedStaticAsset &&
@@ -660,13 +675,27 @@ function buildVisibleStaticAssets(
   return items.filter((asset) => asset.visible)
 }
 
-function buildEntityTargets(entities: Map<string, Entity>, draftEntity: Entity | null) {
+function buildEntityTargets(
+  entities: Map<string, Entity>,
+  draftEntity: Entity | null,
+  transformPreview: {
+    position: { x: number; y: number; z: number }
+    rotation: { x: number; y: number; z: number }
+    scale: { x: number; y: number; z: number }
+  } | null,
+  isTransformDragging: boolean
+) {
   return [...entities.values()]
     .filter((entity) => entity.visible && isEditorEntityEditable(entity))
     .map((entity) => ({
       kind: 'entity' as const,
       id: entity.id,
-      position: draftEntity?.id === entity.id ? draftEntity.position : entity.position,
+      position:
+        draftEntity?.id === entity.id
+          ? isTransformDragging && transformPreview
+            ? transformPreview.position
+            : draftEntity.position
+          : entity.position,
     }))
 }
 
@@ -681,6 +710,7 @@ export function EditorScenePicking({
   const draftEntity = useEditorSceneStore((state) => state.draftEntity)
   const draftStaticAsset = useEditorSceneStore((state) => state.draftStaticAsset)
   const savedStaticAsset = useEditorSceneStore((state) => state.savedStaticAsset)
+  const transformPreview = useEditorUiStore((state) => state.transformPreview)
   const selectedEntityId = useEditorViewerStore((state) => state.selectedEntityId)
   const selectedStaticAssetId = useEditorViewerStore((state) => state.selectedStaticAssetId)
   const placementCatalogId = useEditorUiStore((state) => state.placementCatalogId)
@@ -710,8 +740,15 @@ export function EditorScenePicking({
   const marqueeActiveRef = useRef(false)
   const rafRef = useRef<number | null>(null)
   const visibleStaticAssets = useMemo(
-    () => buildVisibleStaticAssets(staticAssets, draftStaticAsset, savedStaticAsset),
-    [draftStaticAsset, savedStaticAsset, staticAssets]
+    () =>
+      buildVisibleStaticAssets(
+        staticAssets,
+        draftStaticAsset,
+        savedStaticAsset,
+        transformPreview,
+        isTransformDragging
+      ),
+    [draftStaticAsset, isTransformDragging, savedStaticAsset, staticAssets, transformPreview]
   )
   const visibleStaticAssetsById = useMemo(
     () => new Map(visibleStaticAssets.map((asset) => [asset.id, asset] as const)),
@@ -725,9 +762,9 @@ export function EditorScenePicking({
         id: asset.id,
         position: asset.position,
       })),
-      ...buildEntityTargets(entities, draftEntity),
+      ...buildEntityTargets(entities, draftEntity, transformPreview, isTransformDragging),
     ],
-    [draftEntity, entities, visibleStaticAssets]
+    [draftEntity, entities, isTransformDragging, transformPreview, visibleStaticAssets]
   )
 
   useEffect(() => {

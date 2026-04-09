@@ -56,6 +56,14 @@ describe('editor guards', () => {
       join(process.cwd(), 'hooks/use-editor-digital-twin.ts'),
       'utf8'
     )
+    const entityLayer = readFileSync(
+      join(process.cwd(), 'components/editor/scene/EditorEntityLayer.tsx'),
+      'utf8'
+    )
+    const authoredStaticAssetLayer = readFileSync(
+      join(process.cwd(), 'components/editor/scene/EditorAuthoredStaticAssetLayer.tsx'),
+      'utf8'
+    )
     const inspector = readFileSync(
       join(process.cwd(), 'components/editor/EditorInspector.tsx'),
       'utf8'
@@ -68,7 +76,17 @@ describe('editor guards', () => {
     expect(gizmo.includes('TransformControls')).toBe(true)
     expect(gizmo.includes('useEditorSceneStore')).toBe(true)
     expect(gizmo.includes('useEditorUiStore')).toBe(true)
+    expect(gizmo.includes('const isTransformDragging = useEditorUiStore((state) => state.isTransformDragging)')).toBe(true)
+    expect(gizmo.includes('if (!draftTarget || !targetRef.current || isTransformDragging) return')).toBe(true)
+    expect(gizmo.includes('position={[draftTarget.position.x')).toBe(false)
+    expect(gizmo.includes('setEditorCanvasControlsEnabled(orbitControlsRef.current, false)')).toBe(true)
+    expect(gizmo.includes('setEditorCanvasControlsEnabled(orbitControlsRef.current, true)')).toBe(true)
+    expect(canvas.includes('orbitControlsRef={controlsRef}')).toBe(true)
+    expect(canvas.includes('resolveEditorOrbitMouseButtons')).toBe(false)
+    expect(canvas.includes('shouldLockEditorCameraDuringTransform')).toBe(false)
+    expect(canvas.includes('lockedCameraPoseRef')).toBe(true)
     expect(canvas.includes('mouseButtons={DEFAULT_ORBIT_MOUSE_BUTTONS}')).toBe(true)
+    expect(canvas.includes('const hasActiveTransformTarget = Boolean(draftStaticAsset ?? draftEntity)')).toBe(true)
     expect(canvas.includes('makeDefault')).toBe(true)
     expect(canvas.includes('set({ controls })')).toBe(true)
     expect(canvas.includes('useEditorSceneStore')).toBe(true)
@@ -78,9 +96,14 @@ describe('editor guards', () => {
     expect(picking.includes('stopImmediatePropagation')).toBe(true)
     expect(picking.includes('suppressClickRef')).toBe(true)
     expect(picking.includes('resolveEditorMarqueeTarget')).toBe(true)
+    expect(picking.includes('const transformPreview = useEditorUiStore((state) => state.transformPreview)')).toBe(true)
     expect(picking.includes('useEditorSceneStore')).toBe(true)
     expect(picking.includes('useEditorViewerStore')).toBe(true)
     expect(picking.includes('useEditorUiStore')).toBe(true)
+    expect(entityLayer.includes('const transformPreview = useEditorUiStore((state) => state.transformPreview)')).toBe(true)
+    expect(entityLayer.includes('if (!isTransformDragging || !transformPreview) return draftEntity')).toBe(true)
+    expect(authoredStaticAssetLayer.includes('const transformPreview = useEditorUiStore((state) => state.transformPreview)')).toBe(true)
+    expect(authoredStaticAssetLayer.includes('const renderedDraftStaticAsset =')).toBe(true)
     expect(hook.includes('fetchEditorBootstrap')).toBe(true)
     expect(hook.includes('fetchAdminPublishStatus')).toBe(true)
     expect(hook.includes('triggerAdminPublish')).toBe(true)
@@ -117,6 +140,7 @@ describe('editor guards', () => {
     expect(store.includes('updateDraftMetadata')).toBe(true)
     expect(store.includes('focusCameraDirection')).toBe(true)
     expect(store.includes('hydrateFromBootstrap')).toBe(true)
+    expect(store.includes('if (!hasSnapshotChanged(currentSnapshot, snapshot)) {')).toBe(true)
     expect(store.includes('export type EditorSceneStoreSlice')).toBe(true)
     expect(store.includes('export type EditorViewerStoreSlice')).toBe(true)
     expect(store.includes('export type EditorUiStoreSlice')).toBe(true)
@@ -154,7 +178,28 @@ describe('editor guards', () => {
     expect(canvas.includes('const setEditorCameraPose = useEditorViewerStore((state) => state.setEditorCameraPose)')).toBe(true)
     expect(canvas.includes('editorCameraPosition.x')).toBe(true)
     expect(canvas.includes('editorCameraTarget.x')).toBe(true)
+    expect(canvas.includes('resolveEditorCanvasHintCopy')).toBe(true)
+    expect(canvas.includes('enabled={!isTransformDragging && !isMarqueeSelecting}')).toBe(true)
+    expect(canvas.includes('const lockedPose = lockedCameraPoseRef.current')).toBe(true)
+    expect(canvas.includes('TransformControls claims, so pin the pose for the active gizmo drag.')).toBe(true)
     expect(canvas.includes("powerPreference: 'low-power'")).toBe(true)
+  })
+
+  test('top viewport shortcut should only refocus the camera and must not lock orbit controls', () => {
+    const canvas = readFileSync(
+      join(process.cwd(), 'components/editor/EditorCanvas.tsx'),
+      'utf8'
+    )
+    const store = readFileSync(
+      join(process.cwd(), 'lib/digital-twin/editor-store.ts'),
+      'utf8'
+    )
+
+    expect(canvas.includes("maxPolarAngle={Math.PI / 2.05}")).toBe(true)
+    expect(canvas.includes("viewMode === 'topdown'")).toBe(false)
+    expect(store.includes("viewMode: direction === 'top' ? 'topdown' : 'orbit'")).toBe(false)
+    expect(store.includes("focusCameraDirection: (direction) =>")).toBe(true)
+    expect(store.includes('cameraFocusRequest: focusRequest')).toBe(true)
   })
 
   test('viewer should only refresh from publish-scoped config changes or descriptor swaps', () => {

@@ -3,7 +3,11 @@
 import { memo, useMemo } from 'react'
 import { AuthoredStaticAssetLayer } from '@/components/digital-twin/scene/AuthoredStaticAssetLayer'
 import type { PublishedStaticPalette } from '@/components/digital-twin/scene/PublishedStaticRecipeMount'
-import { useEditorSceneStore, useEditorViewerStore } from '@/lib/digital-twin/editor-store'
+import {
+  useEditorSceneStore,
+  useEditorUiStore,
+  useEditorViewerStore,
+} from '@/lib/digital-twin/editor-store'
 
 export const EditorAuthoredStaticAssetLayer = memo(function EditorAuthoredStaticAssetLayer({
   palette,
@@ -13,6 +17,8 @@ export const EditorAuthoredStaticAssetLayer = memo(function EditorAuthoredStatic
   const staticAssets = useEditorSceneStore((state) => state.staticAssets)
   const draftStaticAsset = useEditorSceneStore((state) => state.draftStaticAsset)
   const savedStaticAsset = useEditorSceneStore((state) => state.savedStaticAsset)
+  const transformPreview = useEditorUiStore((state) => state.transformPreview)
+  const isTransformDragging = useEditorUiStore((state) => state.isTransformDragging)
   const selectedStaticAssetId = useEditorViewerStore((state) => state.selectedStaticAssetId)
   const hoveredStaticAssetId = useEditorViewerStore((state) => state.hoveredStaticAssetId)
 
@@ -20,11 +26,20 @@ export const EditorAuthoredStaticAssetLayer = memo(function EditorAuthoredStatic
     const assets = [...staticAssets.values()]
 
     if (draftStaticAsset) {
+      const renderedDraftStaticAsset =
+        isTransformDragging && transformPreview
+          ? {
+              ...draftStaticAsset,
+              position: transformPreview.position,
+              rotation: transformPreview.rotation,
+              scale: transformPreview.scale,
+            }
+          : draftStaticAsset
       const existingIndex = assets.findIndex((asset) => asset.id === draftStaticAsset.id)
       if (existingIndex >= 0) {
-        assets[existingIndex] = draftStaticAsset
+        assets[existingIndex] = renderedDraftStaticAsset
       } else {
-        assets.push(draftStaticAsset)
+        assets.push(renderedDraftStaticAsset)
       }
     } else if (
       savedStaticAsset &&
@@ -36,7 +51,7 @@ export const EditorAuthoredStaticAssetLayer = memo(function EditorAuthoredStatic
     return assets
       .filter((asset) => asset.visible)
       .sort((left, right) => left.createdAt - right.createdAt)
-  }, [draftStaticAsset, savedStaticAsset, staticAssets])
+  }, [draftStaticAsset, isTransformDragging, savedStaticAsset, staticAssets, transformPreview])
 
   if (renderedAssets.length === 0) return null
 
