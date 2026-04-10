@@ -23,7 +23,7 @@ type RuntimeIngestResult =
 const MAX_RUNTIME_INGEST_EVENTS: usize = 64;
 const MAX_INCIDENT_PAYLOAD_BYTES: usize = 16 * 1024;
 const REQUEST_WINDOW_MS: u64 = 10_000;
-const MAX_REQUESTS_PER_WINDOW: usize = 24;
+const MAX_REQUESTS_PER_WINDOW: usize = 120;
 const REPLAY_WINDOW_MS: u64 = 30_000;
 
 #[derive(Default)]

@@ -20,16 +20,16 @@ use crate::{
 #[derive(Clone)]
 pub struct RealtimeState {
     broadcaster: broadcast::Sender<RealtimeEvent>,
-    allowed_origin: HeaderValue,
+    allowed_origins: Vec<HeaderValue>,
 }
 
 impl RealtimeState {
-    pub fn new(allowed_origin: HeaderValue) -> Self {
+    pub fn new(allowed_origins: Vec<HeaderValue>) -> Self {
         let (broadcaster, _) = broadcast::channel(128);
 
         Self {
             broadcaster,
-            allowed_origin,
+            allowed_origins,
         }
     }
 
@@ -38,7 +38,9 @@ impl RealtimeState {
     }
 
     fn origin_allowed(&self, origin: Option<&HeaderValue>) -> bool {
-        origin == Some(&self.allowed_origin)
+        origin
+            .map(|candidate| self.allowed_origins.iter().any(|allowed| allowed == candidate))
+            .unwrap_or(false)
     }
 
     pub fn emit(&self, event: RealtimeEvent) {
@@ -72,7 +74,7 @@ pub async fn realtime_ws_handler(
     if !state.realtime.origin_allowed(headers.get(header::ORIGIN)) {
         warn!(
             request_origin = ?headers.get(header::ORIGIN),
-            allowed_origin = ?state.realtime.allowed_origin,
+            allowed_origins = ?state.realtime.allowed_origins,
             "rejected websocket handshake due to invalid origin"
         );
         return Err(StatusCode::FORBIDDEN);

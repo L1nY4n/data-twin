@@ -1,15 +1,17 @@
 'use client'
 
 import { memo } from 'react'
-import { Html } from '@react-three/drei'
 import type { CameraEntity } from '@/lib/digital-twin/types'
-import { Badge } from '@/components/ui/badge'
-import { cn } from '@/lib/utils'
 import {
   OVERLAY_RENDER_ORDER,
   STABLE_DOUBLE_SIDED_OVERLAY,
   STABLE_TRANSPARENT_OVERLAY,
 } from '@/lib/digital-twin/renderer/material-stability'
+import {
+  createMutedSpriteInfoBadge,
+  createStatusSpriteInfoBadge,
+  SpriteInfoCard,
+} from '@/components/digital-twin/scene/SpriteInfoCard'
 import { SpriteTextLabel } from '@/components/digital-twin/scene/SpriteTextLabel'
 
 interface CameraMarkerProps {
@@ -139,38 +141,17 @@ export const CameraMarker = memo(function CameraMarker({
       )}
 
       {showLabel && labelMode === 'html' && (
-        <Html
+        <SpriteInfoCard
           position={[0, 2.9, 0]}
-          center
-          distanceFactor={20}
-          occlude={false}
-          style={{ pointerEvents: 'none' }}
-        >
-          <div
-            className={cn(
-              'flex min-w-[150px] flex-col items-center gap-1 rounded-lg border bg-background/95 p-2 shadow-lg backdrop-blur-sm',
-              'text-center'
-            )}
-          >
-            <span className="text-xs font-medium text-foreground">{entity.name}</span>
-            <div className="flex items-center gap-1">
-              <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
-                {CAMERA_TYPE_LABELS[entity.cameraType]}
-              </Badge>
-              <Badge
-                variant="outline"
-                className="px-1.5 py-0 text-[10px]"
-                style={{ borderColor: statusColor, color: statusColor }}
-              >
-                {entity.recording ? '录制中' : entity.status}
-              </Badge>
-            </div>
-            <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-              <span>FOV {entity.fov.toFixed(0)}°</span>
-              <span>{range.toFixed(0)}m</span>
-            </div>
-          </div>
-        </Html>
+          title={entity.name}
+          badges={[
+            createMutedSpriteInfoBadge(CAMERA_TYPE_LABELS[entity.cameraType]),
+            createStatusSpriteInfoBadge(entity.recording ? '录制中' : entity.status, statusColor),
+          ]}
+          lines={[`FOV ${entity.fov.toFixed(0)}°`, `${range.toFixed(0)}m`]}
+          scale={0.92}
+          minWidth={230}
+        />
       )}
 
       {showLabel && labelMode === 'sprite' && (

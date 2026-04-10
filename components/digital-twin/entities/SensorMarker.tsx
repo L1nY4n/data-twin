@@ -1,15 +1,17 @@
 'use client'
 
 import { memo } from 'react'
-import { Html } from '@react-three/drei'
 import type { SensorEntity } from '@/lib/digital-twin/types'
-import { Badge } from '@/components/ui/badge'
-import { cn } from '@/lib/utils'
 import {
   OVERLAY_RENDER_ORDER,
   STABLE_DOUBLE_SIDED_OVERLAY,
   STABLE_TRANSPARENT_OVERLAY,
 } from '@/lib/digital-twin/renderer/material-stability'
+import {
+  createMutedSpriteInfoBadge,
+  createStatusSpriteInfoBadge,
+  SpriteInfoCard,
+} from '@/components/digital-twin/scene/SpriteInfoCard'
 import { SpriteTextLabel } from '@/components/digital-twin/scene/SpriteTextLabel'
 
 interface SensorMarkerProps {
@@ -122,37 +124,17 @@ export const SensorMarker = memo(function SensorMarker({
       )}
 
       {showLabel && labelMode === 'html' && (
-        <Html
+        <SpriteInfoCard
           position={[0, 1.95, 0]}
-          center
-          distanceFactor={20}
-          occlude={false}
-          style={{ pointerEvents: 'none' }}
-        >
-          <div
-            className={cn(
-              'flex min-w-[138px] flex-col items-center gap-1 rounded-lg border bg-background/95 p-2 shadow-lg backdrop-blur-sm',
-              'text-center'
-            )}
-          >
-            <span className="text-xs font-medium text-foreground">{entity.name}</span>
-            <div className="flex items-center gap-1">
-              <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
-                {SENSOR_TYPE_LABELS[entity.sensorType]}
-              </Badge>
-              <Badge
-                variant="outline"
-                className="px-1.5 py-0 text-[10px]"
-                style={{ borderColor: statusColor, color: statusColor }}
-              >
-                {entity.status}
-              </Badge>
-            </div>
-            <span className="font-mono text-[10px] text-muted-foreground">
-              {entity.reading.toFixed(2)} {entity.unit}
-            </span>
-          </div>
-        </Html>
+          title={entity.name}
+          badges={[
+            createMutedSpriteInfoBadge(SENSOR_TYPE_LABELS[entity.sensorType]),
+            createStatusSpriteInfoBadge(entity.status, statusColor),
+          ]}
+          lines={[`${entity.reading.toFixed(2)} ${entity.unit}`]}
+          scale={0.86}
+          minWidth={220}
+        />
       )}
 
       {showLabel && labelMode === 'sprite' && (

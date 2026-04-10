@@ -12,4 +12,12 @@ describe('useLiveDigitalTwin live-only behavior', () => {
     expect(source.includes("setRuntimeDataSource('live', '实时连接已断开')")).toBe(true)
     expect(source.includes("setRuntimeDataSource('live', '实时连接异常')")).toBe(true)
   })
+
+  test('appends trajectory points when live position updates arrive', () => {
+    const source = readFileSync(join(process.cwd(), 'hooks/use-live-digital-twin.ts'), 'utf8')
+
+    expect(source.includes('const addTrajectoryPoint = useDigitalTwinStore((state) => state.addTrajectoryPoint)')).toBe(true)
+    expect(source.includes('addTrajectoryPoint(data.entityId, {')).toBe(true)
+    expect(source.includes('timestamp: message.timestamp')).toBe(true)
+  })
 })

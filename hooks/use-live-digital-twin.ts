@@ -15,6 +15,7 @@ import type {
   PublishedSceneRuntimeDescriptor,
   PositionUpdateMessage,
   StatusUpdateMessage,
+  VehicleEntity,
   WSMessage,
 } from '@/lib/digital-twin/types'
 import { DigitalTwinWebSocket } from '@/lib/digital-twin/websocket-client'
@@ -23,6 +24,7 @@ import {
   buildRuntimeStatusEntityPatch,
   resolveRuntimeIncident,
 } from '@/lib/digital-twin/runtime-ingest'
+import { runtimeVehicleSnapshotRegistry } from '@/lib/digital-twin/runtime-vehicle-snapshot-registry'
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
 
 function hydrateBootstrapState(
@@ -85,6 +87,7 @@ export function useLiveDigitalTwin() {
 
   const updateEntity = useDigitalTwinStore((state) => state.updateEntity)
   const getEntityById = useDigitalTwinStore((state) => state.getEntityById)
+  const addTrajectoryPoint = useDigitalTwinStore((state) => state.addTrajectoryPoint)
   const addAlarm = useDigitalTwinStore((state) => state.addAlarm)
   const upsertIncident = useDigitalTwinStore((state) => state.upsertIncident)
   const setConnectionStatus = useDigitalTwinStore((state) => state.setConnectionStatus)
@@ -158,10 +161,54 @@ export function useLiveDigitalTwin() {
         switch (message.type) {
           case 'position_update': {
             const data = message.payload as PositionUpdateMessage
-            updateEntity(data.entityId, {
-              position: data.position,
-              ...(data.rotation ? { rotation: data.rotation } : {}),
-              ...buildRuntimePositionEntityPatch(getEntityById(data.entityId), data),
+            const receivedAt = Date.now()
+            const currentEntity = getEntityById(data.entityId)
+            const runtimePatch = buildRuntimePositionEntityPatch(currentEntity, data, {
+              timestamp: message.timestamp,
+            })
+            const nextPosition = runtimePatch.position ?? data.position
+            const vehiclePatch = runtimePatch as Partial<VehicleEntity>
+
+            if (
+              currentEntity?.type === 'vehicle' ||
+              vehiclePatch.routeTrack !== undefined ||
+              vehiclePatch.trackPosition !== undefined
+            ) {
+              runtimeVehicleSnapshotRegistry.append(data.entityId, {
+                timestamp: runtimeVehicleSnapshotRegistry.projectTimestamp(
+                  message.timestamp,
+                  receivedAt
+                ),
+                sourceTimestamp: message.timestamp,
+                receivedAt,
+                position: nextPosition,
+                yaw: vehiclePatch.rotation?.y ?? currentEntity?.rotation.y ?? 0,
+                speed:
+                  vehiclePatch.speed ??
+                  (currentEntity?.type === 'vehicle'
+                    ? currentEntity.speed
+                    : 0),
+                routeTrack:
+                  vehiclePatch.routeTrack ??
+                  (currentEntity?.type === 'vehicle'
+                    ? currentEntity.routeTrack
+                    : undefined),
+                trackPosition:
+                  vehiclePatch.trackPosition ??
+                  (currentEntity?.type === 'vehicle'
+                    ? currentEntity.trackPosition
+                    : undefined),
+                status:
+                  currentEntity?.type === 'vehicle'
+                    ? currentEntity.status
+                    : 'active',
+              })
+            }
+
+            updateEntity(data.entityId, runtimePatch)
+            addTrajectoryPoint(data.entityId, {
+              position: nextPosition,
+              timestamp: message.timestamp,
             })
             break
           }
@@ -225,6 +272,7 @@ export function useLiveDigitalTwin() {
     wsRef.current = ws
   }, [
     addAlarm,
+    addTrajectoryPoint,
     refreshBootstrap,
     getEntityById,
     setConnectionStatus,

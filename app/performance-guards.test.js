@@ -199,7 +199,7 @@ describe('performance guards', () => {
     expect(cadence.includes('EXTREME_DISTANCE_SQUARED')).toBe(true)
   })
 
-  test('entity marker components should be memoized and avoid per-entity useFrame loops', () => {
+  test('interactive moving markers should be memoized and only use frame-following on focused labels', () => {
     const person = readFileSync(
       join(process.cwd(), 'components/digital-twin/entities/PersonMarker.tsx'),
       'utf8'
@@ -216,8 +216,16 @@ describe('performance guards', () => {
     expect(person.includes('memo(')).toBe(true)
     expect(vehicle.includes('memo(')).toBe(true)
     expect(equipment.includes('memo(')).toBe(true)
-    expect(person.includes('useFrame(')).toBe(false)
+    expect(person.includes('useFrame(')).toBe(true)
+    expect(vehicle.includes('useFrame(')).toBe(true)
     expect(equipment.includes('useFrame(')).toBe(false)
+    expect(person.includes('if (!groupRef.current || (!isSelected && !isHovered)) return')).toBe(true)
+    expect(vehicle.includes('if (!groupRef.current || (!isSelected && !isHovered)) return')).toBe(true)
+    expect(vehicle.includes('runtimeVehicleSnapshotRegistry.get(entity.id)')).toBe(true)
+    expect(vehicle.includes('resolveVehiclePoseFromSnapshots')).toBe(true)
+    expect(vehicle.includes('setRenderTelemetry({ speed, heading })')).toBe(true)
+    expect(vehicle.includes('`速度 ${renderTelemetry.speed.toFixed(1)} m/s`')).toBe(true)
+    expect(vehicle.includes('`方向 ${renderTelemetry.heading.toFixed(0)}°`')).toBe(true)
 
     const markers = readFileSync(
       join(process.cwd(), 'components/digital-twin/entities/EntityMarkers.tsx'),
@@ -230,6 +238,31 @@ describe('performance guards', () => {
     expect(markers.includes('publishedSectors')).toBe(true)
     expect(markers.includes('showStatusRing={false}')).toBe(true)
     expect(markers.includes("qualityProfile === 'performance'")).toBe(false)
+  })
+
+  test('detailed marker labels should use sprite/canvas cards instead of Html overlays', () => {
+    const files = [
+      'components/digital-twin/entities/VehicleMarker.tsx',
+      'components/digital-twin/entities/PersonMarker.tsx',
+      'components/digital-twin/entities/EquipmentMarker.tsx',
+      'components/digital-twin/entities/SensorMarker.tsx',
+      'components/digital-twin/entities/CameraMarker.tsx',
+      'components/digital-twin/entities/ZoneAreas.tsx',
+    ]
+
+    for (const relativePath of files) {
+      const source = readFileSync(join(process.cwd(), relativePath), 'utf8')
+      expect(source.includes('SpriteInfoCard')).toBe(true)
+      expect(source.includes('<Html')).toBe(false)
+    }
+
+    const cardSource = readFileSync(
+      join(process.cwd(), 'components/digital-twin/scene/SpriteInfoCard.tsx'),
+      'utf8'
+    )
+    expect(cardSource.includes('CanvasTexture')).toBe(true)
+    expect(cardSource.includes('drawRoundedRect')).toBe(true)
+    expect(cardSource.includes('CARD_TEXTURE_CACHE')).toBe(true)
   })
 
   test('equipment updates should use a throttled simulation helper instead of running every fixed tick', () => {
@@ -468,14 +501,15 @@ describe('performance guards', () => {
     expect(source.includes('cached.texture.dispose()')).toBe(true)
   })
 
-  test('zone idle labels should stay on sprite path instead of persistent Html overlays', () => {
+  test('zone labels should stay on sprite/canvas paths instead of persistent Html overlays', () => {
     const source = readFileSync(
       join(process.cwd(), 'components/digital-twin/entities/ZoneAreas.tsx'),
       'utf8'
     )
 
     expect(source.includes('SpriteTextLabel')).toBe(true)
-    expect((source.match(/<Html/g) ?? []).length).toBe(1)
+    expect(source.includes('SpriteInfoCard')).toBe(true)
+    expect((source.match(/<Html/g) ?? []).length).toBe(0)
   })
 
   test('instanced entity paths should pull ecs snapshots each frame with smoothing', () => {
@@ -499,7 +533,8 @@ describe('performance guards', () => {
         vehicleInstances.includes('getSnapshotById(')
     ).toBe(true)
     expect(personInstances.includes('lerpAngle(')).toBe(true)
-    expect(vehicleInstances.includes('lerpAngle(')).toBe(true)
+    expect(vehicleInstances.includes('resolveVehiclePoseFromSnapshots')).toBe(true)
+    expect(vehicleInstances.includes('runtimeVehicleSnapshotRegistry.get(entity.id)')).toBe(true)
   })
 
   test('instanced moving entities should only upload matrices while dirty or unsettled', () => {
@@ -517,7 +552,8 @@ describe('performance guards', () => {
     expect(personInstances.includes('if (!isSettled(state))')).toBe(true)
     expect(vehicleInstances.includes('forceMatrixSyncRef')).toBe(true)
     expect(vehicleInstances.includes('let matrixDirty = false')).toBe(true)
-    expect(vehicleInstances.includes('if (!isSettled(state))')).toBe(true)
+    expect(vehicleInstances.includes('if (pose) {')).toBe(true)
+    expect(vehicleInstances.includes('if (matrixDirty) {')).toBe(true)
   })
 
   test('instanced moving entities should skip offscreen sector updates and resync on re-entry', () => {

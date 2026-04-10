@@ -17,7 +17,9 @@ import type {
   TimeRange,
   Vector3,
   VehicleRouteContract,
+  VehicleRouteLike,
   VehicleTrackContract,
+  VehicleTrackLike,
 } from '@/lib/digital-twin/types'
 import { ObjectPool } from './pool'
 import type { LabelMode } from './label-lod'
@@ -106,8 +108,8 @@ export interface EcsEntitySnapshot {
   vehicleType?: 'car' | 'truck' | 'forklift' | 'agv' | 'other'
   capacity?: number
   currentLoad?: number
-  routeTrack?: VehicleTrackContract
-  trackPosition?: VehicleRouteContract
+  routeTrack?: VehicleTrackLike
+  trackPosition?: VehicleRouteLike
   modelId?: string
   modelUrl?: string
   parameters?: Record<string, number | string | boolean>
@@ -153,8 +155,8 @@ export interface EcsCreatePayload {
   vehicleType?: 'car' | 'truck' | 'forklift' | 'agv' | 'other'
   capacity?: number
   currentLoad?: number
-  routeTrack?: VehicleTrackContract
-  trackPosition?: VehicleRouteContract
+  routeTrack?: VehicleTrackLike
+  trackPosition?: VehicleRouteLike
   modelId?: string
   modelUrl?: string
   parameters?: Record<string, number | string | boolean>
@@ -546,24 +548,60 @@ function cloneAccessRules(rules: AccessRule[] | undefined): AccessRule[] | undef
     : undefined
 }
 
-function cloneRouteTrack(track: VehicleTrackContract | undefined): VehicleTrackContract | undefined {
-  return track
+function normalizeRouteTrack(track: VehicleTrackLike | undefined): VehicleTrackContract | undefined {
+  if (!track) return undefined
+  if ('points' in track) {
+    return {
+      id: track.id,
+      loop: track.loop,
+      points: track.points.map((point) => ({ ...point })),
+    }
+  }
+  return {
+    id: track.trackId,
+    loop: track.looped,
+    points: track.waypoints.map((point) => ({ ...point })),
+  }
+}
+
+function cloneRouteTrack(track: VehicleTrackLike | undefined): VehicleTrackContract | undefined {
+  const normalized = normalizeRouteTrack(track)
+  return normalized
     ? {
-        id: track.id,
-        loop: track.loop,
-        points: track.points.map((point) => ({ ...point })),
+        id: normalized.id,
+        loop: normalized.loop,
+        points: normalized.points.map((point) => ({ ...point })),
       }
     : undefined
 }
 
-function cloneTrackPosition(route: VehicleRouteContract | undefined): VehicleRouteContract | undefined {
-  return route
+function normalizeTrackPosition(route: VehicleRouteLike | undefined): VehicleRouteContract | undefined {
+  if (!route) return undefined
+  if ('target' in route || 'direction' in route) {
+    return {
+      trackId: route.trackId,
+      segmentIndex: route.segmentIndex,
+      segmentProgress: route.segmentProgress,
+      ...(route.target ? { target: { ...route.target } } : {}),
+      ...(route.direction ? { direction: route.direction } : {}),
+    }
+  }
+  return {
+    trackId: route.trackId,
+    segmentIndex: route.segmentIndex,
+    segmentProgress: route.segmentProgress,
+  }
+}
+
+function cloneTrackPosition(route: VehicleRouteLike | undefined): VehicleRouteContract | undefined {
+  const normalized = normalizeTrackPosition(route)
+  return normalized
     ? {
-        trackId: route.trackId,
-        segmentIndex: route.segmentIndex,
-        segmentProgress: route.segmentProgress,
-        ...(route.target ? { target: { ...route.target } } : {}),
-        ...(route.direction ? { direction: route.direction } : {}),
+        trackId: normalized.trackId,
+        segmentIndex: normalized.segmentIndex,
+        segmentProgress: normalized.segmentProgress,
+        ...(normalized.target ? { target: { ...normalized.target } } : {}),
+        ...(normalized.direction ? { direction: normalized.direction } : {}),
       }
     : undefined
 }

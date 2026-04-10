@@ -1,16 +1,22 @@
 'use client'
 
-import { memo, useRef } from 'react'
-import { Html } from '@react-three/drei'
+import { memo, useEffect, useRef, useState } from 'react'
+import { useFrame } from '@react-three/fiber'
 import type * as THREE from 'three'
 import type { VehicleEntity } from '@/lib/digital-twin/types'
-import { Badge } from '@/components/ui/badge'
-import { cn } from '@/lib/utils'
 import {
   OVERLAY_RENDER_ORDER,
   STABLE_DOUBLE_SIDED_OVERLAY,
 } from '@/lib/digital-twin/renderer/material-stability'
+import {
+  createMutedSpriteInfoBadge,
+  createStatusSpriteInfoBadge,
+  SpriteInfoCard,
+} from '@/components/digital-twin/scene/SpriteInfoCard'
 import { SpriteTextLabel } from '@/components/digital-twin/scene/SpriteTextLabel'
+import { useDigitalTwinStore } from '@/lib/digital-twin/store'
+import { runtimeVehicleSnapshotRegistry } from '@/lib/digital-twin/runtime-vehicle-snapshot-registry'
+import { resolveVehiclePoseFromSnapshots } from '@/lib/digital-twin/vehicle-snapshot-interpolation'
 
 interface VehicleMarkerProps {
   entity: VehicleEntity
@@ -42,13 +48,33 @@ const VEHICLE_COLORS = {
   other: '#6b7280',
 }
 
+function normalizeDegrees(value: number) {
+  return ((value % 360) + 360) % 360
+}
+
+function yawToHeading(yaw: number) {
+  return normalizeDegrees((yaw * 180) / Math.PI)
+}
+
 export const VehicleMarker = memo(function VehicleMarker({
   entity,
   isSelected,
   isHovered,
   showModel = true,
 }: VehicleMarkerProps) {
+  const groupRef = useRef<THREE.Group>(null)
   const meshRef = useRef<THREE.Group>(null)
+  const telemetrySampleRef = useRef<{
+    x: number
+    y: number
+    z: number
+    speed: number
+    lastPublishAt: number
+  } | null>(null)
+  const [renderTelemetry, setRenderTelemetry] = useState(() => ({
+    speed: entity.speed,
+    heading: entity.heading,
+  }))
 
   const statusColor = STATUS_COLORS[entity.status]
   const vehicleColor = VEHICLE_COLORS[entity.vehicleType]
@@ -56,9 +82,66 @@ export const VehicleMarker = memo(function VehicleMarker({
   const labelMode = entity.labelMode ?? 'html'
   const showLabel = isSelected || isHovered || labelMode !== 'hidden'
 
+  useEffect(() => {
+    if (isSelected || isHovered) return
+    telemetrySampleRef.current = null
+    setRenderTelemetry({
+      speed: entity.speed,
+      heading: entity.heading,
+    })
+  }, [entity.heading, entity.id, entity.speed, isHovered, isSelected])
+
+  useFrame((_state, delta) => {
+    if (!groupRef.current || (!isSelected && !isHovered)) return
+
+    const pose = resolveVehiclePoseFromSnapshots(
+      runtimeVehicleSnapshotRegistry.get(entity.id),
+      Date.now(),
+      120,
+      220
+    )
+    const snapshot = useDigitalTwinStore.getState().getEcsSnapshotById(entity.id)
+    const x = pose?.x ?? snapshot?.position.x ?? entity.position.x
+    const y = pose?.y ?? snapshot?.position.y ?? entity.position.y
+    const z = pose?.z ?? snapshot?.position.z ?? entity.position.z
+    const heading = yawToHeading(pose?.yaw ?? snapshot?.rotation.y ?? entity.rotation.y)
+    groupRef.current.position.set(x, y, z)
+
+    const previousSample = telemetrySampleRef.current
+    const baseSpeed = snapshot?.speed ?? entity.speed
+    const rawSpeed =
+      previousSample
+        ? Math.hypot(x - previousSample.x, y - previousSample.y, z - previousSample.z) /
+          Math.max(delta, 1 / 240)
+        : baseSpeed
+    const speed = previousSample
+      ? previousSample.speed + (rawSpeed - previousSample.speed) * 0.22
+      : rawSpeed
+    const now = performance.now()
+
+    telemetrySampleRef.current = {
+      x,
+      y,
+      z,
+      speed,
+      lastPublishAt: previousSample?.lastPublishAt ?? 0,
+    }
+
+    if (
+      !previousSample ||
+      now - previousSample.lastPublishAt >= 100 &&
+        (Math.abs(renderTelemetry.speed - speed) >= 0.05 ||
+          Math.abs(renderTelemetry.heading - heading) >= 0.5)
+    ) {
+      telemetrySampleRef.current.lastPublishAt = now
+      setRenderTelemetry({ speed, heading })
+    }
+  })
+
   return (
     <group
-      position={[entity.position.x, 0, entity.position.z]}
+      ref={groupRef}
+      position={[entity.position.x, entity.position.y, entity.position.z]}
       userData={{ pickable: true, entityId: entity.id }}
     >
       {showModel && (
@@ -168,36 +251,20 @@ export const VehicleMarker = memo(function VehicleMarker({
 
       {/* 标签 */}
       {showLabel && labelMode === 'html' && (
-        <Html
-          position={[0, size.height + 1.5, 0]}
-          center
-          distanceFactor={20}
-          occlude={false}
-          style={{ pointerEvents: 'none' }}
-        >
-          <div className={cn(
-            "flex flex-col items-center gap-1 rounded-lg border bg-background/95 p-2 shadow-lg backdrop-blur-sm",
-            "min-w-[140px] text-center"
-          )}>
-            <span className="text-xs font-medium text-foreground">{entity.name}</span>
-            <div className="flex items-center gap-1">
-              <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-                {entity.plateNumber}
-              </Badge>
-              <Badge 
-                variant="outline" 
-                className="text-[10px] px-1.5 py-0"
-                style={{ borderColor: statusColor, color: statusColor }}
-              >
-                {entity.status}
-              </Badge>
-            </div>
-            <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-              <span>速度: {entity.speed.toFixed(1)} m/s</span>
-              <span>方向: {entity.heading.toFixed(0)}°</span>
-            </div>
-          </div>
-        </Html>
+        <SpriteInfoCard
+          position={[0, size.height + 1.6, 0]}
+          title={entity.name}
+          badges={[
+            createMutedSpriteInfoBadge(entity.plateNumber),
+            createStatusSpriteInfoBadge(entity.status, statusColor),
+          ]}
+          lines={[
+            `速度 ${renderTelemetry.speed.toFixed(1)} m/s`,
+            `方向 ${renderTelemetry.heading.toFixed(0)}°`,
+          ]}
+          scale={1}
+          minWidth={230}
+        />
       )}
 
       {showLabel && labelMode === 'sprite' && (

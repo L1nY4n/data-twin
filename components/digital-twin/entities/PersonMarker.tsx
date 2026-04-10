@@ -1,15 +1,20 @@
 'use client'
 
-import { memo } from 'react'
-import { Html } from '@react-three/drei'
+import { memo, useRef } from 'react'
+import { useFrame } from '@react-three/fiber'
+import type * as THREE from 'three'
 import type { PersonEntity } from '@/lib/digital-twin/types'
-import { Badge } from '@/components/ui/badge'
-import { cn } from '@/lib/utils'
 import {
   OVERLAY_RENDER_ORDER,
   STABLE_DOUBLE_SIDED_OVERLAY,
 } from '@/lib/digital-twin/renderer/material-stability'
+import {
+  createMutedSpriteInfoBadge,
+  createStatusSpriteInfoBadge,
+  SpriteInfoCard,
+} from '@/components/digital-twin/scene/SpriteInfoCard'
 import { SpriteTextLabel } from '@/components/digital-twin/scene/SpriteTextLabel'
+import { useDigitalTwinStore } from '@/lib/digital-twin/store'
 
 interface PersonMarkerProps {
   entity: PersonEntity
@@ -31,13 +36,22 @@ export const PersonMarker = memo(function PersonMarker({
   isHovered,
   showModel = true,
 }: PersonMarkerProps) {
+  const groupRef = useRef<THREE.Group>(null)
   const statusColor = STATUS_COLORS[entity.status]
   const labelMode = entity.labelMode ?? 'html'
   const showLabel = isSelected || isHovered || labelMode !== 'hidden'
 
+  useFrame(() => {
+    if (!groupRef.current || (!isSelected && !isHovered)) return
+    const snapshot = useDigitalTwinStore.getState().getEcsSnapshotById(entity.id)
+    const position = snapshot?.position ?? entity.position
+    groupRef.current.position.set(position.x, position.y, position.z)
+  })
+
   return (
     <group
-      position={[entity.position.x, 0, entity.position.z]}
+      ref={groupRef}
+      position={[entity.position.x, entity.position.y, entity.position.z]}
       userData={{ pickable: true, entityId: entity.id }}
     >
       {showModel && (
@@ -117,33 +131,17 @@ export const PersonMarker = memo(function PersonMarker({
 
       {/* 标签 */}
       {showLabel && labelMode === 'html' && (
-        <Html
-          position={[0, 2, 0]}
-          center
-          distanceFactor={20}
-          occlude={false}
-          style={{ pointerEvents: 'none' }}
-        >
-          <div className={cn(
-            "flex flex-col items-center gap-1 rounded-lg border bg-background/95 p-2 shadow-lg backdrop-blur-sm",
-            "min-w-[120px] text-center"
-          )}>
-            <span className="text-xs font-medium text-foreground">{entity.name}</span>
-            <div className="flex items-center gap-1">
-              <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-                {entity.role}
-              </Badge>
-              <Badge 
-                variant="outline" 
-                className="text-[10px] px-1.5 py-0"
-                style={{ borderColor: statusColor, color: statusColor }}
-              >
-                {entity.currentActivity || entity.status}
-              </Badge>
-            </div>
-            <span className="text-[10px] text-muted-foreground">{entity.department}</span>
-          </div>
-        </Html>
+        <SpriteInfoCard
+          position={[0, 2.05, 0]}
+          title={entity.name}
+          badges={[
+            createMutedSpriteInfoBadge(entity.role),
+            createStatusSpriteInfoBadge(entity.currentActivity || entity.status, statusColor),
+          ]}
+          lines={[entity.department]}
+          scale={0.95}
+          minWidth={210}
+        />
       )}
 
       {showLabel && labelMode === 'sprite' && (

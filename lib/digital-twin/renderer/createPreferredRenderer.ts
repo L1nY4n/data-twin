@@ -53,18 +53,33 @@ async function tryCreateWebGpuRenderer(
   }
 }
 
-function createWebGlRenderer(defaults: GLDefaults, options: CreatePreferredRendererOptions): AnyRenderer {
-  const renderer = new THREE.WebGLRenderer({
-    canvas: defaults.canvas,
-    antialias: options.antialias,
-    alpha: options.alpha,
-    powerPreference: options.powerPreference ?? 'high-performance',
-  }) as AnyRenderer
-
+function configureWebGlRenderer(renderer: AnyRenderer) {
   renderer.outputColorSpace = THREE.SRGBColorSpace
   renderer.toneMapping = THREE.ACESFilmicToneMapping
   renderer.__backend = 'webgl2'
   return renderer
+}
+
+function createWebGlRenderer(defaults: GLDefaults, options: CreatePreferredRendererOptions): AnyRenderer {
+  try {
+    return configureWebGlRenderer(
+      new THREE.WebGLRenderer({
+        canvas: defaults.canvas,
+        antialias: options.antialias,
+        alpha: options.alpha,
+        powerPreference: options.powerPreference ?? 'high-performance',
+      }) as AnyRenderer
+    )
+  } catch {
+    return configureWebGlRenderer(
+      new THREE.WebGLRenderer({
+        canvas: defaults.canvas,
+        antialias: false,
+        alpha: options.alpha,
+        powerPreference: 'default',
+      }) as AnyRenderer
+    )
+  }
 }
 
 export async function createPreferredRenderer(

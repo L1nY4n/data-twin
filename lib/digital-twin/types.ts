@@ -60,8 +60,8 @@ export interface VehicleEntity extends BaseEntity {
   heading: number
   capacity?: number
   currentLoad?: number
-  routeTrack?: VehicleTrackContract
-  trackPosition?: VehicleRouteContract
+  routeTrack?: VehicleTrackLike
+  trackPosition?: VehicleRouteLike
 }
 
 // 设备实体
@@ -357,6 +357,14 @@ export interface VehicleTrackContract {
   loop: boolean
 }
 
+export interface VehicleRouteTrackDescriptor {
+  routeId: string
+  trackId: string
+  label: string
+  looped: boolean
+  waypoints: Vector3[]
+}
+
 export type VehicleRouteDirection = 'forward' | 'reverse'
 
 export interface VehicleRouteContract {
@@ -367,6 +375,17 @@ export interface VehicleRouteContract {
   direction?: VehicleRouteDirection
 }
 
+export interface VehicleTrackPositionDescriptor {
+  routeId: string
+  trackId: string
+  segmentIndex: number
+  nextWaypointIndex: number
+  segmentProgress: number
+}
+
+export type VehicleTrackLike = VehicleTrackContract | VehicleRouteTrackDescriptor
+export type VehicleRouteLike = VehicleRouteContract | VehicleTrackPositionDescriptor
+
 // 位置更新消息
 export interface PositionUpdateMessage {
   entityId: string
@@ -374,8 +393,8 @@ export interface PositionUpdateMessage {
   rotation?: Vector3
   speed?: number
   heading?: number
-  routeTrack?: VehicleTrackContract
-  trackPosition?: VehicleRouteContract
+  routeTrack?: VehicleTrackLike
+  trackPosition?: VehicleRouteLike
   track?: VehicleTrackContract
   route?: VehicleRouteContract
 }

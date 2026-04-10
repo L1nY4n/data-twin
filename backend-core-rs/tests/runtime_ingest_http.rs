@@ -406,7 +406,7 @@ async fn runtime_ingest_rejects_sources_that_exceed_request_rate_limit() {
         .await
         .expect("app should build");
 
-    for index in 0..24 {
+    for index in 0..120 {
         let response = app
             .clone()
             .oneshot(

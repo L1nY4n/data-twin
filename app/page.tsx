@@ -148,7 +148,7 @@ export default function DigitalTwinPage() {
             variant="ghost"
             size="icon"
             className={cn(
-              'absolute top-4 z-30 h-8 w-8 transition-all duration-300',
+              'viewer-header-icon viewer-edge-toggle viewer-edge-toggle--left absolute top-4 z-30 size-8 rounded-[12px] transition-all duration-300',
               leftPanelOpen ? 'left-[226px]' : 'left-4'
             )}
             onClick={toggleLeftPanel}
@@ -175,7 +175,7 @@ export default function DigitalTwinPage() {
             variant="ghost"
             size="icon"
             className={cn(
-              'absolute top-4 z-30 h-8 w-8 transition-all duration-300',
+              'viewer-header-icon viewer-edge-toggle viewer-edge-toggle--right absolute top-4 z-30 size-8 rounded-[12px] transition-all duration-300',
               rightPanelOpen ? 'right-[252px]' : 'right-4'
             )}
             onClick={toggleRightPanel}

@@ -1,15 +1,13 @@
 'use client'
 
 import { memo } from 'react'
-import { Html } from '@react-three/drei'
 import type { EquipmentEntity } from '@/lib/digital-twin/types'
-import { Badge } from '@/components/ui/badge'
-import { cn } from '@/lib/utils'
 import {
   OVERLAY_RENDER_ORDER,
   STABLE_DOUBLE_SIDED_OVERLAY,
   STABLE_TRANSPARENT_OVERLAY,
 } from '@/lib/digital-twin/renderer/material-stability'
+import { createStatusSpriteInfoBadge, SpriteInfoCard } from '@/components/digital-twin/scene/SpriteInfoCard'
 import { SpriteTextLabel } from '@/components/digital-twin/scene/SpriteTextLabel'
 
 interface EquipmentMarkerProps {
@@ -157,38 +155,27 @@ export const EquipmentMarker = memo(function EquipmentMarker({
 
       {/* 标签 */}
       {showLabel && labelMode === 'html' && (
-        <Html
+        <SpriteInfoCard
           position={[0, 4, 0]}
-          center
-          distanceFactor={20}
-          occlude={false}
-          style={{ pointerEvents: 'none' }}
-        >
-          <div className={cn(
-            "flex flex-col items-center gap-1.5 rounded-lg border bg-background/95 p-2.5 shadow-lg backdrop-blur-sm",
-            "min-w-[160px] text-center"
-          )}>
-            <span className="text-xs font-medium text-foreground">{entity.name}</span>
-            <Badge 
-              variant="outline" 
-              className="text-[10px] px-1.5 py-0"
-              style={{ borderColor: statusColor, color: statusColor }}
-            >
-              {entity.status === 'active' ? '运行中' : 
-               entity.status === 'warning' ? '告警' : 
-               entity.status === 'error' ? '故障' : '停机'}
-            </Badge>
-            
-            {/* 参数显示 */}
-            <div className="flex flex-wrap justify-center gap-x-2 gap-y-0.5 text-[10px] text-muted-foreground">
-              {Object.entries(entity.parameters).slice(0, 3).map(([key, value]) => (
-                <span key={key}>
-                  {key}: {typeof value === 'number' ? value.toFixed(1) : String(value)}
-                </span>
-              ))}
-            </div>
-          </div>
-        </Html>
+          title={entity.name}
+          badges={[
+            createStatusSpriteInfoBadge(
+              entity.status === 'active'
+                ? '运行中'
+                : entity.status === 'warning'
+                  ? '告警'
+                  : entity.status === 'error'
+                    ? '故障'
+                    : '停机',
+              statusColor
+            ),
+          ]}
+          lines={Object.entries(entity.parameters)
+            .slice(0, 3)
+            .map(([key, value]) => `${key}: ${typeof value === 'number' ? value.toFixed(1) : String(value)}`)}
+          scale={1}
+          minWidth={250}
+        />
       )}
 
       {showLabel && labelMode === 'sprite' && (

@@ -24,7 +24,9 @@ import type {
   RuntimeIncident,
   StaticAssetInstance,
   VehicleRouteContract,
+  VehicleRouteLike,
   VehicleTrackContract,
+  VehicleTrackLike,
 } from './types'
 import {
   createEcsWorld,
@@ -72,6 +74,7 @@ import {
   isRuntimeIncidentActive,
   shouldRetainRuntimeIncident,
 } from './incident-utils'
+import { runtimeVehicleSnapshotRegistry } from './runtime-vehicle-snapshot-registry'
 
 export type QualityProfile = 'balanced' | 'performance'
 export type RendererMode = 'auto' | 'webgpu' | 'webgl2'
@@ -355,7 +358,7 @@ const initialState: DigitalTwinState = {
 
   isConnected: false,
   connectionUrl: null,
-  rendererMode: 'webgpu',
+  rendererMode: 'webgl2',
   rendererBackend: 'unknown',
 
   qualityProfile: 'balanced',
@@ -494,40 +497,82 @@ function cloneAccessRules(rules: AccessRule[] | undefined): AccessRule[] | undef
     : undefined
 }
 
-function cloneRouteTrack(track: VehicleTrackContract | undefined): VehicleTrackContract | undefined {
+function normalizeRouteTrack(track: VehicleTrackLike | undefined): VehicleTrackContract | undefined {
+  if (!track) return undefined
+  if ('points' in track) {
+    return {
+      id: track.id,
+      loop: track.loop,
+      points: track.points.map((point) => ({ ...point })),
+    }
+  }
+  return {
+    id: track.trackId,
+    loop: track.looped,
+    points: track.waypoints.map((point) => ({ ...point })),
+  }
+}
+
+function cloneRouteTrack(track: VehicleTrackLike | undefined): VehicleTrackContract | undefined {
+  const normalized = normalizeRouteTrack(track)
+  if (!normalized) return undefined
   return track
     ? {
-        id: track.id,
-        loop: track.loop,
-        points: track.points.map((point) => ({ ...point })),
+        id: normalized.id,
+        loop: normalized.loop,
+        points: normalized.points.map((point) => ({ ...point })),
       }
     : undefined
 }
 
-function cloneTrackPosition(route: VehicleRouteContract | undefined): VehicleRouteContract | undefined {
-  return route
-    ? {
-        trackId: route.trackId,
-        segmentIndex: route.segmentIndex,
-        segmentProgress: route.segmentProgress,
-        ...(route.target ? { target: { ...route.target } } : {}),
-        ...(route.direction ? { direction: route.direction } : {}),
-      }
-    : undefined
+function normalizeTrackPosition(route: VehicleRouteLike | undefined): VehicleRouteContract | undefined {
+  if (!route) return undefined
+  if ('target' in route || 'direction' in route) {
+    return {
+      trackId: route.trackId,
+      segmentIndex: route.segmentIndex,
+      segmentProgress: route.segmentProgress,
+      ...(route.target ? { target: { ...route.target } } : {}),
+      ...(route.direction ? { direction: route.direction } : {}),
+    }
+  }
+  return {
+    trackId: route.trackId,
+    segmentIndex: route.segmentIndex,
+    segmentProgress: route.segmentProgress,
+  }
+}
+
+function cloneTrackPosition(route: VehicleRouteLike | undefined): VehicleRouteContract | undefined {
+  const normalized = normalizeTrackPosition(route)
+  if (!normalized) return undefined
+  return {
+    trackId: normalized.trackId,
+    segmentIndex: normalized.segmentIndex,
+    segmentProgress: normalized.segmentProgress,
+    ...(normalized.target ? { target: { ...normalized.target } } : {}),
+    ...(normalized.direction ? { direction: normalized.direction } : {}),
+  }
 }
 
 function routeTrackEquals(
-  left: VehicleTrackContract | undefined,
-  right: VehicleTrackContract | undefined
+  left: VehicleTrackLike | undefined,
+  right: VehicleTrackLike | undefined
 ) {
-  if (!left && !right) return true
-  if (!left || !right) return false
-  if (left.id !== right.id || left.loop !== right.loop || left.points.length !== right.points.length) {
+  const normalizedLeft = normalizeRouteTrack(left)
+  const normalizedRight = normalizeRouteTrack(right)
+  if (!normalizedLeft && !normalizedRight) return true
+  if (!normalizedLeft || !normalizedRight) return false
+  if (
+    normalizedLeft.id !== normalizedRight.id ||
+    normalizedLeft.loop !== normalizedRight.loop ||
+    normalizedLeft.points.length !== normalizedRight.points.length
+  ) {
     return false
   }
-  for (let index = 0; index < left.points.length; index += 1) {
-    const leftPoint = left.points[index]
-    const rightPoint = right.points[index]
+  for (let index = 0; index < normalizedLeft.points.length; index += 1) {
+    const leftPoint = normalizedLeft.points[index]
+    const rightPoint = normalizedRight.points[index]
     if (
       !rightPoint ||
       leftPoint.x !== rightPoint.x ||
@@ -541,26 +586,32 @@ function routeTrackEquals(
 }
 
 function trackPositionEquals(
-  left: VehicleRouteContract | undefined,
-  right: VehicleRouteContract | undefined
+  left: VehicleRouteLike | undefined,
+  right: VehicleRouteLike | undefined
 ) {
-  if (!left && !right) return true
-  if (!left || !right) return false
+  const normalizedLeft = normalizeTrackPosition(left)
+  const normalizedRight = normalizeTrackPosition(right)
+  if (!normalizedLeft && !normalizedRight) return true
+  if (!normalizedLeft || !normalizedRight) return false
   if (
-    left.trackId !== right.trackId ||
-    left.segmentIndex !== right.segmentIndex ||
-    left.segmentProgress !== right.segmentProgress ||
-    left.direction !== right.direction
+    normalizedLeft.trackId !== normalizedRight.trackId ||
+    normalizedLeft.segmentIndex !== normalizedRight.segmentIndex ||
+    normalizedLeft.segmentProgress !== normalizedRight.segmentProgress ||
+    normalizedLeft.direction !== normalizedRight.direction
   ) {
     return false
   }
-  if (!left.target && !right.target) return true
-  if (!left.target || !right.target) return false
+  if (!normalizedLeft.target && !normalizedRight.target) return true
+  if (!normalizedLeft.target || !normalizedRight.target) return false
   return (
-    left.target.x === right.target.x &&
-    left.target.y === right.target.y &&
-    left.target.z === right.target.z
+    normalizedLeft.target.x === normalizedRight.target.x &&
+    normalizedLeft.target.y === normalizedRight.target.y &&
+    normalizedLeft.target.z === normalizedRight.target.z
   )
+}
+
+function vectorEquals(left: Vector3, right: Vector3) {
+  return left.x === right.x && left.y === right.y && left.z === right.z
 }
 
 function toCreatePayload(entity: Entity): EcsCreatePayload {
@@ -781,6 +832,11 @@ function canReuseProjectedEntity(previous: Entity, snapshot: EcsEntitySnapshot):
   if (previous.status !== snapshot.status) return false
   if (previous.visible !== snapshot.visible) return false
   if ((previous.labelMode ?? 'html') !== snapshot.labelMode) return false
+  if (!vectorEquals(previous.position, snapshot.position)) return false
+  if (!vectorEquals(previous.rotation, snapshot.rotation)) return false
+  if (!vectorEquals(previous.scale, snapshot.scale)) return false
+  if (previous.createdAt !== snapshot.createdAt) return false
+  if (previous.updatedAt !== snapshot.updatedAt) return false
 
   if (snapshot.type === 'person') {
     const entity = previous
@@ -810,6 +866,8 @@ function canReuseProjectedEntity(previous: Entity, snapshot: EcsEntitySnapshot):
   if (snapshot.type === 'vehicle') {
     const entity = previous
     return entity.type === 'vehicle'
+      && entity.speed === (snapshot.speed ?? entity.speed)
+      && entity.heading === (snapshot.heading ?? entity.heading)
       && entity.plateNumber === (snapshot.plateNumber ?? entity.plateNumber)
       && entity.vehicleType === (snapshot.vehicleType ?? entity.vehicleType)
       && entity.capacity === snapshot.capacity
@@ -1919,6 +1977,7 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
       removeEntity: (id) => {
         enqueueEcsCommands(ecsWorld, [{ type: 'remove', payload: { id } }])
         flushBufferedCommands(ecsWorld)
+        runtimeVehicleSnapshotRegistry.clear(id)
         set((state) => ({
           ...buildPublishedEntityState({
             previousEntities: state.entities,
@@ -2435,6 +2494,7 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
         ecsWorld.commandBuffer.length = 0
         ecsWorld.selectedId = null
         ecsWorld.hoveredId = null
+        runtimeVehicleSnapshotRegistry.clear()
         resetRuntimeClockState()
         set(initialState)
       },

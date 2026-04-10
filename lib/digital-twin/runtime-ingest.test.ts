@@ -79,6 +79,16 @@ describe('runtime ingest helpers', () => {
     }
 
     expect(buildRuntimePositionEntityPatch(vehicle, message)).toEqual({
+      position: {
+        x: 14.52,
+        y: 0,
+        z: 3,
+      },
+      rotation: {
+        x: 0,
+        y: Math.PI / 2,
+        z: 0,
+      },
       speed: 2.4,
       heading: 90,
       routeTrack: {
@@ -128,6 +138,84 @@ describe('runtime ingest helpers', () => {
         },
       },
     })
+  })
+
+  test('normalizes degree-based vehicle rotation when the route contract is absent', () => {
+    const vehicle = createVehicle()
+    const message: PositionUpdateMessage = {
+      entityId: vehicle.id,
+      position: { x: 8, y: 0, z: -2 },
+      rotation: {
+        x: 0,
+        y: 180,
+        z: 0,
+      },
+      speed: 1.8,
+      heading: 180,
+    }
+
+    expect(buildRuntimePositionEntityPatch(vehicle, message)).toEqual({
+      position: { x: 8, y: 0, z: -2 },
+      rotation: {
+        x: 0,
+        y: Math.PI,
+        z: 0,
+      },
+      speed: 1.8,
+      heading: 180,
+    })
+  })
+
+  test('accepts route-track descriptors from the live simulator contract', () => {
+    const vehicle = createVehicle()
+    const message: PositionUpdateMessage = {
+      entityId: vehicle.id,
+      position: { x: -20, y: 0, z: 54 },
+      speed: 2.6,
+      heading: 90,
+      routeTrack: {
+        routeId: 'factory-yard-circulation',
+        trackId: 'forklift-track-01',
+        label: '装卸主环线',
+        looped: true,
+        waypoints: [
+          { x: -92, y: 0, z: 54 },
+          { x: -28, y: 0, z: 54 },
+          { x: 36, y: 0, z: 54 },
+        ],
+      },
+      trackPosition: {
+        routeId: 'factory-yard-circulation',
+        trackId: 'forklift-track-01',
+        segmentIndex: 0,
+        nextWaypointIndex: 1,
+        segmentProgress: 0.5,
+      },
+    }
+
+    expect(buildRuntimePositionEntityPatch(vehicle, message)).toEqual(
+      expect.objectContaining({
+        position: {
+          x: -60,
+          y: 0,
+          z: 54,
+        },
+        routeTrack: {
+          id: 'forklift-track-01',
+          loop: true,
+          points: [
+            { x: -92, y: 0, z: 54 },
+            { x: -28, y: 0, z: 54 },
+            { x: 36, y: 0, z: 54 },
+          ],
+        },
+        trackPosition: {
+          trackId: 'forklift-track-01',
+          segmentIndex: 0,
+          segmentProgress: 0.5,
+        },
+      })
+    )
   })
 
   test('maps sensor status parameters onto typed sensor fields', () => {

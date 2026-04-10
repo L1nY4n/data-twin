@@ -9,7 +9,7 @@ import {
   Stats,
   Bvh,
 } from '@react-three/drei'
-import { useTheme } from 'next-themes'
+import { useTheme } from '@/components/theme-provider'
 import type * as THREE from 'three'
 import type { OrbitControls as OrbitControlsType } from 'three-stdlib'
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'

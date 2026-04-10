@@ -23,7 +23,7 @@ import {
   Sun,
   Moon,
 } from 'lucide-react'
-import { useTheme } from 'next-themes'
+import { useTheme } from '@/components/theme-provider'
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
 import type { ViewMode } from '@/lib/digital-twin/types'
 import { isRuntimeIncidentActive } from '@/lib/digital-twin/incident-utils'

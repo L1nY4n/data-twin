@@ -35,4 +35,14 @@ describe('backend runtime guards', () => {
     expect(source.includes('getAdminApiBaseUrl')).toBe(true)
     expect(source.includes('NEXT_PUBLIC_BACKEND_HTTP_URL')).toBe(true)
   })
+
+  test('dev stack should start the runtime simulator by default', () => {
+    const source = readFileSync(join(process.cwd(), 'scripts/dev-stack.sh'), 'utf8')
+
+    expect(source.includes('STACK_RUNTIME_SIMULATOR')).toBe(true)
+    expect(source.includes('SIMULATOR_INTERVAL')).toBe(true)
+    expect(source.includes('RUNTIME_INGEST_TOKEN')).toBe(true)
+    expect(source.includes('scripts/simulate_runtime_ingest.py')).toBe(true)
+    expect(source.includes('/health/ready')).toBe(true)
+  })
 })

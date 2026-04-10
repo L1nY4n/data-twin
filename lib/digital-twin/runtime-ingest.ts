@@ -8,6 +8,8 @@ import type {
   VehicleTrackContract,
   Vector3,
 } from './types'
+import { degreesToRadians } from './spatial-utils'
+import { resolveVehicleRoutePose } from './vehicle-route-motion'
 
 type RuntimeParameterValue = string | number | boolean
 
@@ -70,13 +72,28 @@ function serializeVector3(value: Vector3) {
   return { x: value.x, y: value.y, z: value.z }
 }
 
+function normalizeRotationValue(value: number) {
+  return Math.abs(value) > Math.PI * 2 ? degreesToRadians(value) : value
+}
+
+function normalizeRotationVector(value: Vector3 | undefined): Vector3 | undefined {
+  if (!value) return undefined
+  return {
+    x: normalizeRotationValue(value.x),
+    y: normalizeRotationValue(value.y),
+    z: normalizeRotationValue(value.z),
+  }
+}
+
 function normalizeVehicleTrackContract(value: unknown): VehicleTrackContract | null {
   const record = asObject(value)
   if (!record) return null
 
-  const id = asString(record.id)
-  const loop = asBoolean(record.loop)
-  const rawPoints = Array.isArray(record.points) ? record.points : null
+  const id = asString(record.id) ?? asString(record.trackId)
+  const loop = asBoolean(record.loop) ?? asBoolean(record.looped)
+  const rawPoints =
+    (Array.isArray(record.points) ? record.points : null) ??
+    (Array.isArray(record.waypoints) ? record.waypoints : null)
   if (!id || loop === null || !rawPoints) return null
 
   const points = rawPoints.map(asVector3)
@@ -176,16 +193,36 @@ export function resolveRuntimeVehicleContracts(entity: Entity | undefined): {
 
 export function buildRuntimePositionEntityPatch(
   entity: Entity | undefined,
-  message: PositionUpdateMessage
+  message: PositionUpdateMessage,
+  options?: { timestamp?: number }
 ): Partial<Entity> {
-  const patch: Record<string, unknown> = {}
+  const patch: Record<string, unknown> = {
+    position: { ...message.position },
+  }
   const speed = asNumber(message.speed)
   const heading = asNumber(message.heading)
+  const looksLikeVehicleUpdate =
+    entity?.type === 'vehicle' ||
+    message.routeTrack !== undefined ||
+    message.trackPosition !== undefined ||
+    message.track !== undefined ||
+    message.route !== undefined
+  const baseRotation =
+    entity?.type === 'vehicle'
+      ? entity.rotation
+      : {
+          x: 0,
+          y: 0,
+          z: 0,
+        }
 
   if (speed !== null) patch.speed = speed
   if (heading !== null) patch.heading = heading
+  if (options?.timestamp !== undefined) patch.updatedAt = options.timestamp
 
-  if (!entity || entity.type !== 'vehicle') {
+  if (!looksLikeVehicleUpdate) {
+    const rotation = normalizeRotationVector(message.rotation)
+    if (rotation) patch.rotation = rotation
     return patch as Partial<Entity>
   }
 
@@ -195,6 +232,27 @@ export function buildRuntimePositionEntityPatch(
   const route =
     normalizeVehicleRouteContract(message.trackPosition) ??
     normalizeVehicleRouteContract(message.route)
+
+  if (track && route) {
+    const pose = resolveVehicleRoutePose(track, route)
+    patch.position = pose.position
+    patch.rotation = {
+      x: baseRotation.x,
+      y: pose.yaw,
+      z: baseRotation.z,
+    }
+  } else {
+    const normalizedMessageRotation = normalizeRotationVector(message.rotation)
+    if (normalizedMessageRotation) {
+      patch.rotation = normalizedMessageRotation
+    } else if (heading !== null) {
+      patch.rotation = {
+        x: baseRotation.x,
+        y: degreesToRadians(heading),
+        z: baseRotation.z,
+      }
+    }
+  }
 
   if (!track && !route) {
     return patch as Partial<Entity>

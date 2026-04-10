@@ -101,11 +101,7 @@ async fn build_app_with_store(
     options: AppBuildOptions,
 ) -> Result<Router, AppBuildError> {
     let allowed_origins = parse_allowed_origins(allowed_origin)?;
-    let realtime_origin = allowed_origins
-        .first()
-        .cloned()
-        .ok_or(AppBuildError::InvalidAllowedOriginSyntax)?;
-    let realtime_state = RealtimeState::new(realtime_origin);
+    let realtime_state = RealtimeState::new(allowed_origins.clone());
     let AppBuildOptions { publish_config } = options;
     let runtime_ingest_token = env::var("RUNTIME_INGEST_TOKEN").ok().and_then(|value| {
         let trimmed = value.trim().to_string();

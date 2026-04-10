@@ -9,6 +9,15 @@ import {
 } from '@/lib/digital-twin/renderer/instanced-bounds'
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
 import type { VehicleEntity } from '@/lib/digital-twin/types'
+import {
+  normalizeVehicleRouteLike,
+  normalizeVehicleTrackLike,
+  resolveVehicleRoutePose,
+} from '@/lib/digital-twin/vehicle-route-motion'
+import {
+  resolveVehiclePoseFromSnapshots,
+} from '@/lib/digital-twin/vehicle-snapshot-interpolation'
+import { runtimeVehicleSnapshotRegistry } from '@/lib/digital-twin/runtime-vehicle-snapshot-registry'
 
 interface VehicleInstancesProps {
   entities: VehicleEntity[]
@@ -26,62 +35,11 @@ interface VehicleRuntimeState {
   y: number
   z: number
   yaw: number
-  targetX: number
-  targetY: number
-  targetZ: number
-  targetYaw: number
+  status: VehicleEntity['status']
 }
 
-const POSITION_EPSILON = 0.001
-const ROTATION_EPSILON = 0.001
-
-function normalizeRadians(value: number): number {
-  let angle = value
-  const twoPi = Math.PI * 2
-  while (angle <= -Math.PI) angle += twoPi
-  while (angle > Math.PI) angle -= twoPi
-  return angle
-}
-
-function lerpAngle(current: number, target: number, alpha: number): number {
-  return current + normalizeRadians(target - current) * alpha
-}
-
-function hasTargetChanged(
-  state: VehicleRuntimeState,
-  targetPosition: VehicleEntity['position'],
-  targetYaw: number
-) {
-  return (
-    Math.abs(targetPosition.x - state.targetX) > POSITION_EPSILON ||
-    Math.abs(targetPosition.y - state.targetY) > POSITION_EPSILON ||
-    Math.abs(targetPosition.z - state.targetZ) > POSITION_EPSILON ||
-    Math.abs(normalizeRadians(targetYaw - state.targetYaw)) > ROTATION_EPSILON
-  )
-}
-
-function isSettled(state: VehicleRuntimeState) {
-  return (
-    Math.abs(state.targetX - state.x) <= POSITION_EPSILON &&
-    Math.abs(state.targetY - state.y) <= POSITION_EPSILON &&
-    Math.abs(state.targetZ - state.z) <= POSITION_EPSILON &&
-    Math.abs(normalizeRadians(state.targetYaw - state.yaw)) <= ROTATION_EPSILON
-  )
-}
-
-function stepRuntimeState(state: VehicleRuntimeState, smoothing: number) {
-  state.x += (state.targetX - state.x) * smoothing
-  state.y += (state.targetY - state.y) * smoothing
-  state.z += (state.targetZ - state.z) * smoothing
-  state.yaw = lerpAngle(state.yaw, state.targetYaw, smoothing)
-
-  if (Math.abs(state.targetX - state.x) <= POSITION_EPSILON) state.x = state.targetX
-  if (Math.abs(state.targetY - state.y) <= POSITION_EPSILON) state.y = state.targetY
-  if (Math.abs(state.targetZ - state.z) <= POSITION_EPSILON) state.z = state.targetZ
-  if (Math.abs(normalizeRadians(state.targetYaw - state.yaw)) <= ROTATION_EPSILON) {
-    state.yaw = state.targetYaw
-  }
-}
+const INTERPOLATION_DELAY_MS = 120
+const MAX_EXTRAPOLATION_MS = 220
 
 const VEHICLE_SIZES: Record<VehicleEntity['vehicleType'], { width: number; height: number; depth: number }> = {
   car: { width: 1.8, height: 1, depth: 3.8 },
@@ -157,6 +115,28 @@ function setWheelMatrix(
   WHEEL_TEMP.scale.set(wheelRadius * wheelScale, wheelThickness * wheelScale, wheelRadius * wheelScale)
   WHEEL_TEMP.updateMatrix()
   mesh.setMatrixAt(instanceIndex, WHEEL_TEMP.matrix)
+}
+
+function resolveVehiclePoseFromEntity(entity: VehicleEntity) {
+  if (entity.routeTrack && entity.trackPosition) {
+    const pose = resolveVehicleRoutePose(
+      normalizeVehicleTrackLike(entity.routeTrack),
+      normalizeVehicleRouteLike(entity.trackPosition)
+    )
+    return {
+      x: pose.position.x,
+      y: pose.position.y,
+      z: pose.position.z,
+      yaw: pose.yaw,
+    }
+  }
+
+  return {
+    x: entity.position.x,
+    y: entity.position.y,
+    z: entity.position.z,
+    yaw: entity.rotation.y,
+  }
 }
 
 export const VehicleInstances = memo(function VehicleInstances({ entities }: VehicleInstancesProps) {
@@ -261,8 +241,7 @@ export const VehicleInstances = memo(function VehicleInstances({ entities }: Veh
     const bodyColor = colorRef.current.body
     const cabinColor = colorRef.current.cabin
     const statusColor = colorRef.current.status
-    const dt = Math.min(delta, 0.05)
-    const smoothing = 1 - Math.exp(-14 * dt)
+    const nowMs = Date.now()
     const forceMatrixSync = forceMatrixSyncRef.current
     const forceColorSync = forceColorSyncRef.current
     let matrixDirty = false
@@ -272,46 +251,47 @@ export const VehicleInstances = memo(function VehicleInstances({ entities }: Veh
       const entity = entities[index]
       const size = VEHICLE_SIZES[entity.vehicleType]
       const snapshot = getSnapshotById(entity.id)
-      const targetPosition = snapshot?.position ?? entity.position
-      const targetYaw = snapshot?.rotation.y ?? entity.rotation.y
       const targetStatus = (snapshot?.status as VehicleEntity['status'] | undefined) ?? entity.status
 
       let state = runtimeStates.get(entity.id)
       let shouldSyncMatrix = forceMatrixSync
       if (!state) {
+        const initialPose = resolveVehiclePoseFromEntity(entity)
         state = {
-          x: targetPosition.x,
-          y: targetPosition.y,
-          z: targetPosition.z,
-          yaw: targetYaw,
-          targetX: targetPosition.x,
-          targetY: targetPosition.y,
-          targetZ: targetPosition.z,
-          targetYaw,
+          x: initialPose.x,
+          y: initialPose.y,
+          z: initialPose.z,
+          yaw: initialPose.yaw,
+          status: targetStatus,
         }
         runtimeStates.set(entity.id, state)
         shouldSyncMatrix = true
-      } else {
-        if (hasTargetChanged(state, targetPosition, targetYaw)) {
-          state.targetX = targetPosition.x
-          state.targetY = targetPosition.y
-          state.targetZ = targetPosition.z
-          state.targetYaw = targetYaw
-          shouldSyncMatrix = true
-        }
       }
 
-      if (!isSettled(state)) {
-        stepRuntimeState(state, smoothing)
+      const pose = resolveVehiclePoseFromSnapshots(
+        runtimeVehicleSnapshotRegistry.get(entity.id),
+        nowMs,
+        INTERPOLATION_DELAY_MS,
+        MAX_EXTRAPOLATION_MS
+      )
+      if (pose) {
+        state.x = pose.x
+        state.y = pose.y
+        state.z = pose.z
+        state.yaw = pose.yaw
+        state.status = pose.status
         shouldSyncMatrix = true
+      } else {
+        state.status = targetStatus
       }
 
       const prevStatus = statusStates.get(entity.id)
-      const statusChanged = forceColorSync || prevStatus !== targetStatus
+      const renderStatus = state.status
+      const statusChanged = forceColorSync || prevStatus !== renderStatus
       if (statusChanged) {
-        statusStates.set(entity.id, targetStatus)
-        bodyColor.set(getBodyColor(entity.vehicleType, targetStatus))
-        statusColor.set(getStatusColor(targetStatus))
+        statusStates.set(entity.id, renderStatus)
+        bodyColor.set(getBodyColor(entity.vehicleType, renderStatus))
+        statusColor.set(getStatusColor(renderStatus))
         colorDirty = true
       }
 

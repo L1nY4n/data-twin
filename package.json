@@ -6,6 +6,7 @@
     "dev": "next dev --turbopack",
     "dev:frontend": "next dev --turbopack",
     "dev:backend": "cd backend-core-rs && cargo run",
+    "dev:simulator": "python3 scripts/simulate_runtime_ingest.py --base-url http://127.0.0.1:4000",
     "dev:stack": "bash scripts/dev-stack.sh",
     "db:up": "docker compose up -d postgres",
     "db:down": "docker compose down",

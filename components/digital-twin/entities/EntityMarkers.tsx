@@ -2,6 +2,7 @@
 
 import { useMemo } from 'react'
 import type { PublishedSceneSector } from '@/lib/digital-twin/publish'
+import { normalizeVehicleTrackLike } from '@/lib/digital-twin/vehicle-route-motion'
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
 import type {
   CameraEntity,
@@ -63,6 +64,33 @@ function createSectorEntityBatches<T extends { position: Vector3 }>(
   })).filter((batch) => batch.entities.length > 0)
 }
 
+export function createVehicleEntityBatches(
+  vehicles: VehicleEntity[],
+  sectors: PublishedSceneSector[]
+): SectorEntityBatch<VehicleEntity>[] {
+  const buckets = new Map<string, VehicleEntity[]>()
+
+  vehicles.forEach((vehicle) => {
+    const normalizedTrack = vehicle.routeTrack
+      ? normalizeVehicleTrackLike(vehicle.routeTrack)
+      : null
+    const batchId = normalizedTrack?.id
+      ? `track:${normalizedTrack.id}`
+      : resolveNearestSectorId(vehicle.position, sectors)
+    const existing = buckets.get(batchId)
+    if (existing) {
+      existing.push(vehicle)
+    } else {
+      buckets.set(batchId, [vehicle])
+    }
+  })
+
+  return [...buckets.entries()].map(([sectorId, entities]) => ({
+    sectorId,
+    entities,
+  }))
+}
+
 export function EntityMarkers() {
   const persons = useDigitalTwinStore((state) => state.entityBuckets.persons)
   const vehicles = useDigitalTwinStore((state) => state.entityBuckets.vehicles)
@@ -105,7 +133,9 @@ export function EntityMarkers() {
     [filteredPersons, publishedSectors]
   )
   const vehicleBatches = useMemo(
-    () => createSectorEntityBatches(filteredVehicles, publishedSectors),
+    // Keep moving vehicles in stable route batches so they do not remount every
+    // time their position crosses the nearest-sector boundary.
+    () => createVehicleEntityBatches(filteredVehicles, publishedSectors),
     [filteredVehicles, publishedSectors]
   )
   const equipmentBatches = useMemo(

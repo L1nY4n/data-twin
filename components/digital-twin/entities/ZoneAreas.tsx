@@ -1,19 +1,31 @@
 'use client'
 
 import { useMemo } from 'react'
-import { Html } from '@react-three/drei'
 import * as THREE from 'three'
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
 import type { ZoneEntity } from '@/lib/digital-twin/types'
 import { calculatePolygonCenter } from '@/lib/digital-twin/spatial-utils'
-import { Badge } from '@/components/ui/badge'
-import { cn } from '@/lib/utils'
 import { SceneLine } from '@/components/digital-twin/scene/SceneLine'
+import { SpriteInfoCard } from '@/components/digital-twin/scene/SpriteInfoCard'
 import { SpriteTextLabel } from '@/components/digital-twin/scene/SpriteTextLabel'
 import {
   OVERLAY_RENDER_ORDER,
   STABLE_DOUBLE_SIDED_OVERLAY,
 } from '@/lib/digital-twin/renderer/material-stability'
+
+function zoneTypeLabel(zoneType: ZoneEntity['zoneType']) {
+  return zoneType === 'work'
+    ? '作业区'
+    : zoneType === 'storage'
+      ? '存储区'
+      : zoneType === 'passage'
+        ? '通道'
+        : zoneType === 'restricted'
+          ? '限制区'
+          : zoneType === 'danger'
+            ? '危险区'
+            : zoneType
+}
 
 export function ZoneAreas() {
   const zones = useDigitalTwinStore((state) => state.entityBuckets.zones)
@@ -132,36 +144,25 @@ function ZoneArea({ zone }: ZoneAreaProps) {
 
       {/* 区域标签 */}
       {showLabel && (
-        <Html
+        <SpriteInfoCard
           position={[center.x, 2, center.z]}
-          center
-          distanceFactor={30}
-          occlude={false}
-          style={{ pointerEvents: 'none' }}
-        >
-          <div className={cn(
-            "flex flex-col items-center gap-1 rounded-lg border bg-background/95 p-2 shadow-lg backdrop-blur-sm",
-            "min-w-[120px] text-center"
-          )}>
-            <span className="text-xs font-medium text-foreground">{zone.name}</span>
-            <Badge 
-              variant="outline" 
-              className="text-[10px] px-1.5 py-0"
-              style={{ borderColor: zone.color, color: zone.color }}
-            >
-              {zone.zoneType === 'work' ? '作业区' :
-               zone.zoneType === 'storage' ? '存储区' :
-               zone.zoneType === 'passage' ? '通道' :
-               zone.zoneType === 'restricted' ? '限制区' :
-               zone.zoneType === 'danger' ? '危险区' : zone.zoneType}
-            </Badge>
-            {zone.capacity && (
-              <span className="text-[10px] text-muted-foreground">
-                容量: {zone.currentOccupancy || 0}/{zone.capacity}
-              </span>
-            )}
-          </div>
-        </Html>
+          title={zone.name}
+          badges={[
+            {
+              text: zoneTypeLabel(zone.zoneType),
+              backgroundColor: `${zone.color}1a`,
+              borderColor: `${zone.color}aa`,
+              textColor: zone.color,
+            },
+          ]}
+          lines={
+            zone.capacity
+              ? [`容量: ${zone.currentOccupancy || 0}/${zone.capacity}`]
+              : []
+          }
+          scale={0.95}
+          minWidth={220}
+        />
       )}
 
       {/* 区域名称（始终显示） */}

@@ -32,6 +32,30 @@ async fn realtime_websocket_accepts_valid_origin() {
 }
 
 #[tokio::test]
+async fn realtime_websocket_accepts_secondary_origin_when_multiple_origins_are_configured() {
+    init_test_database_url();
+    let (base_url, server) = spawn_app(
+        backend_core_rs::app::build_app("http://localhost:3000,http://127.0.0.1:3000")
+            .await
+            .expect("valid allowed origins should build the app"),
+    )
+    .await;
+
+    let ws_url = format!("{}/ws/realtime", base_url.replace("http", "ws"));
+    let (mut socket, _) = connect_async(websocket_request(&ws_url, "http://127.0.0.1:3000"))
+        .await
+        .expect("websocket should connect for the secondary configured origin");
+
+    socket
+        .close(None)
+        .await
+        .expect("socket should close cleanly");
+
+    server.abort();
+    let _ = server.await;
+}
+
+#[tokio::test]
 async fn realtime_websocket_rejects_invalid_origin() {
     init_test_database_url();
     let (base_url, server) = spawn_app(

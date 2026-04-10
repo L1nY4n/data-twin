@@ -6,6 +6,9 @@ STACK_DB="${STACK_DB:-sqlite}"
 BACKEND_PORT="${BACKEND_PORT:-4000}"
 FRONTEND_PORT="${FRONTEND_PORT:-3000}"
 POSTGRES_PORT="${POSTGRES_PORT:-5432}"
+STACK_RUNTIME_SIMULATOR="${STACK_RUNTIME_SIMULATOR:-1}"
+SIMULATOR_INTERVAL="${SIMULATOR_INTERVAL:-0.2}"
+RUNTIME_INGEST_TOKEN="${RUNTIME_INGEST_TOKEN:-dev-runtime-ingest-token}"
 
 ensure_command() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -49,6 +52,8 @@ trap cleanup EXIT INT TERM
 
 ensure_command cargo
 ensure_command bun
+ensure_command python3
+ensure_command curl
 check_existing_next_dev
 
 if is_port_busy "${BACKEND_PORT}"; then
@@ -76,15 +81,40 @@ fi
 
 export HOST="${HOST:-0.0.0.0}"
 export PORT="${PORT:-${BACKEND_PORT}}"
-export BACKEND_ALLOWED_ORIGIN="${BACKEND_ALLOWED_ORIGIN:-http://localhost:${FRONTEND_PORT}}"
+export BACKEND_ALLOWED_ORIGIN="${BACKEND_ALLOWED_ORIGIN:-http://localhost:${FRONTEND_PORT},http://127.0.0.1:${FRONTEND_PORT}}"
 export NEXT_PUBLIC_BACKEND_HTTP_URL="${NEXT_PUBLIC_BACKEND_HTTP_URL:-http://localhost:${BACKEND_PORT}}"
 export NEXT_PUBLIC_BACKEND_WS_URL="${NEXT_PUBLIC_BACKEND_WS_URL:-ws://localhost:${BACKEND_PORT}}"
+export RUNTIME_INGEST_TOKEN
 
 echo "[stack] starting backend-core-rs on :${BACKEND_PORT} ..."
 (
   cd "${ROOT_DIR}/backend-core-rs"
   cargo run
 ) &
+
+if [[ "${STACK_RUNTIME_SIMULATOR}" == "1" ]]; then
+  echo "[stack] waiting for backend readiness before starting runtime simulator ..."
+  backend_ready=0
+  for _ in $(seq 1 60); do
+    if curl -sSf "http://127.0.0.1:${BACKEND_PORT}/health/ready" >/dev/null 2>&1; then
+      backend_ready=1
+      break
+    fi
+    sleep 0.5
+  done
+
+  if [[ "${backend_ready}" == "1" ]]; then
+    echo "[stack] starting runtime simulator at ${SIMULATOR_INTERVAL}s interval ..."
+    (
+      cd "${ROOT_DIR}"
+      python3 scripts/simulate_runtime_ingest.py \
+        --base-url "http://127.0.0.1:${BACKEND_PORT}" \
+        --interval "${SIMULATOR_INTERVAL}"
+    ) &
+  else
+    echo "[stack] backend did not become ready in time; skipping runtime simulator startup" >&2
+  fi
+fi
 
 echo "[stack] starting Next.js on :${FRONTEND_PORT} ..."
 (

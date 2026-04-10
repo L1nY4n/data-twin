@@ -14,10 +14,12 @@ FORKLIFT_TRACKS = [
     {
         "entityId": "vehicle-forklift-01",
         "baseHeading": 90.0,
+        "routeId": "factory-yard-circulation",
+        "label": "装卸主环线",
         "track": {
-            "id": "forklift-track-01",
-            "loop": True,
-            "points": [
+            "trackId": "forklift-track-01",
+            "looped": True,
+            "waypoints": [
                 {"x": -92.0, "y": 0.0, "z": 54.0},
                 {"x": -28.0, "y": 0.0, "z": 54.0},
                 {"x": 36.0, "y": 0.0, "z": 54.0},
@@ -35,10 +37,12 @@ FORKLIFT_TRACKS = [
     {
         "entityId": "vehicle-forklift-02",
         "baseHeading": 180.0,
+        "routeId": "factory-yard-circulation",
+        "label": "货架补料线",
         "track": {
-            "id": "forklift-track-02",
-            "loop": True,
-            "points": [
+            "trackId": "forklift-track-02",
+            "looped": True,
+            "waypoints": [
                 {"x": -68.0, "y": 0.0, "z": 72.0},
                 {"x": 68.0, "y": 0.0, "z": 72.0},
                 {"x": 96.0, "y": 0.0, "z": 54.0},
@@ -54,10 +58,12 @@ FORKLIFT_TRACKS = [
     {
         "entityId": "vehicle-forklift-03",
         "baseHeading": 270.0,
+        "routeId": "factory-yard-circulation",
+        "label": "北侧周转线",
         "track": {
-            "id": "forklift-track-03",
-            "loop": True,
-            "points": [
+            "trackId": "forklift-track-03",
+            "looped": True,
+            "waypoints": [
                 {"x": -84.0, "y": 0.0, "z": -4.0},
                 {"x": -36.0, "y": 0.0, "z": -4.0},
                 {"x": 32.0, "y": 0.0, "z": -4.0},
@@ -73,10 +79,12 @@ FORKLIFT_TRACKS = [
     {
         "entityId": "vehicle-forklift-04",
         "baseHeading": 0.0,
+        "routeId": "factory-yard-circulation",
+        "label": "西侧回库线",
         "track": {
-            "id": "forklift-track-04",
-            "loop": True,
-            "points": [
+            "trackId": "forklift-track-04",
+            "looped": True,
+            "waypoints": [
                 {"x": 0.0, "y": 0.0, "z": 32.0},
                 {"x": 0.0, "y": 0.0, "z": 4.0},
                 {"x": 0.0, "y": 0.0, "z": -24.0},
@@ -93,10 +101,12 @@ FORKLIFT_TRACKS = [
     {
         "entityId": "vehicle-forklift-05",
         "baseHeading": 45.0,
+        "routeId": "factory-yard-circulation",
+        "label": "南北穿梭线",
         "track": {
-            "id": "forklift-track-05",
-            "loop": True,
-            "points": [
+            "trackId": "forklift-track-05",
+            "looped": True,
+            "waypoints": [
                 {"x": -88.0, "y": 0.0, "z": 30.0},
                 {"x": -88.0, "y": 0.0, "z": 2.0},
                 {"x": -88.0, "y": 0.0, "z": -72.0},
@@ -124,8 +134,8 @@ def build_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--interval",
         type=float,
-        default=1.0,
-        help="Seconds between pushes. Default: 1.0",
+        default=0.15,
+        help="Seconds between pushes. Default: 0.15",
     )
     parser.add_argument(
         "--iterations",
@@ -135,8 +145,8 @@ def build_argument_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--source",
-        default="python-simulator",
-        help="Source label to attach to ingest payloads.",
+        default="",
+        help="Optional source label to attach to ingest payloads. Defaults to a unique process-scoped label.",
     )
     parser.add_argument(
         "--token",
@@ -156,17 +166,92 @@ def interpolate_track_position(track: list[dict], segment_index: int, progress: 
     }
 
 
-def build_forklift_event(track_descriptor: dict, index: int, step: int, timestamp_ms: int) -> dict:
+def next_segment_index(segment_index: int, point_count: int, looped: bool) -> int:
+    if point_count <= 0:
+        return 0
+    if segment_index >= point_count - 1:
+        return 0 if looped else point_count - 1
+    return segment_index + 1
+
+
+def segment_length(start: dict, end: dict) -> float:
+    return math.hypot(end["x"] - start["x"], end["z"] - start["z"])
+
+
+def advance_route_position(
+    points: list[dict],
+    segment_index: int,
+    segment_progress: float,
+    speed: float,
+    delta_seconds: float,
+    looped: bool,
+) -> tuple[int, float]:
+    if len(points) < 2 or speed <= 0.0 or delta_seconds <= 0.0:
+        return segment_index, segment_progress
+
+    next_index = max(0, min(segment_index, len(points) - 1))
+    next_progress = max(0.0, min(segment_progress, 1.0))
+    remaining_distance = speed * delta_seconds
+
+    while remaining_distance > 0.0:
+        target_index = next_segment_index(next_index, len(points), looped)
+        start = points[next_index]
+        end = points[target_index]
+        length = segment_length(start, end)
+
+        if length <= 1e-6:
+            if not looped and target_index == next_index:
+                break
+            next_index = target_index
+            next_progress = 0.0
+            continue
+
+        remaining_on_segment = (1.0 - next_progress) * length
+        if remaining_distance < remaining_on_segment:
+            next_progress += remaining_distance / length
+            next_progress = min(next_progress, 1.0)
+            break
+
+        remaining_distance -= remaining_on_segment
+
+        if not looped and target_index == next_index:
+            next_progress = 1.0
+            break
+
+        next_index = target_index
+        next_progress = 0.0
+
+    return next_index, round(next_progress, 6)
+
+
+def build_route_states() -> list[dict]:
+    states: list[dict] = []
+    for index, track_descriptor in enumerate(FORKLIFT_TRACKS):
+        point_count = len(track_descriptor["track"]["waypoints"])
+        states.append(
+            {
+                "segmentIndex": (index * 2) % point_count,
+                "segmentProgress": round((index * 0.17) % 1.0, 6),
+                "direction": "forward",
+            }
+        )
+    return states
+
+
+def build_forklift_event(
+    track_descriptor: dict,
+    route_state: dict,
+    speed: float,
+    timestamp_ms: int,
+) -> dict:
     track = track_descriptor["track"]
-    points = track["points"]
-    segment_index = (step + index * 2) % len(points)
-    segment_progress = ((step * 0.23) + index * 0.17) % 1
+    points = track["waypoints"]
+    segment_index = route_state["segmentIndex"] % len(points)
+    segment_progress = max(0.0, min(route_state["segmentProgress"], 1.0))
     position = interpolate_track_position(points, segment_index, segment_progress)
     next_point = points[(segment_index + 1) % len(points)]
-    heading = (
-        math.degrees(math.atan2(next_point["x"] - position["x"], next_point["z"] - position["z"]))
-        + 360
-    ) % 360
+    yaw_radians = math.atan2(next_point["x"] - position["x"], next_point["z"] - position["z"])
+    heading = (math.degrees(yaw_radians) + 360) % 360
 
     return {
         "type": "position_update",
@@ -174,22 +259,33 @@ def build_forklift_event(track_descriptor: dict, index: int, step: int, timestam
         "payload": {
             "entityId": track_descriptor["entityId"],
             "position": position,
-            "rotation": {"x": 0.0, "y": round(heading, 3), "z": 0.0},
-            "speed": round(2.0 + index * 0.2 + abs(math.sin(step / 5.0)) * 0.8, 3),
+            "rotation": {"x": 0.0, "y": round(yaw_radians, 6), "z": 0.0},
+            "speed": round(speed, 3),
             "heading": round(heading, 3),
-            "routeTrack": track,
+            "routeTrack": {
+                "routeId": track_descriptor["routeId"],
+                "trackId": track["trackId"],
+                "label": track_descriptor["label"],
+                "looped": track["looped"],
+                "waypoints": points,
+            },
             "trackPosition": {
-                "trackId": track["id"],
+                "routeId": track_descriptor["routeId"],
+                "trackId": track["trackId"],
                 "segmentIndex": segment_index,
+                "nextWaypointIndex": (segment_index + 1) % len(points),
                 "segmentProgress": round(segment_progress, 4),
-                "target": next_point,
-                "direction": "forward",
             },
         },
     }
 
 
-def build_events(step: int, timestamp_ms: int) -> list[dict]:
+def build_events(
+    step: int,
+    timestamp_ms: int,
+    delta_seconds: float,
+    route_states: list[dict],
+) -> list[dict]:
     spindle_load = 72.0 + (step % 4) * 4.5
     equipment_warning = step % 5 in (2, 3)
     reactor_temp = 62.0 + math.sin(step / 3.0) * 8.0
@@ -201,7 +297,12 @@ def build_events(step: int, timestamp_ms: int) -> list[dict]:
 
     events = [
         *[
-            build_forklift_event(track_descriptor, index, step, timestamp_ms)
+            build_forklift_event(
+                track_descriptor,
+                route_states[index],
+                2.0 + index * 0.2 + abs(math.sin(step / 5.0)) * 0.8,
+                timestamp_ms,
+            )
             for index, track_descriptor in enumerate(FORKLIFT_TRACKS)
         ],
         {
@@ -310,6 +411,19 @@ def build_events(step: int, timestamp_ms: int) -> list[dict]:
             }
         )
 
+    for index, track_descriptor in enumerate(FORKLIFT_TRACKS):
+        speed = 2.0 + index * 0.2 + abs(math.sin(step / 5.0)) * 0.8
+        next_segment_index_value, next_segment_progress = advance_route_position(
+            track_descriptor["track"]["waypoints"],
+            route_states[index]["segmentIndex"],
+            route_states[index]["segmentProgress"],
+            speed,
+            delta_seconds,
+            track_descriptor["track"]["looped"],
+        )
+        route_states[index]["segmentIndex"] = next_segment_index_value
+        route_states[index]["segmentProgress"] = next_segment_progress
+
     return events
 
 
@@ -332,6 +446,9 @@ def post_events(base_url: str, source: str, events: list[dict], token: str) -> d
 def main() -> int:
     args = build_argument_parser().parse_args()
     step = 0
+    source = args.source or f"python-simulator-{os.getpid()}"
+    route_states = build_route_states()
+    last_tick_started_at = time.monotonic()
 
     print(
         f"[simulate_runtime_ingest] pushing to {args.base_url.rstrip('/')}/api/v1/runtime/ingest "
@@ -339,10 +456,13 @@ def main() -> int:
     )
 
     while args.iterations == 0 or step < args.iterations:
+        tick_started_at = time.monotonic()
+        delta_seconds = 0.0 if step == 0 else max(tick_started_at - last_tick_started_at, 0.0)
+        last_tick_started_at = tick_started_at
         timestamp_ms = int(time.time() * 1000)
-        events = build_events(step, timestamp_ms)
+        events = build_events(step, timestamp_ms, delta_seconds, route_states)
         try:
-            response = post_events(args.base_url, args.source, events, args.token)
+            response = post_events(args.base_url, source, events, args.token)
         except urllib.error.HTTPError as error:
             body = error.read().decode("utf-8", errors="replace")
             print(f"[simulate_runtime_ingest] HTTP {error.code}: {body}", file=sys.stderr)
