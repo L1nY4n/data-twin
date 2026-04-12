@@ -11,6 +11,10 @@ pub struct BootstrapResponse {
     pub entities: Vec<Entity>,
     #[serde(default)]
     pub static_assets: Vec<StaticAssetInstance>,
+    #[serde(default)]
+    pub entity_categories: Vec<EntityCategory>,
+    #[serde(default)]
+    pub entity_archetypes: Vec<EntityArchetype>,
     pub rules: Vec<RuleConfig>,
     pub alarms: Vec<Alarm>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -181,6 +185,103 @@ pub enum StaticAssetKind {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EntityCategory {
+    pub id: String,
+    pub key: String,
+    pub display_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+    #[serde(default)]
+    pub sort_order: i32,
+    pub created_at: u64,
+    pub updated_at: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ModelAssetFileType {
+    Glb,
+    Fbx,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchetypeModelBounds {
+    pub width: f32,
+    pub height: f32,
+    pub depth: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchetypeModelCalibration {
+    pub scale: Vector3,
+    pub rotation: Vector3,
+    pub translation: Vector3,
+    #[serde(default)]
+    pub floor_offset: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bounds: Option<ArchetypeModelBounds>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thumbnail_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchetypeModelAsset {
+    pub asset_id: String,
+    pub file_name: String,
+    pub file_type: ModelAssetFileType,
+    pub asset_url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_size_bytes: Option<u64>,
+    pub calibration: ArchetypeModelCalibration,
+    pub uploaded_at: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchetypeCapabilities {
+    #[serde(default)]
+    pub has_model: bool,
+    #[serde(default)]
+    pub movable: bool,
+    #[serde(default)]
+    pub bindable: bool,
+    #[serde(default)]
+    pub status_bearing: bool,
+    #[serde(default)]
+    pub detail_fields_visible: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EntityArchetype {
+    pub id: String,
+    pub key: String,
+    pub category_id: String,
+    pub category_key: String,
+    pub display_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub capabilities: ArchetypeCapabilities,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<ArchetypeModelAsset>,
+    #[serde(default)]
+    pub metadata: BTreeMap<String, ContractValue>,
+    pub created_at: u64,
+    pub updated_at: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum Entity {
     Person(PersonEntity),
@@ -189,6 +290,7 @@ pub enum Entity {
     Sensor(SensorEntity),
     Camera(CameraEntity),
     Zone(ZoneEntity),
+    Dynamic(DynamicEntity),
 }
 
 impl Entity {
@@ -200,6 +302,7 @@ impl Entity {
             Self::Sensor(entity) => &entity.base.id,
             Self::Camera(entity) => &entity.base.id,
             Self::Zone(entity) => &entity.base.id,
+            Self::Dynamic(entity) => &entity.base.id,
         }
     }
 
@@ -211,6 +314,7 @@ impl Entity {
             Self::Sensor(_) => "sensor",
             Self::Camera(_) => "camera",
             Self::Zone(_) => "zone",
+            Self::Dynamic(_) => "dynamic",
         }
     }
 
@@ -222,6 +326,7 @@ impl Entity {
             Self::Sensor(entity) => entity.base.status.clone(),
             Self::Camera(entity) => entity.base.status.clone(),
             Self::Zone(entity) => entity.base.status.clone(),
+            Self::Dynamic(entity) => entity.base.status.clone(),
         }
     }
 
@@ -233,6 +338,7 @@ impl Entity {
             Self::Sensor(entity) => entity.base.created_at,
             Self::Camera(entity) => entity.base.created_at,
             Self::Zone(entity) => entity.base.created_at,
+            Self::Dynamic(entity) => entity.base.created_at,
         }
     }
 
@@ -244,6 +350,7 @@ impl Entity {
             Self::Sensor(entity) => entity.base.updated_at,
             Self::Camera(entity) => entity.base.updated_at,
             Self::Zone(entity) => entity.base.updated_at,
+            Self::Dynamic(entity) => entity.base.updated_at,
         }
     }
 }
@@ -364,6 +471,19 @@ pub struct ZoneEntity {
     pub capacity: Option<u32>,
     #[serde(default)]
     pub current_occupancy: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DynamicEntity {
+    #[serde(flatten)]
+    pub base: EntityBase,
+    pub archetype_id: String,
+    pub category_key: String,
+    #[serde(default)]
+    pub attributes: BTreeMap<String, ContractValue>,
+    #[serde(default)]
+    pub display_attributes: BTreeMap<String, ContractValue>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
