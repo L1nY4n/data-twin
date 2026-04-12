@@ -212,7 +212,7 @@ export const VehicleInstances = memo(function VehicleInstances({ entities }: Veh
     }
   }, [interactionBounds])
 
-  useFrame(({ camera }, delta) => {
+  useFrame(({ camera }) => {
     if (
       !bodyRef.current ||
       !cabinRef.current ||

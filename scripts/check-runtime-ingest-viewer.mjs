@@ -36,9 +36,9 @@ function runCommand(command, args, extraEnv = {}) {
   })
 }
 
-const viewerUrl = env('DATA_T_VIEWER_URL', 'http://127.0.0.1:3006')
-const backendUrl = env('DATA_T_BACKEND_URL', 'http://127.0.0.1:4016')
-const runtimeToken = env('RUNTIME_INGEST_TOKEN', 'integration-token')
+const viewerUrl = env('DATA_T_VIEWER_URL', 'http://127.0.0.1:3000')
+const backendUrl = env('DATA_T_BACKEND_URL', 'http://127.0.0.1:4000')
+const runtimeToken = env('RUNTIME_INGEST_TOKEN', 'dev-runtime-ingest-token')
 const expectedIncidentTitle = env('DATA_T_EXPECTED_INCIDENT', 'Python simulated zone intrusion')
 
 const { chromium } = await loadPlaywright()
@@ -63,7 +63,18 @@ try {
   })
 
   await page.goto(viewerUrl, { waitUntil: 'domcontentloaded' })
-  await page.waitForTimeout(4000)
+  await page.waitForTimeout(1000)
+
+  try {
+    await page
+      .getByText('正在连接后端数据...')
+      .waitFor({ state: 'hidden', timeout: 15000 })
+  } catch {
+    summary.consoleMessages.push({
+      type: 'warning',
+      text: 'viewer runtime overlay did not clear before ingest verification',
+    })
+  }
 
   const bellButton = page.locator('button').filter({ has: page.locator('svg.lucide-bell') }).first()
   await bellButton.click()
@@ -75,8 +86,15 @@ try {
   )
   summary.ingestStdout = ingest.stdout.trim()
 
-  await page.waitForTimeout(2000)
-  summary.incidentVisible = await page.getByText(expectedIncidentTitle).first().isVisible()
+  try {
+    await page.getByText(expectedIncidentTitle).first().waitFor({
+      state: 'visible',
+      timeout: 10000,
+    })
+    summary.incidentVisible = true
+  } catch {
+    summary.incidentVisible = false
+  }
 
   process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`)
   if (!summary.incidentVisible) {

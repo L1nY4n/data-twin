@@ -118,7 +118,7 @@ export function advanceVehicleRouteContract(
 ): VehicleRouteContract {
   if (track.points.length < 2 || speed <= 0 || deltaSeconds <= 0) return route
 
-  let direction = route.direction ?? 'forward'
+  const direction = route.direction ?? 'forward'
   let segmentIndex = normalizeSegmentIndex(route.segmentIndex, track.points.length)
   let progress = Math.min(Math.max(route.segmentProgress, 0), 1)
   let remainingDistance = speed * deltaSeconds

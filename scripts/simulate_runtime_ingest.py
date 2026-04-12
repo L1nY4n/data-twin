@@ -121,6 +121,62 @@ FORKLIFT_TRACKS = [
     },
 ]
 
+TRUCK_TRACKS = [
+    {
+        "entityId": "vehicle-truck-01",
+        "vehicleType": "truck",
+        "baseHeading": 0.0,
+        "routeId": "factory-yard-logistics",
+        "label": "装车道 A 环线",
+        "track": {
+            "trackId": "truck-track-01",
+            "looped": True,
+            "waypoints": [
+                {"x": -44.0, "y": 0.0, "z": 54.0},
+                {"x": -44.0, "y": 0.0, "z": 92.0},
+                {"x": -12.0, "y": 0.0, "z": 92.0},
+                {"x": -12.0, "y": 0.0, "z": 54.0},
+            ],
+        },
+    },
+    {
+        "entityId": "vehicle-truck-02",
+        "vehicleType": "truck",
+        "baseHeading": 0.0,
+        "routeId": "factory-yard-logistics",
+        "label": "装车道 B 环线",
+        "track": {
+            "trackId": "truck-track-02",
+            "looped": True,
+            "waypoints": [
+                {"x": 0.0, "y": 0.0, "z": 54.0},
+                {"x": 0.0, "y": 0.0, "z": 96.0},
+                {"x": 28.0, "y": 0.0, "z": 96.0},
+                {"x": 28.0, "y": 0.0, "z": 54.0},
+            ],
+        },
+    },
+    {
+        "entityId": "vehicle-truck-03",
+        "vehicleType": "truck",
+        "baseHeading": 0.0,
+        "routeId": "factory-yard-logistics",
+        "label": "装车道 C 环线",
+        "track": {
+            "trackId": "truck-track-03",
+            "looped": True,
+            "waypoints": [
+                {"x": 44.0, "y": 0.0, "z": 54.0},
+                {"x": 44.0, "y": 0.0, "z": 92.0},
+                {"x": 76.0, "y": 0.0, "z": 92.0},
+                {"x": 76.0, "y": 0.0, "z": 54.0},
+            ],
+        },
+    },
+]
+
+VEHICLE_TRACKS = [*FORKLIFT_TRACKS, *TRUCK_TRACKS]
+
 
 def build_argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -224,9 +280,9 @@ def advance_route_position(
     return next_index, round(next_progress, 6)
 
 
-def build_route_states() -> list[dict]:
+def build_route_states(track_descriptors: list[dict]) -> list[dict]:
     states: list[dict] = []
-    for index, track_descriptor in enumerate(FORKLIFT_TRACKS):
+    for index, track_descriptor in enumerate(track_descriptors):
         point_count = len(track_descriptor["track"]["waypoints"])
         states.append(
             {
@@ -238,7 +294,7 @@ def build_route_states() -> list[dict]:
     return states
 
 
-def build_forklift_event(
+def build_vehicle_event(
     track_descriptor: dict,
     route_state: dict,
     speed: float,
@@ -280,14 +336,18 @@ def build_forklift_event(
     }
 
 
+def resolve_track_speed(track_descriptor: dict, index: int, step: int) -> float:
+    if track_descriptor.get("vehicleType") == "truck":
+        return 1.35 + index * 0.08 + abs(math.sin(step / 7.0)) * 0.45
+    return 2.0 + index * 0.2 + abs(math.sin(step / 5.0)) * 0.8
+
+
 def build_events(
     step: int,
     timestamp_ms: int,
     delta_seconds: float,
     route_states: list[dict],
 ) -> list[dict]:
-    spindle_load = 72.0 + (step % 4) * 4.5
-    equipment_warning = step % 5 in (2, 3)
     reactor_temp = 62.0 + math.sin(step / 3.0) * 8.0
     gas_ppm = 28.0 + math.cos(step / 2.5) * 14.0
     pressure_bar = 5.5 + math.sin(step / 4.0) * 1.1
@@ -297,28 +357,14 @@ def build_events(
 
     events = [
         *[
-            build_forklift_event(
+            build_vehicle_event(
                 track_descriptor,
                 route_states[index],
-                2.0 + index * 0.2 + abs(math.sin(step / 5.0)) * 0.8,
+                resolve_track_speed(track_descriptor, index, step),
                 timestamp_ms,
             )
-            for index, track_descriptor in enumerate(FORKLIFT_TRACKS)
+            for index, track_descriptor in enumerate(VEHICLE_TRACKS)
         ],
-        {
-            "type": "status_update",
-            "timestamp": timestamp_ms,
-            "payload": {
-                "entityId": "equipment-cnc-01",
-                "status": "warning" if equipment_warning else "active",
-                "parameters": {
-                    "cycleState": "warning" if equipment_warning else "active",
-                    "spindleLoad": spindle_load,
-                    "reactorTemp": round(reactor_temp, 2),
-                    "simulated": True,
-                },
-            },
-        },
         {
             "type": "status_update",
             "timestamp": timestamp_ms,
@@ -411,8 +457,8 @@ def build_events(
             }
         )
 
-    for index, track_descriptor in enumerate(FORKLIFT_TRACKS):
-        speed = 2.0 + index * 0.2 + abs(math.sin(step / 5.0)) * 0.8
+    for index, track_descriptor in enumerate(VEHICLE_TRACKS):
+        speed = resolve_track_speed(track_descriptor, index, step)
         next_segment_index_value, next_segment_progress = advance_route_position(
             track_descriptor["track"]["waypoints"],
             route_states[index]["segmentIndex"],
@@ -447,7 +493,7 @@ def main() -> int:
     args = build_argument_parser().parse_args()
     step = 0
     source = args.source or f"python-simulator-{os.getpid()}"
-    route_states = build_route_states()
+    route_states = build_route_states(VEHICLE_TRACKS)
     last_tick_started_at = time.monotonic()
 
     print(

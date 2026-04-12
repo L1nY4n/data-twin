@@ -483,7 +483,7 @@ async fn overview_alarm_and_audit_endpoints_reflect_admin_state() {
     assert_eq!(initial_overview.status(), StatusCode::OK);
     let initial_overview_body = parse_json(initial_overview).await;
     assert_eq!(initial_overview_body["sceneVersion"], json!(1));
-    assert_eq!(initial_overview_body["entityCount"], json!(13));
+    assert_eq!(initial_overview_body["entityCount"], json!(16));
     assert_eq!(initial_overview_body["ruleCount"], json!(1));
     assert_eq!(initial_overview_body["connectorCount"], json!(0));
     assert_eq!(initial_overview_body["bindingCount"], json!(0));

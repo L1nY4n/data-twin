@@ -103,6 +103,53 @@ describe('renderer backend guards', () => {
     expect(source.includes('showModel={false}')).toBe(true)
   })
 
+  test('truck and forklift vehicles should use dedicated runtime model paths while other vehicles stay instanced', () => {
+    const markers = readFileSync(
+      join(process.cwd(), 'components/digital-twin/entities/EntityMarkers.tsx'),
+      'utf8'
+    )
+    const vehicleMarker = readFileSync(
+      join(process.cwd(), 'components/digital-twin/entities/VehicleMarker.tsx'),
+      'utf8'
+    )
+    const truckModel = readFileSync(
+      join(process.cwd(), 'components/digital-twin/entities/TruckRuntimeModel.tsx'),
+      'utf8'
+    )
+    const truckOrientation = readFileSync(
+      join(process.cwd(), 'components/digital-twin/entities/truck-runtime-orientation.ts'),
+      'utf8'
+    )
+    const forkliftModel = readFileSync(
+      join(process.cwd(), 'components/digital-twin/entities/ForkliftRuntimeModel.tsx'),
+      'utf8'
+    )
+    const forkliftOrientation = readFileSync(
+      join(process.cwd(), 'components/digital-twin/entities/forklift-runtime-orientation.ts'),
+      'utf8'
+    )
+
+    expect(markers.includes("filteredModelVehicles")).toBe(true)
+    expect(markers.includes("filteredInstancedVehicles")).toBe(true)
+    expect(markers.includes("entity.vehicleType === 'truck'")).toBe(true)
+    expect(markers.includes("entity.vehicleType === 'forklift'")).toBe(true)
+    expect(vehicleMarker.includes('TruckRuntimeModel')).toBe(true)
+    expect(vehicleMarker.includes('ForkliftRuntimeModel')).toBe(true)
+    expect(truckOrientation.includes('/assets/3d/construction-vehicle-5.glb')).toBe(true)
+    expect(truckOrientation.includes('TRUCK_MODEL_SCALE = 1.91')).toBe(true)
+    expect(truckOrientation.includes('TRUCK_MODEL_ROTATION_X = 0')).toBe(true)
+    expect(truckOrientation.includes('TRUCK_MODEL_ROTATION_Y = 0')).toBe(true)
+    expect(truckOrientation.includes('clone.position.set(-centerX, -bottomY, -centerZ)')).toBe(true)
+    expect(truckModel.includes('normalizeTruckScene')).toBe(true)
+    expect(forkliftOrientation.includes('/assets/3d/Fork_Lift.fbx')).toBe(true)
+    expect(forkliftOrientation.includes('FORKLIFT_MODEL_SCALE = 0.101')).toBe(true)
+    expect(forkliftOrientation.includes('FORKLIFT_MODEL_ROTATION_Y = -Math.PI / 2')).toBe(true)
+    expect(forkliftOrientation.includes("object.name === 'Render_Floor'")).toBe(true)
+    expect(forkliftModel.includes('normalizeForkliftScene')).toBe(true)
+    expect(vehicleMarker.includes('meshRef.current?.rotation.set(0, yaw, 0)')).toBe(true)
+    expect(vehicleMarker.includes('resolveVehicleRoutePose')).toBe(true)
+  })
+
   test('equipment instanced path should expose pickable metadata instead of per-mesh pointer handlers', () => {
     const equipmentInstances = readFileSync(
       join(process.cwd(), 'components/digital-twin/entities/EquipmentInstances.tsx'),

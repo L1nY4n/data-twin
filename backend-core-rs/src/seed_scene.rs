@@ -2,9 +2,9 @@ use std::collections::BTreeMap;
 
 use crate::contracts::{
     AccessAction, AccessRule, CameraEntity, CameraType, ContractValue, Entity, EntityBase,
-    EntityStatus, EquipmentEntity, GraphPosition, PersonEntity, RuleConfig, RuleEdge, RuleNode,
-    RuleNodeData, RuleNodeType, SceneConfig, SensorEntity, SensorType, TimeRange, Vector3,
-    VehicleEntity, VehicleRouteTrack, VehicleTrackPosition, VehicleType, ZoneEntity, ZoneType,
+    EntityStatus, GraphPosition, PersonEntity, RuleConfig, RuleEdge, RuleNode, RuleNodeData,
+    RuleNodeType, SceneConfig, SensorEntity, SensorType, TimeRange, Vector3, VehicleEntity,
+    VehicleRouteTrack, VehicleTrackPosition, VehicleType, ZoneEntity, ZoneType,
 };
 
 pub const SITE_ID: &str = "factory-demo-site";
@@ -31,22 +31,22 @@ pub fn seed_snapshot() -> SeedSnapshot {
 fn seed_scene_config() -> SceneConfig {
     SceneConfig {
         id: SCENE_ID.to_string(),
-        name: "数字孪生演示场景".to_string(),
-        grid_size: 100,
-        grid_divisions: 100,
+        name: "工厂演示场景".to_string(),
+        grid_size: 860,
+        grid_divisions: 430,
         background_color: "#0a0a0f".to_string(),
-        ambient_light_intensity: 0.5,
+        ambient_light_intensity: 0.52,
         show_axes: false,
         show_grid: true,
         camera_position: Vector3 {
-            x: 50.0,
-            y: 50.0,
-            z: 50.0,
+            x: 318.0,
+            y: 14.0,
+            z: 250.0,
         },
         camera_target: Vector3 {
-            x: 0.0,
+            x: 2.0,
             y: 0.0,
-            z: 0.0,
+            z: -1.0,
         },
     }
 }
@@ -57,8 +57,8 @@ fn seed_entities() -> Vec<Entity> {
         Entity::Person(seed_operator()),
     ];
     entities.extend(seed_forklifts().into_iter().map(Entity::Vehicle));
+    entities.extend(seed_trucks().into_iter().map(Entity::Vehicle));
     entities.extend([
-        Entity::Equipment(seed_cnc_equipment()),
         Entity::Sensor(seed_temperature_sensor()),
         Entity::Sensor(seed_gas_sensor()),
         Entity::Sensor(seed_pressure_sensor()),
@@ -272,6 +272,68 @@ fn seed_forklifts() -> Vec<VehicleEntity> {
     ]
 }
 
+fn seed_trucks() -> Vec<VehicleEntity> {
+    vec![
+        seed_truck(
+            "vehicle-truck-01",
+            "槽车 01",
+            "沪A62350",
+            EntityStatus::Active,
+            0.0,
+            1.6,
+            3600.0,
+            build_truck_route_track(
+                "truck-track-01",
+                "装车道 A 环线",
+                vec![
+                    Vector3 { x: -44.0, y: 0.0, z: 54.0 },
+                    Vector3 { x: -44.0, y: 0.0, z: 92.0 },
+                    Vector3 { x: -12.0, y: 0.0, z: 92.0 },
+                    Vector3 { x: -12.0, y: 0.0, z: 54.0 },
+                ],
+            ),
+        ),
+        seed_truck(
+            "vehicle-truck-02",
+            "槽车 02",
+            "沪A72351",
+            EntityStatus::Active,
+            0.0,
+            1.5,
+            4200.0,
+            build_truck_route_track(
+                "truck-track-02",
+                "装车道 B 环线",
+                vec![
+                    Vector3 { x: 0.0, y: 0.0, z: 54.0 },
+                    Vector3 { x: 0.0, y: 0.0, z: 96.0 },
+                    Vector3 { x: 28.0, y: 0.0, z: 96.0 },
+                    Vector3 { x: 28.0, y: 0.0, z: 54.0 },
+                ],
+            ),
+        ),
+        seed_truck(
+            "vehicle-truck-03",
+            "槽车 03",
+            "沪A82352",
+            EntityStatus::Warning,
+            0.0,
+            1.4,
+            2800.0,
+            build_truck_route_track(
+                "truck-track-03",
+                "装车道 C 环线",
+                vec![
+                    Vector3 { x: 44.0, y: 0.0, z: 54.0 },
+                    Vector3 { x: 44.0, y: 0.0, z: 92.0 },
+                    Vector3 { x: 76.0, y: 0.0, z: 92.0 },
+                    Vector3 { x: 76.0, y: 0.0, z: 54.0 },
+                ],
+            ),
+        ),
+    ]
+}
+
 fn seed_forklift(
     id: &str,
     name: &str,
@@ -303,6 +365,37 @@ fn seed_forklift(
     }
 }
 
+fn seed_truck(
+    id: &str,
+    name: &str,
+    plate_number: &str,
+    status: EntityStatus,
+    heading: f32,
+    speed: f32,
+    current_load: f32,
+    route_track: VehicleRouteTrack,
+) -> VehicleEntity {
+    let position = route_track.waypoints[0];
+    let mut base = entity_base(id, name, position, status);
+    base.rotation = Vector3 {
+        x: 0.0,
+        y: heading.to_radians(),
+        z: 0.0,
+    };
+
+    VehicleEntity {
+        base,
+        plate_number: plate_number.to_string(),
+        vehicle_type: VehicleType::Truck,
+        speed,
+        heading,
+        capacity: Some(5000.0),
+        current_load: Some(current_load),
+        track_position: Some(build_track_position(&route_track, 0, 0.0)),
+        route_track: Some(route_track),
+    }
+}
+
 fn build_forklift_route_track(
     track_id: &str,
     label: &str,
@@ -310,6 +403,16 @@ fn build_forklift_route_track(
 ) -> VehicleRouteTrack {
     VehicleRouteTrack {
         route_id: "factory-yard-circulation".to_string(),
+        track_id: track_id.to_string(),
+        label: label.to_string(),
+        looped: true,
+        waypoints,
+    }
+}
+
+fn build_truck_route_track(track_id: &str, label: &str, waypoints: Vec<Vector3>) -> VehicleRouteTrack {
+    VehicleRouteTrack {
+        route_id: "factory-yard-logistics".to_string(),
         track_id: track_id.to_string(),
         label: label.to_string(),
         looped: true,
@@ -329,31 +432,6 @@ fn build_track_position(
         segment_index,
         next_waypoint_index,
         segment_progress,
-    }
-}
-
-fn seed_cnc_equipment() -> EquipmentEntity {
-    let mut parameters = BTreeMap::new();
-    parameters.insert("功率".to_string(), ContractValue::Number(78.0));
-    parameters.insert("温度".to_string(), ContractValue::Number(62.0));
-    parameters.insert("运行时间".to_string(), ContractValue::Number(1840.0));
-
-    EquipmentEntity {
-        base: entity_base(
-            "equipment-cnc-01",
-            "CNC 机床 01",
-            Vector3 {
-                x: -8.0,
-                y: 0.0,
-                z: -6.0,
-            },
-            EntityStatus::Active,
-        ),
-        model_id: None,
-        model_url: None,
-        parameters,
-        alarms: Vec::new(),
-        maintenance_schedule: None,
     }
 }
 

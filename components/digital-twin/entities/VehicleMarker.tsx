@@ -14,9 +14,16 @@ import {
   SpriteInfoCard,
 } from '@/components/digital-twin/scene/SpriteInfoCard'
 import { SpriteTextLabel } from '@/components/digital-twin/scene/SpriteTextLabel'
+import { TruckRuntimeModel } from './TruckRuntimeModel'
+import { ForkliftRuntimeModel } from './ForkliftRuntimeModel'
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
 import { runtimeVehicleSnapshotRegistry } from '@/lib/digital-twin/runtime-vehicle-snapshot-registry'
 import { resolveVehiclePoseFromSnapshots } from '@/lib/digital-twin/vehicle-snapshot-interpolation'
+import {
+  normalizeVehicleRouteLike,
+  normalizeVehicleTrackLike,
+  resolveVehicleRoutePose,
+} from '@/lib/digital-twin/vehicle-route-motion'
 
 interface VehicleMarkerProps {
   entity: VehicleEntity
@@ -35,7 +42,7 @@ const STATUS_COLORS = {
 const VEHICLE_SIZES = {
   car: { width: 1.8, height: 1.2, depth: 4 },
   truck: { width: 2.4, height: 2.5, depth: 8 },
-  forklift: { width: 1.2, height: 2, depth: 2.5 },
+  forklift: { width: 1.1, height: 2, depth: 3.5 },
   agv: { width: 1, height: 0.4, depth: 1.5 },
   other: { width: 1.5, height: 1, depth: 3 },
 }
@@ -56,6 +63,30 @@ function yawToHeading(yaw: number) {
   return normalizeDegrees((yaw * 180) / Math.PI)
 }
 
+type VehiclePoseLike = Pick<VehicleEntity, 'position' | 'rotation' | 'routeTrack' | 'trackPosition'>
+
+function resolveVehiclePoseFromEntity(entity: VehiclePoseLike) {
+  if (entity.routeTrack && entity.trackPosition) {
+    const pose = resolveVehicleRoutePose(
+      normalizeVehicleTrackLike(entity.routeTrack),
+      normalizeVehicleRouteLike(entity.trackPosition)
+    )
+    return {
+      x: pose.position.x,
+      y: pose.position.y,
+      z: pose.position.z,
+      yaw: pose.yaw,
+    }
+  }
+
+  return {
+    x: entity.position.x,
+    y: entity.position.y,
+    z: entity.position.z,
+    yaw: entity.rotation.y,
+  }
+}
+
 export const VehicleMarker = memo(function VehicleMarker({
   entity,
   isSelected,
@@ -64,6 +95,7 @@ export const VehicleMarker = memo(function VehicleMarker({
 }: VehicleMarkerProps) {
   const groupRef = useRef<THREE.Group>(null)
   const meshRef = useRef<THREE.Group>(null)
+  const initialPose = resolveVehiclePoseFromEntity(entity)
   const telemetrySampleRef = useRef<{
     x: number
     y: number
@@ -73,7 +105,7 @@ export const VehicleMarker = memo(function VehicleMarker({
   } | null>(null)
   const [renderTelemetry, setRenderTelemetry] = useState(() => ({
     speed: entity.speed,
-    heading: entity.heading,
+    heading: yawToHeading(initialPose.yaw),
   }))
 
   const statusColor = STATUS_COLORS[entity.status]
@@ -81,18 +113,23 @@ export const VehicleMarker = memo(function VehicleMarker({
   const size = VEHICLE_SIZES[entity.vehicleType]
   const labelMode = entity.labelMode ?? 'html'
   const showLabel = isSelected || isHovered || labelMode !== 'hidden'
+  const shouldRenderTelemetryCard = showLabel && labelMode === 'html'
+  const usesDetailedVehicleModel =
+    showModel && (entity.vehicleType === 'truck' || entity.vehicleType === 'forklift')
+  const shouldTrackLivePose = isSelected || isHovered || usesDetailedVehicleModel
 
   useEffect(() => {
-    if (isSelected || isHovered) return
+    if (shouldTrackLivePose) return
     telemetrySampleRef.current = null
+    const seededPose = resolveVehiclePoseFromEntity(entity)
     setRenderTelemetry({
       speed: entity.speed,
-      heading: entity.heading,
+      heading: yawToHeading(seededPose.yaw),
     })
-  }, [entity.heading, entity.id, entity.speed, isHovered, isSelected])
+  }, [entity, shouldTrackLivePose])
 
   useFrame((_state, delta) => {
-    if (!groupRef.current || (!isSelected && !isHovered)) return
+    if (!groupRef.current || !shouldTrackLivePose) return
 
     const pose = resolveVehiclePoseFromSnapshots(
       runtimeVehicleSnapshotRegistry.get(entity.id),
@@ -101,14 +138,39 @@ export const VehicleMarker = memo(function VehicleMarker({
       220
     )
     const snapshot = useDigitalTwinStore.getState().getEcsSnapshotById(entity.id)
-    const x = pose?.x ?? snapshot?.position.x ?? entity.position.x
-    const y = pose?.y ?? snapshot?.position.y ?? entity.position.y
-    const z = pose?.z ?? snapshot?.position.z ?? entity.position.z
-    const heading = yawToHeading(pose?.yaw ?? snapshot?.rotation.y ?? entity.rotation.y)
+    const fallbackPose =
+      snapshot?.type === 'vehicle'
+        ? resolveVehiclePoseFromEntity(snapshot)
+        : resolveVehiclePoseFromEntity(entity)
+    const x = pose?.x ?? fallbackPose.x
+    const y = pose?.y ?? fallbackPose.y
+    const z = pose?.z ?? fallbackPose.z
+    const yaw = pose?.yaw ?? fallbackPose.yaw
+    const heading = yawToHeading(yaw)
     groupRef.current.position.set(x, y, z)
+    meshRef.current?.rotation.set(0, yaw, 0)
 
     const previousSample = telemetrySampleRef.current
     const baseSpeed = snapshot?.speed ?? entity.speed
+    const nextSample = previousSample ?? {
+      x,
+      y,
+      z,
+      speed: baseSpeed,
+      lastPublishAt: 0,
+    }
+
+    nextSample.x = x
+    nextSample.y = y
+    nextSample.z = z
+
+    if (!shouldRenderTelemetryCard) {
+      nextSample.speed = baseSpeed
+      nextSample.lastPublishAt = 0
+      telemetrySampleRef.current = nextSample
+      return
+    }
+
     const rawSpeed =
       previousSample
         ? Math.hypot(x - previousSample.x, y - previousSample.y, z - previousSample.z) /
@@ -119,13 +181,8 @@ export const VehicleMarker = memo(function VehicleMarker({
       : rawSpeed
     const now = performance.now()
 
-    telemetrySampleRef.current = {
-      x,
-      y,
-      z,
-      speed,
-      lastPublishAt: previousSample?.lastPublishAt ?? 0,
-    }
+    nextSample.speed = speed
+    telemetrySampleRef.current = nextSample
 
     if (
       !previousSample ||
@@ -141,63 +198,71 @@ export const VehicleMarker = memo(function VehicleMarker({
   return (
     <group
       ref={groupRef}
-      position={[entity.position.x, entity.position.y, entity.position.z]}
+      position={[initialPose.x, initialPose.y, initialPose.z]}
       userData={{ pickable: true, entityId: entity.id }}
     >
       {showModel && (
         <group
           ref={meshRef}
-          rotation={[0, entity.rotation.y, 0]}
+          rotation={[0, initialPose.yaw, 0]}
         >
-          <mesh position={[0, size.height / 2, 0]} castShadow>
-            <boxGeometry args={[size.width, size.height, size.depth]} />
-            <meshStandardMaterial
-              color={isSelected ? '#60a5fa' : isHovered ? '#94a3b8' : vehicleColor}
-              metalness={0.6}
-              roughness={0.4}
-            />
-          </mesh>
-
-          {entity.vehicleType !== 'agv' && (
+          {entity.vehicleType === 'truck' ? (
+            <TruckRuntimeModel />
+          ) : entity.vehicleType === 'forklift' ? (
+            <ForkliftRuntimeModel />
+          ) : (
             <>
-              <mesh position={[-size.width / 2 - 0.1, 0.3, size.depth / 3]} rotation={[0, 0, Math.PI / 2]}>
-                <cylinderGeometry args={[0.3, 0.3, 0.2, 16]} />
-                <meshStandardMaterial color="#1f2937" />
+              <mesh position={[0, size.height / 2, 0]} castShadow>
+                <boxGeometry args={[size.width, size.height, size.depth]} />
+                <meshStandardMaterial
+                  color={isSelected ? '#60a5fa' : isHovered ? '#94a3b8' : vehicleColor}
+                  metalness={0.6}
+                  roughness={0.4}
+                />
               </mesh>
-              <mesh position={[size.width / 2 + 0.1, 0.3, size.depth / 3]} rotation={[0, 0, Math.PI / 2]}>
-                <cylinderGeometry args={[0.3, 0.3, 0.2, 16]} />
-                <meshStandardMaterial color="#1f2937" />
-              </mesh>
-              <mesh position={[-size.width / 2 - 0.1, 0.3, -size.depth / 3]} rotation={[0, 0, Math.PI / 2]}>
-                <cylinderGeometry args={[0.3, 0.3, 0.2, 16]} />
-                <meshStandardMaterial color="#1f2937" />
-              </mesh>
-              <mesh position={[size.width / 2 + 0.1, 0.3, -size.depth / 3]} rotation={[0, 0, Math.PI / 2]}>
-                <cylinderGeometry args={[0.3, 0.3, 0.2, 16]} />
-                <meshStandardMaterial color="#1f2937" />
+
+              {entity.vehicleType !== 'agv' && (
+                <>
+                  <mesh position={[-size.width / 2 - 0.1, 0.3, size.depth / 3]} rotation={[0, 0, Math.PI / 2]}>
+                    <cylinderGeometry args={[0.3, 0.3, 0.2, 16]} />
+                    <meshStandardMaterial color="#1f2937" />
+                  </mesh>
+                  <mesh position={[size.width / 2 + 0.1, 0.3, size.depth / 3]} rotation={[0, 0, Math.PI / 2]}>
+                    <cylinderGeometry args={[0.3, 0.3, 0.2, 16]} />
+                    <meshStandardMaterial color="#1f2937" />
+                  </mesh>
+                  <mesh position={[-size.width / 2 - 0.1, 0.3, -size.depth / 3]} rotation={[0, 0, Math.PI / 2]}>
+                    <cylinderGeometry args={[0.3, 0.3, 0.2, 16]} />
+                    <meshStandardMaterial color="#1f2937" />
+                  </mesh>
+                  <mesh position={[size.width / 2 + 0.1, 0.3, -size.depth / 3]} rotation={[0, 0, Math.PI / 2]}>
+                    <cylinderGeometry args={[0.3, 0.3, 0.2, 16]} />
+                    <meshStandardMaterial color="#1f2937" />
+                  </mesh>
+                </>
+              )}
+
+              {entity.vehicleType === 'agv' && (
+                <mesh position={[0, size.height + 0.1, 0]}>
+                  <sphereGeometry args={[0.15, 16, 16]} />
+                  <meshStandardMaterial
+                    color={statusColor}
+                    emissive={statusColor}
+                    emissiveIntensity={0.8}
+                  />
+                </mesh>
+              )}
+
+              <mesh position={[0, size.height / 2, size.depth / 2 + 0.2]}>
+                <coneGeometry args={[0.2, 0.4, 8]} />
+                <meshStandardMaterial
+                  color={statusColor}
+                  emissive={statusColor}
+                  emissiveIntensity={0.5}
+                />
               </mesh>
             </>
           )}
-
-          {entity.vehicleType === 'agv' && (
-            <mesh position={[0, size.height + 0.1, 0]}>
-              <sphereGeometry args={[0.15, 16, 16]} />
-              <meshStandardMaterial
-                color={statusColor}
-                emissive={statusColor}
-                emissiveIntensity={0.8}
-              />
-            </mesh>
-          )}
-
-          <mesh position={[0, size.height / 2, size.depth / 2 + 0.2]}>
-            <coneGeometry args={[0.2, 0.4, 8]} />
-            <meshStandardMaterial
-              color={statusColor}
-              emissive={statusColor}
-              emissiveIntensity={0.5}
-            />
-          </mesh>
         </group>
       )}
 
@@ -250,7 +315,7 @@ export const VehicleMarker = memo(function VehicleMarker({
       )}
 
       {/* 标签 */}
-      {showLabel && labelMode === 'html' && (
+      {shouldRenderTelemetryCard && (
         <SpriteInfoCard
           position={[0, size.height + 1.6, 0]}
           title={entity.name}

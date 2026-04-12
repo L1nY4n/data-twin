@@ -12,9 +12,12 @@ import {
 import { useTheme } from '@/components/theme-provider'
 import type * as THREE from 'three'
 import type { OrbitControls as OrbitControlsType } from 'three-stdlib'
+import type { Entity } from '@/lib/digital-twin/types'
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
 import { createPreferredRenderer } from '@/lib/digital-twin/renderer/createPreferredRenderer'
 import { getFrameDrawCallSample } from '@/lib/digital-twin/performance-runtime'
+import { runtimeVehicleSnapshotRegistry } from '@/lib/digital-twin/runtime-vehicle-snapshot-registry'
+import { resolveVehiclePoseFromSnapshots } from '@/lib/digital-twin/vehicle-snapshot-interpolation'
 import { SpaceGrid } from './SpaceGrid'
 import { ChemicalPlantEnvironment } from './ChemicalPlantEnvironment'
 import { EntityMarkers } from '../entities/EntityMarkers'
@@ -35,6 +38,131 @@ interface SceneContentProps {
   backgroundColor: string
 }
 
+interface CameraPose {
+  position: { x: number; y: number; z: number }
+  target: { x: number; y: number; z: number }
+}
+
+interface TrackedEntityPose {
+  position: { x: number; y: number; z: number }
+  yaw: number
+  anchorHeight: number
+}
+
+const FOLLOW_DISTANCE = 9
+const FOLLOW_HEIGHT = 4.8
+const FIRSTPERSON_FORWARD_DISTANCE = 6
+const FIRSTPERSON_EYE_HEIGHT = 1.55
+
+function isTrackedViewMode(viewMode: 'orbit' | 'topdown' | 'follow' | 'firstperson') {
+  return viewMode === 'follow' || viewMode === 'firstperson'
+}
+
+function resolveEntityAnchorHeight(entity: Entity) {
+  switch (entity.type) {
+    case 'person':
+      return 1.45
+    case 'vehicle':
+      return entity.vehicleType === 'truck' ? 2.3 : entity.vehicleType === 'forklift' ? 1.8 : 1.35
+    case 'equipment':
+      return Math.max(2.2, entity.scale.y * 0.8)
+    case 'sensor':
+      return 1.4
+    case 'camera':
+      return 2.1
+    case 'zone':
+      return 1.2
+  }
+}
+
+function forwardVectorFromYaw(yaw: number) {
+  return {
+    x: Math.sin(yaw),
+    z: Math.cos(yaw),
+  }
+}
+
+function resolveTrackedEntityPose(entity: Entity, nowMs: number): TrackedEntityPose {
+  const snapshot = useDigitalTwinStore.getState().getEcsSnapshotById(entity.id)
+
+  if (entity.type === 'vehicle') {
+    const interpolatedPose = resolveVehiclePoseFromSnapshots(
+      runtimeVehicleSnapshotRegistry.get(entity.id),
+      nowMs,
+      120,
+      220
+    )
+    return {
+      position: {
+        x: interpolatedPose?.x ?? snapshot?.position.x ?? entity.position.x,
+        y: interpolatedPose?.y ?? snapshot?.position.y ?? entity.position.y,
+        z: interpolatedPose?.z ?? snapshot?.position.z ?? entity.position.z,
+      },
+      yaw: interpolatedPose?.yaw ?? snapshot?.rotation.y ?? entity.rotation.y,
+      anchorHeight: resolveEntityAnchorHeight(entity),
+    }
+  }
+
+  return {
+    position: {
+      x: snapshot?.position.x ?? entity.position.x,
+      y: snapshot?.position.y ?? entity.position.y,
+      z: snapshot?.position.z ?? entity.position.z,
+    },
+    yaw: snapshot?.rotation.y ?? entity.rotation.y,
+    anchorHeight: resolveEntityAnchorHeight(entity),
+  }
+}
+
+function resolveFollowCameraPose(pose: TrackedEntityPose): CameraPose {
+  const forward = forwardVectorFromYaw(pose.yaw)
+  return {
+    position: {
+      x: pose.position.x - forward.x * FOLLOW_DISTANCE,
+      y: pose.position.y + FOLLOW_HEIGHT,
+      z: pose.position.z - forward.z * FOLLOW_DISTANCE,
+    },
+    target: {
+      x: pose.position.x + forward.x * 1.6,
+      y: pose.position.y + pose.anchorHeight,
+      z: pose.position.z + forward.z * 1.6,
+    },
+  }
+}
+
+function resolveFirstPersonCameraPose(pose: TrackedEntityPose): CameraPose {
+  const forward = forwardVectorFromYaw(pose.yaw)
+  const eyeHeight = Math.max(FIRSTPERSON_EYE_HEIGHT, pose.anchorHeight * 0.9)
+  return {
+    position: {
+      x: pose.position.x + forward.x * 0.28,
+      y: pose.position.y + eyeHeight,
+      z: pose.position.z + forward.z * 0.28,
+    },
+    target: {
+      x: pose.position.x + forward.x * FIRSTPERSON_FORWARD_DISTANCE,
+      y: pose.position.y + eyeHeight,
+      z: pose.position.z + forward.z * FIRSTPERSON_FORWARD_DISTANCE,
+    },
+  }
+}
+
+function applySmoothedCameraPose(
+  camera: THREE.Camera,
+  controls: OrbitControlsType,
+  desiredPose: CameraPose,
+  smoothing: number
+) {
+  camera.position.x += (desiredPose.position.x - camera.position.x) * smoothing
+  camera.position.y += (desiredPose.position.y - camera.position.y) * smoothing
+  camera.position.z += (desiredPose.position.z - camera.position.z) * smoothing
+
+  controls.target.x += (desiredPose.target.x - controls.target.x) * smoothing
+  controls.target.y += (desiredPose.target.y - controls.target.y) * smoothing
+  controls.target.z += (desiredPose.target.z - controls.target.z) * smoothing
+  controls.update()
+}
+
 const SceneContent = memo(function SceneContent({ backgroundColor }: SceneContentProps) {
   const controlsRef = useRef<OrbitControlsType>(null)
   const pickRootRef = useRef<THREE.Group>(null)
@@ -45,10 +173,14 @@ const SceneContent = memo(function SceneContent({ backgroundColor }: SceneConten
   const { resolvedTheme } = useTheme()
   const gl = useThree((state) => state.gl)
   const sceneConfig = useDigitalTwinStore((state) => state.sceneConfig)
+  const viewMode = useDigitalTwinStore((state) => state.viewMode)
   const activeCameraPreset = useDigitalTwinStore((state) => state.activeCameraPreset)
   const cameraFocusRequest = useDigitalTwinStore((state) => state.cameraFocusRequest)
   const cameraPresets = useDigitalTwinStore((state) => state.cameraPresets)
+  const selectedEntityId = useDigitalTwinStore((state) => state.selectedEntityId)
+  const entities = useDigitalTwinStore((state) => state.entities)
   const setSceneReady = useDigitalTwinStore((state) => state.setSceneReady)
+  const setViewMode = useDigitalTwinStore((state) => state.setViewMode)
   const measurementMode = useDigitalTwinStore((state) => state.measurementMode)
   const advanceRuntime = useDigitalTwinStore((state) => state.advanceRuntime)
   const qualityProfile = useDigitalTwinStore((state) => state.qualityProfile)
@@ -85,8 +217,35 @@ const SceneContent = memo(function SceneContent({ backgroundColor }: SceneConten
     [gl]
   )
 
+  useEffect(() => {
+    const controls = controlsRef.current
+    if (!controls) return
+
+    const trackedMode = isTrackedViewMode(viewMode)
+    controls.enabled = !trackedMode
+    controls.enablePan = !trackedMode
+    controls.enableRotate = !trackedMode
+    controls.enableZoom = !trackedMode
+
+    if (trackedMode) {
+      focusAnimationRef.current = null
+    }
+  }, [viewMode])
+
+  useEffect(() => {
+    const selectedEntity = selectedEntityId ? entities.get(selectedEntityId) ?? null : null
+    if (isTrackedViewMode(viewMode) && (!selectedEntity || selectedEntity.type === 'zone')) {
+      setViewMode('orbit')
+    }
+  }, [entities, selectedEntityId, setViewMode, viewMode])
+
   // 应用相机预设
   useEffect(() => {
+    if (isTrackedViewMode(viewMode)) {
+      previousActiveCameraPresetRef.current = activeCameraPreset
+      return
+    }
+
     const controls = controlsRef.current
     if (!controls || !activeCameraPreset) {
       previousActiveCameraPresetRef.current = activeCameraPreset
@@ -114,31 +273,36 @@ const SceneContent = memo(function SceneContent({ backgroundColor }: SceneConten
     }
 
     previousActiveCameraPresetRef.current = activeCameraPreset
-  }, [activeCameraPreset, cameraPresets])
+  }, [activeCameraPreset, cameraPresets, viewMode])
 
   useEffect(() => {
+    if (isTrackedViewMode(viewMode)) return
     if (!cameraFocusRequest) return
 
     focusAnimationRef.current = {
       position: cameraFocusRequest.position,
       target: cameraFocusRequest.target,
     }
-  }, [cameraFocusRequest])
+  }, [cameraFocusRequest, viewMode])
 
   useFrame(({ clock, camera }, delta) => {
     const controls = controlsRef.current
-    if (controlsRef.current && focusAnimationRef.current) {
+    const selectedEntity = selectedEntityId ? entities.get(selectedEntityId) ?? null : null
+
+    if (isTrackedViewMode(viewMode) && controls && selectedEntity && selectedEntity.type !== 'zone') {
+      const trackedPose = resolveTrackedEntityPose(selectedEntity, Date.now())
+      const desiredPose =
+        viewMode === 'follow'
+          ? resolveFollowCameraPose(trackedPose)
+          : resolveFirstPersonCameraPose(trackedPose)
+      const smoothing = 1 - Math.exp(-delta * (viewMode === 'firstperson' ? 10 : 8))
+
+      applySmoothedCameraPose(camera, controls, desiredPose, smoothing)
+    } else if (controlsRef.current && focusAnimationRef.current) {
       const { position, target } = focusAnimationRef.current
       const smoothing = 1 - Math.exp(-delta * 8)
 
-      camera.position.x += (position.x - camera.position.x) * smoothing
-      camera.position.y += (position.y - camera.position.y) * smoothing
-      camera.position.z += (position.z - camera.position.z) * smoothing
-
-      controlsRef.current.target.x += (target.x - controlsRef.current.target.x) * smoothing
-      controlsRef.current.target.y += (target.y - controlsRef.current.target.y) * smoothing
-      controlsRef.current.target.z += (target.z - controlsRef.current.target.z) * smoothing
-      controlsRef.current.update()
+      applySmoothedCameraPose(camera, controlsRef.current, { position, target }, smoothing)
 
       const cameraDelta = Math.hypot(
         position.x - camera.position.x,

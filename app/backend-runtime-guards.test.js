@@ -38,11 +38,30 @@ describe('backend runtime guards', () => {
 
   test('dev stack should start the runtime simulator by default', () => {
     const source = readFileSync(join(process.cwd(), 'scripts/dev-stack.sh'), 'utf8')
+    const simulator = readFileSync(join(process.cwd(), 'scripts/simulate_runtime_ingest.py'), 'utf8')
 
     expect(source.includes('STACK_RUNTIME_SIMULATOR')).toBe(true)
     expect(source.includes('SIMULATOR_INTERVAL')).toBe(true)
     expect(source.includes('RUNTIME_INGEST_TOKEN')).toBe(true)
     expect(source.includes('scripts/simulate_runtime_ingest.py')).toBe(true)
     expect(source.includes('/health/ready')).toBe(true)
+    expect(simulator.includes('vehicle-truck-01')).toBe(true)
+    expect(simulator.includes('vehicle-truck-02')).toBe(true)
+    expect(simulator.includes('vehicle-truck-03')).toBe(true)
+  })
+
+  test('dev browser/runtime verification should support the standard 127.0.0.1 local stack', () => {
+    const nextConfig = readFileSync(join(process.cwd(), 'next.config.mjs'), 'utf8')
+    const checker = readFileSync(
+      join(process.cwd(), 'scripts/check-runtime-ingest-viewer.mjs'),
+      'utf8'
+    )
+
+    expect(nextConfig.includes("allowedDevOrigins: ['127.0.0.1']")).toBe(true)
+    expect(checker.includes("env('DATA_T_VIEWER_URL', 'http://127.0.0.1:3000')")).toBe(true)
+    expect(checker.includes("env('DATA_T_BACKEND_URL', 'http://127.0.0.1:4000')")).toBe(true)
+    expect(checker.includes("env('RUNTIME_INGEST_TOKEN', 'dev-runtime-ingest-token')")).toBe(true)
+    expect(checker.includes("getByText('正在连接后端数据...')")).toBe(true)
+    expect(checker.includes("timeout: 15000")).toBe(true)
   })
 })

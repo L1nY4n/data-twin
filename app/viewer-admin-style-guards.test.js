@@ -130,4 +130,26 @@ describe('viewer/admin shared style primitives', () => {
     expect(canvas.includes("maxPolarAngle={Math.PI / 2.1}")).toBe(true)
     expect(canvas.includes("viewMode === 'topdown'")).toBe(false)
   })
+
+  test('runtime follow and firstperson modes should clear stale preset/focus state and drive smooth tracked camera logic', () => {
+    const toolbar = readFileSync(
+      join(process.cwd(), 'components/digital-twin/panels/Toolbar.tsx'),
+      'utf8'
+    )
+    const canvas = readFileSync(
+      join(process.cwd(), 'components/digital-twin/scene/DigitalTwinCanvas.tsx'),
+      'utf8'
+    )
+
+    expect(toolbar.includes('clearCameraFocusRequest')).toBe(true)
+    expect(toolbar.includes("setActiveCameraPreset(null)")).toBe(true)
+    expect(toolbar.includes("setViewMode('orbit')")).toBe(true)
+    expect(toolbar.includes("mode === 'topdown'")).toBe(true)
+    expect(canvas.includes("viewMode === 'follow' || viewMode === 'firstperson'")).toBe(true)
+    expect(canvas.includes('resolveTrackedEntityPose')).toBe(true)
+    expect(canvas.includes('resolveFollowCameraPose')).toBe(true)
+    expect(canvas.includes('resolveFirstPersonCameraPose')).toBe(true)
+    expect(canvas.includes('controls.enabled = !trackedMode')).toBe(true)
+    expect(canvas.includes("setViewMode('orbit')")).toBe(true)
+  })
 })

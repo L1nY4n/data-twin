@@ -203,6 +203,47 @@ function pointInBounds(point: Vector3, bounds: PublishedSceneBounds) {
   )
 }
 
+function getEntityCountsFromSnapshot(snapshot: PublishedWorkingSnapshot): SceneEntityCounts {
+  return {
+    persons: snapshot.entities.filter(isPersonEntity).length,
+    vehicles: snapshot.entities.filter(isVehicleEntity).length,
+    equipment: snapshot.entities.filter(isEquipmentEntity).length,
+  }
+}
+
+function buildCampusSnapshotZoneLayers(
+  snapshot: PublishedWorkingSnapshot
+): PublishedInteractionLayer[] {
+  const zoneEntities = snapshot.entities.filter(isZoneEntity)
+  if (zoneEntities.length === 0) return []
+
+  const zonesBySector = new Map<string, PublishedInteractionZone[]>()
+  for (const sector of CAMPUS_SECTORS) {
+    zonesBySector.set(sector.id, [])
+  }
+
+  for (const zone of zoneEntities) {
+    const sector =
+      CAMPUS_SECTORS.find((candidate) =>
+        pointInBounds(zone.position, createSectorBounds(candidate))
+      ) ?? CAMPUS_SECTORS[0]
+    zonesBySector.get(sector.id)?.push(createZoneInteraction(zone, sector.id))
+  }
+
+  return CAMPUS_SECTORS.flatMap((sector) => {
+    const zones = zonesBySector.get(sector.id) ?? []
+    if (zones.length === 0) return []
+
+    return [{
+      id: `layer:${sector.id}:working-snapshot-zones`,
+      kind: 'zones' as const,
+      sectorId: sector.id,
+      bounds: createSectorBounds(sector),
+      zones,
+    }]
+  })
+}
+
 function withSectorLabel(label: string, sector: CampusSector) {
   if (sector.id === 'sector-core') return label
   return `${sector.name} · ${label}`
@@ -746,6 +787,41 @@ export function buildPublishedScenePackageFromSnapshot(
         vehicles: vehicles.length,
         equipment: equipment.length,
       },
+    },
+  }
+}
+
+export function buildPublishedCampusScenePackageFromSnapshot(
+  snapshot: PublishedWorkingSnapshot,
+  options: Omit<BuildPublishedScenePackageOptions, 'profile'> = {}
+): PublishedScenePackage {
+  const generatedAt = options.generatedAt ?? new Date().toISOString()
+  const staticAssetManifestUrl =
+    options.staticAssetManifestUrl ?? PUBLISHED_STATIC_ASSET_MANIFEST_URL
+  const campusPackage = buildPublishedScenePackage({
+    generatedAt,
+    profile: 'default',
+    staticAssetManifestUrl,
+  })
+  const zoneLayers = buildCampusSnapshotZoneLayers(snapshot)
+  const counts = getEntityCountsFromSnapshot(snapshot)
+
+  return {
+    ...campusPackage,
+    sceneId: snapshot.sceneConfig.id,
+    source: 'working-snapshot',
+    staticAssetManifestUrl,
+    sceneConfig: {
+      ...campusPackage.sceneConfig,
+      ...snapshot.sceneConfig,
+      cameraPosition: cloneVector3(snapshot.sceneConfig.cameraPosition),
+      cameraTarget: cloneVector3(snapshot.sceneConfig.cameraTarget),
+    },
+    interactionLayers: [...campusPackage.interactionLayers, ...zoneLayers],
+    zoneOverlays: [...campusPackage.zoneOverlays, ...zoneLayers],
+    entityCounts: {
+      default: { ...counts },
+      production: { ...counts },
     },
   }
 }

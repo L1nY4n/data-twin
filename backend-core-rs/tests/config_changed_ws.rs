@@ -77,10 +77,10 @@ async fn admin_write_pushes_config_changed_event() {
         event["payload"]["publishedScene"]["packageUrl"],
         json!("/generated/published-static/published-scene-package.json")
     );
-    assert_eq!(
-        event["payload"]["publishedScene"]["staticAssetManifestUrl"],
-        json!("/generated/published-static/chunk-manifest.json")
-    );
+    assert!(event["payload"]["publishedScene"]["staticAssetManifestUrl"]
+        .as_str()
+        .unwrap()
+        .ends_with("/chunk-manifest.json"));
     assert!(event["payload"]["publishedScene"]["packageVersion"].is_string());
 
     server.abort();

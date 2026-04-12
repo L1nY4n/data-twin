@@ -105,7 +105,8 @@ export function EntityMarkers() {
   const searchQuery = entityFilters.searchQuery.toLowerCase()
   const {
     filteredPersons,
-    filteredVehicles,
+    filteredModelVehicles,
+    filteredInstancedVehicles,
     filteredEquipment,
     filteredSensors,
     filteredCameras,
@@ -120,9 +121,16 @@ export function EntityMarkers() {
       return entity.name.toLowerCase().includes(searchQuery)
     }
 
+    const nextVehicles = vehicles.filter((entity) => matchesBaseFilter(entity))
     return {
       filteredPersons: persons.filter((entity) => matchesBaseFilter(entity)),
-      filteredVehicles: vehicles.filter((entity) => matchesBaseFilter(entity)),
+      filteredVehicles: nextVehicles,
+      filteredModelVehicles: nextVehicles.filter(
+        (entity) => entity.vehicleType === 'truck' || entity.vehicleType === 'forklift'
+      ),
+      filteredInstancedVehicles: nextVehicles.filter(
+        (entity) => entity.vehicleType !== 'truck' && entity.vehicleType !== 'forklift'
+      ),
       filteredEquipment: equipment.filter((entity) => matchesBaseFilter(entity)),
       filteredSensors: sensors.filter((entity) => matchesBaseFilter(entity)),
       filteredCameras: cameras.filter((entity) => matchesBaseFilter(entity)),
@@ -135,8 +143,8 @@ export function EntityMarkers() {
   const vehicleBatches = useMemo(
     // Keep moving vehicles in stable route batches so they do not remount every
     // time their position crosses the nearest-sector boundary.
-    () => createVehicleEntityBatches(filteredVehicles, publishedSectors),
-    [filteredVehicles, publishedSectors]
+    () => createVehicleEntityBatches(filteredInstancedVehicles, publishedSectors),
+    [filteredInstancedVehicles, publishedSectors]
   )
   const equipmentBatches = useMemo(
     () => createSectorEntityBatches(filteredEquipment, publishedSectors),
@@ -155,13 +163,13 @@ export function EntityMarkers() {
   )
   const detailVehicles = useMemo(
     () =>
-      filteredVehicles.filter(
+      filteredInstancedVehicles.filter(
         (entity) =>
           entity.id === selectedEntityId ||
           entity.id === hoveredEntityId ||
           entity.labelMode === 'html'
       ),
-    [filteredVehicles, hoveredEntityId, selectedEntityId]
+    [filteredInstancedVehicles, hoveredEntityId, selectedEntityId]
   )
   const detailEquipment = useMemo(
     () =>
@@ -191,6 +199,15 @@ export function EntityMarkers() {
 
       {vehicleBatches.map((batch) => (
         <VehicleInstances key={`vehicle-${batch.sectorId}`} entities={batch.entities} />
+      ))}
+      {filteredModelVehicles.map((vehicle) => (
+        <VehicleMarker
+          key={vehicle.id}
+          entity={vehicle}
+          isSelected={selectedEntityId === vehicle.id}
+          isHovered={hoveredEntityId === vehicle.id}
+          showModel
+        />
       ))}
       {detailVehicles.map((vehicle) => (
         <VehicleMarker

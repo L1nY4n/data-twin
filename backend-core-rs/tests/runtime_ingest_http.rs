@@ -79,10 +79,11 @@ async fn runtime_ingest_relays_supported_events_to_websocket_clients() {
                                 "type": "status_update",
                                 "timestamp": 1234567891_u64,
                                 "payload": {
-                                    "entityId": "equipment-cnc-01",
+                                    "entityId": "sensor-temp-reactor-01",
                                     "status": "warning",
                                     "parameters": {
-                                        "spindleLoad": 88.5,
+                                        "reading": 88.5,
+                                        "thresholdMax": 68.0,
                                         "simulated": true
                                     }
                                 }
@@ -173,10 +174,11 @@ async fn runtime_ingest_relays_supported_events_to_websocket_clients() {
             "type": "status_update",
             "timestamp": 1234567891_u64,
             "payload": {
-                "entityId": "equipment-cnc-01",
+                "entityId": "sensor-temp-reactor-01",
                 "status": "warning",
                 "parameters": {
-                    "spindleLoad": 88.5,
+                    "reading": 88.5,
+                    "thresholdMax": 68.0,
                     "simulated": true
                 }
             }

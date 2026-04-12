@@ -6,7 +6,11 @@ import {
   DEFAULT_SCENE_COUNTS,
   PRODUCTION_SCENE_COUNTS,
 } from '../campus-layout'
-import { buildPublishedScenePackage, buildPublishedScenePackageFromSnapshot } from './compiler'
+import {
+  buildPublishedCampusScenePackageFromSnapshot,
+  buildPublishedScenePackage,
+  buildPublishedScenePackageFromSnapshot,
+} from './compiler'
 import { PUBLISHED_STATIC_ASSET_MANIFEST_URL } from './static-assets'
 
 describe('buildPublishedScenePackage', () => {
@@ -235,5 +239,99 @@ describe('buildPublishedScenePackage', () => {
     expect(published.staticAssetManifestUrl).toBe(
       '/generated/published-static/versions/build-7/chunk-manifest.json'
     )
+  })
+
+  test('can compile a campus-based published package from a backend snapshot without shrinking the large map', () => {
+    const published = buildPublishedCampusScenePackageFromSnapshot(
+      {
+        sceneVersion: 7,
+        sceneConfig: {
+          id: 'ibms-demo-scene',
+          name: 'IBMS 楼宇示例',
+          gridSize: 80,
+          gridDivisions: 80,
+          backgroundColor: '#10151d',
+          ambientLightIntensity: 0.6,
+          showAxes: false,
+          showGrid: true,
+          cameraPosition: { x: 318, y: 14, z: 22 },
+          cameraTarget: { x: 2, y: 0, z: -1 },
+        },
+        entities: [
+          {
+            id: 'person-1',
+            type: 'person',
+            name: '巡检员',
+            position: { x: 4, y: 0, z: -2 },
+            rotation: { x: 0, y: 0, z: 0 },
+            scale: { x: 1, y: 1, z: 1 },
+            status: 'active',
+            visible: true,
+            metadata: {},
+            role: '巡检',
+            department: '运维',
+            schedule: [],
+            createdAt: 1,
+            updatedAt: 1,
+          },
+          {
+            id: 'vehicle-truck-1',
+            type: 'vehicle',
+            name: '槽车 01',
+            position: { x: 12, y: 0, z: 60 },
+            rotation: { x: 0, y: 0, z: 0 },
+            scale: { x: 1, y: 1, z: 1 },
+            status: 'active',
+            visible: true,
+            metadata: {},
+            plateNumber: '沪A00001',
+            vehicleType: 'truck',
+            speed: 0,
+            heading: 0,
+            createdAt: 1,
+            updatedAt: 1,
+          },
+          {
+            id: 'zone-1',
+            type: 'zone',
+            name: '装车区',
+            position: { x: 0, y: 0, z: 60 },
+            rotation: { x: 0, y: 0, z: 0 },
+            scale: { x: 1, y: 1, z: 1 },
+            status: 'active',
+            visible: true,
+            metadata: {},
+            boundary: [
+              { x: -20, y: 0, z: 48 },
+              { x: 20, y: 0, z: 48 },
+              { x: 20, y: 0, z: 72 },
+              { x: -20, y: 0, z: 72 },
+            ],
+            zoneType: 'work',
+            color: '#22c55e',
+            accessRules: [],
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        ],
+        staticAssets: [],
+      },
+      {
+        staticAssetManifestUrl: '/generated/published-static/versions/build-99/chunk-manifest.json',
+      }
+    )
+
+    expect(published.sceneId).toBe('ibms-demo-scene')
+    expect(published.source).toBe('working-snapshot')
+    expect(published.sectors.length).toBeGreaterThan(1)
+    expect(published.staticChunks.length).toBeGreaterThan(1)
+    expect(published.routingLayers.length).toBeGreaterThan(0)
+    expect(published.entityCounts.default.vehicles).toBe(1)
+    expect(published.entityCounts.default.persons).toBe(1)
+    expect(
+      published.interactionLayers.some((layer) =>
+        layer.kind === 'zones' && layer.zones.some((zone) => zone.id === 'zone-1')
+      )
+    ).toBe(true)
   })
 })

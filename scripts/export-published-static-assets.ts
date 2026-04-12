@@ -8,7 +8,7 @@ import { promisify } from 'node:util'
 import { Group, Mesh, MeshStandardMaterial } from 'three'
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js'
 import {
-  buildPublishedScenePackageFromSnapshot,
+  buildPublishedCampusScenePackageFromSnapshot,
   createPublishedCampusScenePackage,
   createPublishedStaticAssetManifest,
   encodePublishedStaticMaterialName,
@@ -186,7 +186,7 @@ async function main() {
     ? ((JSON.parse(await readFile(snapshotPath, 'utf8')) as PublishedWorkingSnapshot) ?? null)
     : null
   const pkg = snapshot
-    ? buildPublishedScenePackageFromSnapshot(snapshot, {
+    ? buildPublishedCampusScenePackageFromSnapshot(snapshot, {
         staticAssetManifestUrl: manifestUrl,
       })
     : createPublishedCampusScenePackage('default', {

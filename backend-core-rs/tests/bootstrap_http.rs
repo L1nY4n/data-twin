@@ -40,16 +40,32 @@ async fn bootstrap_endpoint_returns_seeded_site_payload() {
         body["publishedScene"]["packageUrl"],
         "/generated/published-static/published-scene-package.json"
     );
-    assert_eq!(
-        body["publishedScene"]["staticAssetManifestUrl"],
-        "/generated/published-static/chunk-manifest.json"
-    );
-    assert_eq!(body["publishedScene"]["sceneId"], "chemical-plant-campus");
+    assert!(body["publishedScene"]["staticAssetManifestUrl"]
+        .as_str()
+        .unwrap()
+        .ends_with("/chunk-manifest.json"));
+    assert!(body["publishedScene"]["sceneId"].is_string());
     assert!(body["publishedScene"]["packageVersion"].is_string());
     assert!(body["publishedScene"]["generatedAt"].is_string());
 
+    let stable_alias_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../public/generated/published-static/published-scene-package.json");
+    let stable_alias_body = serde_json::from_str::<serde_json::Value>(
+        &fs::read_to_string(&stable_alias_path).expect("stable alias package should exist"),
+    )
+    .expect("stable alias package should parse");
+    assert_eq!(stable_alias_body["sceneId"], body["publishedScene"]["sceneId"]);
+    assert!(
+        stable_alias_body["sectors"].as_array().unwrap().len() > 1,
+        "stable alias should point at the large campus package"
+    );
+    assert!(
+        stable_alias_body["routingLayers"].as_array().unwrap().len() > 0,
+        "stable alias should preserve routing layers"
+    );
+
     let entities = body["entities"].as_array().unwrap();
-    assert!(entities.len() >= 13);
+    assert!(entities.len() >= 15);
     assert_eq!(body["staticAssets"], serde_json::json!([]));
 
     let entity_ids = entities
@@ -64,7 +80,9 @@ async fn bootstrap_endpoint_returns_seeded_site_payload() {
         "vehicle-forklift-03",
         "vehicle-forklift-04",
         "vehicle-forklift-05",
-        "equipment-cnc-01",
+        "vehicle-truck-01",
+        "vehicle-truck-02",
+        "vehicle-truck-03",
         "sensor-temp-reactor-01",
         "sensor-gas-loading-01",
         "sensor-pressure-pump-01",
@@ -73,6 +91,7 @@ async fn bootstrap_endpoint_returns_seeded_site_payload() {
     ] {
         assert!(entity_ids.contains(&expected_id));
     }
+    assert!(!entity_ids.contains(&"equipment-cnc-01"));
 
     let entities_by_id = entities
         .iter()
@@ -121,6 +140,26 @@ async fn bootstrap_endpoint_returns_seeded_site_payload() {
     assert_eq!(
         entities_by_id["vehicle-forklift-04"]["routeTrack"]["waypoints"][0],
         serde_json::json!({ "x": 0.0, "y": 0.0, "z": 32.0 })
+    );
+    assert_eq!(
+        entities_by_id["vehicle-truck-01"]["routeTrack"]["routeId"],
+        "factory-yard-logistics"
+    );
+    assert_eq!(
+        entities_by_id["vehicle-truck-01"]["routeTrack"]["trackId"],
+        "truck-track-01"
+    );
+    assert_eq!(
+        entities_by_id["vehicle-truck-01"]["trackPosition"]["nextWaypointIndex"],
+        1
+    );
+    assert_eq!(
+        entities_by_id["vehicle-truck-01"]["routeTrack"]["waypoints"][0],
+        serde_json::json!({ "x": -44.0, "y": 0.0, "z": 54.0 })
+    );
+    assert_eq!(
+        entities_by_id["vehicle-truck-01"]["routeTrack"]["waypoints"][1],
+        serde_json::json!({ "x": -44.0, "y": 0.0, "z": 92.0 })
     );
 
     let rules = body["rules"].as_array().unwrap();

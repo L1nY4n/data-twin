@@ -212,6 +212,7 @@ interface DigitalTwinActions {
   setSceneConfig: (config: Partial<SceneConfig>) => void
   setViewMode: (mode: ViewMode) => void
   setActiveCameraPreset: (presetId: string | null) => void
+  clearCameraFocusRequest: () => void
   focusCameraOnEntity: (id: string) => void
   setSceneReady: (ready: boolean) => void
 
@@ -1906,6 +1907,8 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
       setViewMode: (mode) => set({ viewMode: mode }),
 
       setActiveCameraPreset: (presetId) => set({ activeCameraPreset: presetId }),
+
+      clearCameraFocusRequest: () => set({ cameraFocusRequest: null }),
 
       focusCameraOnEntity: (id) => {
         const state = get()

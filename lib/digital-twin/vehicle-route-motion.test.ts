@@ -5,6 +5,28 @@ import {
 } from './vehicle-route-motion'
 
 describe('vehicle route motion', () => {
+  test('treats positive Z as forward yaw 0 so truck front alignment stays deterministic', () => {
+    const track = {
+      id: 'track-z',
+      loop: true,
+      points: [
+        { x: 0, y: 0, z: 0 },
+        { x: 0, y: 0, z: 10 },
+      ],
+    }
+    const route = {
+      trackId: 'track-z',
+      segmentIndex: 0,
+      segmentProgress: 0.25,
+      direction: 'forward' as const,
+    }
+
+    expect(resolveVehicleRoutePose(track, route)).toEqual({
+      position: { x: 0, y: 0, z: 2.5 },
+      yaw: 0,
+    })
+  })
+
   test('resolves pose from segment progress', () => {
     const track = {
       id: 'track-1',

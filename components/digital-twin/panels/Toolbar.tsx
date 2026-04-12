@@ -58,6 +58,7 @@ export function Toolbar() {
   const cameraPresets = useDigitalTwinStore((state) => state.cameraPresets)
   const activeCameraPreset = useDigitalTwinStore((state) => state.activeCameraPreset)
   const setActiveCameraPreset = useDigitalTwinStore((state) => state.setActiveCameraPreset)
+  const clearCameraFocusRequest = useDigitalTwinStore((state) => state.clearCameraFocusRequest)
   const measurementMode = useDigitalTwinStore((state) => state.measurementMode)
   const setMeasurementMode = useDigitalTwinStore((state) => state.setMeasurementMode)
   const clearMeasurementPoints = useDigitalTwinStore((state) => state.clearMeasurementPoints)
@@ -81,11 +82,14 @@ export function Toolbar() {
 
   const handleViewModeSelect = (mode: ViewMode) => {
     if (mode === 'topdown') {
+      clearCameraFocusRequest()
       setViewMode('orbit')
       setActiveCameraPreset('top')
       return
     }
 
+    clearCameraFocusRequest()
+    setActiveCameraPreset(null)
     setViewMode(mode)
   }
 
@@ -182,7 +186,11 @@ export function Toolbar() {
               {cameraPresets.map((preset) => (
                 <DropdownMenuItem
                   key={preset.id}
-                  onClick={() => setActiveCameraPreset(preset.id)}
+                  onClick={() => {
+                    clearCameraFocusRequest()
+                    setViewMode('orbit')
+                    setActiveCameraPreset(preset.id)
+                  }}
                   className={cn(activeCameraPreset === preset.id && 'bg-accent')}
                 >
                   <Box className="mr-2 h-4 w-4" />
