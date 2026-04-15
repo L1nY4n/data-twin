@@ -3,23 +3,53 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 describe('backend runtime guards', () => {
-  test('main page should boot live backend runtime hook instead of local simulation', () => {
+  test('home page should redirect to the configured homepage workspace', () => {
     const source = readFileSync(join(process.cwd(), 'app/page.tsx'), 'utf8')
+    const workspacePage = readFileSync(
+      join(process.cwd(), 'app/workspace/[workspaceId]/page.tsx'),
+      'utf8'
+    )
+    const viewerPage = readFileSync(
+      join(process.cwd(), 'components/digital-twin/DigitalTwinViewerPage.tsx'),
+      'utf8'
+    )
+    const toolbar = readFileSync(
+      join(process.cwd(), 'components/digital-twin/panels/Toolbar.tsx'),
+      'utf8'
+    )
+    const nav = readFileSync(
+      join(process.cwd(), 'components/chrome/ProductModuleNav.tsx'),
+      'utf8'
+    )
+    const workspaceHelper = readFileSync(
+      join(process.cwd(), 'lib/digital-twin/editor-workspace.ts'),
+      'utf8'
+    )
 
-    expect(source.includes('useLiveDigitalTwin')).toBe(true)
-    expect(source.includes('useSimulation')).toBe(false)
-    expect(source.includes('useCitationRuntime')).toBe(false)
-    expect(source.includes('正在连接后端数据')).toBe(true)
+    expect(source.includes("dynamic = 'force-dynamic'")).toBe(true)
+    expect(source.includes('/api/v1/site/home-workspace')).toBe(true)
+    expect(source.includes('redirect(`/workspace/${encodeURIComponent(workspace.id')).toBe(true)
+    expect(workspacePage.includes('DigitalTwinViewerPage')).toBe(true)
+    expect(viewerPage.includes('useLiveDigitalTwin')).toBe(true)
+    expect(viewerPage.includes('useCitationRuntime')).toBe(false)
+    expect(viewerPage.includes('正在连接后端数据')).toBe(true)
+    expect(toolbar.includes('ProductModuleNav')).toBe(true)
+    expect(toolbar.includes('进入工作区')).toBe(true)
+    expect(toolbar.includes('buildEditorWorkspaceHref(sceneConfig.id, \'/\')')).toBe(true)
+    expect(workspaceHelper.includes('DEFAULT_EDITOR_WORKSPACE_ID')).toBe(true)
+    expect(nav.includes("href: '/editor'")).toBe(false)
   })
 
   test('live runtime hook should hydrate bootstrap and react to config_changed events', () => {
     const source = readFileSync(join(process.cwd(), 'hooks/use-live-digital-twin.ts'), 'utf8')
 
     expect(source.includes('fetchBootstrap')).toBe(true)
+    expect(source.includes('setEntityRegistry')).toBe(true)
     expect(source.includes('loadPublishedScenePackage')).toBe(true)
     expect(source.includes('withVersionedPublishedScenePackage')).toBe(true)
     expect(source.includes('payload.publishedScene')).toBe(true)
     expect(source.includes('configChanged.publishedScene')).toBe(true)
+    expect(source.includes("configChanged.scope === 'entity'")).toBe(true)
     expect(source.includes('getRealtimeWsUrl')).toBe(true)
     expect(source.includes("case 'config_changed'")) .toBe(true)
     expect(source.includes('hydrateBootstrapState')).toBe(true)

@@ -53,10 +53,10 @@ export function SaveLiveWarning({ inverted = false }: { inverted?: boolean }) {
     >
       <div className="flex items-center gap-2 font-medium">
         <ShieldAlert className="h-4 w-4" />
-        保存后即时生效
+        Live Config
       </div>
       <p className="mt-1 text-[11px]">
-        当前阶段未启用发布流，后台保存会直接触发运行态配置刷新，请先确认变更影响范围。
+        保存会更新当前工作区配置，请在发布后同步到运行环境。
       </p>
     </ViewerAdminPanel>
   )
@@ -220,9 +220,9 @@ export function AdminSectionFrame({
       ? railCards
       : [
           {
-            title: '操作模式',
-            value: 'Live Config',
-            detail: '当前保存会直接刷新运行态配置，没有额外发布门。',
+            title: '同步模式',
+            value: 'Workspace Draft',
+            detail: '保存先写入工作区，建议通过发布流程同步到运行环境。',
           },
           {
             title: '当前模块',
@@ -232,46 +232,46 @@ export function AdminSectionFrame({
         ]
 
   return (
-    <div className="space-y-6">
-      <section className="overflow-hidden rounded-[28px] border border-slate-800 bg-[radial-gradient(circle_at_top_left,_rgba(56,189,248,0.18),_transparent_28%),linear-gradient(135deg,_#0f172a_0%,_#111827_52%,_#1e293b_100%)] text-white shadow-[0_40px_120px_-56px_rgba(15,23,42,0.9)]">
-        <div className="grid gap-6 px-6 py-6 xl:grid-cols-[minmax(0,1fr)_320px] xl:px-8 xl:py-8">
-          <div className="space-y-5">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div className="space-y-3">
-                <p className="text-[11px] uppercase tracking-[0.28em] text-sky-200/70">
+    <div className="space-y-4">
+      <section className="viewer-admin-page-header overflow-hidden rounded-[22px] border border-white/10 bg-[linear-gradient(180deg,rgba(17,24,39,0.72)_0%,rgba(15,23,42,0.52)_100%)] text-white shadow-[0_18px_56px_-40px_rgba(15,23,42,0.92)]">
+        <div className="grid gap-4 px-4 py-4 xl:grid-cols-[minmax(0,1fr)_240px] xl:px-5 xl:py-5">
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="space-y-2">
+                <p className="text-[11px] uppercase tracking-[0.24em] text-sky-200/70">
                   {meta.kicker}
                 </p>
-                <div className="flex flex-wrap items-center gap-3">
-                  <h2 className="text-2xl font-semibold tracking-tight">{meta.title}</h2>
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <h2 className="text-[1.4rem] font-semibold tracking-tight md:text-[1.6rem]">{meta.title}</h2>
                   <Badge className="rounded-full border border-white/10 bg-white/10 px-3 text-[11px] font-medium text-white hover:bg-white/10">
                     {meta.shortTitle}
                   </Badge>
                 </div>
-                <p className="max-w-2xl text-sm leading-6 text-white/70">
+                <p className="max-w-3xl text-sm leading-6 text-white/70">
                   {meta.description}
                 </p>
               </div>
-              {actions ? (
-                <div className="flex flex-wrap items-center gap-2">{actions}</div>
-              ) : null}
+              {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
             </div>
 
-            <StatusBanner message={statusMessage} isLoading={isLoading} inverted />
-            {showLiveWarning ? <SaveLiveWarning inverted /> : null}
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <StatusBanner message={statusMessage} isLoading={isLoading} inverted />
+              {showLiveWarning ? <SaveLiveWarning inverted /> : null}
+            </div>
 
             {metrics.length > 0 ? (
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                 {metrics.map((metric) => (
                   <div
                     key={metric.label}
-                    className="rounded-2xl border border-white/10 bg-white/5 p-4"
+                    className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3"
                   >
-                    <p className="text-[11px] uppercase tracking-[0.22em] text-white/50">
+                    <p className="text-[11px] uppercase tracking-[0.2em] text-white/50">
                       {metric.label}
                     </p>
-                    <div className="mt-3 text-2xl font-semibold">{metric.value}</div>
+                    <div className="mt-2 text-2xl font-semibold">{metric.value}</div>
                     {metric.detail ? (
-                      <p className="mt-2 text-xs leading-5 text-white/70">
+                      <p className="mt-1.5 text-xs leading-5 text-white/68">
                         {metric.detail}
                       </p>
                     ) : null}
@@ -281,17 +281,17 @@ export function AdminSectionFrame({
             ) : null}
           </div>
 
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-1">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
             {resolvedRailCards.map((card) => (
               <div
                 key={card.title}
-                className="rounded-2xl border border-white/10 bg-black/20 p-4 backdrop-blur"
+                className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 backdrop-blur"
               >
-                <p className="text-[11px] uppercase tracking-[0.22em] text-white/50">
+                <p className="text-[11px] uppercase tracking-[0.2em] text-white/50">
                   {card.title}
                 </p>
-                <div className="mt-3 text-lg font-semibold">{card.value}</div>
-                <p className="mt-2 text-xs leading-5 text-white/70">{card.detail}</p>
+                <div className="mt-2 text-lg font-semibold">{card.value}</div>
+                <p className="mt-1.5 text-xs leading-5 text-white/68">{card.detail}</p>
               </div>
             ))}
           </div>

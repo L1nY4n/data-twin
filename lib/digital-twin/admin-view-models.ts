@@ -1,11 +1,15 @@
 import { generateId } from './mock-data'
 import type {
+  ArchetypeCapabilities,
+  EntityArchetype,
+  EntityCategory,
   DataConnector,
   Entity,
   EntityBinding,
   RuleConfig,
   SceneConfig,
   StaticAssetInstance,
+  WorkspaceRecord,
 } from './types'
 
 function cloneAdminValue<T>(value: T): T {
@@ -38,6 +42,18 @@ export function cloneStaticAssetDraft(staticAsset: StaticAssetInstance): StaticA
 
 export function cloneConnectorDraft(connector: DataConnector): DataConnector {
   return cloneAdminValue(connector)
+}
+
+export function cloneEntityCategoryDraft(category: EntityCategory): EntityCategory {
+  return cloneAdminValue(category)
+}
+
+export function cloneEntityArchetypeDraft(archetype: EntityArchetype): EntityArchetype {
+  return cloneAdminValue(archetype)
+}
+
+export function cloneWorkspaceDraft(workspace: WorkspaceRecord): WorkspaceRecord {
+  return cloneAdminValue(workspace)
 }
 
 export function cloneBindingsDraft(bindings: EntityBinding[]): EntityBinding[] {
@@ -124,6 +140,43 @@ export function createEntityTemplate(type: Entity['type'] = 'person'): Entity {
         color: '#22c55e',
         accessRules: [],
       }
+    case 'dynamic':
+      return {
+        ...base,
+        type: 'dynamic',
+        archetypeId: '',
+        categoryKey: '',
+        attributes: {},
+        displayAttributes: {},
+      }
+  }
+}
+
+export function createDynamicEntityTemplate(archetype: EntityArchetype): Entity {
+  const now = Date.now()
+  return {
+    id: generateId(),
+    type: 'dynamic',
+    name: archetype.displayName,
+    position: { x: 0, y: 0, z: 0 },
+    rotation: { x: 0, y: 0, z: 0 },
+    scale: { x: 1, y: 1, z: 1 },
+    status: 'active',
+    visible: true,
+    metadata: {
+      archetypeDisplayName: archetype.displayName,
+    },
+    createdAt: now,
+    updatedAt: now,
+    archetypeId: archetype.id,
+    categoryKey: archetype.categoryKey,
+    attributes: {
+      archetypeKey: archetype.key,
+    },
+    displayAttributes: {
+      archetype: archetype.displayName,
+      category: archetype.categoryKey,
+    },
   }
 }
 
@@ -165,6 +218,63 @@ export function createRuleTemplate(): RuleConfig {
     version: 1,
     nodes: [],
     edges: [],
+    createdAt: now,
+    updatedAt: now,
+  }
+}
+
+function createDefaultArchetypeCapabilities(): ArchetypeCapabilities {
+  return {
+    hasModel: false,
+    movable: false,
+    bindable: true,
+    statusBearing: true,
+    detailFieldsVisible: true,
+  }
+}
+
+export function createEntityCategoryTemplate(): EntityCategory {
+  const now = Date.now()
+  return {
+    id: generateId(),
+    key: 'new-category',
+    displayName: '新实体大类',
+    description: '',
+    icon: 'Boxes',
+    color: '#38bdf8',
+    sortOrder: 0,
+    createdAt: now,
+    updatedAt: now,
+  }
+}
+
+export function createWorkspaceTemplate(): WorkspaceRecord {
+  const now = Date.now()
+  const id = generateId()
+  return {
+    id,
+    slug: `workspace-${id.slice(-6)}`,
+    name: '新工作区',
+    description: '',
+    isHomepage: false,
+    createdAt: now,
+    updatedAt: now,
+  }
+}
+
+export function createEntityArchetypeTemplate(
+  category?: EntityCategory | null
+): EntityArchetype {
+  const now = Date.now()
+  return {
+    id: generateId(),
+    key: 'new-archetype',
+    categoryId: category?.id ?? '',
+    categoryKey: category?.key ?? '',
+    displayName: '新实体原型',
+    description: '',
+    capabilities: createDefaultArchetypeCapabilities(),
+    metadata: {},
     createdAt: now,
     updatedAt: now,
   }

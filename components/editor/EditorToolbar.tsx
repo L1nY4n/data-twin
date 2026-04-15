@@ -1,5 +1,4 @@
 'use client'
-
 import {
   AlertTriangle,
   Boxes,
@@ -42,6 +41,7 @@ type EditorToolbarProps = {
   canPublish: boolean
   publishStatus: PublishStatus | null
   activityStatus: EditorActivityStatus
+  workspaceHint?: string
   className?: string
 }
 
@@ -53,6 +53,7 @@ export function EditorToolbar({
   canPublish,
   publishStatus,
   activityStatus,
+  workspaceHint,
   className,
 }: EditorToolbarProps) {
   const selectedEntityId = useEditorViewerStore((state) => state.selectedEntityId)
@@ -60,6 +61,8 @@ export function EditorToolbar({
   const placementCatalogId = useEditorUiStore((state) => state.placementCatalogId)
   const draftEntity = useEditorSceneStore((state) => state.draftEntity)
   const draftStaticAsset = useEditorSceneStore((state) => state.draftStaticAsset)
+  const sceneId = useEditorSceneStore((state) => state.sceneConfig.id)
+  const sceneName = useEditorSceneStore((state) => state.sceneConfig.name)
   const transformMode = useEditorUiStore((state) => state.transformMode)
   const historyLength = useEditorSceneStore((state) => state.history.length)
   const redoLength = useEditorSceneStore((state) => state.redoHistory.length)
@@ -80,6 +83,7 @@ export function EditorToolbar({
   const hasDraftSelection = Boolean(draftSelection)
   const hasSelection = Boolean(selectionKind)
   const hasHistory = historyLength > 0 || redoLength > 0
+  const workspaceId = workspaceHint?.trim() || sceneId
   const heading = draftSelection?.name ?? armedCatalogItem?.name ?? '场景'
   const publishLabel =
     publishStatus?.status === 'publishing'
@@ -203,7 +207,22 @@ export function EditorToolbar({
         className
       )}
     >
-      <div className="flex flex-wrap items-center gap-1">
+      <div className="space-y-1">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-1.5">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="editor-pill">模型工作区</span>
+            <span className="truncate text-[11px] text-white/58">
+              {sceneName?.trim() || '当前模型'}
+            </span>
+            {workspaceId ? (
+              <span className="hidden truncate rounded-full border border-white/10 bg-white/6 px-2 py-1 text-[10px] text-white/48 md:inline-flex">
+                {workspaceId}
+              </span>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-1">
         <div className="editor-block flex min-w-0 items-center gap-1.5 px-1.5 py-1">
           {armedCatalogItem ? (
             <EditorCatalogRealtimePreview item={armedCatalogItem} />
@@ -389,6 +408,7 @@ export function EditorToolbar({
               <Save className="size-4" />
             </Button>
           ) : null}
+        </div>
         </div>
       </div>
     </div>

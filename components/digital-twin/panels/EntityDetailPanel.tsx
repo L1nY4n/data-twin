@@ -16,12 +16,14 @@ import {
   Thermometer,
   Zap,
   Box,
+  Boxes,
   Sparkles,
   MonitorPlay,
 } from 'lucide-react'
 import { useDigitalTwinStore, useSelectedEntity, useSelectedStaticFeature } from '@/lib/digital-twin/store'
 import type { 
   IncidentVideoFeed,
+  DynamicEntity,
   PersonEntity, 
   RuntimeIncident,
   VehicleEntity, 
@@ -100,6 +102,8 @@ export function EntityDetailPanel() {
   const acknowledgeIncident = useDigitalTwinStore((state) => state.acknowledgeIncident)
   const setSelectedEntity = useDigitalTwinStore((state) => state.setSelectedEntity)
   const setSelectedStaticFeature = useDigitalTwinStore((state) => state.setSelectedStaticFeature)
+  const entityCategories = useDigitalTwinStore((state) => state.entityCategories)
+  const entityArchetypes = useDigitalTwinStore((state) => state.entityArchetypes)
 
   const handleClose = () => {
     if (entity) {
@@ -127,6 +131,10 @@ export function EntityDetailPanel() {
   if (!entity) return null
 
   const statusConfig = STATUS_CONFIG[entity.status]
+  const dynamicCategory =
+    entity.type === 'dynamic' ? entityCategories.get(entity.categoryKey) : null
+  const dynamicArchetype =
+    entity.type === 'dynamic' ? entityArchetypes.get(entity.archetypeId) : null
 
   return (
     <ViewerAdminSidePanelBody>
@@ -183,6 +191,13 @@ export function EntityDetailPanel() {
           {entity.type === 'sensor' && <SensorDetails entity={entity} />}
           {entity.type === 'camera' && <CameraDetails entity={entity} />}
           {entity.type === 'zone' && <ZoneDetails entity={entity} />}
+          {entity.type === 'dynamic' && (
+            <DynamicDetails
+              entity={entity}
+              categoryName={dynamicCategory?.displayName ?? entity.categoryKey}
+              archetypeName={dynamicArchetype?.displayName ?? entity.archetypeId}
+            />
+          )}
 
           <EntityIncidentDetails
             entityId={entity.id}
@@ -302,6 +317,8 @@ function EntityTypeIcon({ type }: { type: string }) {
       return <CameraIcon className={cn(iconClass, "text-red-500")} />
     case 'zone':
       return <Map className={cn(iconClass, "text-purple-500")} />
+    case 'dynamic':
+      return <Boxes className={cn(iconClass, "text-sky-500")} />
     default:
       return null
   }
@@ -588,6 +605,58 @@ function ZoneDetails({ entity }: { entity: ZoneEntity }) {
           </ViewerAdminSoftCard>
         </ViewerAdminSection>
       )}
+    </div>
+  )
+}
+
+function DynamicDetails({
+  entity,
+  categoryName,
+  archetypeName,
+}: {
+  entity: DynamicEntity
+  categoryName: string
+  archetypeName: string
+}) {
+  const detailEntries = [
+    ...Object.entries(entity.displayAttributes),
+    ...Object.entries(entity.attributes).filter(
+      ([key]) => !(key in entity.displayAttributes)
+    ),
+  ]
+
+  return (
+    <div className="space-y-3">
+      <ViewerAdminSection icon={Boxes} title="动态实体">
+        <ViewerAdminInfoList>
+          <ViewerAdminInfoRow
+            label="业务大类"
+            value={<Badge variant="outline">{categoryName}</Badge>}
+          />
+          <ViewerAdminInfoRow
+            label="原型"
+            value={<Badge variant="secondary">{archetypeName}</Badge>}
+          />
+          <ViewerAdminInfoRow
+            label="Archetype ID"
+            value={<span className="font-mono text-xs">{entity.archetypeId}</span>}
+          />
+        </ViewerAdminInfoList>
+      </ViewerAdminSection>
+
+      <ViewerAdminSection icon={Sparkles} title="展示字段">
+        {detailEntries.length > 0 ? (
+          <ViewerAdminInfoList>
+            {detailEntries.map(([key, value]) => (
+              <ViewerAdminInfoRow key={key} label={key} value={String(value)} />
+            ))}
+          </ViewerAdminInfoList>
+        ) : (
+          <ViewerAdminSoftCard className="p-3 text-sm text-muted-foreground">
+            当前原型还没有注入展示字段，等待绑定或外部状态更新。
+          </ViewerAdminSoftCard>
+        )}
+      </ViewerAdminSection>
     </div>
   )
 }

@@ -67,6 +67,8 @@ async fn bootstrap_endpoint_returns_seeded_site_payload() {
     let entities = body["entities"].as_array().unwrap();
     assert!(entities.len() >= 15);
     assert_eq!(body["staticAssets"], serde_json::json!([]));
+    assert_eq!(body["entityCategories"], serde_json::json!([]));
+    assert_eq!(body["entityArchetypes"], serde_json::json!([]));
 
     let entity_ids = entities
         .iter()

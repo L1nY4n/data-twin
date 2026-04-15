@@ -53,7 +53,13 @@ function isPointerNearResizeEdge(
     : clientX - rect.left <= RESIZE_EDGE_HIT_AREA
 }
 
-export function EditorShell() {
+export function EditorShell({
+  workspaceHint,
+  returnHref,
+}: {
+  workspaceHint?: string
+  returnHref?: string
+}) {
   const {
     saveSelection,
     deleteSelection,
@@ -347,11 +353,12 @@ export function EditorShell() {
                   <EditorAppSidebar
                     collapsed={!resourcesPanelOpen}
                     onToggleCollapse={() => setResourcesPanelOpen((value) => !value)}
+                    returnHref={returnHref}
                   />
                 </div>
               </div>
 
-              <div className="pointer-events-none absolute inset-x-0 top-2.5 z-30 flex justify-center px-14 md:px-16 lg:px-24">
+              <div className="pointer-events-none absolute inset-x-0 top-3 z-30 flex justify-center px-14 md:px-16 lg:px-24">
                 <div className="flex w-full max-w-[60rem] flex-col items-center gap-1.5">
                   <div
                     ref={toolbarRef}
@@ -366,11 +373,12 @@ export function EditorShell() {
                       canPublish={canPublish}
                       publishStatus={publishStatus}
                       activityStatus={activityStatus}
+                      workspaceHint={workspaceHint}
                     />
                   </div>
 
                   {shouldShowStatusBanner ? (
-                    <div className="pointer-events-auto w-full max-w-[22rem] self-end">
+                    <div className="pointer-events-auto w-full max-w-[21rem] self-end xl:mt-1">
                       <div
                         className={cn(
                           'flex items-start gap-2.5 rounded-[16px] border px-3 py-2 backdrop-blur-xl',
@@ -431,7 +439,7 @@ export function EditorShell() {
                 </div>
               </div>
 
-              <div className="pointer-events-none absolute inset-x-0 bottom-2.5 z-20 hidden justify-center px-2.5 md:flex">
+              <div className="pointer-events-none absolute inset-x-0 bottom-2.5 z-20 hidden justify-center px-2.5 md:flex xl:bottom-3">
                 <div
                   ref={dockRef}
                   data-editor-chrome="dock"

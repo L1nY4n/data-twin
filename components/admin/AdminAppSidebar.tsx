@@ -3,10 +3,7 @@
 import Link from 'next/link'
 import { Activity, ArrowUpRight, Command, RadioTower, ShieldCheck } from 'lucide-react'
 import type { AdminSection } from '@/lib/digital-twin/admin'
-import {
-  ADMIN_NAV_GROUPS,
-  ADMIN_SECTION_META,
-} from '@/components/admin/admin-meta'
+import { ADMIN_NAV_GROUPS } from '@/components/admin/admin-meta'
 import { Badge } from '@/components/ui/badge'
 import {
   Sidebar,
@@ -29,12 +26,22 @@ export function AdminAppSidebar({
 }: {
   activeSection: AdminSection
 }) {
-  const activeMeta = ADMIN_SECTION_META[activeSection]
+  const normalizedGroups = ADMIN_NAV_GROUPS.map((group) => ({
+    ...group,
+    title:
+      group.title === '总览'
+        ? '工作台'
+        : group.title === '配置建模'
+          ? '配置中心'
+          : group.title === '接入与自动化'
+            ? '接入与联动'
+            : '治理与追踪',
+  }))
 
   return (
     <Sidebar
       collapsible="icon"
-      className="top-[calc(var(--header-height)+0.5rem)]! h-[calc(100svh-var(--header-height)-0.5rem)]! border-r border-white/8"
+      className="top-[calc(var(--header-height)+0.75rem)]! h-[calc(100svh-var(--header-height)-0.75rem)]! border-r border-white/8"
     >
       <SidebarHeader className="border-b px-2 py-2">
         <SidebarMenu>
@@ -49,39 +56,17 @@ export function AdminAppSidebar({
                   <Command className="size-4" />
                 </div>
                 <div className="grid min-w-0 flex-1 gap-0.5 text-left leading-tight">
-                  <span className="truncate font-medium">Digital Twin Admin</span>
-                  <span className="truncate text-xs text-sidebar-foreground/70">
-                    配置与治理工作台
-                  </span>
+                  <span className="truncate font-medium">数字孪生控制台</span>
+                  <span className="truncate text-xs text-sidebar-foreground/60">配置、接入、治理、发布</span>
                 </div>
               </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
-
-        <ViewerAdminPanel
-          variant="soft"
-          className="rounded-xl p-3 group-data-[collapsible=icon]:hidden"
-        >
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="viewer-admin-kicker">
-                当前模块
-              </p>
-              <p className="mt-1 text-sm font-medium">{activeMeta.title}</p>
-            </div>
-            <Badge variant="outline" className="rounded-full border-sidebar-border bg-transparent text-[10px]">
-              {activeMeta.shortTitle}
-            </Badge>
-          </div>
-          <p className="mt-3 text-xs leading-5 text-sidebar-foreground/70">
-            {activeMeta.operatorHint}
-          </p>
-        </ViewerAdminPanel>
       </SidebarHeader>
 
       <SidebarContent className="gap-0">
-        {ADMIN_NAV_GROUPS.map((group) => (
+        {normalizedGroups.map((group) => (
           <SidebarGroup key={group.title} className="px-2 py-1.5">
             <SidebarGroupLabel className="px-2 text-[11px] uppercase tracking-[0.18em]">
               {group.title}
@@ -132,7 +117,7 @@ export function AdminAppSidebar({
             <span>Live Config</span>
           </div>
           <p className="leading-5 text-sidebar-foreground/70">
-            先看上下文，再改配置。先确认影响面，再让变更进入运行态。
+            保存会刷新当前运行态配置。
           </p>
           <div className="flex flex-wrap gap-2 pt-1">
             <Badge variant="secondary" className="rounded-full px-2 text-[10px]">

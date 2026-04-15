@@ -8,12 +8,18 @@ describe('editor style and motion integration', () => {
       join(process.cwd(), 'app/editor/layout.tsx'),
       'utf8'
     )
+    const rootLayout = readFileSync(
+      join(process.cwd(), 'app/layout.tsx'),
+      'utf8'
+    )
 
     expect(source.includes("from 'next/font/google'")).toBe(true)
     expect(source.includes('Spline_Sans')).toBe(true)
     expect(source.includes('Spline_Sans_Mono')).toBe(true)
     expect(source.includes("'./editor-global.css'")).toBe(true)
     expect(source.includes('editor-fonts')).toBe(true)
+    expect(rootLayout.includes("./editor/editor-global.css")).toBe(false)
+    expect(rootLayout.includes("./editor/editor-theme.css")).toBe(false)
   })
 
   test('editor shell wires chrome motion refs for toolbar, side panels, and dock', () => {

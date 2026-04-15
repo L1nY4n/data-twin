@@ -11,7 +11,14 @@ export interface Vector3 {
 export type EntityStatus = 'active' | 'inactive' | 'warning' | 'error'
 
 // 实体类型
-export type EntityType = 'person' | 'vehicle' | 'equipment' | 'sensor' | 'camera' | 'zone'
+export type EntityType =
+  | 'person'
+  | 'vehicle'
+  | 'equipment'
+  | 'sensor'
+  | 'camera'
+  | 'zone'
+  | 'dynamic'
 
 export type SensorType =
   | 'temperature'
@@ -23,6 +30,80 @@ export type SensorType =
   | 'other'
 
 export type CameraType = 'fixed' | 'dome' | 'ptz' | 'thermal'
+
+export type ModelAssetFileType = 'glb' | 'fbx'
+
+export interface EntityCategory {
+  id: string
+  key: string
+  displayName: string
+  description?: string
+  icon?: string
+  color?: string
+  sortOrder: number
+  createdAt: number
+  updatedAt: number
+}
+
+export interface WorkspaceRecord {
+  id: string
+  slug: string
+  name: string
+  description?: string
+  isHomepage: boolean
+  createdAt: number
+  updatedAt: number
+}
+
+export interface ArchetypeModelBounds {
+  width: number
+  height: number
+  depth: number
+}
+
+export interface ArchetypeModelCalibration {
+  scale: Vector3
+  rotation: Vector3
+  translation: Vector3
+  floorOffset: number
+  bounds?: ArchetypeModelBounds
+  thumbnailUrl?: string
+}
+
+export interface ArchetypeModelAsset {
+  assetId: string
+  fileName: string
+  fileType: ModelAssetFileType
+  assetUrl: string
+  contentType?: string
+  fileSizeBytes?: number
+  calibration: ArchetypeModelCalibration
+  uploadedAt: number
+}
+
+export interface ArchetypeCapabilities {
+  hasModel: boolean
+  movable: boolean
+  bindable: boolean
+  statusBearing: boolean
+  detailFieldsVisible: boolean
+}
+
+export interface EntityArchetype {
+  id: string
+  key: string
+  categoryId: string
+  categoryKey: string
+  displayName: string
+  description?: string
+  capabilities: ArchetypeCapabilities
+  model?: ArchetypeModelAsset
+  metadata: Record<string, unknown>
+  createdAt: number
+  updatedAt: number
+}
+
+export type DynamicEntityAttributeValue = string | number | boolean
 
 // 基础实体
 export interface BaseEntity {
@@ -106,6 +187,14 @@ export interface ZoneEntity extends BaseEntity {
   currentOccupancy?: number
 }
 
+export interface DynamicEntity extends BaseEntity {
+  type: 'dynamic'
+  archetypeId: string
+  categoryKey: string
+  attributes: Record<string, DynamicEntityAttributeValue>
+  displayAttributes: Record<string, DynamicEntityAttributeValue>
+}
+
 // 实体联合类型
 export type Entity =
   | PersonEntity
@@ -114,6 +203,7 @@ export type Entity =
   | SensorEntity
   | CameraEntity
   | ZoneEntity
+  | DynamicEntity
 
 // 时间范围
 export interface TimeRange {

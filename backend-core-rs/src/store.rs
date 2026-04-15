@@ -15,16 +15,18 @@ use uuid::Uuid;
 
 use crate::{
     contracts::{
-        Alarm, AuditEventRecord, BootstrapResponse, DataConnector, EditorSaveMode,
-        EditorSaveRequest, EditorSaveResponse, Entity, EntityBinding, EntityStatus,
-        PublishedSceneDescriptor, RuleConfig, RuleValidationResponse, SceneConfig, SceneResponse,
-        StaticAssetInstance, Vector3,
+        Alarm, ArchetypeModelAsset, AuditEventRecord, BootstrapResponse, ContractValue,
+        DataConnector, EditorSaveMode, EditorSaveRequest, EditorSaveResponse, Entity,
+        EntityArchetype, EntityBinding, EntityCategory, EntityStatus, ModelAssetFileType,
+        PublishedSceneDescriptor, RuleConfig, RuleValidationResponse, SceneConfig,
+        SceneResponse, StaticAssetInstance, Vector3, WorkspaceRecord,
     },
     published_scene::load_published_scene_descriptor,
     seed_scene,
 };
 
 const DEFAULT_SQLITE_URL: &str = "sqlite://./data/digital-twin.db?mode=rwc";
+const MANAGED_ARCHETYPE_ASSET_PREFIX: &str = "/assets/entity-archetypes/";
 
 #[derive(Debug)]
 pub enum StoreError {
@@ -113,6 +115,9 @@ struct MemoryStore {
     alarms: Vec<Alarm>,
     connectors: BTreeMap<String, DataConnector>,
     bindings: BTreeMap<String, Vec<EntityBinding>>,
+    entity_categories: BTreeMap<String, EntityCategory>,
+    entity_archetypes: BTreeMap<String, EntityArchetype>,
+    workspaces: BTreeMap<String, WorkspaceRecord>,
     audit_events: Vec<serde_json::Value>,
 }
 
@@ -149,6 +154,15 @@ impl MemoryStore {
         let snapshot = seed_scene::seed_snapshot();
         let published_scene = load_published_scene_descriptor();
         let now = now_millis();
+        let default_workspace = WorkspaceRecord {
+            id: snapshot.scene_config.id.clone(),
+            slug: snapshot.scene_config.id.clone(),
+            name: snapshot.scene_config.name.clone(),
+            description: Some("默认工作区".to_string()),
+            is_homepage: true,
+            created_at: now,
+            updated_at: now,
+        };
         let mut published_entities = snapshot.entities.clone();
         let mut published_static_assets = Vec::new();
         sort_entities(&mut published_entities);
@@ -188,6 +202,9 @@ impl MemoryStore {
             alarms: Vec::new(),
             connectors: BTreeMap::new(),
             bindings: BTreeMap::new(),
+            entity_categories: BTreeMap::new(),
+            entity_archetypes: BTreeMap::new(),
+            workspaces: BTreeMap::from([(default_workspace.id.clone(), default_workspace)]),
             audit_events: Vec::new(),
         }
     }
@@ -246,6 +263,8 @@ impl Store {
 
     pub async fn bootstrap(&self) -> Result<BootstrapResponse, StoreError> {
         let published = self.published_state().await?;
+        let entity_categories = self.list_entity_categories().await?;
+        let entity_archetypes = self.list_entity_archetypes().await?;
         let rules = self.list_rules().await?;
         let alarms = self.list_alarms().await?;
 
@@ -255,6 +274,8 @@ impl Store {
             scene_config: published.scene_config,
             entities: published.entities,
             static_assets: published.static_assets,
+            entity_categories,
+            entity_archetypes,
             rules,
             alarms,
             published_scene: published.published_scene,
@@ -264,6 +285,8 @@ impl Store {
 
     pub async fn editor_bootstrap(&self) -> Result<BootstrapResponse, StoreError> {
         let working = self.load_working_snapshot().await?;
+        let entity_categories = self.list_entity_categories().await?;
+        let entity_archetypes = self.list_entity_archetypes().await?;
         let rules = self.list_rules().await?;
         let alarms = self.list_alarms().await?;
 
@@ -273,6 +296,8 @@ impl Store {
             scene_config: working.scene_config,
             entities: working.entities,
             static_assets: working.static_assets,
+            entity_categories,
+            entity_archetypes,
             rules,
             alarms,
             published_scene: self.published_scene_descriptor().await?,
@@ -1397,6 +1422,7 @@ impl Store {
         match &self.backend {
             StoreBackend::Memory(store) => {
                 let mut snapshot = store.write().await;
+                normalize_dynamic_entity_registry_refs_memory(&mut entity, &snapshot.entity_archetypes)?;
                 if snapshot.entities.contains_key(entity.id()) {
                     return Err(StoreError::Validation(format!(
                         "entity {} already exists",
@@ -1413,12 +1439,18 @@ impl Store {
                     "actor": "system",
                     "timestamp": now
                 }));
+                snapshot.published_scene_version = snapshot.scene_version;
+                snapshot.published_entities = snapshot.entities.values().cloned().collect();
+                sort_entities(&mut snapshot.published_entities);
+                snapshot.published_updated_at = now;
                 Ok(entity)
             }
             StoreBackend::Postgres(store) => {
                 let mut tx = store.pool.begin().await?;
+                normalize_dynamic_entity_registry_refs_postgres(&mut tx, &mut entity).await?;
                 persist_entity(&mut tx, &entity, false).await?;
-                let scene_version = bump_scene_version_tx(&mut tx).await?;
+                let _ = bump_scene_version_tx(&mut tx).await?;
+                sync_live_entity_roster_postgres(&mut tx, now).await?;
                 insert_audit_event(
                     &mut tx,
                     "entity.create",
@@ -1428,13 +1460,14 @@ impl Store {
                 )
                 .await?;
                 tx.commit().await?;
-                let _ = scene_version;
                 Ok(entity)
             }
             StoreBackend::Sqlite(store) => {
                 let mut tx = store.pool.begin().await?;
+                normalize_dynamic_entity_registry_refs_sqlite(&mut tx, &mut entity).await?;
                 persist_entity_sqlite(&mut tx, &entity, false).await?;
                 let _ = bump_scene_version_sqlite(&mut tx).await?;
+                sync_live_entity_roster_sqlite(&mut tx, now).await?;
                 insert_audit_event_sqlite(
                     &mut tx,
                     "entity.create",
@@ -1456,6 +1489,7 @@ impl Store {
         match &self.backend {
             StoreBackend::Memory(store) => {
                 let mut snapshot = store.write().await;
+                normalize_dynamic_entity_registry_refs_memory(&mut entity, &snapshot.entity_archetypes)?;
                 let Some(existing) = snapshot.entities.get(id) else {
                     return Err(StoreError::NotFound(format!("entity {id}")));
                 };
@@ -1470,10 +1504,15 @@ impl Store {
                     "actor": "system",
                     "timestamp": now_millis()
                 }));
+                snapshot.published_scene_version = snapshot.scene_version;
+                snapshot.published_entities = snapshot.entities.values().cloned().collect();
+                sort_entities(&mut snapshot.published_entities);
+                snapshot.published_updated_at = now_millis();
                 Ok(entity)
             }
             StoreBackend::Postgres(store) => {
                 let mut tx = store.pool.begin().await?;
+                normalize_dynamic_entity_registry_refs_postgres(&mut tx, &mut entity).await?;
                 let existing_row = sqlx::query(r#"SELECT entity_data FROM entities WHERE id = $1"#)
                     .bind(id)
                     .fetch_optional(&mut *tx)
@@ -1487,6 +1526,7 @@ impl Store {
                 set_entity_created_at(&mut entity, existing.created_at());
                 persist_entity(&mut tx, &entity, true).await?;
                 let _ = bump_scene_version_tx(&mut tx).await?;
+                sync_live_entity_roster_postgres(&mut tx, now_millis()).await?;
                 insert_audit_event(
                     &mut tx,
                     "entity.update",
@@ -1500,6 +1540,7 @@ impl Store {
             }
             StoreBackend::Sqlite(store) => {
                 let mut tx = store.pool.begin().await?;
+                normalize_dynamic_entity_registry_refs_sqlite(&mut tx, &mut entity).await?;
                 let existing_row = sqlx::query(r#"SELECT entity_data FROM entities WHERE id = ?"#)
                     .bind(id)
                     .fetch_optional(&mut *tx)
@@ -1514,6 +1555,7 @@ impl Store {
                 set_entity_created_at(&mut entity, existing.created_at());
                 persist_entity_sqlite(&mut tx, &entity, true).await?;
                 let _ = bump_scene_version_sqlite(&mut tx).await?;
+                sync_live_entity_roster_sqlite(&mut tx, now_millis()).await?;
                 insert_audit_event_sqlite(
                     &mut tx,
                     "entity.update",
@@ -1543,6 +1585,10 @@ impl Store {
                     "actor": "system",
                     "timestamp": now_millis()
                 }));
+                snapshot.published_scene_version = snapshot.scene_version;
+                snapshot.published_entities = snapshot.entities.values().cloned().collect();
+                sort_entities(&mut snapshot.published_entities);
+                snapshot.published_updated_at = now_millis();
                 Ok(true)
             }
             StoreBackend::Postgres(store) => {
@@ -1563,6 +1609,7 @@ impl Store {
                 }
 
                 let _ = bump_scene_version_tx(&mut tx).await?;
+                sync_live_entity_roster_postgres(&mut tx, now_millis()).await?;
                 insert_audit_event(
                     &mut tx,
                     "entity.delete",
@@ -1592,6 +1639,7 @@ impl Store {
                 }
 
                 let _ = bump_scene_version_sqlite(&mut tx).await?;
+                sync_live_entity_roster_sqlite(&mut tx, now_millis()).await?;
                 insert_audit_event_sqlite(
                     &mut tx,
                     "entity.delete",
@@ -2460,6 +2508,1338 @@ impl Store {
         }
     }
 
+    pub async fn list_workspaces(&self) -> Result<Vec<WorkspaceRecord>, StoreError> {
+        match &self.backend {
+            StoreBackend::Memory(store) => {
+                let snapshot = store.read().await;
+                let mut workspaces: Vec<WorkspaceRecord> =
+                    snapshot.workspaces.values().cloned().collect();
+                sort_workspaces(&mut workspaces);
+                Ok(workspaces)
+            }
+            StoreBackend::Postgres(store) => {
+                let rows = sqlx::query(
+                    r#"SELECT workspace_data FROM workspaces ORDER BY created_at ASC, id ASC"#,
+                )
+                .fetch_all(&store.pool)
+                .await?;
+
+                let mut workspaces: Vec<WorkspaceRecord> = rows
+                    .into_iter()
+                    .map(|row| {
+                        let value: serde_json::Value = row.get("workspace_data");
+                        serde_json::from_value(value).map_err(StoreError::from)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                sort_workspaces(&mut workspaces);
+                Ok(workspaces)
+            }
+            StoreBackend::Sqlite(store) => {
+                let rows = sqlx::query(
+                    r#"SELECT workspace_data FROM workspaces ORDER BY created_at ASC, id ASC"#,
+                )
+                .fetch_all(&store.pool)
+                .await?;
+
+                let mut workspaces: Vec<WorkspaceRecord> = rows
+                    .into_iter()
+                    .map(|row| {
+                        let value: String = row.get("workspace_data");
+                        serde_json::from_str(&value).map_err(StoreError::from)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                sort_workspaces(&mut workspaces);
+                Ok(workspaces)
+            }
+        }
+    }
+
+    pub async fn get_workspace(&self, id: &str) -> Result<Option<WorkspaceRecord>, StoreError> {
+        match &self.backend {
+            StoreBackend::Memory(store) => Ok(store.read().await.workspaces.get(id).cloned()),
+            StoreBackend::Postgres(store) => {
+                let row = sqlx::query(r#"SELECT workspace_data FROM workspaces WHERE id = $1"#)
+                    .bind(id)
+                    .fetch_optional(&store.pool)
+                    .await?;
+
+                match row {
+                    Some(row) => {
+                        let value: serde_json::Value = row.get("workspace_data");
+                        Ok(Some(serde_json::from_value(value)?))
+                    }
+                    None => Ok(None),
+                }
+            }
+            StoreBackend::Sqlite(store) => {
+                let row = sqlx::query(r#"SELECT workspace_data FROM workspaces WHERE id = ?"#)
+                    .bind(id)
+                    .fetch_optional(&store.pool)
+                    .await?;
+
+                match row {
+                    Some(row) => {
+                        let value: String = row.get("workspace_data");
+                        Ok(Some(serde_json::from_str(&value)?))
+                    }
+                    None => Ok(None),
+                }
+            }
+        }
+    }
+
+    pub async fn get_homepage_workspace(&self) -> Result<WorkspaceRecord, StoreError> {
+        let workspaces = self.list_workspaces().await?;
+        workspaces
+            .iter()
+            .find(|workspace| workspace.is_homepage)
+            .cloned()
+            .or_else(|| workspaces.into_iter().next())
+            .ok_or_else(|| StoreError::NotFound("homepage workspace".to_string()))
+    }
+
+    pub async fn create_workspace(
+        &self,
+        mut workspace: WorkspaceRecord,
+    ) -> Result<WorkspaceRecord, StoreError> {
+        let now = now_millis();
+        ensure_workspace_create_defaults(&mut workspace, now);
+        validate_workspace(&workspace)?;
+
+        match &self.backend {
+            StoreBackend::Memory(store) => {
+                let mut snapshot = store.write().await;
+                if snapshot.workspaces.contains_key(&workspace.id) {
+                    return Err(StoreError::Validation(format!(
+                        "workspace {} already exists",
+                        workspace.id
+                    )));
+                }
+                if snapshot
+                    .workspaces
+                    .values()
+                    .any(|existing| existing.slug == workspace.slug)
+                {
+                    return Err(StoreError::Validation(format!(
+                        "workspace slug {} already exists",
+                        workspace.slug
+                    )));
+                }
+                if workspace.is_homepage {
+                    for entry in snapshot.workspaces.values_mut() {
+                        entry.is_homepage = false;
+                    }
+                }
+                snapshot
+                    .workspaces
+                    .insert(workspace.id.clone(), workspace.clone());
+                snapshot.audit_events.push(serde_json::json!({
+                    "action": "workspace.create",
+                    "resourceId": workspace.id.clone(),
+                    "actor": "system",
+                    "timestamp": now
+                }));
+                Ok(workspace)
+            }
+            StoreBackend::Postgres(store) => {
+                let mut tx = store.pool.begin().await?;
+                let duplicate = sqlx::query_scalar::<_, i64>(
+                    r#"SELECT COUNT(*) FROM workspaces WHERE id = $1 OR slug = $2"#,
+                )
+                .bind(&workspace.id)
+                .bind(&workspace.slug)
+                .fetch_one(&mut *tx)
+                .await?;
+                if duplicate > 0 {
+                    return Err(StoreError::Validation(format!(
+                        "workspace {} or slug {} already exists",
+                        workspace.id, workspace.slug
+                    )));
+                }
+                if workspace.is_homepage {
+                    sqlx::query(r#"UPDATE workspaces SET is_homepage = false, workspace_data = jsonb_set(workspace_data, '{isHomepage}', 'false'::jsonb)"#)
+                        .execute(&mut *tx)
+                        .await?;
+                }
+                persist_workspace(&mut tx, &workspace, false).await?;
+                insert_audit_event(
+                    &mut tx,
+                    "workspace.create",
+                    "workspace",
+                    &workspace.id,
+                    serde_json::to_value(&workspace)?,
+                )
+                .await?;
+                tx.commit().await?;
+                Ok(workspace)
+            }
+            StoreBackend::Sqlite(store) => {
+                let mut tx = store.pool.begin().await?;
+                let duplicate = sqlx::query_scalar::<_, i64>(
+                    r#"SELECT COUNT(*) FROM workspaces WHERE id = ? OR slug = ?"#,
+                )
+                .bind(&workspace.id)
+                .bind(&workspace.slug)
+                .fetch_one(&mut *tx)
+                .await?;
+                if duplicate > 0 {
+                    return Err(StoreError::Validation(format!(
+                        "workspace {} or slug {} already exists",
+                        workspace.id, workspace.slug
+                    )));
+                }
+                if workspace.is_homepage {
+                    let rows = sqlx::query(r#"SELECT id, workspace_data FROM workspaces"#)
+                        .fetch_all(&mut *tx)
+                        .await?;
+                    for row in rows {
+                        let value: String = row.get("workspace_data");
+                        let mut current: WorkspaceRecord = serde_json::from_str(&value)?;
+                        current.is_homepage = false;
+                        persist_workspace_sqlite(&mut tx, &current, true).await?;
+                    }
+                }
+                persist_workspace_sqlite(&mut tx, &workspace, false).await?;
+                insert_audit_event_sqlite(
+                    &mut tx,
+                    "workspace.create",
+                    "workspace",
+                    &workspace.id,
+                    serde_json::to_value(&workspace)?,
+                )
+                .await?;
+                tx.commit().await?;
+                Ok(workspace)
+            }
+        }
+    }
+
+    pub async fn update_workspace(
+        &self,
+        id: &str,
+        mut workspace: WorkspaceRecord,
+    ) -> Result<WorkspaceRecord, StoreError> {
+        workspace.id = id.to_string();
+        ensure_workspace_update_defaults(&mut workspace, now_millis());
+        validate_workspace(&workspace)?;
+
+        match &self.backend {
+            StoreBackend::Memory(store) => {
+                let mut snapshot = store.write().await;
+                let Some(existing) = snapshot.workspaces.get(id) else {
+                    return Err(StoreError::NotFound(format!("workspace {id}")));
+                };
+                if snapshot
+                    .workspaces
+                    .values()
+                    .any(|entry| entry.id != id && entry.slug == workspace.slug)
+                {
+                    return Err(StoreError::Validation(format!(
+                        "workspace slug {} already exists",
+                        workspace.slug
+                    )));
+                }
+                workspace.created_at = existing.created_at;
+                if workspace.is_homepage {
+                    for entry in snapshot.workspaces.values_mut() {
+                        entry.is_homepage = false;
+                    }
+                }
+                snapshot.workspaces.insert(id.to_string(), workspace.clone());
+                snapshot.audit_events.push(serde_json::json!({
+                    "action": "workspace.update",
+                    "resourceId": id,
+                    "actor": "system",
+                    "timestamp": now_millis()
+                }));
+                Ok(workspace)
+            }
+            StoreBackend::Postgres(store) => {
+                let mut tx = store.pool.begin().await?;
+                let existing_row = sqlx::query(r#"SELECT workspace_data FROM workspaces WHERE id = $1"#)
+                    .bind(id)
+                    .fetch_optional(&mut *tx)
+                    .await?;
+                let Some(existing_row) = existing_row else {
+                    return Err(StoreError::NotFound(format!("workspace {id}")));
+                };
+                let duplicate = sqlx::query_scalar::<_, i64>(
+                    r#"SELECT COUNT(*) FROM workspaces WHERE slug = $1 AND id <> $2"#,
+                )
+                .bind(&workspace.slug)
+                .bind(id)
+                .fetch_one(&mut *tx)
+                .await?;
+                if duplicate > 0 {
+                    return Err(StoreError::Validation(format!(
+                        "workspace slug {} already exists",
+                        workspace.slug
+                    )));
+                }
+                let existing: WorkspaceRecord =
+                    serde_json::from_value(existing_row.get("workspace_data"))?;
+                workspace.created_at = existing.created_at;
+                if workspace.is_homepage {
+                    sqlx::query(r#"UPDATE workspaces SET is_homepage = false, workspace_data = jsonb_set(workspace_data, '{isHomepage}', 'false'::jsonb)"#)
+                        .execute(&mut *tx)
+                        .await?;
+                }
+                persist_workspace(&mut tx, &workspace, true).await?;
+                insert_audit_event(
+                    &mut tx,
+                    "workspace.update",
+                    "workspace",
+                    id,
+                    serde_json::to_value(&workspace)?,
+                )
+                .await?;
+                tx.commit().await?;
+                Ok(workspace)
+            }
+            StoreBackend::Sqlite(store) => {
+                let mut tx = store.pool.begin().await?;
+                let existing_row = sqlx::query(r#"SELECT workspace_data FROM workspaces WHERE id = ?"#)
+                    .bind(id)
+                    .fetch_optional(&mut *tx)
+                    .await?;
+                let Some(existing_row) = existing_row else {
+                    return Err(StoreError::NotFound(format!("workspace {id}")));
+                };
+                let duplicate = sqlx::query_scalar::<_, i64>(
+                    r#"SELECT COUNT(*) FROM workspaces WHERE slug = ? AND id <> ?"#,
+                )
+                .bind(&workspace.slug)
+                .bind(id)
+                .fetch_one(&mut *tx)
+                .await?;
+                if duplicate > 0 {
+                    return Err(StoreError::Validation(format!(
+                        "workspace slug {} already exists",
+                        workspace.slug
+                    )));
+                }
+                let existing: WorkspaceRecord =
+                    serde_json::from_str(existing_row.get::<String, _>("workspace_data").as_str())?;
+                workspace.created_at = existing.created_at;
+                if workspace.is_homepage {
+                    let rows = sqlx::query(r#"SELECT id, workspace_data FROM workspaces"#)
+                        .fetch_all(&mut *tx)
+                        .await?;
+                    for row in rows {
+                        let value: String = row.get("workspace_data");
+                        let mut current: WorkspaceRecord = serde_json::from_str(&value)?;
+                        current.is_homepage = false;
+                        persist_workspace_sqlite(&mut tx, &current, true).await?;
+                    }
+                }
+                persist_workspace_sqlite(&mut tx, &workspace, true).await?;
+                insert_audit_event_sqlite(
+                    &mut tx,
+                    "workspace.update",
+                    "workspace",
+                    id,
+                    serde_json::to_value(&workspace)?,
+                )
+                .await?;
+                tx.commit().await?;
+                Ok(workspace)
+            }
+        }
+    }
+
+    pub async fn delete_workspace(&self, id: &str) -> Result<bool, StoreError> {
+        match &self.backend {
+            StoreBackend::Memory(store) => {
+                let mut snapshot = store.write().await;
+                if snapshot.workspaces.len() <= 1 {
+                    return Err(StoreError::Conflict(
+                        "cannot delete the last workspace".to_string(),
+                    ));
+                }
+                let removed = snapshot.workspaces.remove(id);
+                let Some(removed) = removed else {
+                    return Ok(false);
+                };
+                if removed.is_homepage {
+                    if let Some((_, next)) = snapshot.workspaces.iter_mut().next() {
+                        next.is_homepage = true;
+                    }
+                }
+                snapshot.audit_events.push(serde_json::json!({
+                    "action": "workspace.delete",
+                    "resourceId": id,
+                    "actor": "system",
+                    "timestamp": now_millis()
+                }));
+                Ok(true)
+            }
+            StoreBackend::Postgres(store) => {
+                let mut tx = store.pool.begin().await?;
+                let count = sqlx::query_scalar::<_, i64>(r#"SELECT COUNT(*) FROM workspaces"#)
+                    .fetch_one(&mut *tx)
+                    .await?;
+                if count <= 1 {
+                    return Err(StoreError::Conflict(
+                        "cannot delete the last workspace".to_string(),
+                    ));
+                }
+                let row = sqlx::query(r#"SELECT workspace_data FROM workspaces WHERE id = $1"#)
+                    .bind(id)
+                    .fetch_optional(&mut *tx)
+                    .await?;
+                let Some(row) = row else {
+                    tx.rollback().await?;
+                    return Ok(false);
+                };
+                let removed: WorkspaceRecord = serde_json::from_value(row.get("workspace_data"))?;
+                let deleted = sqlx::query(r#"DELETE FROM workspaces WHERE id = $1"#)
+                    .bind(id)
+                    .execute(&mut *tx)
+                    .await?
+                    .rows_affected();
+                if deleted == 0 {
+                    tx.rollback().await?;
+                    return Ok(false);
+                }
+                if removed.is_homepage {
+                    let promote_row = sqlx::query(r#"SELECT workspace_data FROM workspaces ORDER BY created_at ASC, id ASC LIMIT 1"#)
+                        .fetch_optional(&mut *tx)
+                        .await?;
+                    if let Some(promote_row) = promote_row {
+                        let mut workspace: WorkspaceRecord = serde_json::from_value(promote_row.get("workspace_data"))?;
+                        workspace.is_homepage = true;
+                        persist_workspace(&mut tx, &workspace, true).await?;
+                    }
+                }
+                insert_audit_event(
+                    &mut tx,
+                    "workspace.delete",
+                    "workspace",
+                    id,
+                    serde_json::json!({ "id": id }),
+                )
+                .await?;
+                tx.commit().await?;
+                Ok(true)
+            }
+            StoreBackend::Sqlite(store) => {
+                let mut tx = store.pool.begin().await?;
+                let count = sqlx::query_scalar::<_, i64>(r#"SELECT COUNT(*) FROM workspaces"#)
+                    .fetch_one(&mut *tx)
+                    .await?;
+                if count <= 1 {
+                    return Err(StoreError::Conflict(
+                        "cannot delete the last workspace".to_string(),
+                    ));
+                }
+                let row = sqlx::query(r#"SELECT workspace_data FROM workspaces WHERE id = ?"#)
+                    .bind(id)
+                    .fetch_optional(&mut *tx)
+                    .await?;
+                let Some(row) = row else {
+                    tx.rollback().await?;
+                    return Ok(false);
+                };
+                let removed: WorkspaceRecord =
+                    serde_json::from_str(row.get::<String, _>("workspace_data").as_str())?;
+                let deleted = sqlx::query(r#"DELETE FROM workspaces WHERE id = ?"#)
+                    .bind(id)
+                    .execute(&mut *tx)
+                    .await?
+                    .rows_affected();
+                if deleted == 0 {
+                    tx.rollback().await?;
+                    return Ok(false);
+                }
+                if removed.is_homepage {
+                    let promote_row = sqlx::query(r#"SELECT workspace_data FROM workspaces ORDER BY created_at ASC, id ASC LIMIT 1"#)
+                        .fetch_optional(&mut *tx)
+                        .await?;
+                    if let Some(promote_row) = promote_row {
+                        let value: String = promote_row.get("workspace_data");
+                        let mut workspace: WorkspaceRecord = serde_json::from_str(&value)?;
+                        workspace.is_homepage = true;
+                        persist_workspace_sqlite(&mut tx, &workspace, true).await?;
+                    }
+                }
+                insert_audit_event_sqlite(
+                    &mut tx,
+                    "workspace.delete",
+                    "workspace",
+                    id,
+                    serde_json::json!({ "id": id }),
+                )
+                .await?;
+                tx.commit().await?;
+                Ok(true)
+            }
+        }
+    }
+
+    pub async fn list_entity_categories(&self) -> Result<Vec<EntityCategory>, StoreError> {
+        match &self.backend {
+            StoreBackend::Memory(store) => {
+                let snapshot = store.read().await;
+                let mut categories: Vec<EntityCategory> =
+                    snapshot.entity_categories.values().cloned().collect();
+                sort_entity_categories(&mut categories);
+                Ok(categories)
+            }
+            StoreBackend::Postgres(store) => {
+                let rows = sqlx::query(
+                    r#"SELECT category_data FROM entity_categories ORDER BY sort_order ASC, created_at ASC, id ASC"#,
+                )
+                .fetch_all(&store.pool)
+                .await?;
+
+                let mut categories: Vec<EntityCategory> = rows
+                    .into_iter()
+                    .map(|row| {
+                        let value: serde_json::Value = row.get("category_data");
+                        serde_json::from_value(value).map_err(StoreError::from)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                sort_entity_categories(&mut categories);
+                Ok(categories)
+            }
+            StoreBackend::Sqlite(store) => {
+                let rows = sqlx::query(
+                    r#"SELECT category_data FROM entity_categories ORDER BY sort_order ASC, created_at ASC, id ASC"#,
+                )
+                .fetch_all(&store.pool)
+                .await?;
+
+                let mut categories: Vec<EntityCategory> = rows
+                    .into_iter()
+                    .map(|row| {
+                        let value: String = row.get("category_data");
+                        serde_json::from_str(&value).map_err(StoreError::from)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                sort_entity_categories(&mut categories);
+                Ok(categories)
+            }
+        }
+    }
+
+    pub async fn get_entity_category(
+        &self,
+        id: &str,
+    ) -> Result<Option<EntityCategory>, StoreError> {
+        match &self.backend {
+            StoreBackend::Memory(store) => Ok(store.read().await.entity_categories.get(id).cloned()),
+            StoreBackend::Postgres(store) => {
+                let row = sqlx::query(r#"SELECT category_data FROM entity_categories WHERE id = $1"#)
+                    .bind(id)
+                    .fetch_optional(&store.pool)
+                    .await?;
+
+                match row {
+                    Some(row) => {
+                        let value: serde_json::Value = row.get("category_data");
+                        Ok(Some(serde_json::from_value(value)?))
+                    }
+                    None => Ok(None),
+                }
+            }
+            StoreBackend::Sqlite(store) => {
+                let row = sqlx::query(r#"SELECT category_data FROM entity_categories WHERE id = ?"#)
+                    .bind(id)
+                    .fetch_optional(&store.pool)
+                    .await?;
+
+                match row {
+                    Some(row) => {
+                        let value: String = row.get("category_data");
+                        Ok(Some(serde_json::from_str(&value)?))
+                    }
+                    None => Ok(None),
+                }
+            }
+        }
+    }
+
+    pub async fn create_entity_category(
+        &self,
+        mut category: EntityCategory,
+    ) -> Result<EntityCategory, StoreError> {
+        let now = now_millis();
+        ensure_entity_category_create_defaults(&mut category, now);
+        validate_entity_category(&category)?;
+
+        match &self.backend {
+            StoreBackend::Memory(store) => {
+                let mut snapshot = store.write().await;
+                if snapshot.entity_categories.contains_key(&category.id) {
+                    return Err(StoreError::Validation(format!(
+                        "entity category {} already exists",
+                        category.id
+                    )));
+                }
+                if snapshot
+                    .entity_categories
+                    .values()
+                    .any(|existing| existing.key == category.key)
+                {
+                    return Err(StoreError::Validation(format!(
+                        "entity category key {} already exists",
+                        category.key
+                    )));
+                }
+
+                snapshot
+                    .entity_categories
+                    .insert(category.id.clone(), category.clone());
+                snapshot.audit_events.push(serde_json::json!({
+                    "action": "entity_category.create",
+                    "resourceId": category.id.clone(),
+                    "actor": "system",
+                    "timestamp": now
+                }));
+                Ok(category)
+            }
+            StoreBackend::Postgres(store) => {
+                let mut tx = store.pool.begin().await?;
+                let duplicate = sqlx::query_scalar::<_, i64>(
+                    r#"SELECT COUNT(*) FROM entity_categories WHERE id = $1 OR category_key = $2"#,
+                )
+                .bind(&category.id)
+                .bind(&category.key)
+                .fetch_one(&mut *tx)
+                .await?;
+                if duplicate > 0 {
+                    return Err(StoreError::Validation(format!(
+                        "entity category {} or key {} already exists",
+                        category.id, category.key
+                    )));
+                }
+
+                persist_entity_category(&mut tx, &category, false).await?;
+                insert_audit_event(
+                    &mut tx,
+                    "entity_category.create",
+                    "entity_category",
+                    &category.id,
+                    serde_json::to_value(&category)?,
+                )
+                .await?;
+                tx.commit().await?;
+                Ok(category)
+            }
+            StoreBackend::Sqlite(store) => {
+                let mut tx = store.pool.begin().await?;
+                let duplicate = sqlx::query_scalar::<_, i64>(
+                    r#"SELECT COUNT(*) FROM entity_categories WHERE id = ? OR category_key = ?"#,
+                )
+                .bind(&category.id)
+                .bind(&category.key)
+                .fetch_one(&mut *tx)
+                .await?;
+                if duplicate > 0 {
+                    return Err(StoreError::Validation(format!(
+                        "entity category {} or key {} already exists",
+                        category.id, category.key
+                    )));
+                }
+
+                persist_entity_category_sqlite(&mut tx, &category, false).await?;
+                insert_audit_event_sqlite(
+                    &mut tx,
+                    "entity_category.create",
+                    "entity_category",
+                    &category.id,
+                    serde_json::to_value(&category)?,
+                )
+                .await?;
+                tx.commit().await?;
+                Ok(category)
+            }
+        }
+    }
+
+    pub async fn update_entity_category(
+        &self,
+        id: &str,
+        mut category: EntityCategory,
+    ) -> Result<EntityCategory, StoreError> {
+        category.id = id.to_string();
+        ensure_entity_category_update_defaults(&mut category, now_millis());
+        validate_entity_category(&category)?;
+
+        match &self.backend {
+            StoreBackend::Memory(store) => {
+                let mut snapshot = store.write().await;
+                let Some(existing) = snapshot.entity_categories.get(id) else {
+                    return Err(StoreError::NotFound(format!("entity category {id}")));
+                };
+                if snapshot
+                    .entity_categories
+                    .values()
+                    .any(|entry| entry.id != id && entry.key == category.key)
+                {
+                    return Err(StoreError::Validation(format!(
+                        "entity category key {} already exists",
+                        category.key
+                    )));
+                }
+
+                category.created_at = existing.created_at;
+                snapshot
+                    .entity_categories
+                    .insert(id.to_string(), category.clone());
+                cascade_category_key_update_memory(&mut snapshot, id, &category.key);
+                snapshot.audit_events.push(serde_json::json!({
+                    "action": "entity_category.update",
+                    "resourceId": id,
+                    "actor": "system",
+                    "timestamp": now_millis()
+                }));
+                Ok(category)
+            }
+            StoreBackend::Postgres(store) => {
+                let mut tx = store.pool.begin().await?;
+                let existing_row =
+                    sqlx::query(r#"SELECT category_data FROM entity_categories WHERE id = $1"#)
+                        .bind(id)
+                        .fetch_optional(&mut *tx)
+                        .await?;
+                let Some(existing_row) = existing_row else {
+                    return Err(StoreError::NotFound(format!("entity category {id}")));
+                };
+                let duplicate = sqlx::query_scalar::<_, i64>(
+                    r#"SELECT COUNT(*) FROM entity_categories WHERE category_key = $1 AND id <> $2"#,
+                )
+                .bind(&category.key)
+                .bind(id)
+                .fetch_one(&mut *tx)
+                .await?;
+                if duplicate > 0 {
+                    return Err(StoreError::Validation(format!(
+                        "entity category key {} already exists",
+                        category.key
+                    )));
+                }
+
+                let existing: EntityCategory =
+                    serde_json::from_value(existing_row.get("category_data"))?;
+                category.created_at = existing.created_at;
+                persist_entity_category(&mut tx, &category, true).await?;
+                cascade_category_key_update_postgres(&mut tx, id, &category.key).await?;
+                sync_live_entity_roster_postgres(&mut tx, now_millis()).await?;
+                insert_audit_event(
+                    &mut tx,
+                    "entity_category.update",
+                    "entity_category",
+                    id,
+                    serde_json::to_value(&category)?,
+                )
+                .await?;
+                tx.commit().await?;
+                Ok(category)
+            }
+            StoreBackend::Sqlite(store) => {
+                let mut tx = store.pool.begin().await?;
+                let existing_row =
+                    sqlx::query(r#"SELECT category_data FROM entity_categories WHERE id = ?"#)
+                        .bind(id)
+                        .fetch_optional(&mut *tx)
+                        .await?;
+                let Some(existing_row) = existing_row else {
+                    return Err(StoreError::NotFound(format!("entity category {id}")));
+                };
+                let duplicate = sqlx::query_scalar::<_, i64>(
+                    r#"SELECT COUNT(*) FROM entity_categories WHERE category_key = ? AND id <> ?"#,
+                )
+                .bind(&category.key)
+                .bind(id)
+                .fetch_one(&mut *tx)
+                .await?;
+                if duplicate > 0 {
+                    return Err(StoreError::Validation(format!(
+                        "entity category key {} already exists",
+                        category.key
+                    )));
+                }
+
+                let existing: EntityCategory =
+                    serde_json::from_str(existing_row.get::<String, _>("category_data").as_str())?;
+                category.created_at = existing.created_at;
+                persist_entity_category_sqlite(&mut tx, &category, true).await?;
+                cascade_category_key_update_sqlite(&mut tx, id, &category.key).await?;
+                sync_live_entity_roster_sqlite(&mut tx, now_millis()).await?;
+                insert_audit_event_sqlite(
+                    &mut tx,
+                    "entity_category.update",
+                    "entity_category",
+                    id,
+                    serde_json::to_value(&category)?,
+                )
+                .await?;
+                tx.commit().await?;
+                Ok(category)
+            }
+        }
+    }
+
+    pub async fn delete_entity_category(&self, id: &str) -> Result<bool, StoreError> {
+        match &self.backend {
+            StoreBackend::Memory(store) => {
+                let mut snapshot = store.write().await;
+                if snapshot
+                    .entity_archetypes
+                    .values()
+                    .any(|archetype| archetype.category_id == id)
+                {
+                    return Err(StoreError::Conflict(format!(
+                        "entity category {id} still has archetypes"
+                    )));
+                }
+                if snapshot.entity_categories.remove(id).is_none() {
+                    return Ok(false);
+                }
+                snapshot.audit_events.push(serde_json::json!({
+                    "action": "entity_category.delete",
+                    "resourceId": id,
+                    "actor": "system",
+                    "timestamp": now_millis()
+                }));
+                Ok(true)
+            }
+            StoreBackend::Postgres(store) => {
+                let mut tx = store.pool.begin().await?;
+                let archetype_count = sqlx::query_scalar::<_, i64>(
+                    r#"SELECT COUNT(*) FROM entity_archetypes WHERE category_id = $1"#,
+                )
+                .bind(id)
+                .fetch_one(&mut *tx)
+                .await?;
+                if archetype_count > 0 {
+                    return Err(StoreError::Conflict(format!(
+                        "entity category {id} still has archetypes"
+                    )));
+                }
+                let deleted = sqlx::query(r#"DELETE FROM entity_categories WHERE id = $1"#)
+                    .bind(id)
+                    .execute(&mut *tx)
+                    .await?
+                    .rows_affected();
+                if deleted == 0 {
+                    tx.rollback().await?;
+                    return Ok(false);
+                }
+                insert_audit_event(
+                    &mut tx,
+                    "entity_category.delete",
+                    "entity_category",
+                    id,
+                    serde_json::json!({ "id": id }),
+                )
+                .await?;
+                tx.commit().await?;
+                Ok(true)
+            }
+            StoreBackend::Sqlite(store) => {
+                let mut tx = store.pool.begin().await?;
+                let archetype_count = sqlx::query_scalar::<_, i64>(
+                    r#"SELECT COUNT(*) FROM entity_archetypes WHERE category_id = ?"#,
+                )
+                .bind(id)
+                .fetch_one(&mut *tx)
+                .await?;
+                if archetype_count > 0 {
+                    return Err(StoreError::Conflict(format!(
+                        "entity category {id} still has archetypes"
+                    )));
+                }
+                let deleted = sqlx::query(r#"DELETE FROM entity_categories WHERE id = ?"#)
+                    .bind(id)
+                    .execute(&mut *tx)
+                    .await?
+                    .rows_affected();
+                if deleted == 0 {
+                    tx.rollback().await?;
+                    return Ok(false);
+                }
+                insert_audit_event_sqlite(
+                    &mut tx,
+                    "entity_category.delete",
+                    "entity_category",
+                    id,
+                    serde_json::json!({ "id": id }),
+                )
+                .await?;
+                tx.commit().await?;
+                Ok(true)
+            }
+        }
+    }
+
+    pub async fn list_entity_archetypes(&self) -> Result<Vec<EntityArchetype>, StoreError> {
+        let categories = self.list_entity_categories().await?;
+        let category_key_by_id: HashMap<String, String> = categories
+            .into_iter()
+            .map(|category| (category.id, category.key))
+            .collect();
+
+        let mut archetypes = match &self.backend {
+            StoreBackend::Memory(store) => store
+                .read()
+                .await
+                .entity_archetypes
+                .values()
+                .cloned()
+                .collect::<Vec<_>>(),
+            StoreBackend::Postgres(store) => {
+                let rows = sqlx::query(
+                    r#"SELECT archetype_data FROM entity_archetypes ORDER BY created_at ASC, id ASC"#,
+                )
+                .fetch_all(&store.pool)
+                .await?;
+                rows.into_iter()
+                    .map(|row| {
+                        let value: serde_json::Value = row.get("archetype_data");
+                        serde_json::from_value(value).map_err(StoreError::from)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?
+            }
+            StoreBackend::Sqlite(store) => {
+                let rows = sqlx::query(
+                    r#"SELECT archetype_data FROM entity_archetypes ORDER BY created_at ASC, id ASC"#,
+                )
+                .fetch_all(&store.pool)
+                .await?;
+                rows.into_iter()
+                    .map(|row| {
+                        let value: String = row.get("archetype_data");
+                        serde_json::from_str(&value).map_err(StoreError::from)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?
+            }
+        };
+
+        for archetype in &mut archetypes {
+            if let Some(category_key) = category_key_by_id.get(&archetype.category_id) {
+                archetype.category_key = category_key.clone();
+            }
+        }
+        sort_entity_archetypes(&mut archetypes);
+        Ok(archetypes)
+    }
+
+    pub async fn get_entity_archetype(
+        &self,
+        id: &str,
+    ) -> Result<Option<EntityArchetype>, StoreError> {
+        let mut archetype = match &self.backend {
+            StoreBackend::Memory(store) => store.read().await.entity_archetypes.get(id).cloned(),
+            StoreBackend::Postgres(store) => {
+                let row =
+                    sqlx::query(r#"SELECT archetype_data FROM entity_archetypes WHERE id = $1"#)
+                        .bind(id)
+                        .fetch_optional(&store.pool)
+                        .await?;
+                match row {
+                    Some(row) => {
+                        let value: serde_json::Value = row.get("archetype_data");
+                        Some(serde_json::from_value(value)?)
+                    }
+                    None => None,
+                }
+            }
+            StoreBackend::Sqlite(store) => {
+                let row =
+                    sqlx::query(r#"SELECT archetype_data FROM entity_archetypes WHERE id = ?"#)
+                        .bind(id)
+                        .fetch_optional(&store.pool)
+                        .await?;
+                match row {
+                    Some(row) => {
+                        let value: String = row.get("archetype_data");
+                        Some(serde_json::from_str(&value)?)
+                    }
+                    None => None,
+                }
+            }
+        };
+
+        if let Some(current) = &mut archetype {
+            if let Some(category) = self.get_entity_category(&current.category_id).await? {
+                current.category_key = category.key;
+            }
+        }
+
+        Ok(archetype)
+    }
+
+    pub async fn create_entity_archetype(
+        &self,
+        mut archetype: EntityArchetype,
+    ) -> Result<EntityArchetype, StoreError> {
+        let now = now_millis();
+        ensure_entity_archetype_create_defaults(&mut archetype, now);
+
+        let category = self
+            .get_entity_category(&archetype.category_id)
+            .await?
+            .ok_or_else(|| {
+                StoreError::Validation(format!(
+                    "entity category {} not found",
+                    archetype.category_id
+                ))
+            })?;
+        archetype.category_key = category.key;
+        validate_entity_archetype(&archetype)?;
+
+        match &self.backend {
+            StoreBackend::Memory(store) => {
+                let mut snapshot = store.write().await;
+                if snapshot.entity_archetypes.contains_key(&archetype.id) {
+                    return Err(StoreError::Validation(format!(
+                        "entity archetype {} already exists",
+                        archetype.id
+                    )));
+                }
+                if snapshot
+                    .entity_archetypes
+                    .values()
+                    .any(|existing| existing.key == archetype.key)
+                {
+                    return Err(StoreError::Validation(format!(
+                        "entity archetype key {} already exists",
+                        archetype.key
+                    )));
+                }
+                snapshot
+                    .entity_archetypes
+                    .insert(archetype.id.clone(), archetype.clone());
+                snapshot.audit_events.push(serde_json::json!({
+                    "action": "entity_archetype.create",
+                    "resourceId": archetype.id.clone(),
+                    "actor": "system",
+                    "timestamp": now
+                }));
+                Ok::<EntityArchetype, StoreError>(archetype)
+            }
+            StoreBackend::Postgres(store) => {
+                let mut tx = store.pool.begin().await?;
+                let duplicate = sqlx::query_scalar::<_, i64>(
+                    r#"SELECT COUNT(*) FROM entity_archetypes WHERE id = $1 OR archetype_key = $2"#,
+                )
+                .bind(&archetype.id)
+                .bind(&archetype.key)
+                .fetch_one(&mut *tx)
+                .await?;
+                if duplicate > 0 {
+                    return Err(StoreError::Validation(format!(
+                        "entity archetype {} or key {} already exists",
+                        archetype.id, archetype.key
+                    )));
+                }
+                persist_entity_archetype(&mut tx, &archetype, false).await?;
+                insert_audit_event(
+                    &mut tx,
+                    "entity_archetype.create",
+                    "entity_archetype",
+                    &archetype.id,
+                    serde_json::to_value(&archetype)?,
+                )
+                .await?;
+                tx.commit().await?;
+                Ok::<EntityArchetype, StoreError>(archetype)
+            }
+            StoreBackend::Sqlite(store) => {
+                let mut tx = store.pool.begin().await?;
+                let duplicate = sqlx::query_scalar::<_, i64>(
+                    r#"SELECT COUNT(*) FROM entity_archetypes WHERE id = ? OR archetype_key = ?"#,
+                )
+                .bind(&archetype.id)
+                .bind(&archetype.key)
+                .fetch_one(&mut *tx)
+                .await?;
+                if duplicate > 0 {
+                    return Err(StoreError::Validation(format!(
+                        "entity archetype {} or key {} already exists",
+                        archetype.id, archetype.key
+                    )));
+                }
+                persist_entity_archetype_sqlite(&mut tx, &archetype, false).await?;
+                insert_audit_event_sqlite(
+                    &mut tx,
+                    "entity_archetype.create",
+                    "entity_archetype",
+                    &archetype.id,
+                    serde_json::to_value(&archetype)?,
+                )
+                .await?;
+                tx.commit().await?;
+                Ok::<EntityArchetype, StoreError>(archetype)
+            }
+        }
+    }
+
+    pub async fn update_entity_archetype(
+        &self,
+        id: &str,
+        mut archetype: EntityArchetype,
+    ) -> Result<EntityArchetype, StoreError> {
+        archetype.id = id.to_string();
+        ensure_entity_archetype_update_defaults(&mut archetype, now_millis());
+
+        let category = self
+            .get_entity_category(&archetype.category_id)
+            .await?
+            .ok_or_else(|| {
+                StoreError::Validation(format!(
+                    "entity category {} not found",
+                    archetype.category_id
+                ))
+            })?;
+        archetype.category_key = category.key;
+        validate_entity_archetype(&archetype)?;
+
+        match &self.backend {
+            StoreBackend::Memory(store) => {
+                let mut snapshot = store.write().await;
+                let Some(existing) = snapshot.entity_archetypes.get(id) else {
+                    return Err(StoreError::NotFound(format!("entity archetype {id}")));
+                };
+                if snapshot
+                    .entity_archetypes
+                    .values()
+                    .any(|entry| entry.id != id && entry.key == archetype.key)
+                {
+                    return Err(StoreError::Validation(format!(
+                        "entity archetype key {} already exists",
+                        archetype.key
+                    )));
+                }
+                archetype.created_at = existing.created_at;
+                snapshot
+                    .entity_archetypes
+                    .insert(id.to_string(), archetype.clone());
+                for entity in snapshot.entities.values_mut() {
+                    rewrite_dynamic_entity_archetype_refs(
+                        entity,
+                        &archetype.id,
+                        &archetype.key,
+                        &archetype.category_key,
+                        &archetype.display_name,
+                    );
+                }
+                snapshot.audit_events.push(serde_json::json!({
+                    "action": "entity_archetype.update",
+                    "resourceId": id,
+                    "actor": "system",
+                    "timestamp": now_millis()
+                }));
+                snapshot.published_entities = snapshot.entities.values().cloned().collect();
+                sort_entities(&mut snapshot.published_entities);
+                snapshot.published_updated_at = now_millis();
+                Ok::<EntityArchetype, StoreError>(archetype)
+            }
+            StoreBackend::Postgres(store) => {
+                let mut tx = store.pool.begin().await?;
+                let existing_row =
+                    sqlx::query(r#"SELECT archetype_data FROM entity_archetypes WHERE id = $1"#)
+                        .bind(id)
+                        .fetch_optional(&mut *tx)
+                        .await?;
+                let Some(existing_row) = existing_row else {
+                    return Err(StoreError::NotFound(format!("entity archetype {id}")));
+                };
+                let duplicate = sqlx::query_scalar::<_, i64>(
+                    r#"SELECT COUNT(*) FROM entity_archetypes WHERE archetype_key = $1 AND id <> $2"#,
+                )
+                .bind(&archetype.key)
+                .bind(id)
+                .fetch_one(&mut *tx)
+                .await?;
+                if duplicate > 0 {
+                    return Err(StoreError::Validation(format!(
+                        "entity archetype key {} already exists",
+                        archetype.key
+                    )));
+                }
+                let existing: EntityArchetype =
+                    serde_json::from_value(existing_row.get("archetype_data"))?;
+                archetype.created_at = existing.created_at;
+                persist_entity_archetype(&mut tx, &archetype, true).await?;
+                rewrite_dynamic_entity_archetype_refs_postgres(
+                    &mut tx,
+                    &archetype.id,
+                    &archetype.key,
+                    &archetype.category_key,
+                    &archetype.display_name,
+                )
+                .await?;
+                sync_live_entity_roster_postgres(&mut tx, now_millis()).await?;
+                insert_audit_event(
+                    &mut tx,
+                    "entity_archetype.update",
+                    "entity_archetype",
+                    id,
+                    serde_json::to_value(&archetype)?,
+                )
+                .await?;
+                tx.commit().await?;
+                Ok::<EntityArchetype, StoreError>(archetype)
+            }
+            StoreBackend::Sqlite(store) => {
+                let mut tx = store.pool.begin().await?;
+                let existing_row =
+                    sqlx::query(r#"SELECT archetype_data FROM entity_archetypes WHERE id = ?"#)
+                        .bind(id)
+                        .fetch_optional(&mut *tx)
+                        .await?;
+                let Some(existing_row) = existing_row else {
+                    return Err(StoreError::NotFound(format!("entity archetype {id}")));
+                };
+                let duplicate = sqlx::query_scalar::<_, i64>(
+                    r#"SELECT COUNT(*) FROM entity_archetypes WHERE archetype_key = ? AND id <> ?"#,
+                )
+                .bind(&archetype.key)
+                .bind(id)
+                .fetch_one(&mut *tx)
+                .await?;
+                if duplicate > 0 {
+                    return Err(StoreError::Validation(format!(
+                        "entity archetype key {} already exists",
+                        archetype.key
+                    )));
+                }
+                let existing: EntityArchetype = serde_json::from_str(
+                    existing_row.get::<String, _>("archetype_data").as_str(),
+                )?;
+                archetype.created_at = existing.created_at;
+                persist_entity_archetype_sqlite(&mut tx, &archetype, true).await?;
+                rewrite_dynamic_entity_archetype_refs_sqlite(
+                    &mut tx,
+                    &archetype.id,
+                    &archetype.key,
+                    &archetype.category_key,
+                    &archetype.display_name,
+                )
+                .await?;
+                sync_live_entity_roster_sqlite(&mut tx, now_millis()).await?;
+                insert_audit_event_sqlite(
+                    &mut tx,
+                    "entity_archetype.update",
+                    "entity_archetype",
+                    id,
+                    serde_json::to_value(&archetype)?,
+                )
+                .await?;
+                tx.commit().await?;
+                Ok::<EntityArchetype, StoreError>(archetype)
+            }
+        }
+    }
+
+    pub async fn delete_entity_archetype(&self, id: &str) -> Result<bool, StoreError> {
+        match &self.backend {
+            StoreBackend::Memory(store) => {
+                let mut snapshot = store.write().await;
+                if snapshot
+                    .entities
+                    .values()
+                    .any(|entity| matches!(entity, Entity::Dynamic(dynamic) if dynamic.archetype_id == id))
+                {
+                    return Err(StoreError::Conflict(format!(
+                        "entity archetype {id} is still referenced by dynamic entities"
+                    )));
+                }
+                if snapshot.entity_archetypes.remove(id).is_none() {
+                    return Ok(false);
+                }
+                snapshot.audit_events.push(serde_json::json!({
+                    "action": "entity_archetype.delete",
+                    "resourceId": id,
+                    "actor": "system",
+                    "timestamp": now_millis()
+                }));
+                Ok(true)
+            }
+            StoreBackend::Postgres(store) => {
+                let mut tx = store.pool.begin().await?;
+                let existing = sqlx::query_scalar::<_, String>(
+                    r#"SELECT id FROM entity_archetypes WHERE id = $1 FOR UPDATE"#,
+                )
+                .bind(id)
+                .fetch_optional(&mut *tx)
+                .await?;
+                if existing.is_none() {
+                    tx.rollback().await?;
+                    return Ok(false);
+                }
+                let in_use = count_dynamic_entity_refs_postgres(&mut tx, id).await?;
+                if in_use > 0 {
+                    tx.rollback().await?;
+                    return Err(StoreError::Conflict(format!(
+                        "entity archetype {id} is still referenced by dynamic entities"
+                    )));
+                }
+                let deleted = sqlx::query(r#"DELETE FROM entity_archetypes WHERE id = $1"#)
+                    .bind(id)
+                    .execute(&mut *tx)
+                    .await?
+                    .rows_affected();
+                if deleted == 0 {
+                    tx.rollback().await?;
+                    return Ok(false);
+                }
+                insert_audit_event(
+                    &mut tx,
+                    "entity_archetype.delete",
+                    "entity_archetype",
+                    id,
+                    serde_json::json!({ "id": id }),
+                )
+                .await?;
+                tx.commit().await?;
+                Ok(true)
+            }
+            StoreBackend::Sqlite(store) => {
+                let mut tx = store.pool.begin().await?;
+                let existing = sqlx::query_scalar::<_, String>(
+                    r#"SELECT id FROM entity_archetypes WHERE id = ?"#,
+                )
+                .bind(id)
+                .fetch_optional(&mut *tx)
+                .await?;
+                if existing.is_none() {
+                    tx.rollback().await?;
+                    return Ok(false);
+                }
+                let in_use = count_dynamic_entity_refs_sqlite(&mut tx, id).await?;
+                if in_use > 0 {
+                    tx.rollback().await?;
+                    return Err(StoreError::Conflict(format!(
+                        "entity archetype {id} is still referenced by dynamic entities"
+                    )));
+                }
+                let deleted = sqlx::query(r#"DELETE FROM entity_archetypes WHERE id = ?"#)
+                    .bind(id)
+                    .execute(&mut *tx)
+                    .await?
+                    .rows_affected();
+                if deleted == 0 {
+                    tx.rollback().await?;
+                    return Ok(false);
+                }
+                insert_audit_event_sqlite(
+                    &mut tx,
+                    "entity_archetype.delete",
+                    "entity_archetype",
+                    id,
+                    serde_json::json!({ "id": id }),
+                )
+                .await?;
+                tx.commit().await?;
+                Ok(true)
+            }
+        }
+    }
+
     pub async fn list_rules(&self) -> Result<Vec<RuleConfig>, StoreError> {
         match &self.backend {
             StoreBackend::Memory(store) => Ok(store.read().await.rules.values().cloned().collect()),
@@ -3078,6 +4458,49 @@ async fn setup_postgres(pool: &PgPool) -> Result<(), StoreError> {
 
     tx.execute(
         r#"
+        CREATE TABLE IF NOT EXISTS entity_categories (
+            id TEXT PRIMARY KEY,
+            category_key TEXT NOT NULL UNIQUE,
+            sort_order INT NOT NULL,
+            category_data JSONB NOT NULL,
+            created_at BIGINT NOT NULL,
+            updated_at BIGINT NOT NULL
+        )
+        "#,
+    )
+    .await?;
+
+    tx.execute(
+        r#"
+        CREATE TABLE IF NOT EXISTS workspaces (
+            id TEXT PRIMARY KEY,
+            slug TEXT NOT NULL UNIQUE,
+            is_homepage BOOLEAN NOT NULL,
+            workspace_data JSONB NOT NULL,
+            created_at BIGINT NOT NULL,
+            updated_at BIGINT NOT NULL
+        )
+        "#,
+    )
+    .await?;
+
+    tx.execute(
+        r#"
+        CREATE TABLE IF NOT EXISTS entity_archetypes (
+            id TEXT PRIMARY KEY,
+            archetype_key TEXT NOT NULL UNIQUE,
+            category_id TEXT NOT NULL REFERENCES entity_categories(id) ON DELETE RESTRICT,
+            category_key TEXT NOT NULL,
+            archetype_data JSONB NOT NULL,
+            created_at BIGINT NOT NULL,
+            updated_at BIGINT NOT NULL
+        )
+        "#,
+    )
+    .await?;
+
+    tx.execute(
+        r#"
         CREATE TABLE IF NOT EXISTS entity_zone_vertices (
             entity_id TEXT NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
             vertex_order INT NOT NULL,
@@ -3208,6 +4631,10 @@ async fn setup_postgres(pool: &PgPool) -> Result<(), StoreError> {
         r#"CREATE INDEX IF NOT EXISTS idx_static_assets_kind_visible ON static_assets(asset_kind, visible)"#,
     )
     .await?;
+    tx.execute(
+        r#"CREATE INDEX IF NOT EXISTS idx_entity_archetypes_category_id ON entity_archetypes(category_id)"#,
+    )
+    .await?;
     tx.execute(r#"CREATE INDEX IF NOT EXISTS idx_bindings_entity_connector ON entity_bindings(entity_id, connector_id)"#)
         .await?;
     tx.execute(r#"CREATE INDEX IF NOT EXISTS idx_rule_nodes_rule_id ON rule_nodes(rule_id)"#)
@@ -3238,6 +4665,17 @@ async fn setup_postgres(pool: &PgPool) -> Result<(), StoreError> {
         .bind(now)
         .execute(&mut *tx)
         .await?;
+
+        let workspace = WorkspaceRecord {
+            id: snapshot.scene_config.id.clone(),
+            slug: snapshot.scene_config.id.clone(),
+            name: snapshot.scene_config.name.clone(),
+            description: Some("默认工作区".to_string()),
+            is_homepage: true,
+            created_at: now as u64,
+            updated_at: now as u64,
+        };
+        persist_workspace(&mut tx, &workspace, false).await?;
 
         for entity in &snapshot.entities {
             persist_entity(&mut tx, entity, false).await?;
@@ -3293,6 +4731,28 @@ async fn setup_postgres(pool: &PgPool) -> Result<(), StoreError> {
         .await?;
     }
 
+    let workspace_rows: i64 =
+        sqlx::query_scalar(r#"SELECT COUNT(*) FROM workspaces"#)
+            .fetch_one(&mut *tx)
+            .await?;
+    if workspace_rows == 0 {
+        let row = sqlx::query(r#"SELECT scene_config FROM scene_configs WHERE site_id = $1"#)
+            .bind(seed_scene::SITE_ID)
+            .fetch_one(&mut *tx)
+            .await?;
+        let scene_config: SceneConfig = serde_json::from_value(row.get("scene_config"))?;
+        let workspace = WorkspaceRecord {
+            id: scene_config.id.clone(),
+            slug: scene_config.id.clone(),
+            name: scene_config.name.clone(),
+            description: Some("默认工作区".to_string()),
+            is_homepage: true,
+            created_at: now_millis(),
+            updated_at: now_millis(),
+        };
+        persist_workspace(&mut tx, &workspace, false).await?;
+    }
+
     tx.commit().await?;
     Ok(())
 }
@@ -3336,6 +4796,49 @@ async fn setup_sqlite(pool: &SqlitePool) -> Result<(), StoreError> {
             asset_kind TEXT NOT NULL,
             visible INTEGER NOT NULL,
             asset_data TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        )
+        "#,
+    )
+    .await?;
+
+    tx.execute(
+        r#"
+        CREATE TABLE IF NOT EXISTS entity_categories (
+            id TEXT PRIMARY KEY,
+            category_key TEXT NOT NULL UNIQUE,
+            sort_order INTEGER NOT NULL,
+            category_data TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        )
+        "#,
+    )
+    .await?;
+
+    tx.execute(
+        r#"
+        CREATE TABLE IF NOT EXISTS workspaces (
+            id TEXT PRIMARY KEY,
+            slug TEXT NOT NULL UNIQUE,
+            is_homepage INTEGER NOT NULL,
+            workspace_data TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        )
+        "#,
+    )
+    .await?;
+
+    tx.execute(
+        r#"
+        CREATE TABLE IF NOT EXISTS entity_archetypes (
+            id TEXT PRIMARY KEY,
+            archetype_key TEXT NOT NULL UNIQUE,
+            category_id TEXT NOT NULL REFERENCES entity_categories(id) ON DELETE RESTRICT,
+            category_key TEXT NOT NULL,
+            archetype_data TEXT NOT NULL,
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL
         )
@@ -3475,6 +4978,10 @@ async fn setup_sqlite(pool: &SqlitePool) -> Result<(), StoreError> {
         r#"CREATE INDEX IF NOT EXISTS idx_static_assets_kind_visible ON static_assets(asset_kind, visible)"#,
     )
     .await?;
+    tx.execute(
+        r#"CREATE INDEX IF NOT EXISTS idx_entity_archetypes_category_id ON entity_archetypes(category_id)"#,
+    )
+    .await?;
     tx.execute(r#"CREATE INDEX IF NOT EXISTS idx_bindings_entity_connector ON entity_bindings(entity_id, connector_id)"#)
         .await?;
     tx.execute(r#"CREATE INDEX IF NOT EXISTS idx_rule_nodes_rule_id ON rule_nodes(rule_id)"#)
@@ -3505,6 +5012,17 @@ async fn setup_sqlite(pool: &SqlitePool) -> Result<(), StoreError> {
         .bind(now)
         .execute(&mut *tx)
         .await?;
+
+        let workspace = WorkspaceRecord {
+            id: snapshot.scene_config.id.clone(),
+            slug: snapshot.scene_config.id.clone(),
+            name: snapshot.scene_config.name.clone(),
+            description: Some("默认工作区".to_string()),
+            is_homepage: true,
+            created_at: now as u64,
+            updated_at: now as u64,
+        };
+        persist_workspace_sqlite(&mut tx, &workspace, false).await?;
 
         for entity in &snapshot.entities {
             persist_entity_sqlite(&mut tx, entity, false).await?;
@@ -3558,6 +5076,29 @@ async fn setup_sqlite(pool: &SqlitePool) -> Result<(), StoreError> {
         )
         .execute(&mut *tx)
         .await?;
+    }
+
+    let workspace_rows: i64 =
+        sqlx::query_scalar(r#"SELECT COUNT(*) FROM workspaces"#)
+            .fetch_one(&mut *tx)
+            .await?;
+    if workspace_rows == 0 {
+        let row = sqlx::query(r#"SELECT scene_config FROM scene_configs WHERE site_id = ?"#)
+            .bind(seed_scene::SITE_ID)
+            .fetch_one(&mut *tx)
+            .await?;
+        let scene_config: SceneConfig =
+            serde_json::from_str(row.get::<String, _>("scene_config").as_str())?;
+        let workspace = WorkspaceRecord {
+            id: scene_config.id.clone(),
+            slug: scene_config.id.clone(),
+            name: scene_config.name.clone(),
+            description: Some("默认工作区".to_string()),
+            is_homepage: true,
+            created_at: now_millis(),
+            updated_at: now_millis(),
+        };
+        persist_workspace_sqlite(&mut tx, &workspace, false).await?;
     }
 
     tx.commit().await?;
@@ -3763,6 +5304,256 @@ async fn persist_static_asset_sqlite(
         .bind(serde_json::to_string(asset)?)
         .bind(asset.created_at as i64)
         .bind(asset.updated_at as i64)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    Ok(())
+}
+
+async fn persist_entity_category(
+    tx: &mut Transaction<'_, Postgres>,
+    category: &EntityCategory,
+    replace: bool,
+) -> Result<(), StoreError> {
+    if replace {
+        sqlx::query(
+            r#"
+            UPDATE entity_categories
+            SET category_key = $1, sort_order = $2, category_data = $3, created_at = $4, updated_at = $5
+            WHERE id = $6
+            "#,
+        )
+        .bind(&category.key)
+        .bind(category.sort_order)
+        .bind(serde_json::to_value(category)?)
+        .bind(category.created_at as i64)
+        .bind(category.updated_at as i64)
+        .bind(&category.id)
+        .execute(&mut **tx)
+        .await?;
+    } else {
+        sqlx::query(
+            r#"
+            INSERT INTO entity_categories (id, category_key, sort_order, category_data, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            "#,
+        )
+        .bind(&category.id)
+        .bind(&category.key)
+        .bind(category.sort_order)
+        .bind(serde_json::to_value(category)?)
+        .bind(category.created_at as i64)
+        .bind(category.updated_at as i64)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    Ok(())
+}
+
+async fn persist_workspace(
+    tx: &mut Transaction<'_, Postgres>,
+    workspace: &WorkspaceRecord,
+    replace: bool,
+) -> Result<(), StoreError> {
+    if replace {
+        sqlx::query(
+            r#"
+            UPDATE workspaces
+            SET slug = $1, is_homepage = $2, workspace_data = $3, created_at = $4, updated_at = $5
+            WHERE id = $6
+            "#,
+        )
+        .bind(&workspace.slug)
+        .bind(workspace.is_homepage)
+        .bind(serde_json::to_value(workspace)?)
+        .bind(workspace.created_at as i64)
+        .bind(workspace.updated_at as i64)
+        .bind(&workspace.id)
+        .execute(&mut **tx)
+        .await?;
+    } else {
+        sqlx::query(
+            r#"
+            INSERT INTO workspaces (id, slug, is_homepage, workspace_data, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            "#,
+        )
+        .bind(&workspace.id)
+        .bind(&workspace.slug)
+        .bind(workspace.is_homepage)
+        .bind(serde_json::to_value(workspace)?)
+        .bind(workspace.created_at as i64)
+        .bind(workspace.updated_at as i64)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    Ok(())
+}
+
+async fn persist_entity_category_sqlite(
+    tx: &mut Transaction<'_, Sqlite>,
+    category: &EntityCategory,
+    replace: bool,
+) -> Result<(), StoreError> {
+    if replace {
+        sqlx::query(
+            r#"
+            UPDATE entity_categories
+            SET category_key = ?, sort_order = ?, category_data = ?, created_at = ?, updated_at = ?
+            WHERE id = ?
+            "#,
+        )
+        .bind(&category.key)
+        .bind(category.sort_order)
+        .bind(serde_json::to_string(category)?)
+        .bind(category.created_at as i64)
+        .bind(category.updated_at as i64)
+        .bind(&category.id)
+        .execute(&mut **tx)
+        .await?;
+    } else {
+        sqlx::query(
+            r#"
+            INSERT INTO entity_categories (id, category_key, sort_order, category_data, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(&category.id)
+        .bind(&category.key)
+        .bind(category.sort_order)
+        .bind(serde_json::to_string(category)?)
+        .bind(category.created_at as i64)
+        .bind(category.updated_at as i64)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    Ok(())
+}
+
+async fn persist_workspace_sqlite(
+    tx: &mut Transaction<'_, Sqlite>,
+    workspace: &WorkspaceRecord,
+    replace: bool,
+) -> Result<(), StoreError> {
+    if replace {
+        sqlx::query(
+            r#"
+            UPDATE workspaces
+            SET slug = ?, is_homepage = ?, workspace_data = ?, created_at = ?, updated_at = ?
+            WHERE id = ?
+            "#,
+        )
+        .bind(&workspace.slug)
+        .bind(workspace.is_homepage)
+        .bind(serde_json::to_string(workspace)?)
+        .bind(workspace.created_at as i64)
+        .bind(workspace.updated_at as i64)
+        .bind(&workspace.id)
+        .execute(&mut **tx)
+        .await?;
+    } else {
+        sqlx::query(
+            r#"
+            INSERT INTO workspaces (id, slug, is_homepage, workspace_data, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(&workspace.id)
+        .bind(&workspace.slug)
+        .bind(workspace.is_homepage)
+        .bind(serde_json::to_string(workspace)?)
+        .bind(workspace.created_at as i64)
+        .bind(workspace.updated_at as i64)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    Ok(())
+}
+
+async fn persist_entity_archetype(
+    tx: &mut Transaction<'_, Postgres>,
+    archetype: &EntityArchetype,
+    replace: bool,
+) -> Result<(), StoreError> {
+    if replace {
+        sqlx::query(
+            r#"
+            UPDATE entity_archetypes
+            SET archetype_key = $1, category_id = $2, category_key = $3, archetype_data = $4, created_at = $5, updated_at = $6
+            WHERE id = $7
+            "#,
+        )
+        .bind(&archetype.key)
+        .bind(&archetype.category_id)
+        .bind(&archetype.category_key)
+        .bind(serde_json::to_value(archetype)?)
+        .bind(archetype.created_at as i64)
+        .bind(archetype.updated_at as i64)
+        .bind(&archetype.id)
+        .execute(&mut **tx)
+        .await?;
+    } else {
+        sqlx::query(
+            r#"
+            INSERT INTO entity_archetypes (id, archetype_key, category_id, category_key, archetype_data, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            "#,
+        )
+        .bind(&archetype.id)
+        .bind(&archetype.key)
+        .bind(&archetype.category_id)
+        .bind(&archetype.category_key)
+        .bind(serde_json::to_value(archetype)?)
+        .bind(archetype.created_at as i64)
+        .bind(archetype.updated_at as i64)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    Ok(())
+}
+
+async fn persist_entity_archetype_sqlite(
+    tx: &mut Transaction<'_, Sqlite>,
+    archetype: &EntityArchetype,
+    replace: bool,
+) -> Result<(), StoreError> {
+    if replace {
+        sqlx::query(
+            r#"
+            UPDATE entity_archetypes
+            SET archetype_key = ?, category_id = ?, category_key = ?, archetype_data = ?, created_at = ?, updated_at = ?
+            WHERE id = ?
+            "#,
+        )
+        .bind(&archetype.key)
+        .bind(&archetype.category_id)
+        .bind(&archetype.category_key)
+        .bind(serde_json::to_string(archetype)?)
+        .bind(archetype.created_at as i64)
+        .bind(archetype.updated_at as i64)
+        .bind(&archetype.id)
+        .execute(&mut **tx)
+        .await?;
+    } else {
+        sqlx::query(
+            r#"
+            INSERT INTO entity_archetypes (id, archetype_key, category_id, category_key, archetype_data, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(&archetype.id)
+        .bind(&archetype.key)
+        .bind(&archetype.category_id)
+        .bind(&archetype.category_key)
+        .bind(serde_json::to_string(archetype)?)
+        .bind(archetype.created_at as i64)
+        .bind(archetype.updated_at as i64)
         .execute(&mut **tx)
         .await?;
     }
@@ -4246,6 +6037,384 @@ async fn upsert_published_state_sqlite(
     Ok(())
 }
 
+async fn sync_live_entity_roster_postgres(
+    tx: &mut Transaction<'_, Postgres>,
+    updated_at: u64,
+) -> Result<(), StoreError> {
+    let rows = sqlx::query(r#"SELECT entity_data FROM entities ORDER BY created_at ASC, id ASC"#)
+        .fetch_all(&mut **tx)
+        .await?;
+    let mut entities: Vec<Entity> = rows
+        .into_iter()
+        .map(|row| {
+            let value: serde_json::Value = row.get("entity_data");
+            serde_json::from_value(value).map_err(StoreError::from)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    sort_entities(&mut entities);
+
+    let scene_version = sqlx::query_scalar::<_, i64>(
+        r#"SELECT scene_version FROM scene_configs WHERE site_id = $1"#,
+    )
+    .bind(seed_scene::SITE_ID)
+    .fetch_one(&mut **tx)
+    .await?;
+
+    sqlx::query(
+        r#"
+        UPDATE published_state
+        SET entities = $1, published_scene_version = $2, updated_at = $3
+        WHERE site_id = $4
+        "#,
+    )
+    .bind(serde_json::to_value(&entities)?)
+    .bind(scene_version)
+    .bind(updated_at as i64)
+    .bind(seed_scene::SITE_ID)
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(())
+}
+
+async fn sync_live_entity_roster_sqlite(
+    tx: &mut Transaction<'_, Sqlite>,
+    updated_at: u64,
+) -> Result<(), StoreError> {
+    let rows = sqlx::query(r#"SELECT entity_data FROM entities ORDER BY created_at ASC, id ASC"#)
+        .fetch_all(&mut **tx)
+        .await?;
+    let mut entities: Vec<Entity> = rows
+        .into_iter()
+        .map(|row| {
+            let value: String = row.get("entity_data");
+            serde_json::from_str(&value).map_err(StoreError::from)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    sort_entities(&mut entities);
+
+    let scene_version = sqlx::query_scalar::<_, i64>(
+        r#"SELECT scene_version FROM scene_configs WHERE site_id = ?"#,
+    )
+    .bind(seed_scene::SITE_ID)
+    .fetch_one(&mut **tx)
+    .await?;
+
+    sqlx::query(
+        r#"
+        UPDATE published_state
+        SET entities = ?, published_scene_version = ?, updated_at = ?
+        WHERE site_id = ?
+        "#,
+    )
+    .bind(serde_json::to_string(&entities)?)
+    .bind(scene_version)
+    .bind(updated_at as i64)
+    .bind(seed_scene::SITE_ID)
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(())
+}
+
+fn cascade_category_key_update_memory(
+    snapshot: &mut MemoryStore,
+    category_id: &str,
+    category_key: &str,
+) {
+    let mut affected_archetypes = Vec::new();
+    for archetype in snapshot.entity_archetypes.values_mut() {
+        if archetype.category_id != category_id {
+            continue;
+        }
+        archetype.category_key = category_key.to_string();
+        affected_archetypes.push((
+            archetype.id.clone(),
+            archetype.key.clone(),
+            archetype.display_name.clone(),
+        ));
+    }
+
+    if affected_archetypes.is_empty() {
+        return;
+    }
+
+    for entity in snapshot.entities.values_mut() {
+        for (archetype_id, archetype_key, display_name) in &affected_archetypes {
+            rewrite_dynamic_entity_archetype_refs(
+                entity,
+                archetype_id,
+                archetype_key,
+                category_key,
+                display_name,
+            );
+        }
+    }
+
+    snapshot.published_entities = snapshot.entities.values().cloned().collect();
+    sort_entities(&mut snapshot.published_entities);
+    snapshot.published_updated_at = now_millis();
+}
+
+fn normalize_dynamic_entity_registry_refs_memory(
+    entity: &mut Entity,
+    entity_archetypes: &BTreeMap<String, EntityArchetype>,
+) -> Result<(), StoreError> {
+    let Entity::Dynamic(dynamic) = entity else {
+        return Ok(());
+    };
+    if dynamic.archetype_id.trim().is_empty() {
+        return Err(StoreError::Validation(
+            "dynamic entity archetypeId must be non-empty".to_string(),
+        ));
+    }
+    let Some(archetype) = entity_archetypes.get(&dynamic.archetype_id) else {
+        return Err(StoreError::Validation(format!(
+            "dynamic entity archetype {} does not exist",
+            dynamic.archetype_id
+        )));
+    };
+    dynamic.category_key = archetype.category_key.clone();
+    Ok(())
+}
+
+async fn normalize_dynamic_entity_registry_refs_postgres(
+    tx: &mut Transaction<'_, Postgres>,
+    entity: &mut Entity,
+) -> Result<(), StoreError> {
+    let Entity::Dynamic(dynamic) = entity else {
+        return Ok(());
+    };
+    if dynamic.archetype_id.trim().is_empty() {
+        return Err(StoreError::Validation(
+            "dynamic entity archetypeId must be non-empty".to_string(),
+        ));
+    }
+    let row = sqlx::query(
+        r#"SELECT archetype_data FROM entity_archetypes WHERE id = $1 FOR UPDATE"#,
+    )
+    .bind(&dynamic.archetype_id)
+    .fetch_optional(&mut **tx)
+    .await?;
+    let Some(row) = row else {
+        return Err(StoreError::Validation(format!(
+            "dynamic entity archetype {} does not exist",
+            dynamic.archetype_id
+        )));
+    };
+    let archetype: EntityArchetype = serde_json::from_value(row.get("archetype_data"))?;
+    dynamic.category_key = archetype.category_key;
+    Ok(())
+}
+
+async fn normalize_dynamic_entity_registry_refs_sqlite(
+    tx: &mut Transaction<'_, Sqlite>,
+    entity: &mut Entity,
+) -> Result<(), StoreError> {
+    let Entity::Dynamic(dynamic) = entity else {
+        return Ok(());
+    };
+    if dynamic.archetype_id.trim().is_empty() {
+        return Err(StoreError::Validation(
+            "dynamic entity archetypeId must be non-empty".to_string(),
+        ));
+    }
+    let row = sqlx::query(r#"SELECT archetype_data FROM entity_archetypes WHERE id = ?"#)
+        .bind(&dynamic.archetype_id)
+        .fetch_optional(&mut **tx)
+        .await?;
+    let Some(row) = row else {
+        return Err(StoreError::Validation(format!(
+            "dynamic entity archetype {} does not exist",
+            dynamic.archetype_id
+        )));
+    };
+    let archetype: EntityArchetype =
+        serde_json::from_str(row.get::<String, _>("archetype_data").as_str())?;
+    dynamic.category_key = archetype.category_key;
+    Ok(())
+}
+
+fn rewrite_dynamic_entity_archetype_refs(
+    entity: &mut Entity,
+    archetype_id: &str,
+    archetype_key: &str,
+    category_key: &str,
+    display_name: &str,
+) -> bool {
+    let Entity::Dynamic(dynamic) = entity else {
+        return false;
+    };
+    if dynamic.archetype_id != archetype_id {
+        return false;
+    }
+
+    dynamic.category_key = category_key.to_string();
+    dynamic.attributes.insert(
+        "archetypeKey".to_string(),
+        ContractValue::String(archetype_key.to_string()),
+    );
+    dynamic.display_attributes.insert(
+        "category".to_string(),
+        ContractValue::String(category_key.to_string()),
+    );
+    dynamic.display_attributes.insert(
+        "archetype".to_string(),
+        ContractValue::String(display_name.to_string()),
+    );
+    dynamic.base.metadata.insert(
+        "archetypeDisplayName".to_string(),
+        ContractValue::String(display_name.to_string()),
+    );
+    true
+}
+
+async fn rewrite_dynamic_entity_archetype_refs_postgres(
+    tx: &mut Transaction<'_, Postgres>,
+    archetype_id: &str,
+    archetype_key: &str,
+    category_key: &str,
+    display_name: &str,
+) -> Result<(), StoreError> {
+    let rows = sqlx::query(
+        r#"SELECT id, entity_data FROM entities WHERE entity_type = 'dynamic'"#,
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+
+    for row in rows {
+        let value: serde_json::Value = row.get("entity_data");
+        let mut entity: Entity = serde_json::from_value(value)?;
+        if !rewrite_dynamic_entity_archetype_refs(
+            &mut entity,
+            archetype_id,
+            archetype_key,
+            category_key,
+            display_name,
+        ) {
+            continue;
+        }
+        persist_entity(tx, &entity, true).await?;
+    }
+
+    Ok(())
+}
+
+async fn rewrite_dynamic_entity_archetype_refs_sqlite(
+    tx: &mut Transaction<'_, Sqlite>,
+    archetype_id: &str,
+    archetype_key: &str,
+    category_key: &str,
+    display_name: &str,
+) -> Result<(), StoreError> {
+    let rows = sqlx::query(
+        r#"SELECT id, entity_data FROM entities WHERE entity_type = 'dynamic'"#,
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+
+    for row in rows {
+        let value: String = row.get("entity_data");
+        let mut entity: Entity = serde_json::from_str(&value)?;
+        if !rewrite_dynamic_entity_archetype_refs(
+            &mut entity,
+            archetype_id,
+            archetype_key,
+            category_key,
+            display_name,
+        ) {
+            continue;
+        }
+        persist_entity_sqlite(tx, &entity, true).await?;
+    }
+
+    Ok(())
+}
+
+async fn cascade_category_key_update_postgres(
+    tx: &mut Transaction<'_, Postgres>,
+    category_id: &str,
+    category_key: &str,
+) -> Result<(), StoreError> {
+    let rows = sqlx::query(
+        r#"SELECT archetype_data FROM entity_archetypes WHERE category_id = $1 ORDER BY created_at ASC, id ASC"#,
+    )
+    .bind(category_id)
+    .fetch_all(&mut **tx)
+    .await?;
+
+    for row in rows {
+        let value: serde_json::Value = row.get("archetype_data");
+        let mut archetype: EntityArchetype = serde_json::from_value(value)?;
+        archetype.category_key = category_key.to_string();
+        persist_entity_archetype(tx, &archetype, true).await?;
+        rewrite_dynamic_entity_archetype_refs_postgres(
+            tx,
+            &archetype.id,
+            &archetype.key,
+            category_key,
+            &archetype.display_name,
+        )
+        .await?;
+    }
+
+    Ok(())
+}
+
+async fn cascade_category_key_update_sqlite(
+    tx: &mut Transaction<'_, Sqlite>,
+    category_id: &str,
+    category_key: &str,
+) -> Result<(), StoreError> {
+    let rows = sqlx::query(
+        r#"SELECT archetype_data FROM entity_archetypes WHERE category_id = ? ORDER BY created_at ASC, id ASC"#,
+    )
+    .bind(category_id)
+    .fetch_all(&mut **tx)
+    .await?;
+
+    for row in rows {
+        let value: String = row.get("archetype_data");
+        let mut archetype: EntityArchetype = serde_json::from_str(&value)?;
+        archetype.category_key = category_key.to_string();
+        persist_entity_archetype_sqlite(tx, &archetype, true).await?;
+        rewrite_dynamic_entity_archetype_refs_sqlite(
+            tx,
+            &archetype.id,
+            &archetype.key,
+            category_key,
+            &archetype.display_name,
+        )
+        .await?;
+    }
+
+    Ok(())
+}
+
+async fn count_dynamic_entity_refs_postgres(
+    tx: &mut Transaction<'_, Postgres>,
+    archetype_id: &str,
+) -> Result<i64, StoreError> {
+    Ok(sqlx::query_scalar::<_, i64>(
+        r#"SELECT COUNT(*) FROM entities WHERE entity_type = 'dynamic' AND entity_data->>'archetypeId' = $1"#,
+    )
+    .bind(archetype_id)
+    .fetch_one(&mut **tx)
+    .await?)
+}
+
+async fn count_dynamic_entity_refs_sqlite(
+    tx: &mut Transaction<'_, Sqlite>,
+    archetype_id: &str,
+) -> Result<i64, StoreError> {
+    Ok(sqlx::query_scalar::<_, i64>(
+        r#"SELECT COUNT(*) FROM entities WHERE entity_type = 'dynamic' AND json_extract(entity_data, '$.archetypeId') = ?"#,
+    )
+    .bind(archetype_id)
+    .fetch_one(&mut **tx)
+    .await?)
+}
+
 fn map_memory_audit_event(index: usize, value: &serde_json::Value) -> AuditEventRecord {
     let action = value
         .get("action")
@@ -4396,6 +6565,7 @@ fn entity_sort_rank(entity: &Entity) -> u8 {
         Entity::Equipment(_) => 3,
         Entity::Sensor(_) => 4,
         Entity::Camera(_) => 5,
+        Entity::Dynamic(_) => 6,
     }
 }
 
@@ -4461,6 +6631,7 @@ fn set_entity_id(entity: &mut Entity, id: &str) {
         Entity::Sensor(item) => item.base.id = id.to_string(),
         Entity::Camera(item) => item.base.id = id.to_string(),
         Entity::Zone(item) => item.base.id = id.to_string(),
+        Entity::Dynamic(item) => item.base.id = id.to_string(),
     }
 }
 
@@ -4472,6 +6643,7 @@ fn set_entity_created_at(entity: &mut Entity, created_at: u64) {
         Entity::Sensor(item) => item.base.created_at = created_at,
         Entity::Camera(item) => item.base.created_at = created_at,
         Entity::Zone(item) => item.base.created_at = created_at,
+        Entity::Dynamic(item) => item.base.created_at = created_at,
     }
 }
 
@@ -4483,7 +6655,182 @@ fn set_entity_updated_at(entity: &mut Entity, updated_at: u64) {
         Entity::Sensor(item) => item.base.updated_at = updated_at,
         Entity::Camera(item) => item.base.updated_at = updated_at,
         Entity::Zone(item) => item.base.updated_at = updated_at,
+        Entity::Dynamic(item) => item.base.updated_at = updated_at,
     }
+}
+
+fn sort_entity_categories(categories: &mut [EntityCategory]) {
+    categories.sort_by(|left, right| {
+        left.sort_order
+            .cmp(&right.sort_order)
+            .then_with(|| left.display_name.cmp(&right.display_name))
+            .then_with(|| left.id.cmp(&right.id))
+    });
+}
+
+fn sort_workspaces(workspaces: &mut [WorkspaceRecord]) {
+    workspaces.sort_by(|left, right| {
+        right
+            .is_homepage
+            .cmp(&left.is_homepage)
+            .then_with(|| left.name.cmp(&right.name))
+            .then_with(|| left.id.cmp(&right.id))
+    });
+}
+
+fn ensure_workspace_create_defaults(workspace: &mut WorkspaceRecord, now: u64) {
+    if workspace.id.trim().is_empty() {
+        workspace.id = Uuid::new_v4().to_string();
+    }
+    if workspace.slug.trim().is_empty() {
+        workspace.slug = workspace.id.clone();
+    }
+    if workspace.name.trim().is_empty() {
+        workspace.name = workspace.slug.clone();
+    }
+    workspace.created_at = now;
+    workspace.updated_at = now;
+}
+
+fn ensure_workspace_update_defaults(workspace: &mut WorkspaceRecord, now: u64) {
+    if workspace.slug.trim().is_empty() {
+        workspace.slug = workspace.id.clone();
+    }
+    if workspace.name.trim().is_empty() {
+        workspace.name = workspace.slug.clone();
+    }
+    if workspace.created_at == 0 {
+        workspace.created_at = now;
+    }
+    workspace.updated_at = now;
+}
+
+fn validate_workspace(workspace: &WorkspaceRecord) -> Result<(), StoreError> {
+    if workspace.slug.trim().is_empty() {
+        return Err(StoreError::Validation(
+            "workspace slug must be non-empty".to_string(),
+        ));
+    }
+    if workspace.name.trim().is_empty() {
+        return Err(StoreError::Validation(
+            "workspace name must be non-empty".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn sort_entity_archetypes(archetypes: &mut [EntityArchetype]) {
+    archetypes.sort_by(|left, right| {
+        left.category_key
+            .cmp(&right.category_key)
+            .then_with(|| left.display_name.cmp(&right.display_name))
+            .then_with(|| left.id.cmp(&right.id))
+    });
+}
+
+fn ensure_entity_category_create_defaults(category: &mut EntityCategory, now: u64) {
+    if category.id.trim().is_empty() {
+        category.id = Uuid::new_v4().to_string();
+    }
+    if category.display_name.trim().is_empty() {
+        category.display_name = category.key.clone();
+    }
+    category.created_at = now;
+    category.updated_at = now;
+}
+
+fn ensure_entity_category_update_defaults(category: &mut EntityCategory, now: u64) {
+    if category.display_name.trim().is_empty() {
+        category.display_name = category.key.clone();
+    }
+    if category.created_at == 0 {
+        category.created_at = now;
+    }
+    category.updated_at = now;
+}
+
+fn validate_entity_category(category: &EntityCategory) -> Result<(), StoreError> {
+    if category.key.trim().is_empty() {
+        return Err(StoreError::Validation(
+            "entity category key must be non-empty".to_string(),
+        ));
+    }
+    if category.display_name.trim().is_empty() {
+        return Err(StoreError::Validation(
+            "entity category displayName must be non-empty".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn ensure_entity_archetype_create_defaults(archetype: &mut EntityArchetype, now: u64) {
+    if archetype.id.trim().is_empty() {
+        archetype.id = Uuid::new_v4().to_string();
+    }
+    if archetype.display_name.trim().is_empty() {
+        archetype.display_name = archetype.key.clone();
+    }
+    archetype.capabilities.has_model = archetype.model.is_some();
+    archetype.created_at = now;
+    archetype.updated_at = now;
+}
+
+fn ensure_entity_archetype_update_defaults(archetype: &mut EntityArchetype, now: u64) {
+    if archetype.display_name.trim().is_empty() {
+        archetype.display_name = archetype.key.clone();
+    }
+    archetype.capabilities.has_model = archetype.model.is_some();
+    if archetype.created_at == 0 {
+        archetype.created_at = now;
+    }
+    archetype.updated_at = now;
+}
+
+fn validate_entity_archetype(archetype: &EntityArchetype) -> Result<(), StoreError> {
+    if archetype.key.trim().is_empty() {
+        return Err(StoreError::Validation(
+            "entity archetype key must be non-empty".to_string(),
+        ));
+    }
+    if archetype.display_name.trim().is_empty() {
+        return Err(StoreError::Validation(
+            "entity archetype displayName must be non-empty".to_string(),
+        ));
+    }
+    if archetype.category_id.trim().is_empty() {
+        return Err(StoreError::Validation(
+            "entity archetype categoryId must be non-empty".to_string(),
+        ));
+    }
+    if let Some(model) = &archetype.model {
+        validate_managed_archetype_model_asset(model)?;
+    }
+    Ok(())
+}
+
+fn validate_managed_archetype_model_asset(model: &ArchetypeModelAsset) -> Result<(), StoreError> {
+    if !model.asset_url.starts_with(MANAGED_ARCHETYPE_ASSET_PREFIX) {
+        return Err(StoreError::Validation(
+            "entity archetype model assetUrl must stay within the managed /assets/entity-archetypes/ path".to_string(),
+        ));
+    }
+    if model.asset_url.contains("..") || model.asset_url.contains("://") || model.asset_url.contains('\\') {
+        return Err(StoreError::Validation(
+            "entity archetype model assetUrl must be a normalized managed local path".to_string(),
+        ));
+    }
+
+    let expected_suffix = match model.file_type {
+        ModelAssetFileType::Glb => ".glb",
+        ModelAssetFileType::Fbx => ".fbx",
+    };
+    if !model.asset_url.ends_with(expected_suffix) {
+        return Err(StoreError::Validation(format!(
+            "entity archetype model assetUrl must end with {expected_suffix}"
+        )));
+    }
+
+    Ok(())
 }
 
 fn now_millis() -> u64 {

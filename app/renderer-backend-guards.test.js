@@ -150,6 +150,26 @@ describe('renderer backend guards', () => {
     expect(vehicleMarker.includes('resolveVehicleRoutePose')).toBe(true)
   })
 
+  test('dynamic entities should use registry-backed runtime markers instead of hardcoded family branches', () => {
+    const markers = readFileSync(
+      join(process.cwd(), 'components/digital-twin/entities/EntityMarkers.tsx'),
+      'utf8'
+    )
+    const dynamicMarker = readFileSync(
+      join(process.cwd(), 'components/digital-twin/entities/DynamicEntityMarker.tsx'),
+      'utf8'
+    )
+
+    expect(markers.includes('entityBuckets.dynamic')).toBe(true)
+    expect(markers.includes('DynamicEntityMarker')).toBe(true)
+    expect(markers.includes('entityArchetypes.get(entity.archetypeId)')).toBe(true)
+    expect(markers.includes('entityCategories.get(entity.categoryKey)')).toBe(true)
+    expect(dynamicMarker.includes('userData={{ pickable: true, entityId: entity.id }}')).toBe(true)
+    expect(dynamicMarker.includes('asset.fileType === \'fbx\'')).toBe(true)
+    expect(dynamicMarker.includes('asset.assetUrl')).toBe(true)
+    expect(dynamicMarker.includes('displayAttributes')).toBe(true)
+  })
+
   test('equipment instanced path should expose pickable metadata instead of per-mesh pointer handlers', () => {
     const equipmentInstances = readFileSync(
       join(process.cwd(), 'components/digital-twin/entities/EquipmentInstances.tsx'),
@@ -246,6 +266,14 @@ describe('renderer backend guards', () => {
 
     expect(source.includes('runBenchmark')).toBe(true)
     expect(source.includes('setRendererMode')).toBe(true)
+    expect(source.includes('ViewerAdminSurfaceShell')).toBe(true)
+    expect(source.includes('ViewerAdminToolbarBar')).toBe(true)
+    expect(source.includes('ProductModuleNav')).toBe(true)
+    expect(source.includes('viewer-admin-canvas-frame')).toBe(true)
+    expect(source.includes('hidden w-[320px] xl:block')).toBe(true)
+    expect(source.includes('xl:hidden')).toBe(true)
+    expect(source.includes('useIsMobile')).toBe(true)
+    expect(source.includes('max-h-[34svh]')).toBe(true)
   })
 
   test('repo should ship a webgpu selection regression script for local repro', () => {

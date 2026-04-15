@@ -8,6 +8,10 @@ describe('editor shell layout and control affordances', () => {
       join(process.cwd(), 'components/editor/EditorShell.tsx'),
       'utf8'
     )
+    const toolbarSource = readFileSync(
+      join(process.cwd(), 'components/editor/EditorToolbar.tsx'),
+      'utf8'
+    )
 
     expect(
       source.includes(
@@ -17,10 +21,14 @@ describe('editor shell layout and control affordances', () => {
     expect(source.includes('collapsed={!resourcesPanelOpen}')).toBe(true)
     expect(
       source.includes(
-        'pointer-events-none absolute inset-x-0 top-2.5 z-30 flex justify-center px-14 md:px-16 lg:px-24'
+        'pointer-events-none absolute inset-x-0 top-3 z-30 flex justify-center px-14 md:px-16 lg:px-24'
       )
     ).toBe(true)
     expect(source.includes('flex w-full max-w-[60rem] flex-col items-center gap-1.5')).toBe(true)
+    expect(toolbarSource.includes('ProductModuleNav')).toBe(false)
+    expect(toolbarSource.includes('模型工作区')).toBe(true)
+    expect(toolbarSource.includes('退出编辑')).toBe(false)
+    expect(source.includes('场景建模与发布工作台')).toBe(false)
     expect(
       source.includes(
         'absolute right-3 z-30 hidden transition-[height,opacity,transform] duration-200 lg:block'
@@ -108,6 +116,8 @@ describe('editor shell layout and control affordances', () => {
     expect(dockSource.includes('w-44 text-[12px]')).toBe(true)
     expect(sidebarSource.includes('Expand resources panel')).toBe(true)
     expect(sidebarSource.includes('Collapse resources panel')).toBe(true)
+    expect(sidebarSource.includes('退出编辑')).toBe(true)
+    expect(sidebarSource.includes('拖放到画布，或从场景区回选对象')).toBe(false)
     expect(sidebarSource.includes('editor-edge-toggle--left')).toBe(true)
     expect(sidebarSource.includes('editor-control editor-header-icon size-8 shrink-0 rounded-[12px]')).toBe(true)
     expect(sidebarSource.includes('editor-side-edge-control--left')).toBe(false)
@@ -137,7 +147,7 @@ describe('editor shell layout and control affordances', () => {
     expect(shellSource.includes("title={activityStatus.retryLabel ?? '重试当前操作'}")).toBe(true)
     expect(shellSource.includes("aria-label={activityStatus.retryLabel ?? '重试当前操作'}")).toBe(true)
     expect(shellSource.includes('activityStatus={activityStatus}')).toBe(true)
-    expect(shellSource.includes('pointer-events-auto w-full max-w-[22rem] self-end')).toBe(true)
+    expect(shellSource.includes('pointer-events-auto w-full max-w-[21rem] self-end xl:mt-1')).toBe(true)
     expect(
       shellSource.includes(
         'flex items-start gap-2.5 rounded-[16px] border px-3 py-2 backdrop-blur-xl'

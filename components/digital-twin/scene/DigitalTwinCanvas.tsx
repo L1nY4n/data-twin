@@ -72,6 +72,8 @@ function resolveEntityAnchorHeight(entity: Entity) {
       return 2.1
     case 'zone':
       return 1.2
+    case 'dynamic':
+      return Math.max(1.4, entity.scale.y * 1.2)
   }
 }
 

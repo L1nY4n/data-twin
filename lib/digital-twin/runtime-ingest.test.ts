@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type {
+  DynamicEntity,
   PositionUpdateMessage,
   SensorEntity,
   StatusUpdateMessage,
@@ -47,6 +48,31 @@ function createVehicle(): VehicleEntity {
     vehicleType: 'forklift',
     speed: 0,
     heading: 0,
+    createdAt: 1,
+    updatedAt: 1,
+  }
+}
+
+function createDynamicEntity(): DynamicEntity {
+  return {
+    id: 'dynamic-inspection-robot-01',
+    type: 'dynamic',
+    name: 'Inspection Robot',
+    position: { x: 0, y: 0, z: 0 },
+    rotation: { x: 0, y: 0, z: 0 },
+    scale: { x: 1, y: 1, z: 1 },
+    status: 'active',
+    visible: true,
+    metadata: {},
+    archetypeId: 'archetype-inspection-robot-v1',
+    categoryKey: 'robotics',
+    attributes: {
+      battery: 82,
+    },
+    displayAttributes: {
+      battery: 82,
+      mode: '巡检',
+    },
     createdAt: 1,
     updatedAt: 1,
   }
@@ -237,6 +263,28 @@ describe('runtime ingest helpers', () => {
       unit: 'C',
       thresholdMin: 5,
       thresholdMax: 70,
+    })
+  })
+
+  test('maps generic runtime parameters onto dynamic entity display fields', () => {
+    const entity = createDynamicEntity()
+    const message: StatusUpdateMessage = {
+      entityId: entity.id,
+      status: 'warning',
+      parameters: {
+        battery: 61,
+        mode: '返航',
+        healthy: true,
+      },
+    }
+
+    expect(buildRuntimeStatusEntityPatch(entity, message)).toEqual({
+      status: 'warning',
+      attributes: {
+        battery: 61,
+        mode: '返航',
+        healthy: true,
+      },
     })
   })
 

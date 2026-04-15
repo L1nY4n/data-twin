@@ -3,8 +3,6 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
-  AlertTriangle,
-  ArrowUpRight,
   ChevronRight,
   LayoutPanelLeft,
 } from 'lucide-react'
@@ -32,6 +30,7 @@ import {
   ViewerAdminSurfaceShell,
   ViewerAdminToolbarBar,
 } from '@/components/viewer-admin/primitives'
+import { ProductModuleNav } from '@/components/chrome/ProductModuleNav'
 
 function resolveActiveSection(pathname: string): AdminSection {
   const section = pathname.replace('/admin/', '') as AdminSection
@@ -58,38 +57,29 @@ function AdminSiteHeader({
   activeSection: AdminSection
 }) {
   const activeMeta = ADMIN_SECTION_META[activeSection]
-  const groupTitle = findActiveGroupTitle(activeSection)
 
   return (
     <ViewerAdminToolbarBar
       as="header"
-      className="sticky top-0 z-50 mx-2 mt-2 flex h-(--header-height) items-center rounded-[22px] px-4"
+      className="sticky top-0 z-40 mx-3 mt-3 flex min-h-14 flex-wrap items-center gap-y-2 rounded-[18px] px-4 py-3"
     >
       <div className="flex min-w-0 flex-1 items-center gap-3">
-        <div className="flex size-9 items-center justify-center rounded-xl border bg-muted/40">
+        <div className="flex size-9 items-center justify-center rounded-xl border bg-muted/30">
           <LayoutPanelLeft className="size-4 text-muted-foreground" />
         </div>
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="truncate text-sm font-medium">Digital Twin Admin</p>
+            <p className="truncate text-sm font-semibold">Digital Twin Console</p>
             <Badge variant="outline" className="rounded-full text-[10px] uppercase tracking-[0.16em]">
-              {groupTitle ?? 'Admin'}
+              Admin
             </Badge>
           </div>
           <p className="truncate text-xs text-muted-foreground">
-            {activeMeta.operatorHint}
+            当前聚焦：{activeMeta.title}
           </p>
         </div>
       </div>
-
-      <div className="flex items-center gap-2">
-        <Badge variant="secondary" className="hidden rounded-full px-3 py-1 text-[11px] md:inline-flex">
-          保存后即时生效
-        </Badge>
-        <Badge variant="outline" className="hidden rounded-full px-3 py-1 text-[11px] lg:inline-flex">
-          配置与治理工作台
-        </Badge>
-      </div>
+      <ProductModuleNav className="order-3 basis-full pt-1 xl:order-none xl:basis-auto xl:pt-0" />
     </ViewerAdminToolbarBar>
   )
 }
@@ -106,7 +96,7 @@ function AdminInsetHeader({
   return (
     <ViewerAdminToolbarBar
       as="header"
-      className="sticky top-[calc(var(--header-height)+0.5rem)] z-40 flex h-14 shrink-0 items-center gap-2 rounded-[20px] px-4 backdrop-blur"
+      className="sticky top-[calc(var(--header-height)+0.5rem)] z-30 flex min-h-14 shrink-0 items-center gap-2 rounded-[18px] px-4 py-3 backdrop-blur"
     >
       <SidebarTrigger className="-ml-1" />
       <Separator orientation="vertical" className="mr-2 data-[orientation=vertical]:h-4" />
@@ -138,15 +128,7 @@ function AdminInsetHeader({
 
       <div className="ml-auto hidden items-center gap-2 lg:flex">
         <Badge variant="outline" className="rounded-full text-[11px]">
-          {activeMeta.eyebrow}
-        </Badge>
-        <Badge variant="secondary" className="gap-1 rounded-full px-3 py-1 text-[11px]">
-          <AlertTriangle className="h-3 w-3" />
-          实时工作区
-        </Badge>
-        <Badge variant="outline" className="gap-1 rounded-full px-3 py-1 text-[11px]">
-          <ArrowUpRight className="h-3 w-3" />
-          运行页共享数据
+          {activeMeta.shortTitle}
         </Badge>
       </div>
     </ViewerAdminToolbarBar>
@@ -159,17 +141,17 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
 
   return (
     <ViewerAdminSurfaceShell
-      className="min-h-svh overflow-hidden [--header-height:calc(--spacing(14))]"
-      innerClassName="min-h-svh"
+      className="admin-surface h-svh overflow-hidden [--header-height:56px]"
+      innerClassName="flex h-svh flex-col overflow-hidden"
     >
-      <SidebarProvider defaultOpen className="flex min-h-svh flex-col">
+      <SidebarProvider defaultOpen className="flex h-full min-h-0 flex-col overflow-hidden">
         <AdminSiteHeader activeSection={activeSection} />
-        <div className="relative flex flex-1">
+        <div className="relative flex min-h-0 flex-1">
           <AdminAppSidebar activeSection={activeSection} />
-          <SidebarInset className="viewer-admin-content bg-transparent md:peer-data-[variant=inset]:m-0 md:peer-data-[variant=inset]:rounded-none md:peer-data-[variant=inset]:shadow-none">
+          <SidebarInset className="admin-content min-h-0 overflow-y-auto overscroll-contain bg-transparent md:peer-data-[variant=inset]:m-0 md:peer-data-[variant=inset]:rounded-none md:peer-data-[variant=inset]:shadow-none">
             <AdminInsetHeader activeSection={activeSection} />
-            <main className="min-h-[calc(100svh-var(--header-height)-3.5rem)] p-4 md:p-6">
-              <div className="mx-auto flex max-w-[1680px] flex-1 flex-col gap-6">
+            <main className="min-h-0 px-3 pb-6 pt-4 md:px-4 md:pb-8">
+              <div className="mx-auto flex min-h-full w-full max-w-[1320px] flex-col gap-5">
                 {children}
               </div>
             </main>

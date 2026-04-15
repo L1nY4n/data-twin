@@ -8,6 +8,7 @@ import {
   Radar,
   Camera,
   MapPin,
+  Boxes,
   LocateFixed,
   Search,
   ChevronRight,
@@ -36,6 +37,7 @@ const ENTITY_TYPE_CONFIG: Record<EntityType, { icon: typeof User; label: string;
   sensor: { icon: Radar, label: '传感器', color: '#14b8a6' },
   camera: { icon: Camera, label: '摄像头', color: '#ef4444' },
   zone: { icon: MapPin, label: '区域', color: '#8b5cf6' },
+  dynamic: { icon: Boxes, label: '动态实体', color: '#38bdf8' },
 }
 
 const STATUS_CONFIG: Record<EntityStatus, { icon: typeof Circle; label: string; color: string }> = {
@@ -45,8 +47,18 @@ const STATUS_CONFIG: Record<EntityStatus, { icon: typeof Circle; label: string; 
   error: { icon: XCircle, label: '故障', color: '#ef4444' },
 }
 
+type EntityListEntry = {
+  id: string
+  name: string
+  status: EntityStatus
+  type: EntityType
+  visible: boolean
+  categoryKey?: string
+}
+
 export function EntityListPanel() {
   const entityDirectory = useDigitalTwinStore((state) => state.entityDirectory)
+  const entityCategories = useDigitalTwinStore((state) => state.entityCategories)
   const entityFilters = useDigitalTwinStore((state) => state.entityFilters)
   const setEntityFilters = useDigitalTwinStore((state) => state.setEntityFilters)
   const selectedEntityId = useDigitalTwinStore((state) => state.selectedEntityId)
@@ -60,21 +72,20 @@ export function EntityListPanel() {
     'sensor',
     'camera',
     'zone',
+    'dynamic',
   ])
   const [showFilters, setShowFilters] = useState(false)
 
   // 按类型分组实体
   const groupedEntities = useMemo(() => {
-    const groups: Record<
-      EntityType,
-      Array<{ id: string; name: string; status: EntityStatus; type: EntityType; visible: boolean }>
-    > = {
+    const groups: Record<EntityType, EntityListEntry[]> = {
       person: [],
       vehicle: [],
       equipment: [],
       sensor: [],
       camera: [],
       zone: [],
+      dynamic: [],
     }
 
     entityDirectory.forEach((entity) => {
@@ -102,6 +113,7 @@ export function EntityListPanel() {
       sensor: { total: 0, active: 0, warning: 0, error: 0 },
       camera: { total: 0, active: 0, warning: 0, error: 0 },
       zone: { total: 0, active: 0, warning: 0, error: 0 },
+      dynamic: { total: 0, active: 0, warning: 0, error: 0 },
     }
 
     entityDirectory.forEach((entity) => {
@@ -133,6 +145,87 @@ export function EntityListPanel() {
       : [...entityFilters.statuses, status]
     setEntityFilters({ statuses: newStatuses })
   }
+
+  const groupedSections = useMemo(() => {
+    const sections: Array<{
+      key: string
+      type: EntityType
+      label: string
+      icon: typeof User
+      color: string
+      entities: EntityListEntry[]
+      warningCount: number
+      errorCount: number
+    }> = []
+
+    ;(Object.keys(ENTITY_TYPE_CONFIG) as EntityType[]).forEach((type) => {
+      if (type !== 'dynamic') {
+        const config = ENTITY_TYPE_CONFIG[type]
+        sections.push({
+          key: type,
+          type,
+          label: config.label,
+          icon: config.icon,
+          color: config.color,
+          entities: groupedEntities[type],
+          warningCount: counts[type].warning,
+          errorCount: counts[type].error,
+        })
+        return
+      }
+
+      const dynamicByCategory = new Map<string, EntityListEntry[]>()
+      groupedEntities.dynamic.forEach((entity) => {
+        const categoryKey = entity.categoryKey || 'uncategorized'
+        const existing = dynamicByCategory.get(categoryKey)
+        if (existing) {
+          existing.push(entity)
+        } else {
+          dynamicByCategory.set(categoryKey, [entity])
+        }
+      })
+
+      if (dynamicByCategory.size === 0) {
+        const config = ENTITY_TYPE_CONFIG.dynamic
+        sections.push({
+          key: 'dynamic',
+          type: 'dynamic',
+          label: config.label,
+          icon: config.icon,
+          color: config.color,
+          entities: [],
+          warningCount: 0,
+          errorCount: 0,
+        })
+        return
+      }
+
+      const sortedCategoryKeys = [...dynamicByCategory.keys()].sort((left, right) =>
+        (entityCategories.get(left)?.sortOrder ?? 0) - (entityCategories.get(right)?.sortOrder ?? 0) ||
+        (entityCategories.get(left)?.displayName ?? left).localeCompare(
+          entityCategories.get(right)?.displayName ?? right,
+          'zh-CN'
+        )
+      )
+
+      sortedCategoryKeys.forEach((categoryKey) => {
+        const config = ENTITY_TYPE_CONFIG.dynamic
+        const entries = dynamicByCategory.get(categoryKey) ?? []
+        sections.push({
+          key: `dynamic:${categoryKey}`,
+          type: 'dynamic',
+          label: entityCategories.get(categoryKey)?.displayName ?? categoryKey,
+          icon: config.icon,
+          color: entityCategories.get(categoryKey)?.color ?? config.color,
+          entities: entries,
+          warningCount: entries.filter((entity) => entity.status === 'warning').length,
+          errorCount: entries.filter((entity) => entity.status === 'error').length,
+        })
+      })
+    })
+
+    return sections
+  }, [counts, entityCategories, groupedEntities])
 
   return (
     <ViewerAdminSidePanelBody>
@@ -202,17 +295,15 @@ export function EntityListPanel() {
       {/* 实体列表 */}
       <ScrollArea className="flex-1">
         <div className="px-2 py-1.5">
-          {(Object.keys(ENTITY_TYPE_CONFIG) as EntityType[]).map((type) => {
-            const config = ENTITY_TYPE_CONFIG[type]
-            const Icon = config.icon
-            const typeEntities = groupedEntities[type]
-            const isExpanded = expandedTypes.includes(type)
+          {groupedSections.map((section) => {
+            const Icon = section.icon
+            const isExpanded = expandedTypes.includes(section.type)
 
             return (
               <Collapsible
-                key={type}
+                key={section.key}
                 open={isExpanded}
-                onOpenChange={() => toggleType(type)}
+                onOpenChange={() => toggleType(section.type)}
                 className="mb-1"
               >
                 <CollapsibleTrigger asChild>
@@ -227,19 +318,19 @@ export function EntityListPanel() {
                           isExpanded && 'rotate-90'
                         )}
                       />
-                      <Icon className="h-3.5 w-3.5" style={{ color: config.color }} />
-                      <span>{config.label}</span>
+                      <Icon className="h-3.5 w-3.5" style={{ color: section.color }} />
+                      <span>{section.label}</span>
                     </div>
                     <div className="viewer-admin-entity-group-meta flex items-center gap-1.5">
-                      <span>{typeEntities.length}</span>
-                      {counts[type].warning > 0 && (
+                      <span>{section.entities.length}</span>
+                      {section.warningCount > 0 && (
                         <span className="text-amber-400/90">
-                          {counts[type].warning}
+                          {section.warningCount}
                         </span>
                       )}
-                      {counts[type].error > 0 && (
+                      {section.errorCount > 0 && (
                         <span className="text-red-400/90">
-                          {counts[type].error}
+                          {section.errorCount}
                         </span>
                       )}
                     </div>
@@ -247,7 +338,7 @@ export function EntityListPanel() {
                 </CollapsibleTrigger>
                 <CollapsibleContent>
                   <div className="ml-4 space-y-0 py-1">
-                    {typeEntities.map((entity) => (
+                    {section.entities.map((entity) => (
                       <EntityListItem
                         key={entity.id}
                         entity={entity}
@@ -256,7 +347,7 @@ export function EntityListPanel() {
                         onFocus={() => focusCameraOnEntity(entity.id)}
                       />
                     ))}
-                    {typeEntities.length === 0 && (
+                    {section.entities.length === 0 && (
                       <div className="py-2 text-center text-xs text-muted-foreground">
                         暂无数据
                       </div>
@@ -273,7 +364,7 @@ export function EntityListPanel() {
 }
 
 interface EntityListItemProps {
-  entity: { id: string; name: string; status: EntityStatus }
+  entity: EntityListEntry
   isSelected: boolean
   onSelect: () => void
   onFocus: () => void
@@ -303,7 +394,12 @@ function EntityListItem({ entity, isSelected, onSelect, onFocus }: EntityListIte
           style={{ color: statusConfig.color }}
           fill={statusConfig.color}
         />
-        <span className="flex-1 truncate">{entity.name}</span>
+        <div className="min-w-0 flex-1">
+          <div className="truncate">{entity.name}</div>
+          {entity.type === 'dynamic' && entity.categoryKey ? (
+            <div className="truncate text-[10px] text-muted-foreground">{entity.categoryKey}</div>
+          ) : null}
+        </div>
       </button>
       <Button
         type="button"

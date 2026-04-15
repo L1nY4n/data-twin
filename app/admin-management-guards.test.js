@@ -13,6 +13,12 @@ describe('admin management guards', () => {
     expect(layout.includes('AdminShell')).toBe(true)
     expect(shell.includes('SidebarProvider')).toBe(true)
     expect(adminMeta.includes('/admin/overview')).toBe(true)
+    expect(adminMeta.includes('/admin/archetypes')).toBe(true)
+    expect(shell.includes('h-svh overflow-hidden')).toBe(true)
+    expect(shell.includes('overflow-y-auto overscroll-contain')).toBe(true)
+    expect(shell.includes('relative flex min-h-0 flex-1')).toBe(true)
+    expect(shell.includes('ProductModuleNav')).toBe(true)
+    expect(shell.includes('basis-full')).toBe(true)
     expect(routePage.includes('AdminConsole')).toBe(true)
     expect(routePage.includes('notFound')).toBe(true)
     expect(redirectPage.includes("redirect('/admin/overview')")).toBe(true)
@@ -32,8 +38,8 @@ describe('admin management guards', () => {
       'utf8'
     )
 
-    expect(toolbar.includes('/admin/overview')).toBe(true)
-    expect(toolbar.includes('管理中心')).toBe(true)
+    expect(toolbar.includes('ProductModuleNav')).toBe(true)
+    expect(toolbar.includes("from '@/components/chrome/ProductModuleNav'")).toBe(true)
     expect(bottomPanel.includes('/admin/rules')).toBe(true)
     expect(bottomPanel.includes('RuleEditor')).toBe(false)
     expect(entityList.includes('EntityFormDialog')).toBe(false)
@@ -45,6 +51,30 @@ describe('admin management guards', () => {
       join(process.cwd(), 'components/admin/AdminConsole.tsx'),
       'utf8'
     )
+    const sceneSection = readFileSync(
+      join(process.cwd(), 'components/admin/SceneSection.tsx'),
+      'utf8'
+    )
+    const workspaceHelper = readFileSync(
+      join(process.cwd(), 'lib/digital-twin/editor-workspace.ts'),
+      'utf8'
+    )
+    const entitiesSection = readFileSync(
+      join(process.cwd(), 'components/admin/EntitiesSection.tsx'),
+      'utf8'
+    )
+    const connectorsSection = readFileSync(
+      join(process.cwd(), 'components/admin/ConnectorsSection.tsx'),
+      'utf8'
+    )
+    const workspacesSection = readFileSync(
+      join(process.cwd(), 'components/admin/WorkspacesSection.tsx'),
+      'utf8'
+    )
+    const archetypesSection = readFileSync(
+      join(process.cwd(), 'components/admin/ArchetypesSection.tsx'),
+      'utf8'
+    )
     const adminSurface = readFileSync(
       join(process.cwd(), 'components/admin/admin-surface.tsx'),
       'utf8'
@@ -54,10 +84,28 @@ describe('admin management guards', () => {
     expect(consoleSource.includes('listAdminAlarms')).toBe(true)
     expect(consoleSource.includes('listAdminAuditEvents')).toBe(true)
     expect(consoleSource.includes("@/components/admin/admin-surface")).toBe(true)
+    expect(consoleSource.includes("case 'workspaces'")).toBe(true)
+    expect(consoleSource.includes('WorkspacesSection')).toBe(true)
+    expect(consoleSource.includes("case 'archetypes'")).toBe(true)
+    expect(consoleSource.includes('ArchetypesSection')).toBe(true)
     expect(adminSurface.includes('export function SaveLiveWarning')).toBe(true)
     expect(consoleSource.includes('AdvancedJsonEditor')).toBe(true)
-    expect(consoleSource.includes('createEntityTemplate')).toBe(true)
-    expect(consoleSource.includes('createConnectorTemplate')).toBe(true)
+    expect(sceneSection.includes('进入工作区')).toBe(true)
+    expect(sceneSection.includes('buildEditorWorkspaceHref(sceneDraft.id, \'/admin/scene\')')).toBe(true)
+    expect(workspaceHelper.includes('/editor/${normalizedWorkspaceId}')).toBe(true)
+    expect(workspacesSection.includes('listWorkspaces')).toBe(true)
+    expect(workspacesSection.includes('createWorkspace')).toBe(true)
+    expect(workspacesSection.includes('updateWorkspace')).toBe(true)
+    expect(workspacesSection.includes('deleteWorkspace')).toBe(true)
+    expect(entitiesSection.includes('createEntityTemplate')).toBe(true)
+    expect(entitiesSection.includes('createDynamicEntityTemplate')).toBe(true)
+    expect(entitiesSection.includes('<option value="dynamic">动态实体</option>')).toBe(true)
+    expect(entitiesSection.includes('newDynamicArchetypeId')).toBe(true)
+    expect(connectorsSection.includes('createConnectorTemplate')).toBe(true)
     expect(consoleSource.includes('createRuleTemplate')).toBe(true)
+    expect(archetypesSection.includes('listEntityCategories')).toBe(true)
+    expect(archetypesSection.includes('listEntityArchetypes')).toBe(true)
+    expect(archetypesSection.includes('ArchetypeModelPreview')).toBe(true)
+    expect(archetypesSection.includes('uploadArchetypeModel')).toBe(true)
   })
 })

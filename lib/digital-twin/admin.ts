@@ -5,12 +5,15 @@ import type {
   EntityBinding,
   RuleConfig,
   SceneConfig,
+  WorkspaceRecord,
 } from './types'
 
 export type AdminSection =
   | 'overview'
+  | 'workspaces'
   | 'scene'
   | 'entities'
+  | 'archetypes'
   | 'connectors'
   | 'bindings'
   | 'rules'
@@ -31,8 +34,10 @@ export interface AdminNavGroup {
 
 export const ADMIN_SECTIONS: AdminSection[] = [
   'overview',
+  'workspaces',
   'scene',
   'entities',
+  'archetypes',
   'connectors',
   'bindings',
   'rules',
@@ -99,4 +104,8 @@ export interface BindingEditorSnapshot {
   entities: Entity[]
   connectors: DataConnector[]
   bindings: EntityBinding[]
+}
+
+export interface WorkspaceSnapshot {
+  workspaces: WorkspaceRecord[]
 }

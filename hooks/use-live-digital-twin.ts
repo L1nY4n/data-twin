@@ -35,6 +35,10 @@ function hydrateBootstrapState(
   store.reset()
   store.setPublishedScenePackage(publishedScenePackage)
   store.setSceneConfig(payload.sceneConfig)
+  store.setEntityRegistry({
+    categories: payload.entityCategories,
+    archetypes: payload.entityArchetypes,
+  })
   store.addEntities(payload.entities)
   store.setAuthoredStaticAssets(payload.staticAssets)
 
@@ -163,6 +167,14 @@ export function useLiveDigitalTwin() {
             const data = message.payload as PositionUpdateMessage
             const receivedAt = Date.now()
             const currentEntity = getEntityById(data.entityId)
+            if (currentEntity?.type === 'dynamic') {
+              const archetype = useDigitalTwinStore
+                .getState()
+                .getEntityArchetypeById(currentEntity.archetypeId)
+              if (archetype && !archetype.capabilities.movable) {
+                break
+              }
+            }
             const runtimePatch = buildRuntimePositionEntityPatch(currentEntity, data, {
               timestamp: message.timestamp,
             })
@@ -251,7 +263,9 @@ export function useLiveDigitalTwin() {
                   publishedSceneRef.current?.packageUrl)
 
             const shouldRefresh =
-              configChanged.scope === 'publish' || hasPublishedSceneUpdate
+              configChanged.scope === 'publish' ||
+              configChanged.scope === 'entity' ||
+              hasPublishedSceneUpdate
 
             if (!shouldRefresh) break
             sceneVersionRef.current = Math.max(

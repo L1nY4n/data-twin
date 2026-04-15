@@ -125,8 +125,19 @@ async fn build_app_with_store(
         .route("/health/live", get(live))
         .route("/health/ready", get(ready))
         .route("/api/v1/site/bootstrap", get(bootstrap))
+        .route("/api/v1/site/home-workspace", get(admin::get_home_workspace))
         .route("/api/v1/admin/overview", get(admin::get_overview))
         .route("/api/v1/admin/bootstrap", get(admin::get_editor_bootstrap))
+        .route(
+            "/api/v1/admin/workspaces",
+            get(admin::list_workspaces).post(admin::create_workspace),
+        )
+        .route(
+            "/api/v1/admin/workspaces/:id",
+            get(admin::get_workspace)
+                .put(admin::update_workspace)
+                .delete(admin::delete_workspace),
+        )
         .route(
             "/api/v1/admin/publish",
             get(admin::get_publish_status).post(admin::post_publish),
@@ -145,6 +156,30 @@ async fn build_app_with_store(
             get(admin::get_entity)
                 .put(admin::update_entity)
                 .delete(admin::delete_entity),
+        )
+        .route(
+            "/api/v1/admin/entity-categories",
+            get(admin::list_entity_categories).post(admin::create_entity_category),
+        )
+        .route(
+            "/api/v1/admin/entity-categories/:id",
+            get(admin::get_entity_category)
+                .put(admin::update_entity_category)
+                .delete(admin::delete_entity_category),
+        )
+        .route(
+            "/api/v1/admin/entity-archetypes",
+            get(admin::list_entity_archetypes).post(admin::create_entity_archetype),
+        )
+        .route(
+            "/api/v1/admin/entity-archetypes/:id",
+            get(admin::get_entity_archetype)
+                .put(admin::update_entity_archetype)
+                .delete(admin::delete_entity_archetype),
+        )
+        .route(
+            "/api/v1/admin/model-assets/upload",
+            post(admin::upload_model_asset),
         )
         .route(
             "/api/v1/admin/static-assets",

@@ -1,14 +1,18 @@
 import type {
   Alarm,
+  ArchetypeModelAsset,
   DataConnector,
   Entity,
+  EntityArchetype,
   EntityBinding,
+  EntityCategory,
   PublishedSceneRuntimeDescriptor,
   RuleConfig,
   SceneConfig,
   StaticAssetInstance,
+  WorkspaceRecord,
 } from './types'
-import { getAdminApiBaseUrl, getBootstrapUrl } from './backend-config'
+import { getAdminApiBaseUrl, getBackendHttpBaseUrl, getBootstrapUrl } from './backend-config'
 import type { AuditEventRecord, AdminOverview, PublishStatus } from './admin'
 
 export interface BootstrapPayload {
@@ -17,6 +21,8 @@ export interface BootstrapPayload {
   sceneConfig: SceneConfig
   entities: Entity[]
   staticAssets: StaticAssetInstance[]
+  entityCategories: EntityCategory[]
+  entityArchetypes: EntityArchetype[]
   rules: RuleConfig[]
   alarms: Alarm[]
   publishedScene?: PublishedSceneRuntimeDescriptor | null
@@ -189,6 +195,10 @@ export async function fetchBootstrap(): Promise<BootstrapPayload> {
   return requestJson<BootstrapPayload>(getBootstrapUrl())
 }
 
+export async function fetchHomeWorkspace(): Promise<WorkspaceRecord> {
+  return requestJson<WorkspaceRecord>(`${getBackendHttpBaseUrl()}/api/v1/site/home-workspace`)
+}
+
 export async function fetchEditorBootstrap(): Promise<BootstrapPayload> {
   return requestJson<BootstrapPayload>(`${getAdminApiBaseUrl()}/bootstrap`)
 }
@@ -199,6 +209,35 @@ export async function fetchAdminScene(): Promise<SceneResponse> {
 
 export async function fetchAdminOverview(): Promise<AdminOverview> {
   return requestJson<AdminOverview>(`${getAdminApiBaseUrl()}/overview`)
+}
+
+export async function listWorkspaces(): Promise<WorkspaceRecord[]> {
+  return requestJson<WorkspaceRecord[]>(`${getAdminApiBaseUrl()}/workspaces`)
+}
+
+export async function createWorkspace(
+  workspace: WorkspaceRecord
+): Promise<WorkspaceRecord> {
+  return requestJson<WorkspaceRecord>(`${getAdminApiBaseUrl()}/workspaces`, {
+    method: 'POST',
+    body: JSON.stringify(workspace),
+  })
+}
+
+export async function updateWorkspace(
+  id: string,
+  workspace: WorkspaceRecord
+): Promise<WorkspaceRecord> {
+  return requestJson<WorkspaceRecord>(`${getAdminApiBaseUrl()}/workspaces/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(workspace),
+  })
+}
+
+export async function deleteWorkspace(id: string): Promise<void> {
+  await requestJson<void>(`${getAdminApiBaseUrl()}/workspaces/${id}`, {
+    method: 'DELETE',
+  })
 }
 
 export async function fetchAdminPublishStatus(): Promise<PublishStatus> {
@@ -240,6 +279,84 @@ export async function createAdminEntity(entity: Entity): Promise<Entity> {
     method: 'POST',
     body: JSON.stringify(entity),
   })
+}
+
+export async function listEntityCategories(): Promise<EntityCategory[]> {
+  return requestJson<EntityCategory[]>(`${getAdminApiBaseUrl()}/entity-categories`)
+}
+
+export async function createEntityCategory(
+  category: EntityCategory
+): Promise<EntityCategory> {
+  return requestJson<EntityCategory>(`${getAdminApiBaseUrl()}/entity-categories`, {
+    method: 'POST',
+    body: JSON.stringify(category),
+  })
+}
+
+export async function updateEntityCategory(
+  id: string,
+  category: EntityCategory
+): Promise<EntityCategory> {
+  return requestJson<EntityCategory>(`${getAdminApiBaseUrl()}/entity-categories/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(category),
+  })
+}
+
+export async function deleteEntityCategory(id: string): Promise<void> {
+  await requestJson<void>(`${getAdminApiBaseUrl()}/entity-categories/${id}`, {
+    method: 'DELETE',
+  })
+}
+
+export async function listEntityArchetypes(): Promise<EntityArchetype[]> {
+  return requestJson<EntityArchetype[]>(`${getAdminApiBaseUrl()}/entity-archetypes`)
+}
+
+export async function createEntityArchetype(
+  archetype: EntityArchetype
+): Promise<EntityArchetype> {
+  return requestJson<EntityArchetype>(`${getAdminApiBaseUrl()}/entity-archetypes`, {
+    method: 'POST',
+    body: JSON.stringify(archetype),
+  })
+}
+
+export async function updateEntityArchetype(
+  id: string,
+  archetype: EntityArchetype
+): Promise<EntityArchetype> {
+  return requestJson<EntityArchetype>(`${getAdminApiBaseUrl()}/entity-archetypes/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(archetype),
+  })
+}
+
+export async function deleteEntityArchetype(id: string): Promise<void> {
+  await requestJson<void>(`${getAdminApiBaseUrl()}/entity-archetypes/${id}`, {
+    method: 'DELETE',
+  })
+}
+
+export async function uploadArchetypeModel(file: File): Promise<ArchetypeModelAsset> {
+  const formData = new FormData()
+  formData.append('file', file)
+
+  const response = await fetch(`${getAdminApiBaseUrl()}/model-assets/upload`, {
+    method: 'POST',
+    body: formData,
+  })
+
+  if (!response.ok) {
+    const payload = await response.text()
+    throw new AdminApiError(buildAdminApiErrorMessage(response, payload), {
+      status: response.status,
+      payload,
+    })
+  }
+
+  return (await response.json()) as ArchetypeModelAsset
 }
 
 export async function createAdminStaticAsset(

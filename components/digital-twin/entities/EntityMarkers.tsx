@@ -6,6 +6,7 @@ import { normalizeVehicleTrackLike } from '@/lib/digital-twin/vehicle-route-moti
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
 import type {
   CameraEntity,
+  DynamicEntity,
   EquipmentEntity,
   PersonEntity,
   SensorEntity,
@@ -20,6 +21,7 @@ import { CameraMarker } from './CameraMarker'
 import { PersonInstances } from './PersonInstances'
 import { VehicleInstances } from './VehicleInstances'
 import { EquipmentInstances } from './EquipmentInstances'
+import { DynamicEntityMarker } from './DynamicEntityMarker'
 
 interface SectorEntityBatch<T> {
   sectorId: string
@@ -97,6 +99,9 @@ export function EntityMarkers() {
   const equipment = useDigitalTwinStore((state) => state.entityBuckets.equipment)
   const sensors = useDigitalTwinStore((state) => state.entityBuckets.sensors)
   const cameras = useDigitalTwinStore((state) => state.entityBuckets.cameras)
+  const dynamicEntities = useDigitalTwinStore((state) => state.entityBuckets.dynamic)
+  const entityCategories = useDigitalTwinStore((state) => state.entityCategories)
+  const entityArchetypes = useDigitalTwinStore((state) => state.entityArchetypes)
   const entityFilters = useDigitalTwinStore((state) => state.entityFilters)
   const selectedEntityId = useDigitalTwinStore((state) => state.selectedEntityId)
   const hoveredEntityId = useDigitalTwinStore((state) => state.hoveredEntityId)
@@ -110,9 +115,16 @@ export function EntityMarkers() {
     filteredEquipment,
     filteredSensors,
     filteredCameras,
+    filteredDynamic,
   } = useMemo(() => {
     const matchesBaseFilter = (
-      entity: PersonEntity | VehicleEntity | EquipmentEntity | SensorEntity | CameraEntity
+      entity:
+        | PersonEntity
+        | VehicleEntity
+        | EquipmentEntity
+        | SensorEntity
+        | CameraEntity
+        | DynamicEntity
     ) => {
       if (!entityFilters.types.includes(entity.type)) return false
       if (!entityFilters.statuses.includes(entity.status)) return false
@@ -134,8 +146,9 @@ export function EntityMarkers() {
       filteredEquipment: equipment.filter((entity) => matchesBaseFilter(entity)),
       filteredSensors: sensors.filter((entity) => matchesBaseFilter(entity)),
       filteredCameras: cameras.filter((entity) => matchesBaseFilter(entity)),
+      filteredDynamic: dynamicEntities.filter((entity) => matchesBaseFilter(entity)),
     }
-  }, [persons, vehicles, equipment, sensors, cameras, entityFilters, searchQuery])
+  }, [persons, vehicles, equipment, sensors, cameras, dynamicEntities, entityFilters, searchQuery])
   const personBatches = useMemo(
     () => createSectorEntityBatches(filteredPersons, publishedSectors),
     [filteredPersons, publishedSectors]
@@ -254,6 +267,17 @@ export function EntityMarkers() {
           entity={camera}
           isSelected={selectedEntityId === camera.id}
           isHovered={hoveredEntityId === camera.id}
+        />
+      ))}
+
+      {filteredDynamic.map((entity) => (
+        <DynamicEntityMarker
+          key={entity.id}
+          entity={entity}
+          archetype={entityArchetypes.get(entity.archetypeId)}
+          category={entityCategories.get(entity.categoryKey)}
+          isSelected={selectedEntityId === entity.id}
+          isHovered={hoveredEntityId === entity.id}
         />
       ))}
     </group>

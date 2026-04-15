@@ -22,7 +22,10 @@ describe('viewer/admin shared style primitives', () => {
   })
 
   test('viewer page uses the shared edge panel primitive for both side rails', () => {
-    const page = readFileSync(join(process.cwd(), 'app/page.tsx'), 'utf8')
+    const page = readFileSync(
+      join(process.cwd(), 'components/digital-twin/DigitalTwinViewerPage.tsx'),
+      'utf8'
+    )
 
     expect(page.includes('ViewerAdminEdgePanel')).toBe(true)
     expect(page.includes("widthClass={leftPanelOpen ? 'w-[230px]' : 'w-0'}")).toBe(true)

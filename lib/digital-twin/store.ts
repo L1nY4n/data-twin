@@ -3,7 +3,10 @@ import { subscribeWithSelector } from 'zustand/middleware'
 import type {
   AccessRule,
   CameraEntity,
+  DynamicEntity,
   Entity,
+  EntityArchetype,
+  EntityCategory,
   ZoneEntity,
   PersonEntity,
   VehicleEntity,
@@ -101,6 +104,7 @@ interface EntityBuckets {
   sensors: SensorEntity[]
   cameras: CameraEntity[]
   zones: ZoneEntity[]
+  dynamic: DynamicEntity[]
 }
 
 export interface EntityDirectoryEntry {
@@ -109,6 +113,7 @@ export interface EntityDirectoryEntry {
   name: string
   status: EntityStatus
   visible: boolean
+  categoryKey?: string
 }
 
 const defaultPublishedScenePackage = DEFAULT_PUBLISHED_SCENE_PACKAGE
@@ -138,6 +143,8 @@ interface DigitalTwinState {
 
   // 实体状态（UI层消费）
   entities: Map<string, Entity>
+  entityCategories: Map<string, EntityCategory>
+  entityArchetypes: Map<string, EntityArchetype>
   entityBuckets: EntityBuckets
   entityDirectory: Map<string, EntityDirectoryEntry>
   selectedEntityId: string | null
@@ -219,6 +226,10 @@ interface DigitalTwinActions {
   // 实体操作
   addEntity: (entity: Entity) => void
   addEntities: (entities: Entity[]) => void
+  setEntityRegistry: (registry: {
+    categories?: EntityCategory[]
+    archetypes?: EntityArchetype[]
+  }) => void
   updateEntity: (id: string, updates: Partial<Entity>) => void
   removeEntity: (id: string) => void
   setSelectedEntity: (id: string | null) => void
@@ -293,6 +304,8 @@ interface DigitalTwinActions {
   // 工具方法
   getEntitiesByType: <T extends Entity>(type: EntityType) => T[]
   getEntityById: (id: string) => Entity | undefined
+  getEntityArchetypeById: (id: string) => EntityArchetype | undefined
+  getEntityCategoryByKey: (key: string) => EntityCategory | undefined
   getEntitiesInZone: (zoneId: string) => Entity[]
   getEcsSnapshotById: (id: string) => EcsEntitySnapshot | undefined
   reset: () => void
@@ -311,6 +324,8 @@ const initialState: DigitalTwinState = {
   isSceneReady: false,
 
   entities: new Map(),
+  entityCategories: new Map(),
+  entityArchetypes: new Map(),
   entityBuckets: {
     persons: [],
     vehicles: [],
@@ -318,6 +333,7 @@ const initialState: DigitalTwinState = {
     sensors: [],
     cameras: [],
     zones: [],
+    dynamic: [],
   },
   entityDirectory: new Map(),
   selectedEntityId: null,
@@ -325,7 +341,7 @@ const initialState: DigitalTwinState = {
   selectedStaticFeatureId: null,
   hoveredStaticFeatureId: null,
   entityFilters: {
-    types: ['person', 'vehicle', 'equipment', 'sensor', 'camera', 'zone'],
+    types: ['person', 'vehicle', 'equipment', 'sensor', 'camera', 'zone', 'dynamic'],
     statuses: ['active', 'inactive', 'warning', 'error'],
     searchQuery: '',
   },
@@ -615,6 +631,16 @@ function vectorEquals(left: Vector3, right: Vector3) {
   return left.x === right.x && left.y === right.y && left.z === right.z
 }
 
+function flatRecordEquals(
+  left: Record<string, unknown> | undefined,
+  right: Record<string, unknown> | undefined
+) {
+  const leftEntries = Object.entries(left ?? {})
+  const rightEntries = Object.entries(right ?? {})
+  if (leftEntries.length !== rightEntries.length) return false
+  return leftEntries.every(([key, value]) => right?.[key] === value)
+}
+
 function toCreatePayload(entity: Entity): EcsCreatePayload {
   const payload: EcsCreatePayload = {
     id: entity.id,
@@ -676,6 +702,14 @@ function toCreatePayload(entity: Entity): EcsCreatePayload {
     payload.heading = entity.heading
     payload.range = entity.range
     payload.recording = entity.recording
+    return payload
+  }
+
+  if (entity.type === 'dynamic') {
+    payload.archetypeId = entity.archetypeId
+    payload.categoryKey = entity.categoryKey
+    payload.attributes = { ...entity.attributes }
+    payload.displayAttributes = { ...entity.displayAttributes }
     return payload
   }
 
@@ -801,6 +835,27 @@ function snapshotToEntity(snapshot: EcsEntitySnapshot): Entity {
       heading: snapshot.heading ?? 0,
       range: snapshot.range,
       recording: snapshot.recording ?? true,
+      labelMode: snapshot.labelMode,
+    }
+  }
+
+  if (snapshot.type === 'dynamic') {
+    return {
+      id: snapshot.id,
+      type: 'dynamic',
+      name: snapshot.name,
+      position: snapshot.position,
+      rotation: snapshot.rotation,
+      scale: snapshot.scale,
+      status: snapshot.status,
+      visible: snapshot.visible,
+      metadata: { ...snapshot.metadata },
+      createdAt,
+      updatedAt,
+      archetypeId: snapshot.archetypeId ?? '',
+      categoryKey: snapshot.categoryKey ?? '',
+      attributes: { ...(snapshot.attributes ?? {}) },
+      displayAttributes: { ...(snapshot.displayAttributes ?? {}) },
       labelMode: snapshot.labelMode,
     }
   }
@@ -942,6 +997,14 @@ function canReuseProjectedEntity(previous: Entity, snapshot: EcsEntitySnapshot):
       && previous.recording === (snapshot.recording ?? previous.recording)
   }
 
+  if (snapshot.type === 'dynamic') {
+    return previous.type === 'dynamic'
+      && previous.archetypeId === (snapshot.archetypeId ?? previous.archetypeId)
+      && previous.categoryKey === (snapshot.categoryKey ?? previous.categoryKey)
+      && flatRecordEquals(previous.attributes, snapshot.attributes)
+      && flatRecordEquals(previous.displayAttributes, snapshot.displayAttributes)
+  }
+
   const entity = previous
   if (entity.type !== 'zone') return false
   if (entity.zoneType !== ((snapshot.zoneType as ZoneEntity['zoneType']) ?? entity.zoneType)) return false
@@ -1028,6 +1091,8 @@ function getBucketKey(entity: Entity): keyof EntityBuckets {
       return 'cameras'
     case 'zone':
       return 'zones'
+    case 'dynamic':
+      return 'dynamic'
   }
 }
 
@@ -1105,7 +1170,8 @@ function buildEntityDirectoryFromWorld(
       previousEntry.type === snapshot.type &&
       previousEntry.name === snapshot.name &&
       previousEntry.status === snapshot.status &&
-      previousEntry.visible === snapshot.visible
+      previousEntry.visible === snapshot.visible &&
+      previousEntry.categoryKey === snapshot.categoryKey
     ) {
       next.set(id, previousEntry)
       return
@@ -1117,6 +1183,7 @@ function buildEntityDirectoryFromWorld(
       name: snapshot.name,
       status: snapshot.status,
       visible: snapshot.visible,
+      ...(snapshot.categoryKey ? { categoryKey: snapshot.categoryKey } : {}),
     })
   })
 
@@ -1137,6 +1204,7 @@ function buildEntityBucketsFromEntities(
   const nextSensors: SensorEntity[] = []
   const nextCameras: CameraEntity[] = []
   const nextZones: ZoneEntity[] = []
+  const nextDynamic: DynamicEntity[] = []
 
   entities.forEach((entity) => {
     switch (entity.type) {
@@ -1158,6 +1226,9 @@ function buildEntityBucketsFromEntities(
       case 'zone':
         nextZones.push(entity)
         break
+      case 'dynamic':
+        nextDynamic.push(entity)
+        break
     }
   })
 
@@ -1169,6 +1240,7 @@ function buildEntityBucketsFromEntities(
       sensors: nextSensors,
       cameras: nextCameras,
       zones: nextZones,
+      dynamic: nextDynamic,
     }
   }
 
@@ -1178,6 +1250,7 @@ function buildEntityBucketsFromEntities(
   const sensors = sameEntityArray(previous.sensors, nextSensors) ? previous.sensors : nextSensors
   const cameras = sameEntityArray(previous.cameras, nextCameras) ? previous.cameras : nextCameras
   const zones = sameEntityArray(previous.zones, nextZones) ? previous.zones : nextZones
+  const dynamic = sameEntityArray(previous.dynamic, nextDynamic) ? previous.dynamic : nextDynamic
 
   if (
     persons === previous.persons &&
@@ -1185,7 +1258,8 @@ function buildEntityBucketsFromEntities(
     equipment === previous.equipment &&
     sensors === previous.sensors &&
     cameras === previous.cameras &&
-    zones === previous.zones
+    zones === previous.zones &&
+    dynamic === previous.dynamic
   ) {
     return previous
   }
@@ -1197,6 +1271,7 @@ function buildEntityBucketsFromEntities(
     sensors,
     cameras,
     zones,
+    dynamic,
   }
 }
 
@@ -1237,6 +1312,7 @@ function patchEntityBuckets(
         sensors: previousBuckets.sensors,
         cameras: previousBuckets.cameras,
         zones: previousBuckets.zones,
+        dynamic: previousBuckets.dynamic,
       }
     }
 
@@ -1277,6 +1353,12 @@ function patchEntityBuckets(
         nextBuckets.zones = nextBucket
         break
       }
+      case 'dynamic': {
+        const nextBucket = previousBucket.slice() as DynamicEntity[]
+        nextBucket[entityIndex] = nextEntity as DynamicEntity
+        nextBuckets.dynamic = nextBucket
+        break
+      }
     }
   }
 
@@ -1308,7 +1390,8 @@ function patchEntityDirectory(
       previousEntry.type === snapshot.type &&
       previousEntry.name === snapshot.name &&
       previousEntry.status === snapshot.status &&
-      previousEntry.visible === snapshot.visible
+      previousEntry.visible === snapshot.visible &&
+      previousEntry.categoryKey === snapshot.categoryKey
     ) {
       continue
     }
@@ -1320,6 +1403,7 @@ function patchEntityDirectory(
       name: snapshot.name,
       status: snapshot.status,
       visible: snapshot.visible,
+      ...(snapshot.categoryKey ? { categoryKey: snapshot.categoryKey } : {}),
     })
   }
 
@@ -1898,6 +1982,18 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
           authoredStaticAssets: new Map(assets.map((asset) => [asset.id, asset])),
         }),
 
+      setEntityRegistry: ({ categories, archetypes }) =>
+        set((state) => ({
+          entityCategories:
+            categories === undefined
+              ? state.entityCategories
+              : new Map(categories.map((category) => [category.key, category])),
+          entityArchetypes:
+            archetypes === undefined
+              ? state.entityArchetypes
+              : new Map(archetypes.map((archetype) => [archetype.id, archetype])),
+        })),
+
       // 场景操作
       setSceneConfig: (config) =>
         set((state) => ({
@@ -2473,6 +2569,10 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
       },
 
       getEntityById: (id) => get().entities.get(id),
+
+      getEntityArchetypeById: (id) => get().entityArchetypes.get(id),
+
+      getEntityCategoryByKey: (key) => get().entityCategories.get(key),
 
       getEntitiesInZone: (zoneId) => {
         const zone = get().entities.get(zoneId) as ZoneEntity | undefined

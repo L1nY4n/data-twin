@@ -483,7 +483,7 @@ async fn overview_alarm_and_audit_endpoints_reflect_admin_state() {
     assert_eq!(initial_overview.status(), StatusCode::OK);
     let initial_overview_body = parse_json(initial_overview).await;
     assert_eq!(initial_overview_body["sceneVersion"], json!(1));
-    assert_eq!(initial_overview_body["entityCount"], json!(16));
+    assert_eq!(initial_overview_body["entityCount"], json!(15));
     assert_eq!(initial_overview_body["ruleCount"], json!(1));
     assert_eq!(initial_overview_body["connectorCount"], json!(0));
     assert_eq!(initial_overview_body["bindingCount"], json!(0));
@@ -1915,6 +1915,999 @@ async fn rule_validate_returns_errors_for_cycle_or_missing_config() {
     assert!(errors
         .iter()
         .any(|item| item.as_str().unwrap().contains("requires non-empty config")));
+}
+
+#[tokio::test]
+async fn entity_category_and_archetype_crud_flow_is_exposed_via_bootstrap() {
+    init_test_database_url();
+    let app = backend_core_rs::app::build_app("http://localhost:3000")
+        .await
+        .expect("app should build");
+
+    let category_response = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/admin/entity-categories",
+            json!({
+              "id": "category-robotics",
+              "key": "robotics",
+              "displayName": "机器人",
+              "description": "机器人与自动化单元",
+              "icon": "Bot",
+              "color": "#38bdf8",
+              "sortOrder": 10,
+              "createdAt": 0,
+              "updatedAt": 0
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(category_response.status(), StatusCode::OK);
+
+    let archetype_response = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/admin/entity-archetypes",
+            json!({
+              "id": "archetype-inspection-robot-v1",
+              "key": "inspection-robot-v1",
+              "categoryId": "category-robotics",
+              "categoryKey": "ignored-by-backend",
+              "displayName": "巡检机器人 V1",
+              "description": "可移动巡检机器人原型",
+              "capabilities": {
+                "hasModel": false,
+                "movable": true,
+                "bindable": true,
+                "statusBearing": true,
+                "detailFieldsVisible": true
+              },
+              "metadata": {
+                "defaultStatus": "active"
+              },
+              "createdAt": 0,
+              "updatedAt": 0
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(archetype_response.status(), StatusCode::OK);
+    let archetype_body = parse_json(archetype_response).await;
+    assert_eq!(archetype_body["categoryKey"], json!("robotics"));
+
+    let bootstrap_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/api/v1/admin/bootstrap")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(bootstrap_response.status(), StatusCode::OK);
+    let bootstrap_body = parse_json(bootstrap_response).await;
+    assert!(bootstrap_body["entityCategories"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item["key"] == json!("robotics")));
+    assert!(bootstrap_body["entityArchetypes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item["key"] == json!("inspection-robot-v1")));
+
+    let delete_category_while_in_use = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::DELETE)
+                .uri("/api/v1/admin/entity-categories/category-robotics")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(delete_category_while_in_use.status(), StatusCode::CONFLICT);
+
+    let delete_archetype = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::DELETE)
+                .uri("/api/v1/admin/entity-archetypes/archetype-inspection-robot-v1")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(delete_archetype.status(), StatusCode::NO_CONTENT);
+
+    let delete_category = app
+        .oneshot(
+            Request::builder()
+                .method(Method::DELETE)
+                .uri("/api/v1/admin/entity-categories/category-robotics")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(delete_category.status(), StatusCode::NO_CONTENT);
+}
+
+#[tokio::test]
+async fn model_asset_upload_returns_persisted_asset_metadata() {
+    init_test_database_url();
+    let app = backend_core_rs::app::build_app("http://localhost:3000")
+        .await
+        .expect("app should build");
+
+    let body = concat!(
+        "--boundary\r\n",
+        "Content-Disposition: form-data; name=\"file\"; filename=\"robot.fbx\"\r\n",
+        "Content-Type: application/octet-stream\r\n\r\n",
+        "Kaydara FBX Binary  \0\x1a\0fake",
+        "\r\n--boundary--\r\n"
+    );
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/v1/admin/model-assets/upload")
+                .header(CONTENT_TYPE, "multipart/form-data; boundary=boundary")
+                .body(Body::from(body.as_bytes().to_vec()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let response_body = parse_json(response).await;
+    assert_eq!(response_body["fileType"], json!("fbx"));
+    assert_eq!(response_body["fileName"], json!("robot.fbx"));
+    assert_eq!(response_body["fileSizeBytes"], json!(27));
+    assert!(response_body["assetUrl"].as_str().unwrap().ends_with(".fbx"));
+    assert_eq!(response_body["calibration"]["scale"]["x"], json!(1.0));
+}
+
+#[tokio::test]
+async fn entity_archetype_rejects_remote_model_asset_urls() {
+    init_test_database_url();
+    let app = backend_core_rs::app::build_app("http://localhost:3000")
+        .await
+        .expect("app should build");
+
+    let category_response = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/admin/entity-categories",
+            json!({
+              "id": "category-robotics",
+              "key": "robotics",
+              "displayName": "机器人",
+              "description": "机器人与自动化单元",
+              "icon": "Bot",
+              "color": "#38bdf8",
+              "sortOrder": 10,
+              "createdAt": 0,
+              "updatedAt": 0
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(category_response.status(), StatusCode::OK);
+
+    let archetype_response = app
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/admin/entity-archetypes",
+            json!({
+              "id": "archetype-inspection-robot-v1",
+              "key": "inspection-robot-v1",
+              "categoryId": "category-robotics",
+              "categoryKey": "robotics",
+              "displayName": "巡检机器人 V1",
+              "description": "可移动巡检机器人原型",
+              "capabilities": {
+                "hasModel": true,
+                "movable": true,
+                "bindable": true,
+                "statusBearing": true,
+                "detailFieldsVisible": true
+              },
+              "model": {
+                "assetId": "asset-robot-1",
+                "fileName": "robot.glb",
+                "fileType": "glb",
+                "assetUrl": "https://example.com/robot.glb",
+                "calibration": {
+                  "scale": { "x": 1, "y": 1, "z": 1 },
+                  "rotation": { "x": 0, "y": 0, "z": 0 },
+                  "translation": { "x": 0, "y": 0, "z": 0 },
+                  "floorOffset": 0
+                },
+                "uploadedAt": 1
+              },
+              "metadata": {},
+              "createdAt": 0,
+              "updatedAt": 0
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(archetype_response.status(), StatusCode::BAD_REQUEST);
+    let body = parse_json(archetype_response).await;
+    assert!(body["error"]
+        .as_str()
+        .unwrap()
+        .contains("/assets/entity-archetypes/"));
+}
+
+#[tokio::test]
+async fn dynamic_entity_requires_existing_archetype_and_normalizes_category_key() {
+    init_test_database_url();
+    let app = backend_core_rs::app::build_app("http://localhost:3000")
+        .await
+        .expect("app should build");
+
+    let category_response = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/admin/entity-categories",
+            json!({
+              "id": "category-robotics",
+              "key": "robotics",
+              "displayName": "机器人",
+              "description": "机器人与自动化单元",
+              "icon": "Bot",
+              "color": "#38bdf8",
+              "sortOrder": 10,
+              "createdAt": 0,
+              "updatedAt": 0
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(category_response.status(), StatusCode::OK);
+
+    let archetype_response = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/admin/entity-archetypes",
+            json!({
+              "id": "archetype-inspection-robot-v1",
+              "key": "inspection-robot-v1",
+              "categoryId": "category-robotics",
+              "categoryKey": "robotics",
+              "displayName": "巡检机器人 V1",
+              "description": "可移动巡检机器人原型",
+              "capabilities": {
+                "hasModel": false,
+                "movable": true,
+                "bindable": true,
+                "statusBearing": true,
+                "detailFieldsVisible": true
+              },
+              "metadata": {},
+              "createdAt": 0,
+              "updatedAt": 0
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(archetype_response.status(), StatusCode::OK);
+
+    let create_entity_response = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/admin/entities",
+            json!({
+              "id": "dynamic-robot-01",
+              "type": "dynamic",
+              "name": "巡检机器人 01",
+              "position": { "x": 1, "y": 0, "z": 2 },
+              "rotation": { "x": 0, "y": 0, "z": 0 },
+              "scale": { "x": 1, "y": 1, "z": 1 },
+              "status": "active",
+              "visible": true,
+              "metadata": {},
+              "createdAt": 0,
+              "updatedAt": 0,
+              "archetypeId": "archetype-inspection-robot-v1",
+              "categoryKey": "mismatched-category",
+              "attributes": { "battery": 88 },
+              "displayAttributes": { "archetype": "巡检机器人 V1" }
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(create_entity_response.status(), StatusCode::OK);
+    let create_entity_body = parse_json(create_entity_response).await;
+    assert_eq!(create_entity_body["categoryKey"], json!("robotics"));
+
+    let invalid_entity_response = app
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/admin/entities",
+            json!({
+              "id": "dynamic-robot-invalid",
+              "type": "dynamic",
+              "name": "孤立原型机器人",
+              "position": { "x": 1, "y": 0, "z": 2 },
+              "rotation": { "x": 0, "y": 0, "z": 0 },
+              "scale": { "x": 1, "y": 1, "z": 1 },
+              "status": "active",
+              "visible": true,
+              "metadata": {},
+              "createdAt": 0,
+              "updatedAt": 0,
+              "archetypeId": "archetype-missing",
+              "categoryKey": "robotics",
+              "attributes": {},
+              "displayAttributes": {}
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(invalid_entity_response.status(), StatusCode::BAD_REQUEST);
+    let invalid_body = parse_json(invalid_entity_response).await;
+    assert!(invalid_body["error"]
+        .as_str()
+        .unwrap()
+        .contains("does not exist"));
+}
+
+#[tokio::test]
+async fn dynamic_entity_crud_is_reflected_in_site_bootstrap_without_publish() {
+    init_test_database_url();
+    let app = backend_core_rs::app::build_app("http://localhost:3000")
+        .await
+        .expect("app should build");
+
+    let initial_bootstrap = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/api/v1/site/bootstrap")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(initial_bootstrap.status(), StatusCode::OK);
+    let initial_body = parse_json(initial_bootstrap).await;
+    let initial_scene_version = initial_body["sceneVersion"].as_u64().unwrap();
+
+    let _ = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/admin/entity-categories",
+            json!({
+              "id": "category-robotics",
+              "key": "robotics",
+              "displayName": "机器人",
+              "description": "机器人与自动化单元",
+              "icon": "Bot",
+              "color": "#38bdf8",
+              "sortOrder": 10,
+              "createdAt": 0,
+              "updatedAt": 0
+            }),
+        ))
+        .await
+        .unwrap();
+
+    let _ = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/admin/entity-archetypes",
+            json!({
+              "id": "archetype-inspection-robot-v1",
+              "key": "inspection-robot-v1",
+              "categoryId": "category-robotics",
+              "categoryKey": "robotics",
+              "displayName": "巡检机器人 V1",
+              "description": "可移动巡检机器人原型",
+              "capabilities": {
+                "hasModel": false,
+                "movable": true,
+                "bindable": true,
+                "statusBearing": true,
+                "detailFieldsVisible": true
+              },
+              "metadata": {},
+              "createdAt": 0,
+              "updatedAt": 0
+            }),
+        ))
+        .await
+        .unwrap();
+
+    let create_entity_response = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/admin/entities",
+            json!({
+              "id": "dynamic-robot-live-01",
+              "type": "dynamic",
+              "name": "巡检机器人 Live 01",
+              "position": { "x": 8, "y": 0, "z": 3 },
+              "rotation": { "x": 0, "y": 0, "z": 0 },
+              "scale": { "x": 1, "y": 1, "z": 1 },
+              "status": "active",
+              "visible": true,
+              "metadata": {},
+              "createdAt": 0,
+              "updatedAt": 0,
+              "archetypeId": "archetype-inspection-robot-v1",
+              "categoryKey": "robotics",
+              "attributes": { "battery": 91 },
+              "displayAttributes": { "archetype": "巡检机器人 V1" }
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(create_entity_response.status(), StatusCode::OK);
+
+    let site_bootstrap = app
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/api/v1/site/bootstrap")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(site_bootstrap.status(), StatusCode::OK);
+    let site_bootstrap_body = parse_json(site_bootstrap).await;
+    assert_eq!(
+        site_bootstrap_body["sceneVersion"].as_u64().unwrap(),
+        initial_scene_version + 1
+    );
+    assert!(site_bootstrap_body["entities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|entity| entity["id"] == json!("dynamic-robot-live-01")));
+}
+
+#[tokio::test]
+async fn archetype_recategorization_rewrites_existing_dynamic_entity_category_keys() {
+    init_test_database_url();
+    let app = backend_core_rs::app::build_app("http://localhost:3000")
+        .await
+        .expect("app should build");
+
+    for (id, key, name) in [
+        ("category-robotics", "robotics", "机器人"),
+        ("category-autonomy", "autonomy", "自治设备"),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(json_request(
+                Method::POST,
+                "/api/v1/admin/entity-categories",
+                json!({
+                  "id": id,
+                  "key": key,
+                  "displayName": name,
+                  "description": "",
+                  "icon": "Bot",
+                  "color": "#38bdf8",
+                  "sortOrder": 10,
+                  "createdAt": 0,
+                  "updatedAt": 0
+                }),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    let response = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/admin/entity-archetypes",
+            json!({
+              "id": "archetype-inspection-robot-v1",
+              "key": "inspection-robot-v1",
+              "categoryId": "category-robotics",
+              "categoryKey": "robotics",
+              "displayName": "巡检机器人 V1",
+              "description": "",
+              "capabilities": {
+                "hasModel": false,
+                "movable": true,
+                "bindable": true,
+                "statusBearing": true,
+                "detailFieldsVisible": true
+              },
+              "metadata": {},
+              "createdAt": 0,
+              "updatedAt": 0
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let response = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/admin/entities",
+            json!({
+              "id": "dynamic-robot-01",
+              "type": "dynamic",
+              "name": "巡检机器人 01",
+              "position": { "x": 1, "y": 0, "z": 2 },
+              "rotation": { "x": 0, "y": 0, "z": 0 },
+              "scale": { "x": 1, "y": 1, "z": 1 },
+              "status": "active",
+              "visible": true,
+              "metadata": {},
+              "createdAt": 0,
+              "updatedAt": 0,
+              "archetypeId": "archetype-inspection-robot-v1",
+              "categoryKey": "robotics",
+              "attributes": {},
+              "displayAttributes": { "category": "robotics" }
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let response = app
+        .clone()
+        .oneshot(json_request(
+            Method::PUT,
+            "/api/v1/admin/entity-archetypes/archetype-inspection-robot-v1",
+            json!({
+              "id": "archetype-inspection-robot-v1",
+              "key": "inspection-robot-v1",
+              "categoryId": "category-autonomy",
+              "categoryKey": "autonomy",
+              "displayName": "巡检机器人 V1",
+              "description": "",
+              "capabilities": {
+                "hasModel": false,
+                "movable": true,
+                "bindable": true,
+                "statusBearing": true,
+                "detailFieldsVisible": true
+              },
+              "metadata": {},
+              "createdAt": 0,
+              "updatedAt": 0
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let entities_response = app
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/api/v1/admin/entities")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(entities_response.status(), StatusCode::OK);
+    let entities_body = parse_json(entities_response).await;
+    let dynamic_entity = entities_body
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entity| entity["id"] == json!("dynamic-robot-01"))
+        .unwrap();
+    assert_eq!(dynamic_entity["categoryKey"], json!("autonomy"));
+    assert_eq!(dynamic_entity["displayAttributes"]["category"], json!("autonomy"));
+}
+
+#[tokio::test]
+async fn deleting_referenced_archetype_returns_conflict() {
+    init_test_database_url();
+    let app = backend_core_rs::app::build_app("http://localhost:3000")
+        .await
+        .expect("app should build");
+
+    let _ = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/admin/entity-categories",
+            json!({
+              "id": "category-robotics",
+              "key": "robotics",
+              "displayName": "机器人",
+              "description": "",
+              "icon": "Bot",
+              "color": "#38bdf8",
+              "sortOrder": 10,
+              "createdAt": 0,
+              "updatedAt": 0
+            }),
+        ))
+        .await
+        .unwrap();
+
+    let _ = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/admin/entity-archetypes",
+            json!({
+              "id": "archetype-inspection-robot-v1",
+              "key": "inspection-robot-v1",
+              "categoryId": "category-robotics",
+              "categoryKey": "robotics",
+              "displayName": "巡检机器人 V1",
+              "description": "",
+              "capabilities": {
+                "hasModel": false,
+                "movable": true,
+                "bindable": true,
+                "statusBearing": true,
+                "detailFieldsVisible": true
+              },
+              "metadata": {},
+              "createdAt": 0,
+              "updatedAt": 0
+            }),
+        ))
+        .await
+        .unwrap();
+
+    let _ = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/admin/entities",
+            json!({
+              "id": "dynamic-robot-01",
+              "type": "dynamic",
+              "name": "巡检机器人 01",
+              "position": { "x": 1, "y": 0, "z": 2 },
+              "rotation": { "x": 0, "y": 0, "z": 0 },
+              "scale": { "x": 1, "y": 1, "z": 1 },
+              "status": "active",
+              "visible": true,
+              "metadata": {},
+              "createdAt": 0,
+              "updatedAt": 0,
+              "archetypeId": "archetype-inspection-robot-v1",
+              "categoryKey": "robotics",
+              "attributes": {},
+              "displayAttributes": {}
+            }),
+        ))
+        .await
+        .unwrap();
+
+    let delete_response = app
+        .oneshot(
+            Request::builder()
+                .method(Method::DELETE)
+                .uri("/api/v1/admin/entity-archetypes/archetype-inspection-robot-v1")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(delete_response.status(), StatusCode::CONFLICT);
+}
+
+#[tokio::test]
+async fn category_key_rename_rewrites_dependent_archetypes_and_dynamic_entities() {
+    init_test_database_url();
+    let app = backend_core_rs::app::build_app("http://localhost:3000")
+        .await
+        .expect("app should build");
+
+    let _ = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/admin/entity-categories",
+            json!({
+              "id": "category-robotics",
+              "key": "robotics",
+              "displayName": "机器人",
+              "description": "",
+              "icon": "Bot",
+              "color": "#38bdf8",
+              "sortOrder": 10,
+              "createdAt": 0,
+              "updatedAt": 0
+            }),
+        ))
+        .await
+        .unwrap();
+
+    let _ = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/admin/entity-archetypes",
+            json!({
+              "id": "archetype-inspection-robot-v1",
+              "key": "inspection-robot-v1",
+              "categoryId": "category-robotics",
+              "categoryKey": "robotics",
+              "displayName": "巡检机器人 V1",
+              "description": "",
+              "capabilities": {
+                "hasModel": false,
+                "movable": true,
+                "bindable": true,
+                "statusBearing": true,
+                "detailFieldsVisible": true
+              },
+              "metadata": {},
+              "createdAt": 0,
+              "updatedAt": 0
+            }),
+        ))
+        .await
+        .unwrap();
+
+    let _ = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/admin/entities",
+            json!({
+              "id": "dynamic-robot-rename-01",
+              "type": "dynamic",
+              "name": "巡检机器人 Rename 01",
+              "position": { "x": 3, "y": 0, "z": 4 },
+              "rotation": { "x": 0, "y": 0, "z": 0 },
+              "scale": { "x": 1, "y": 1, "z": 1 },
+              "status": "active",
+              "visible": true,
+              "metadata": {},
+              "createdAt": 0,
+              "updatedAt": 0,
+              "archetypeId": "archetype-inspection-robot-v1",
+              "categoryKey": "robotics",
+              "attributes": { "battery": 76, "archetypeKey": "inspection-robot-v1" },
+              "displayAttributes": { "category": "robotics", "archetype": "巡检机器人 V1" }
+            }),
+        ))
+        .await
+        .unwrap();
+
+    let update_category_response = app
+        .clone()
+        .oneshot(json_request(
+            Method::PUT,
+            "/api/v1/admin/entity-categories/category-robotics",
+            json!({
+              "id": "category-robotics",
+              "key": "mobile-robotics",
+              "displayName": "移动机器人",
+              "description": "",
+              "icon": "Bot",
+              "color": "#38bdf8",
+              "sortOrder": 10,
+              "createdAt": 0,
+              "updatedAt": 0
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(update_category_response.status(), StatusCode::OK);
+
+    let archetypes_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/api/v1/admin/entity-archetypes")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(archetypes_response.status(), StatusCode::OK);
+    let archetypes_body = parse_json(archetypes_response).await;
+    let archetype = archetypes_body
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["id"] == json!("archetype-inspection-robot-v1"))
+        .unwrap();
+    assert_eq!(archetype["categoryKey"], json!("mobile-robotics"));
+
+    let entities_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/api/v1/admin/entities")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(entities_response.status(), StatusCode::OK);
+    let entities_body = parse_json(entities_response).await;
+    let entity = entities_body
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["id"] == json!("dynamic-robot-rename-01"))
+        .unwrap();
+    assert_eq!(entity["categoryKey"], json!("mobile-robotics"));
+    assert_eq!(entity["displayAttributes"]["category"], json!("mobile-robotics"));
+
+    let site_bootstrap = app
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/api/v1/site/bootstrap")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(site_bootstrap.status(), StatusCode::OK);
+    let site_bootstrap_body = parse_json(site_bootstrap).await;
+    let site_entity = site_bootstrap_body["entities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["id"] == json!("dynamic-robot-rename-01"))
+        .unwrap();
+    assert_eq!(site_entity["categoryKey"], json!("mobile-robotics"));
+}
+
+#[tokio::test]
+async fn workspace_registry_supports_crud_and_homepage_switching() {
+    init_test_database_url();
+    let app = backend_core_rs::app::build_app("http://localhost:3000")
+        .await
+        .expect("app should build");
+
+    let initial_home = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/api/v1/site/home-workspace")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(initial_home.status(), StatusCode::OK);
+    let initial_home_body = parse_json(initial_home).await;
+    assert_eq!(initial_home_body["isHomepage"], json!(true));
+
+    let create_response = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/api/v1/admin/workspaces",
+            json!({
+              "id": "workspace-plant-b",
+              "slug": "plant-b",
+              "name": "厂区 B",
+              "description": "第二套工作区",
+              "isHomepage": false,
+              "createdAt": 0,
+              "updatedAt": 0
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(create_response.status(), StatusCode::OK);
+
+    let update_response = app
+        .clone()
+        .oneshot(json_request(
+            Method::PUT,
+            "/api/v1/admin/workspaces/workspace-plant-b",
+            json!({
+              "id": "workspace-plant-b",
+              "slug": "plant-b",
+              "name": "厂区 B",
+              "description": "第二套工作区",
+              "isHomepage": true,
+              "createdAt": 0,
+              "updatedAt": 0
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(update_response.status(), StatusCode::OK);
+
+    let list_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/api/v1/admin/workspaces")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(list_response.status(), StatusCode::OK);
+    let list_body = parse_json(list_response).await;
+    assert!(list_body
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|workspace| workspace["id"] == json!("workspace-plant-b")));
+    assert!(list_body
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|workspace| workspace["isHomepage"] == json!(true))
+        .count()
+        == 1);
+
+    let home_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/api/v1/site/home-workspace")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(home_response.status(), StatusCode::OK);
+    let home_body = parse_json(home_response).await;
+    assert_eq!(home_body["id"], json!("workspace-plant-b"));
+
+    let delete_default_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::DELETE)
+                .uri("/api/v1/admin/workspaces/workspace-plant-b")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(delete_default_response.status(), StatusCode::NO_CONTENT);
+
+    let final_home = app
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/api/v1/site/home-workspace")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(final_home.status(), StatusCode::OK);
+    let final_home_body = parse_json(final_home).await;
+    assert_eq!(final_home_body["isHomepage"], json!(true));
 }
 
 struct PublishTestHarness {

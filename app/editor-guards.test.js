@@ -5,8 +5,20 @@ import { join } from 'node:path'
 describe('editor guards', () => {
   test('editor should live on a separate route with its own shell and local panel layout', () => {
     const page = readFileSync(join(process.cwd(), 'app/editor/page.tsx'), 'utf8')
+    const workspacePage = readFileSync(
+      join(process.cwd(), 'app/editor/[workspaceId]/page.tsx'),
+      'utf8'
+    )
+    const workspaceHelper = readFileSync(
+      join(process.cwd(), 'lib/digital-twin/editor-workspace.ts'),
+      'utf8'
+    )
     const shell = readFileSync(
       join(process.cwd(), 'components/editor/EditorShell.tsx'),
+      'utf8'
+    )
+    const toolbar = readFileSync(
+      join(process.cwd(), 'components/editor/EditorToolbar.tsx'),
       'utf8'
     )
     const sidebar = readFileSync(
@@ -14,13 +26,30 @@ describe('editor guards', () => {
       'utf8'
     )
 
-    expect(page.includes('EditorShell')).toBe(true)
+    expect(page.includes('redirect')).toBe(true)
+    expect(page.includes('DEFAULT_EDITOR_WORKSPACE_ID')).toBe(true)
+    expect(page.includes('/editor/${DEFAULT_EDITOR_WORKSPACE_ID}')).toBe(true)
+    expect(workspacePage.includes('EditorShell')).toBe(true)
+    expect(workspacePage.includes('workspaceHint={routeParams.workspaceId}')).toBe(true)
+    expect(workspacePage.includes('returnHref={query.returnTo}')).toBe(true)
+    expect(workspaceHelper.includes('/editor/${normalizedWorkspaceId}')).toBe(true)
     expect(shell.includes('SidebarProvider')).toBe(false)
     expect(shell.includes('EditorAppSidebar')).toBe(true)
     expect(shell.includes('EditorToolbar')).toBe(true)
+    expect(shell.includes('场景建模与发布工作台')).toBe(false)
+    expect(shell.includes('在统一工作区内完成资源摆放、属性编辑与发布协同')).toBe(false)
+    expect(toolbar.includes('ProductModuleNav')).toBe(false)
+    expect(toolbar.includes('模型工作区')).toBe(true)
+    expect(toolbar.includes('退出编辑')).toBe(false)
+    expect(toolbar.includes('sceneConfig.id')).toBe(true)
+    expect(toolbar.includes('returnHref')).toBe(false)
+    expect(toolbar.includes('resolvedReturnHref')).toBe(false)
     expect(shell.includes('EditorCanvas')).toBe(true)
     expect(shell.includes('resourcesPanelOpen')).toBe(true)
     expect(sidebar.includes('资源库 / 场景')).toBe(true)
+    expect(sidebar.includes('退出编辑')).toBe(true)
+    expect(sidebar.includes('resolvedReturnHref')).toBe(true)
+    expect(sidebar.includes('拖放到画布，或从场景区回选对象')).toBe(false)
     expect(sidebar.includes('/admin/overview')).toBe(false)
     expect(sidebar.includes('搜索墙体、门、摄像头、传感器、温控器')).toBe(true)
     expect(sidebar.includes('EDITOR_CATALOG_TRANSFER_MIME')).toBe(true)
@@ -30,7 +59,10 @@ describe('editor guards', () => {
   })
 
   test('viewer should remain on the live runtime path and not import editor state', () => {
-    const viewerPage = readFileSync(join(process.cwd(), 'app/page.tsx'), 'utf8')
+    const viewerPage = readFileSync(
+      join(process.cwd(), 'components/digital-twin/DigitalTwinViewerPage.tsx'),
+      'utf8'
+    )
 
     expect(viewerPage.includes('useLiveDigitalTwin')).toBe(true)
     expect(viewerPage.includes('EditorShell')).toBe(false)

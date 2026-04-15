@@ -1,10 +1,11 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Multipart, Path, State},
     http::StatusCode,
     response::{IntoResponse, Response},
     Json,
 };
 use serde::Deserialize;
+use std::{fs, path::PathBuf};
 use tokio::sync::watch;
 use uuid::Uuid;
 
@@ -12,10 +13,12 @@ use crate::{
     admin_service,
     app::AppState,
     contracts::{
-        AdminOverviewResponse, Alarm, AuditEventRecord, BootstrapResponse, ConfigChangedScope,
-        DataConnector, EditorSaveRequest, EditorSaveResponse, Entity, EntityBinding,
-        PublishStatusResponse, RuleConfig, RuleValidationResponse, SceneConfig, SceneResponse,
-        StaticAssetInstance,
+        AdminOverviewResponse, Alarm, ArchetypeModelAsset, ArchetypeModelCalibration,
+        AuditEventRecord, BootstrapResponse, ConfigChangedScope, DataConnector,
+        EditorSaveRequest, EditorSaveResponse, Entity, EntityArchetype, EntityBinding,
+        EntityCategory, ModelAssetFileType, PublishStatusResponse, RuleConfig,
+        RuleValidationResponse, SceneConfig, SceneResponse, StaticAssetInstance, Vector3,
+        WorkspaceRecord,
     },
     publish_service,
     store::StoreError,
@@ -102,6 +105,36 @@ type ApiResult<T> = Result<Json<T>, ApiError>;
 #[serde(rename_all = "camelCase")]
 pub struct ReplaceBindingsRequest {
     pub bindings: Vec<EntityBinding>,
+}
+
+fn model_asset_public_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../public/assets/entity-archetypes")
+}
+
+fn detect_model_file_type(file_name: &str) -> Result<ModelAssetFileType, ApiError> {
+    let lower = file_name.to_ascii_lowercase();
+    if lower.ends_with(".glb") {
+        Ok(ModelAssetFileType::Glb)
+    } else if lower.ends_with(".fbx") {
+        Ok(ModelAssetFileType::Fbx)
+    } else {
+        Err(ApiError::simple(
+            StatusCode::BAD_REQUEST,
+            "only .glb and .fbx model files are supported".to_string(),
+        ))
+    }
+}
+
+fn default_model_calibration() -> ArchetypeModelCalibration {
+    ArchetypeModelCalibration {
+        scale: Vector3 { x: 1.0, y: 1.0, z: 1.0 },
+        rotation: Vector3 { x: 0.0, y: 0.0, z: 0.0 },
+        translation: Vector3 { x: 0.0, y: 0.0, z: 0.0 },
+        floor_offset: 0.0,
+        bounds: None,
+        thumbnail_url: None,
+    }
 }
 
 async fn emit_config_changed(
@@ -377,6 +410,330 @@ pub async fn delete_entity(
         .map_err(ApiError::from_store)?;
     emit_config_changed(&state, scene_version, ConfigChangedScope::Entity).await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn list_workspaces(State(state): State<AppState>) -> ApiResult<Vec<WorkspaceRecord>> {
+    let workspaces = state
+        .store
+        .list_workspaces()
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(Json(workspaces))
+}
+
+pub async fn get_home_workspace(State(state): State<AppState>) -> ApiResult<WorkspaceRecord> {
+    let workspace = state
+        .store
+        .get_homepage_workspace()
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(Json(workspace))
+}
+
+pub async fn create_workspace(
+    State(state): State<AppState>,
+    Json(payload): Json<WorkspaceRecord>,
+) -> ApiResult<WorkspaceRecord> {
+    let workspace = state
+        .store
+        .create_workspace(payload)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(Json(workspace))
+}
+
+pub async fn get_workspace(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> ApiResult<WorkspaceRecord> {
+    let workspace = state
+        .store
+        .get_workspace(&id)
+        .await
+        .map_err(ApiError::from_store)?
+        .ok_or_else(|| ApiError::simple(StatusCode::NOT_FOUND, format!("workspace {id} not found")))?;
+    Ok(Json(workspace))
+}
+
+pub async fn update_workspace(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(payload): Json<WorkspaceRecord>,
+) -> ApiResult<WorkspaceRecord> {
+    let workspace = state
+        .store
+        .update_workspace(&id, payload)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(Json(workspace))
+}
+
+pub async fn delete_workspace(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    let deleted = state
+        .store
+        .delete_workspace(&id)
+        .await
+        .map_err(ApiError::from_store)?;
+    if !deleted {
+        return Err(ApiError::simple(StatusCode::NOT_FOUND, format!("workspace {id} not found")));
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn list_entity_categories(
+    State(state): State<AppState>,
+) -> ApiResult<Vec<EntityCategory>> {
+    let categories = state
+        .store
+        .list_entity_categories()
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(Json(categories))
+}
+
+pub async fn create_entity_category(
+    State(state): State<AppState>,
+    Json(payload): Json<EntityCategory>,
+) -> ApiResult<EntityCategory> {
+    let category = state
+        .store
+        .create_entity_category(payload)
+        .await
+        .map_err(ApiError::from_store)?;
+    let scene_version = state
+        .store
+        .scene_version()
+        .await
+        .map_err(ApiError::from_store)?;
+    emit_config_changed(&state, scene_version, ConfigChangedScope::Entity).await?;
+    Ok(Json(category))
+}
+
+pub async fn get_entity_category(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> ApiResult<EntityCategory> {
+    let category = state
+        .store
+        .get_entity_category(&id)
+        .await
+        .map_err(ApiError::from_store)?
+        .ok_or_else(|| {
+            ApiError::simple(StatusCode::NOT_FOUND, format!("entity category {id} not found"))
+        })?;
+    Ok(Json(category))
+}
+
+pub async fn update_entity_category(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(payload): Json<EntityCategory>,
+) -> ApiResult<EntityCategory> {
+    let category = state
+        .store
+        .update_entity_category(&id, payload)
+        .await
+        .map_err(ApiError::from_store)?;
+    let scene_version = state
+        .store
+        .scene_version()
+        .await
+        .map_err(ApiError::from_store)?;
+    emit_config_changed(&state, scene_version, ConfigChangedScope::Entity).await?;
+    Ok(Json(category))
+}
+
+pub async fn delete_entity_category(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    let deleted = state
+        .store
+        .delete_entity_category(&id)
+        .await
+        .map_err(ApiError::from_store)?;
+    if !deleted {
+        return Err(ApiError::simple(
+            StatusCode::NOT_FOUND,
+            format!("entity category {id} not found"),
+        ));
+    }
+    let scene_version = state
+        .store
+        .scene_version()
+        .await
+        .map_err(ApiError::from_store)?;
+    emit_config_changed(&state, scene_version, ConfigChangedScope::Entity).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn list_entity_archetypes(
+    State(state): State<AppState>,
+) -> ApiResult<Vec<EntityArchetype>> {
+    let archetypes = state
+        .store
+        .list_entity_archetypes()
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(Json(archetypes))
+}
+
+pub async fn create_entity_archetype(
+    State(state): State<AppState>,
+    Json(payload): Json<EntityArchetype>,
+) -> ApiResult<EntityArchetype> {
+    let archetype = state
+        .store
+        .create_entity_archetype(payload)
+        .await
+        .map_err(ApiError::from_store)?;
+    let scene_version = state
+        .store
+        .scene_version()
+        .await
+        .map_err(ApiError::from_store)?;
+    emit_config_changed(&state, scene_version, ConfigChangedScope::Entity).await?;
+    Ok(Json(archetype))
+}
+
+pub async fn get_entity_archetype(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> ApiResult<EntityArchetype> {
+    let archetype = state
+        .store
+        .get_entity_archetype(&id)
+        .await
+        .map_err(ApiError::from_store)?
+        .ok_or_else(|| {
+            ApiError::simple(StatusCode::NOT_FOUND, format!("entity archetype {id} not found"))
+        })?;
+    Ok(Json(archetype))
+}
+
+pub async fn update_entity_archetype(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(payload): Json<EntityArchetype>,
+) -> ApiResult<EntityArchetype> {
+    let archetype = state
+        .store
+        .update_entity_archetype(&id, payload)
+        .await
+        .map_err(ApiError::from_store)?;
+    let scene_version = state
+        .store
+        .scene_version()
+        .await
+        .map_err(ApiError::from_store)?;
+    emit_config_changed(&state, scene_version, ConfigChangedScope::Entity).await?;
+    Ok(Json(archetype))
+}
+
+pub async fn delete_entity_archetype(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    let deleted = state
+        .store
+        .delete_entity_archetype(&id)
+        .await
+        .map_err(ApiError::from_store)?;
+    if !deleted {
+        return Err(ApiError::simple(
+            StatusCode::NOT_FOUND,
+            format!("entity archetype {id} not found"),
+        ));
+    }
+    let scene_version = state
+        .store
+        .scene_version()
+        .await
+        .map_err(ApiError::from_store)?;
+    emit_config_changed(&state, scene_version, ConfigChangedScope::Entity).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn upload_model_asset(
+    mut multipart: Multipart,
+) -> ApiResult<ArchetypeModelAsset> {
+    let mut file_name: Option<String> = None;
+    let mut content_type: Option<String> = None;
+    let mut payload = Vec::new();
+
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|error| ApiError::simple(StatusCode::BAD_REQUEST, error.to_string()))?
+    {
+        if field.name() != Some("file") {
+            continue;
+        }
+
+        file_name = field.file_name().map(ToString::to_string);
+        content_type = field.content_type().map(ToString::to_string);
+        payload = field
+            .bytes()
+            .await
+            .map_err(|error| ApiError::simple(StatusCode::BAD_REQUEST, error.to_string()))?
+            .to_vec();
+        break;
+    }
+
+    let file_name = file_name.ok_or_else(|| {
+        ApiError::simple(
+            StatusCode::BAD_REQUEST,
+            "multipart field `file` is required".to_string(),
+        )
+    })?;
+    if payload.is_empty() {
+        return Err(ApiError::simple(
+            StatusCode::BAD_REQUEST,
+            "uploaded model file is empty".to_string(),
+        ));
+    }
+    if payload.len() > 20 * 1024 * 1024 {
+        return Err(ApiError::simple(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "model upload exceeds 20MB limit".to_string(),
+        ));
+    }
+
+    let file_type = detect_model_file_type(&file_name)?;
+    let extension = match file_type {
+        ModelAssetFileType::Glb => "glb",
+        ModelAssetFileType::Fbx => "fbx",
+    };
+    let asset_id = Uuid::new_v4().to_string();
+    let public_root = model_asset_public_root();
+    fs::create_dir_all(&public_root).map_err(|error| {
+        ApiError::simple(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("failed to create model asset directory: {error}"),
+        )
+    })?;
+    let stored_file_name = format!("{asset_id}.{extension}");
+    let disk_path = public_root.join(&stored_file_name);
+    fs::write(&disk_path, &payload).map_err(|error| {
+        ApiError::simple(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("failed to persist uploaded model asset: {error}"),
+        )
+    })?;
+
+    Ok(Json(ArchetypeModelAsset {
+        asset_id,
+        file_name,
+        file_type,
+        asset_url: format!("/assets/entity-archetypes/{stored_file_name}"),
+        content_type,
+        file_size_bytes: Some(payload.len() as u64),
+        calibration: default_model_calibration(),
+        uploaded_at: now_millis(),
+    }))
 }
 
 pub async fn list_static_assets(

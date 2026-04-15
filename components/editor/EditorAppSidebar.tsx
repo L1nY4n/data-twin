@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import {
   useEffect,
   useMemo,
@@ -8,6 +9,7 @@ import {
   type ReactNode,
 } from 'react'
 import {
+  ArrowLeft,
   ChevronDown,
   ChevronRight,
   Box,
@@ -67,6 +69,7 @@ type EditorAppSidebarProps = {
   className?: string
   collapsed?: boolean
   onToggleCollapse?: () => void
+  returnHref?: string
 }
 
 const CATALOG_FILTERS: Array<{ key: CatalogFilter; label: string }> = [
@@ -296,6 +299,7 @@ export function EditorAppSidebar({
   className,
   collapsed = false,
   onToggleCollapse,
+  returnHref,
 }: EditorAppSidebarProps) {
   const entities = useEditorSceneStore((state) => state.entities)
   const staticAssets = useEditorSceneStore((state) => state.staticAssets)
@@ -438,6 +442,7 @@ export function EditorAppSidebar({
   }, [authoredStaticAssets, editableEntities])
 
   const collapseLabel = collapsed ? 'Expand resources panel' : 'Collapse resources panel'
+  const resolvedReturnHref = returnHref?.trim() || '/'
 
   if (collapsed) {
     return (
@@ -485,10 +490,13 @@ export function EditorAppSidebar({
                 )}
                 <div className="grid min-w-0 flex-1 gap-1 text-left leading-tight">
                   <span className="truncate text-[13px] font-semibold">资源库 / 场景</span>
-                  <span className="truncate text-[11px] text-white/54">
-                    拖放到画布，或从场景区回选对象
-                  </span>
                 </div>
+                <Button asChild variant="ghost" size="sm" className="editor-control gap-1 px-2 text-[11px]">
+                  <Link href={resolvedReturnHref}>
+                    <ArrowLeft className="size-3.5" />
+                    退出编辑
+                  </Link>
+                </Button>
               </div>
             </div>
 

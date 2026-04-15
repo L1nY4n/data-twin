@@ -1,7 +1,7 @@
 'use client'
-
 import Link from 'next/link'
 import { 
+  ArrowUpRight,
   Eye, 
   Grid3X3, 
   Axis3D,
@@ -18,7 +18,6 @@ import {
   WifiOff,
   Bell,
   Settings,
-  Shield,
   ChevronDown,
   Sun,
   Moon,
@@ -40,6 +39,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { ViewerAdminToolbarBar } from '@/components/viewer-admin/primitives'
+import { ProductModuleNav } from '@/components/chrome/ProductModuleNav'
+import { buildEditorWorkspaceHref } from '@/lib/digital-twin/editor-workspace'
 import { cn } from '@/lib/utils'
 
 const VIEW_MODE_CONFIG: Record<ViewMode, { icon: typeof Move; label: string }> = {
@@ -79,6 +80,7 @@ export function Toolbar() {
   const setRendererMode = useDigitalTwinStore((state) => state.setRendererMode)
   const isDarkTheme = resolvedTheme === 'dark'
   const sceneTitle = sceneConfig.name?.trim() || '数字孪生平台'
+  const workspaceHref = buildEditorWorkspaceHref(sceneConfig.id, '/')
 
   const handleViewModeSelect = (mode: ViewMode) => {
     if (mode === 'topdown') {
@@ -95,7 +97,7 @@ export function Toolbar() {
 
   return (
     <TooltipProvider delayDuration={300}>
-      <ViewerAdminToolbarBar className="editor-toolbar mx-2 mt-2 flex h-12 items-center justify-between rounded-[22px] px-4">
+      <ViewerAdminToolbarBar className="editor-toolbar mx-2 mt-2 flex min-h-12 flex-wrap items-center gap-y-2 rounded-[22px] px-4 py-2">
         {/* 左侧：视图控制 */}
         <div className="flex items-center gap-1">
           {/* 网格开关 */}
@@ -260,13 +262,14 @@ export function Toolbar() {
           )}
         </div>
 
-        {/* 中间：标题 */}
-        <div className="absolute left-1/2 -translate-x-1/2">
-          <h1 className="text-sm font-medium">{sceneTitle}</h1>
+        {/* 中间：标题 + 模块导航 */}
+        <div className="order-3 flex basis-full items-center justify-center gap-3 xl:order-none xl:basis-auto xl:flex-1">
+          <h1 className="hidden text-sm font-medium xl:block">{sceneTitle}</h1>
+          <ProductModuleNav className="max-w-[min(100%,34rem)] justify-center" />
         </div>
 
         {/* 右侧：状态和控制 */}
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 xl:ml-auto">
           {/* 轨迹回放控制 */}
           <Tooltip>
             <TooltipTrigger asChild>
@@ -343,9 +346,9 @@ export function Toolbar() {
           </Tooltip>
 
           <Button asChild variant="secondary" size="sm" className="h-8 gap-1.5 px-3 text-[11px]">
-            <Link href="/admin/overview">
-              <Shield className="h-4 w-4" />
-              管理中心
+            <Link href={workspaceHref}>
+              <ArrowUpRight className="h-4 w-4" />
+              进入工作区
             </Link>
           </Button>
 

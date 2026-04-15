@@ -359,6 +359,12 @@ export function buildRuntimeStatusEntityPatch(
       if (department !== null) patch.department = department
       break
     }
+    case 'dynamic':
+      patch.attributes = {
+        ...entity.attributes,
+        ...parameters,
+      }
+      break
     case 'zone':
       break
   }

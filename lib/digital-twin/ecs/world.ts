@@ -11,6 +11,7 @@ import type {
   AccessRule,
   Alarm,
   CameraType,
+  DynamicEntityAttributeValue,
   EntityStatus,
   EntityType,
   SensorType,
@@ -31,6 +32,7 @@ const ENTITY_TYPE_TO_CODE: Record<EntityType, number> = {
   sensor: 4,
   camera: 5,
   zone: 6,
+  dynamic: 7,
 }
 
 const STATUS_TO_CODE: Record<EntityStatus, number> = {
@@ -130,6 +132,10 @@ export interface EcsEntitySnapshot {
   boundary?: Vector3[]
   accessRules?: AccessRule[]
   currentOccupancy?: number
+  archetypeId?: string
+  categoryKey?: string
+  attributes?: Record<string, DynamicEntityAttributeValue>
+  displayAttributes?: Record<string, DynamicEntityAttributeValue>
 }
 
 export interface EcsCreatePayload {
@@ -177,6 +183,10 @@ export interface EcsCreatePayload {
   boundary?: Vector3[]
   accessRules?: AccessRule[]
   currentOccupancy?: number
+  archetypeId?: string
+  categoryKey?: string
+  attributes?: Record<string, DynamicEntityAttributeValue>
+  displayAttributes?: Record<string, DynamicEntityAttributeValue>
 }
 
 export interface EcsUpdatePayload {
@@ -386,6 +396,12 @@ function applyCreate(world: EcsWorld, eid: number, payload: EcsCreatePayload) {
     boundary: cloneBoundary(payload.boundary),
     accessRules: cloneAccessRules(payload.accessRules),
     currentOccupancy: payload.currentOccupancy,
+    archetypeId: payload.archetypeId,
+    categoryKey: payload.categoryKey,
+    attributes: payload.attributes ? { ...payload.attributes } : undefined,
+    displayAttributes: payload.displayAttributes
+      ? { ...payload.displayAttributes }
+      : undefined,
   })
   world.byType[payload.entityType].add(payload.id)
 }
@@ -435,6 +451,12 @@ function applyUpdate(world: EcsWorld, eid: number, payload: EcsUpdatePayload) {
   if (updates.boundary !== undefined) existing.boundary = cloneBoundary(updates.boundary)
   if (updates.accessRules !== undefined) existing.accessRules = cloneAccessRules(updates.accessRules)
   if (updates.currentOccupancy !== undefined) existing.currentOccupancy = updates.currentOccupancy
+  if (updates.archetypeId !== undefined) existing.archetypeId = updates.archetypeId
+  if (updates.categoryKey !== undefined) existing.categoryKey = updates.categoryKey
+  if (updates.attributes !== undefined) existing.attributes = { ...updates.attributes }
+  if (updates.displayAttributes !== undefined) {
+    existing.displayAttributes = { ...updates.displayAttributes }
+  }
   if (updates.createdAt !== undefined) existing.createdAt = updates.createdAt
   existing.updatedAt = updates.updatedAt ?? Date.now()
   if (updates.metadata) {
@@ -614,5 +636,6 @@ function createTypeIndex(): EcsTypeIndex {
     sensor: new Set(),
     camera: new Set(),
     zone: new Set(),
+    dynamic: new Set(),
   }
 }

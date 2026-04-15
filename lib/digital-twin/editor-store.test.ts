@@ -35,6 +35,8 @@ function createBootstrapPayload(entity: Entity): BootstrapPayload {
     sceneConfig: DEFAULT_PUBLISHED_SCENE_PACKAGE.sceneConfig,
     entities: [entity],
     staticAssets: [],
+    entityCategories: [],
+    entityArchetypes: [],
     rules: [],
     alarms: [],
     publishedScene: null,

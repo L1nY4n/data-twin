@@ -4,7 +4,7 @@ import { join } from 'node:path'
 
 describe('rules panel dock layout', () => {
   test('renders rules panel as right dock inside canvas container', () => {
-    const pagePath = join(process.cwd(), 'app/page.tsx')
+    const pagePath = join(process.cwd(), 'components/digital-twin/DigitalTwinViewerPage.tsx')
     const source = readFileSync(pagePath, 'utf8')
 
     expect(source.includes('absolute inset-y-2 right-2 z-20')).toBe(true)
@@ -12,14 +12,14 @@ describe('rules panel dock layout', () => {
   })
 
   test('does not reserve fixed bottom height for rules panel anymore', () => {
-    const pagePath = join(process.cwd(), 'app/page.tsx')
+    const pagePath = join(process.cwd(), 'components/digital-twin/DigitalTwinViewerPage.tsx')
     const source = readFileSync(pagePath, 'utf8')
 
     expect(source.includes("bottomPanelOpen ? 'h-72' : 'h-0'")).toBe(false)
   })
 
   test('keeps left and right side panels at fixed non-shrinking widths', () => {
-    const pagePath = join(process.cwd(), 'app/page.tsx')
+    const pagePath = join(process.cwd(), 'components/digital-twin/DigitalTwinViewerPage.tsx')
     const source = readFileSync(pagePath, 'utf8')
 
     expect(source.includes('ViewerAdminEdgePanel')).toBe(true)
@@ -29,7 +29,7 @@ describe('rules panel dock layout', () => {
   })
 
   test('keeps incident video dialog in the page shell without the old mock citation hook', () => {
-    const pagePath = join(process.cwd(), 'app/page.tsx')
+    const pagePath = join(process.cwd(), 'components/digital-twin/DigitalTwinViewerPage.tsx')
     const source = readFileSync(pagePath, 'utf8')
 
     expect(source.includes('useCitationRuntime()')).toBe(false)
