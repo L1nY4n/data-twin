@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useSearchParams } from 'next/navigation'
 import {
   ChevronRight,
 } from 'lucide-react'
@@ -33,7 +33,7 @@ import {
 } from '@/components/viewer-admin/primitives'
 import { ProductModuleNav } from '@/components/chrome/ProductModuleNav'
 
-function resolveAdminPath(pathname: string): {
+function resolveAdminPath(pathname: string, selectedWorkspaceId?: string | null): {
   activeSection: AdminSection
   workspaceId?: string
 } {
@@ -49,7 +49,10 @@ function resolveAdminPath(pathname: string): {
   }
 
   if (pathname === '/admin/workspaces') {
-    return { activeSection: 'workspaces' }
+    return {
+      activeSection: 'workspaces',
+      workspaceId: selectedWorkspaceId ?? undefined,
+    }
   }
 
   const section = pathname.replace('/admin/', '') as AdminSection
@@ -139,7 +142,11 @@ function AdminInsetHeader({
 
 export function AdminShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
-  const { activeSection, workspaceId } = resolveAdminPath(pathname)
+  const searchParams = useSearchParams()
+  const { activeSection, workspaceId } = resolveAdminPath(
+    pathname,
+    searchParams.get('workspaceId')
+  )
 
   return (
     <ViewerAdminSurfaceShell

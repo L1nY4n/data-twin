@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ArrowUpRight, Plus, RefreshCw, Save, Trash2 } from 'lucide-react'
 import Link from 'next/link'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { AdvancedJsonEditor } from '@/components/admin/AdvancedJsonEditor'
 import {
   AdminButton,
@@ -31,6 +32,8 @@ import { buildEditorHref } from '@/lib/digital-twin/editor-routing'
 import type { WorkspaceRecord } from '@/lib/digital-twin/types'
 
 export function WorkspacesSection() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
   const [workspaces, setWorkspaces] = useState<WorkspaceRecord[]>([])
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null)
   const [draftSeed, setDraftSeed] = useState<WorkspaceRecord | null>(null)
@@ -42,20 +45,31 @@ export function WorkspacesSection() {
     [workspaces, selectedWorkspaceId]
   )
   const draft = useStructuredDraft(draftSeed ?? selectedWorkspace, cloneWorkspaceDraft)
+  const selectedWorkspaceIdFromUrl = searchParams.get('workspaceId')
 
   const loadWorkspaces = useCallback(async () => {
     setIsLoading(true)
     try {
       const loaded = await listWorkspaces()
+      const nextSelectedWorkspaceId =
+        loaded.find((workspace) => workspace.id === selectedWorkspaceIdFromUrl)?.id ??
+        loaded.find((workspace) => workspace.id === selectedWorkspaceId)?.id ??
+        loaded[0]?.id ??
+        null
       setWorkspaces(loaded)
-      setSelectedWorkspaceId((current) => current ?? loaded[0]?.id ?? null)
+      setSelectedWorkspaceId(nextSelectedWorkspaceId)
+      if (nextSelectedWorkspaceId && nextSelectedWorkspaceId !== selectedWorkspaceIdFromUrl) {
+        router.replace(`/admin/workspaces?workspaceId=${encodeURIComponent(nextSelectedWorkspaceId)}`, {
+          scroll: false,
+        })
+      }
       setStatusMessage('已同步工作区目录')
     } catch (error) {
       setStatusMessage(error instanceof Error ? error.message : '加载工作区失败')
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [router, selectedWorkspaceId, selectedWorkspaceIdFromUrl])
 
   useEffect(() => {
     void loadWorkspaces()
@@ -79,10 +93,13 @@ export function WorkspacesSection() {
       await loadWorkspaces()
       setSelectedWorkspaceId(payload.id)
       setDraftSeed(null)
+      router.replace(`/admin/workspaces?workspaceId=${encodeURIComponent(payload.id)}`, {
+        scroll: false,
+      })
     } catch (error) {
       setStatusMessage(error instanceof Error ? error.message : '保存工作区失败')
     }
-  }, [draft, loadWorkspaces, workspaces])
+  }, [draft, loadWorkspaces, router, workspaces])
 
   const removeWorkspace = useCallback(async () => {
     if (!selectedWorkspaceId) return
@@ -127,7 +144,6 @@ export function WorkspacesSection() {
               onClick={() => {
                 const template = createWorkspaceTemplate()
                 setDraftSeed(template)
-                setSelectedWorkspaceId(null)
                 draft.replaceDraft(template)
                 setStatusMessage('已创建工作区草稿')
               }}
@@ -147,6 +163,9 @@ export function WorkspacesSection() {
                       onClick={() => {
                         setDraftSeed(null)
                         setSelectedWorkspaceId(workspace.id)
+                        router.replace(`/admin/workspaces?workspaceId=${encodeURIComponent(workspace.id)}`, {
+                          scroll: false,
+                        })
                       }}
                     >
                       <div className="flex items-start justify-between gap-3">

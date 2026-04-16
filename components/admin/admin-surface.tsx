@@ -187,8 +187,8 @@ export function SectionPanel({
         className
       )}
     >
-      <CardHeader className="admin-section-panel__header items-center gap-2 border-b border-white/8 bg-transparent px-5 py-4">
-        <div className="flex flex-wrap items-start justify-between gap-4">
+      <CardHeader className="admin-section-panel__header items-center gap-2 border-b border-white/8 bg-transparent px-5 py-4 md:h-[var(--admin-section-header-height)] md:min-h-0 md:pt-0 md:pb-0">
+        <div className="flex h-full w-full flex-wrap items-center justify-between gap-4">
           <div className="space-y-1.5">
             {eyebrow ? (
               <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">
