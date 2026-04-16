@@ -29,7 +29,7 @@ export function buildAdminHref(
   }
 
   if (!workspaceId) {
-    return '/admin/workspaces'
+    return `/admin/${section}`
   }
 
   return `/admin/workspaces/${encodeURIComponent(workspaceId)}/${section}`
