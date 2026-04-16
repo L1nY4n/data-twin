@@ -4,18 +4,17 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Plus, RefreshCw, Save, Trash2 } from 'lucide-react'
 import { AdvancedJsonEditor } from '@/components/admin/AdvancedJsonEditor'
 import {
+  AdminButton,
   AdminSectionFrame,
+  AdminSelectableCard,
   SectionPanel,
   WorkspaceEmptyState,
 } from '@/components/admin/admin-surface'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
-  ViewerAdminEmptyCard,
-  ViewerAdminSoftCard,
 } from '@/components/viewer-admin/primitives'
 import { useStructuredDraft } from '@/hooks/use-structured-draft'
 import {
@@ -39,7 +38,6 @@ import type {
   SensorEntity,
   SensorType,
 } from '@/lib/digital-twin/types'
-import { cn } from '@/lib/utils'
 
 const ENTITY_STATUSES: EntityStatus[] = ['active', 'inactive', 'warning', 'error']
 const SENSOR_TYPES: SensorType[] = [
@@ -537,7 +535,7 @@ function EntityFields({
   )
 }
 
-export function EntitiesSection() {
+export function EntitiesSection({ workspaceId }: { workspaceId?: string }) {
   const [entities, setEntities] = useState<Entity[]>([])
   const [entityArchetypes, setEntityArchetypes] = useState<EntityArchetype[]>([])
   const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null)
@@ -557,7 +555,7 @@ export function EntitiesSection() {
     setIsLoading(true)
     try {
       const [loadedEntities, loadedArchetypes] = await Promise.all([
-        listAdminEntities(),
+        listAdminEntities(workspaceId),
         listEntityArchetypes(),
       ])
       setEntities(loadedEntities)
@@ -570,7 +568,7 @@ export function EntitiesSection() {
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [workspaceId])
 
   useEffect(() => {
     void loadEntities()
@@ -585,10 +583,18 @@ export function EntitiesSection() {
 
     try {
       if (entities.some((entity) => entity.id === payload.id)) {
-        await updateAdminEntity(payload.id, payload)
+        if (workspaceId) {
+          await updateAdminEntity(workspaceId, payload.id, payload)
+        } else {
+          await updateAdminEntity(payload.id, payload)
+        }
         setStatusMessage('实体已更新')
       } else {
-        await createAdminEntity(payload)
+        if (workspaceId) {
+          await createAdminEntity(workspaceId, payload)
+        } else {
+          await createAdminEntity(payload)
+        }
         setStatusMessage('实体已创建')
       }
       await loadEntities()
@@ -597,7 +603,7 @@ export function EntitiesSection() {
     } catch (error) {
       setStatusMessage(error instanceof Error ? error.message : '保存实体失败')
     }
-  }, [draft, entities, loadEntities])
+  }, [draft, entities, loadEntities, workspaceId])
 
   const removeEntity = useCallback(async () => {
     if (!selectedEntityId || !selectedEntity) {
@@ -606,7 +612,11 @@ export function EntitiesSection() {
     }
 
     try {
-      await deleteAdminEntity(selectedEntityId)
+      if (workspaceId) {
+        await deleteAdminEntity(workspaceId, selectedEntityId)
+      } else {
+        await deleteAdminEntity(selectedEntityId)
+      }
       setStatusMessage('实体已删除')
       setSelectedEntityId(null)
       setDraftSeed(null)
@@ -614,68 +624,58 @@ export function EntitiesSection() {
     } catch (error) {
       setStatusMessage(error instanceof Error ? error.message : '删除实体失败')
     }
-  }, [loadEntities, selectedEntity, selectedEntityId])
-
-  const activeEntityCount = entities.filter((entity) => entity.status === 'active').length
-  const visibleEntityCount = entities.filter((entity) => entity.visible).length
-  const typeSummary = Object.entries(
-    entities.reduce<Record<string, number>>((accumulator, entity) => {
-      accumulator[entity.type] = (accumulator[entity.type] ?? 0) + 1
-      return accumulator
-    }, {})
-  )
+  }, [loadEntities, selectedEntity, selectedEntityId, workspaceId])
 
   return (
     <AdminSectionFrame
       section="entities"
       statusMessage={statusMessage}
       isLoading={isLoading}
+      showSummaryCards={false}
       actions={
-        <Button variant="outline" onClick={() => void loadEntities()} disabled={isLoading}>
+        <AdminButton onClick={() => void loadEntities()} disabled={isLoading}>
           <RefreshCw className="mr-1 h-4 w-4" />
           刷新实体
-        </Button>
+        </AdminButton>
       }
       metrics={[
         {
           label: '实体总数',
-          value: entities.length,
-          detail: `${activeEntityCount} 个 active / ${visibleEntityCount} 个可见`,
+          value: `${entities.length}`,
         },
         {
           label: '当前选中',
           value: selectedEntity?.name ?? draft.draft?.name ?? '--',
-          detail: selectedEntity?.type ?? draft.draft?.type ?? '未选择实体',
         },
         {
           label: '草稿模式',
-          value: draftSeed ? 'Template Draft' : 'Edit Existing',
-          detail: draftSeed ? '当前正在从模板新建实体。' : '当前在编辑既有实体。',
+          value: draftSeed ? '模板草稿' : '编辑已有',
         },
         {
           label: '结构化编辑',
           value: 'Form + JSON',
-          detail: '先用结构化表单处理高频字段，复杂字段再用高级 JSON。',
         },
       ]}
       railCards={[
         {
-          title: '清单职责',
-          value: 'Roster → Editor',
-          detail: '左侧是 roster，右侧是编辑器，不再把所有信息堆成一列。',
+          title: '列表',
+          value: entities.length.toString(),
         },
         {
-          title: '操作建议',
-          value: '先筛类型，再改细节',
-          detail: '实体多起来后，先通过列表上下文确定对象，再进入右侧深度编辑。',
+          title: '类型',
+          value: newEntityType,
         },
       ]}
     >
-      <div className="grid gap-4 2xl:grid-cols-[320px_minmax(0,1fr)]">
+      <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
         <SectionPanel
-          eyebrow="Entity Roster"
+          eyebrow="实体"
           title="实体清单"
-          description="先从 roster 选对象，再把右侧作为唯一编辑上下文。"
+          action={
+            <Badge variant="outline" className="rounded-full px-2.5 text-[10px]">
+              共 {entities.length} 个
+            </Badge>
+          }
         >
           <div className="space-y-3">
             <div className="grid gap-2">
@@ -706,8 +706,7 @@ export function EntitiesSection() {
                   ))}
                 </select>
               ) : null}
-              <Button
-                variant="outline"
+              <AdminButton
                 onClick={() => {
                   const template =
                     newEntityType === 'dynamic'
@@ -730,22 +729,17 @@ export function EntitiesSection() {
               >
                 <Plus className="mr-1 h-4 w-4" />
                 新建实体模板
-              </Button>
+              </AdminButton>
             </div>
 
             {entities.length > 0 ? (
               <ScrollArea className="h-[520px]">
                 <div className="space-y-2 pr-3">
                   {entities.map((entity) => (
-                    <button
+                    <AdminSelectableCard
                       key={entity.id}
-                      type="button"
-                      className={cn(
-                        'w-full rounded-2xl border px-3 py-3 text-left text-sm transition',
-                        selectedEntityId === entity.id && draftSeed === null
-                          ? 'border-primary bg-primary/10 shadow-[0_20px_50px_-42px_rgba(14,165,233,0.8)]'
-                          : 'viewer-admin-soft-card'
-                      )}
+                      active={selectedEntityId === entity.id && draftSeed === null}
+                      className="px-3 py-3"
                       onClick={() => {
                         setDraftSeed(null)
                         setSelectedEntityId(entity.id)
@@ -764,58 +758,24 @@ export function EntitiesSection() {
                         <span>{entity.visible ? '可见于场景' : '隐藏于场景'}</span>
                         <span>{entity.status}</span>
                       </div>
-                    </button>
+                    </AdminSelectableCard>
                   ))}
                 </div>
               </ScrollArea>
             ) : (
               <WorkspaceEmptyState
-                eyebrow="Entity Bootstrap"
-                title="先建立第一批实体模板"
-                description="空 roster 不该只剩一块白板。先决定对象类型，再把右侧编辑器切成单一上下文。"
-                cues={[
-                  {
-                    title: '1. 选实体类型',
-                    detail: '先分清人员、设备、车辆或传感器，避免从一堆通用字段起手。',
-                  },
-                  {
-                    title: '2. 生成模板草稿',
-                    detail: '从模板进入编辑，比先写整段 JSON 更适合后台持续维护。',
-                  },
-                  {
-                    title: '3. 在右侧补全细节',
-                    detail: '把可视字段、状态和高级 JSON 收到唯一编辑面板里。',
-                  },
-                ]}
-                asideTitle="当前策略"
-                asideDetail="即使后端暂时不可达，也可以先把实体结构和字段约定整理成草稿。"
+                eyebrow="实体"
+                title="暂无实体"
+                items={['类型', '模板', '状态']}
               />
             )}
           </div>
         </SectionPanel>
 
         <div className="space-y-4">
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            {typeSummary.length > 0 ? (
-              typeSummary.map(([type, count]) => (
-                <ViewerAdminSoftCard key={type} className="p-4">
-                  <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
-                    {type}
-                  </p>
-                  <div className="mt-2 text-2xl font-semibold">{count}</div>
-                </ViewerAdminSoftCard>
-              ))
-            ) : (
-              <ViewerAdminEmptyCard className="border-dashed p-4 text-sm text-muted-foreground">
-                当前实体列表为空，先从左侧创建模板。
-              </ViewerAdminEmptyCard>
-            )}
-          </div>
-
           <SectionPanel
-            eyebrow="Entity Editor"
+            eyebrow="编辑器"
             title={draft.draft ? `${draft.draft.name || '实体草稿'} 配置` : '实体详情'}
-            description="高频字段走结构化表单，复杂字段继续交给 JSON。"
           >
             <div className="space-y-4">
               {draft.draft ? (
@@ -833,37 +793,21 @@ export function EntitiesSection() {
                     }}
                   />
                   <div className="flex flex-wrap justify-end gap-2">
-                    <Button variant="destructive" onClick={() => void removeEntity()}>
+                    <AdminButton tone="danger" onClick={() => void removeEntity()}>
                       <Trash2 className="mr-1 h-4 w-4" />
                       删除实体
-                    </Button>
-                    <Button onClick={() => void saveEntity()}>
+                    </AdminButton>
+                    <AdminButton tone="primary" onClick={() => void saveEntity()}>
                       <Save className="mr-1 h-4 w-4" />
                       保存实体
-                    </Button>
+                    </AdminButton>
                   </div>
                 </>
               ) : (
                 <WorkspaceEmptyState
-                  eyebrow="Editor Standby"
-                  title="编辑器正在等待唯一上下文"
-                  description="先从左侧选中实体，或直接创建模板。右侧不再同时摊开多个编辑块。"
-                  cues={[
-                    {
-                      title: '结构化字段',
-                      detail: '高频业务字段走表单，减少直接操作 JSON 的负担。',
-                    },
-                    {
-                      title: '高级 JSON',
-                      detail: '复杂扩展字段仍然保留专家模式，不牺牲表达能力。',
-                    },
-                    {
-                      title: '保存即生效',
-                      detail: '确认字段和状态后再保存，避免把运行态配置改成试验场。',
-                    },
-                  ]}
-                  asideTitle="为什么这样做"
-                  asideDetail="后台编辑器应该只服务一个当前对象，这样切换、保存和回溯都更稳定。"
+                  eyebrow="编辑器"
+                  title="选择一个实体"
+                  items={['字段', 'JSON', '保存']}
                 />
               )}
             </div>

@@ -54,10 +54,10 @@ function isPointerNearResizeEdge(
 }
 
 export function EditorShell({
-  workspaceHint,
+  workspaceId,
   returnHref,
 }: {
-  workspaceHint?: string
+  workspaceId: string
   returnHref?: string
 }) {
   const {
@@ -70,7 +70,7 @@ export function EditorShell({
     activityStatus,
     retryActivity,
     canPublish,
-  } = useEditorDigitalTwin()
+  } = useEditorDigitalTwin(workspaceId)
   const isMobile = useIsMobile()
   const error = useEditorUiStore((state) => state.error)
   const [resourcesPanelOpen, setResourcesPanelOpen] = useState(true)
@@ -373,7 +373,6 @@ export function EditorShell({
                       canPublish={canPublish}
                       publishStatus={publishStatus}
                       activityStatus={activityStatus}
-                      workspaceHint={workspaceHint}
                     />
                   </div>
 

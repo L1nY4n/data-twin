@@ -445,7 +445,7 @@ export async function executeStandardRoomCreation({
   }
 }
 
-export function useEditorDigitalTwin() {
+export function useEditorDigitalTwin(workspaceId: string) {
   const [publishStatus, setPublishStatus] = useState<PublishStatus | null>(null)
   const [isPublishing, setIsPublishing] = useState(false)
   const [activityStatus, setActivityStatus] = useState<EditorActivityStatus>({
@@ -482,8 +482,8 @@ export function useEditorDigitalTwin() {
 
       try {
         const [payload, nextPublishStatus] = await Promise.all([
-          fetchEditorBootstrap(),
-          fetchAdminPublishStatus(),
+          fetchEditorBootstrap(workspaceId),
+          fetchAdminPublishStatus(workspaceId),
         ])
         const publishedScenePackage = await resolvePublishedScenePackage(payload.publishedScene)
         getEditorSceneState().hydrateFromBootstrap(
@@ -521,7 +521,7 @@ export function useEditorDigitalTwin() {
         getEditorUiState().setLoading(false)
       }
     },
-    []
+    [workspaceId]
   )
 
   const saveSelection = useCallback(async (): Promise<EditorSaveSelectionResult> => {
@@ -576,7 +576,7 @@ export function useEditorDigitalTwin() {
           selectionRestored: false,
         }
       }
-      const response = await saveAdminEditorDrafts(request)
+      const response = await saveAdminEditorDrafts(workspaceId, request)
 
       const focusEntityId = response.savedEntity?.id ?? null
       const focusStaticAssetId = response.savedStaticAsset?.id ?? null
@@ -667,7 +667,7 @@ export function useEditorDigitalTwin() {
     } finally {
       getEditorUiState().setSaving(false)
     }
-  }, [reload])
+  }, [reload, workspaceId])
 
   const deleteSelection = useCallback(async () => {
     const sceneStore = getEditorSceneState()
@@ -709,10 +709,10 @@ export function useEditorDigitalTwin() {
     try {
       if (selectionKind === 'entity') {
         if (!selectedEntityId) return false
-        await deleteAdminEntity(selectedEntityId)
+        await deleteAdminEntity(workspaceId, selectedEntityId)
       } else {
         if (!selectedStaticAssetId) return false
-        await deleteAdminStaticAsset(selectedStaticAssetId)
+        await deleteAdminStaticAsset(workspaceId, selectedStaticAssetId)
       }
       await reload('manual')
       setActivityStatus({
@@ -740,7 +740,7 @@ export function useEditorDigitalTwin() {
     } finally {
       getEditorUiState().setSaving(false)
     }
-  }, [reload, selectedEntityId, selectedStaticAssetId])
+  }, [reload, selectedEntityId, selectedStaticAssetId, workspaceId])
 
   const duplicateSelection = useCallback(() => {
     const duplicated = duplicateSelectionState()
@@ -780,7 +780,7 @@ export function useEditorDigitalTwin() {
     try {
       const result = await executeStandardRoomCreation({
         center: store.editorCameraTarget,
-        createStaticAsset: createAdminStaticAsset,
+        createStaticAsset: (staticAsset) => createAdminStaticAsset(workspaceId, staticAsset),
         reload: () => reload('manual'),
         selectStaticAsset: (id) => {
           getEditorViewerState().selectStaticAsset(id)
@@ -860,7 +860,7 @@ export function useEditorDigitalTwin() {
     } finally {
       getEditorUiState().setSaving(false)
     }
-  }, [reload])
+  }, [reload, workspaceId])
 
   const publish = useCallback(async (): Promise<EditorPublishResult> => {
     const sceneStore = getEditorSceneState()
@@ -898,7 +898,7 @@ export function useEditorDigitalTwin() {
     })
 
     try {
-      const nextStatus = await triggerAdminPublish()
+      const nextStatus = await triggerAdminPublish(workspaceId)
       setPublishStatus(nextStatus)
       await reload('publish')
       setActivityStatus({
@@ -925,7 +925,7 @@ export function useEditorDigitalTwin() {
         })
 
         try {
-          const syncedStatus = await fetchAdminPublishStatus()
+          const syncedStatus = await fetchAdminPublishStatus(workspaceId)
           setPublishStatus(syncedStatus)
           await reload('publish')
           setActivityStatus({
@@ -951,7 +951,7 @@ export function useEditorDigitalTwin() {
       }
 
       try {
-        setPublishStatus(await fetchAdminPublishStatus())
+        setPublishStatus(await fetchAdminPublishStatus(workspaceId))
       } catch {
         // Keep the primary publish error visible when follow-up status sync also fails.
       }
@@ -977,7 +977,7 @@ export function useEditorDigitalTwin() {
     } finally {
       setIsPublishing(false)
     }
-  }, [reload])
+  }, [reload, workspaceId])
 
   const effectivePublishStatus = useMemo(() => {
     if (!publishStatus) return null

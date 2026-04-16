@@ -4,17 +4,22 @@ import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
 import { ArrowUpRight, RefreshCw, Save } from 'lucide-react'
 import { AdvancedJsonEditor } from '@/components/admin/AdvancedJsonEditor'
-import { AdminSectionFrame, SectionPanel } from '@/components/admin/admin-surface'
-import { Button } from '@/components/ui/button'
+import { AdminButton, AdminSectionFrame, SectionPanel } from '@/components/admin/admin-surface'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useStructuredDraft } from '@/hooks/use-structured-draft'
-import { buildEditorWorkspaceHref } from '@/lib/digital-twin/editor-workspace'
+import { buildEditorHref } from '@/lib/digital-twin/editor-routing'
 import { fetchAdminScene, updateAdminScene } from '@/lib/digital-twin/bootstrap-client'
 import { cloneSceneDraft } from '@/lib/digital-twin/admin-view-models'
 import type { SceneConfig } from '@/lib/digital-twin/types'
 
-export function SceneSection() {
+export function SceneSection({
+  workspaceId,
+  workspaceSlug,
+}: {
+  workspaceId?: string
+  workspaceSlug?: string
+}) {
   const [sceneVersion, setSceneVersion] = useState(0)
   const [sceneSource, setSceneSource] = useState<SceneConfig | null>(null)
   const [statusMessage, setStatusMessage] = useState('')
@@ -24,7 +29,7 @@ export function SceneSection() {
   const loadScene = useCallback(async () => {
     setIsLoading(true)
     try {
-      const response = await fetchAdminScene()
+      const response = await fetchAdminScene(workspaceId)
       setSceneVersion(response.sceneVersion)
       setSceneSource(response.sceneConfig)
       setStatusMessage('已同步场景配置')
@@ -33,7 +38,7 @@ export function SceneSection() {
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [workspaceId])
 
   useEffect(() => {
     void loadScene()
@@ -47,14 +52,16 @@ export function SceneSection() {
     }
 
     try {
-      const response = await updateAdminScene(payload)
+      const response = workspaceId
+        ? await updateAdminScene(workspaceId, payload)
+        : await updateAdminScene(payload)
       setSceneVersion(response.sceneVersion)
       setSceneSource(response.sceneConfig)
       setStatusMessage('场景配置已保存')
     } catch (error) {
       setStatusMessage(error instanceof Error ? error.message : '保存场景配置失败')
     }
-  }, [draft])
+  }, [draft, workspaceId])
 
   const sceneDraft = draft.draft
 
@@ -63,62 +70,64 @@ export function SceneSection() {
       section="scene"
       statusMessage={statusMessage}
       isLoading={isLoading}
+      showSummaryCards={false}
       actions={
         <div className="flex flex-wrap items-center gap-2">
           {sceneDraft?.id ? (
-            <Button asChild variant="secondary">
-              <Link href={buildEditorWorkspaceHref(sceneDraft.id, '/admin/scene')}>
+            <AdminButton asChild tone="primary">
+              <Link
+                href={buildEditorHref(
+                  workspaceSlug,
+                  workspaceId ? `/admin/workspaces/${workspaceId}/scene` : '/admin/scene'
+                )}
+              >
                 <ArrowUpRight className="mr-1 h-4 w-4" />
-                进入工作区
+                进入编辑器
               </Link>
-            </Button>
+            </AdminButton>
           ) : null}
-          <Button variant="outline" onClick={() => void loadScene()} disabled={isLoading}>
+          <AdminButton onClick={() => void loadScene()} disabled={isLoading}>
             <RefreshCw className="mr-1 h-4 w-4" />
             刷新场景
-          </Button>
+          </AdminButton>
         </div>
       }
       metrics={[
         {
-          label: 'Scene Version',
+          label: '场景版本',
           value: sceneVersion || '--',
-          detail: '保存成功后版本号会在这里上升。',
         },
         {
-          label: 'Grid Size',
-          value: sceneDraft?.gridSize ?? '--',
-          detail: `Grid Divisions ${sceneDraft?.gridDivisions ?? '--'}`,
+          label: '网格尺寸',
+          value:
+            sceneDraft != null
+              ? `${sceneDraft.gridSize} / ${sceneDraft.gridDivisions}`
+              : '--',
         },
         {
           label: '显示状态',
-          value: sceneDraft?.showGrid ? 'Grid On' : 'Grid Off',
-          detail: sceneDraft?.showAxes ? '坐标轴显示中' : '坐标轴已隐藏',
+          value:
+            sceneDraft != null
+              ? `${sceneDraft.showGrid ? '网格开' : '网格关'} / ${sceneDraft.showAxes ? '坐标轴开' : '坐标轴关'}`
+              : '--',
         },
         {
           label: '环境光',
           value: sceneDraft?.ambientLightIntensity ?? '--',
-          detail: '场景基础氛围与可读性基准。',
         },
       ]}
       railCards={[
         {
-          title: '编辑目标',
-          value: '基础环境参数',
-          detail: '这里适合维护视角、网格、背景和基础渲染配置，不承载复杂业务规则。',
+          title: '背景',
+          value: sceneDraft?.backgroundColor ?? '--',
         },
         {
-          title: '变更习惯',
-          value: '先调参数，再看运行态',
-          detail: '场景类配置最好小步保存，每次修改后去首页确认显示效果。',
+          title: '相机',
+          value: sceneDraft?.cameraPosition ? '已配置' : '--',
         },
       ]}
     >
-      <SectionPanel
-        eyebrow="Scene Controls"
-        title="场景基础配置"
-        description="把环境、网格、视角集中在一个编辑工作区，不再拆成零碎卡片。"
-      >
+      <SectionPanel eyebrow="场景" title="场景基础配置">
         <div className="space-y-4">
           {sceneDraft ? (
             <>
@@ -284,14 +293,14 @@ export function SceneSection() {
               />
 
               <div className="flex justify-end">
-                <Button onClick={() => void saveScene()}>
+                <AdminButton tone="primary" onClick={() => void saveScene()}>
                   <Save className="mr-1 h-4 w-4" />
                   保存场景配置
-                </Button>
+                </AdminButton>
               </div>
             </>
           ) : (
-            <p className="text-sm text-muted-foreground">暂无场景配置。</p>
+            <p className="text-sm text-muted-foreground">--</p>
           )}
         </div>
       </SectionPanel>

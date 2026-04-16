@@ -1,6 +1,14 @@
 import { redirect } from 'next/navigation'
-import { DEFAULT_EDITOR_WORKSPACE_ID } from '@/lib/digital-twin/editor-workspace'
+import { fetchHomeWorkspace } from '@/lib/digital-twin/bootstrap-client'
+import { buildEditorHref } from '@/lib/digital-twin/editor-routing'
 
-export default function EditorPage() {
-  redirect(`/editor/${DEFAULT_EDITOR_WORKSPACE_ID}`)
+export default async function EditorPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ returnTo?: string }>
+}) {
+  const workspace = await fetchHomeWorkspace()
+  const query = (await searchParams) ?? {}
+
+  redirect(buildEditorHref(workspace.slug, query.returnTo))
 }

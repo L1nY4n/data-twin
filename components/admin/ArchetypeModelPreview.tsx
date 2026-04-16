@@ -11,7 +11,7 @@ import type {
   ArchetypeModelBounds,
   ArchetypeModelCalibration,
 } from '@/lib/digital-twin/types'
-import { Button } from '@/components/ui/button'
+import { AdminButton } from '@/components/admin/admin-surface'
 import { Spinner } from '@/components/ui/spinner'
 
 type CameraPreset = 'iso' | 'front' | 'left' | 'right' | 'top'
@@ -19,7 +19,7 @@ type CameraPreset = 'iso' | 'front' | 'left' | 'right' | 'top'
 function PreviewFallback() {
   return (
     <Html center>
-      <div className="flex items-center gap-2 rounded-lg bg-background/90 px-3 py-2">
+      <div className="admin-inset-block flex items-center gap-2 bg-background/90 px-3 py-2">
         <Spinner className="h-4 w-4" />
         <span className="text-xs">加载模型预览...</span>
       </div>
@@ -151,24 +151,24 @@ export function ArchetypeModelPreview({
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap gap-2">
-        <Button size="sm" variant={preset === 'iso' ? 'default' : 'outline'} onClick={() => setPreset('iso')}>
+        <AdminButton size="sm" tone={preset === 'iso' ? 'primary' : 'default'} onClick={() => setPreset('iso')}>
           等轴
-        </Button>
-        <Button size="sm" variant={preset === 'front' ? 'default' : 'outline'} onClick={() => setPreset('front')}>
+        </AdminButton>
+        <AdminButton size="sm" tone={preset === 'front' ? 'primary' : 'default'} onClick={() => setPreset('front')}>
           正面
-        </Button>
-        <Button size="sm" variant={preset === 'left' ? 'default' : 'outline'} onClick={() => setPreset('left')}>
+        </AdminButton>
+        <AdminButton size="sm" tone={preset === 'left' ? 'primary' : 'default'} onClick={() => setPreset('left')}>
           左侧
-        </Button>
-        <Button size="sm" variant={preset === 'right' ? 'default' : 'outline'} onClick={() => setPreset('right')}>
+        </AdminButton>
+        <AdminButton size="sm" tone={preset === 'right' ? 'primary' : 'default'} onClick={() => setPreset('right')}>
           右侧
-        </Button>
-        <Button size="sm" variant={preset === 'top' ? 'default' : 'outline'} onClick={() => setPreset('top')}>
+        </AdminButton>
+        <AdminButton size="sm" tone={preset === 'top' ? 'primary' : 'default'} onClick={() => setPreset('top')}>
           俯视
-        </Button>
+        </AdminButton>
       </div>
 
-      <div className="h-72 overflow-hidden rounded-2xl border bg-[#070b14]">
+      <div className="admin-inset-block h-72 overflow-hidden bg-[#070b14] p-0">
         {model ? (
           <Canvas camera={{ position: [5.8, 4.8, 5.8], fov: 45 }}>
             <color attach="background" args={['#070b14']} />

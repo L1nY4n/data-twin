@@ -1,5 +1,5 @@
 use axum::{
-    extract::State,
+    extract::{Path, State},
     http::{HeaderMap, StatusCode},
     Json,
 };
@@ -40,7 +40,8 @@ pub struct RuntimeIngestState {
 impl RuntimeIngestState {
     pub async fn validate_and_record(
         &self,
-        source: &str,
+        source_key: &str,
+        source_label: &str,
         event_fingerprints: &[u64],
         now: u64,
     ) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
@@ -66,7 +67,7 @@ impl RuntimeIngestState {
 
         let request_times = guard
             .requests_by_source
-            .entry(source.to_string())
+            .entry(source_key.to_string())
             .or_default();
         while request_times
             .front()
@@ -80,7 +81,7 @@ impl RuntimeIngestState {
                 Json(serde_json::json!({
                     "error": format!(
                         "runtime ingest rate limit exceeded for source {}",
-                        source
+                        source_label
                     )
                 })),
             ));
@@ -318,21 +319,220 @@ pub async fn post_runtime_ingest(
         ));
     }
 
+    let home_workspace_id = state
+        .store
+        .get_homepage_workspace()
+        .await
+        .map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": error.to_string() })),
+            )
+        })?
+        .id;
     let received_at = now_millis();
     let mut normalized_events = Vec::with_capacity(request.events.len());
     let mut fingerprints = Vec::with_capacity(request.events.len());
+    let scoped_source = format!("{home_workspace_id}:{}", request.source);
     for event in request.events {
-        fingerprints.push(fingerprint_runtime_event(&request.source, &event)?);
+        match &event {
+            RuntimeIngestEvent::PositionUpdate { payload, .. } => {
+                let exists = state
+                    .store
+                    .workspace_has_entity(&home_workspace_id, &payload.entity_id)
+                    .await
+                    .map_err(|error| {
+                        (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(serde_json::json!({ "error": error.to_string() })),
+                        )
+                    })?;
+                if !exists {
+                    return Err((
+                        StatusCode::NOT_FOUND,
+                        Json(serde_json::json!({
+                            "error": format!(
+                                "entity {} was not found in workspace {}",
+                                payload.entity_id, home_workspace_id
+                            )
+                        })),
+                    ));
+                }
+            }
+            RuntimeIngestEvent::StatusUpdate { payload, .. } => {
+                let exists = state
+                    .store
+                    .workspace_has_entity(&home_workspace_id, &payload.entity_id)
+                    .await
+                    .map_err(|error| {
+                        (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(serde_json::json!({ "error": error.to_string() })),
+                        )
+                    })?;
+                if !exists {
+                    return Err((
+                        StatusCode::NOT_FOUND,
+                        Json(serde_json::json!({
+                            "error": format!(
+                                "entity {} was not found in workspace {}",
+                                payload.entity_id, home_workspace_id
+                            )
+                        })),
+                    ));
+                }
+            }
+            _ => {}
+        }
+
+        fingerprints.push(fingerprint_runtime_event(&scoped_source, &event)?);
         normalized_events.push(normalize_runtime_event(event, received_at)?);
     }
 
     state
         .runtime_ingest_state
-        .validate_and_record(&request.source, &fingerprints, received_at)
+        .validate_and_record(&scoped_source, &request.source, &fingerprints, received_at)
         .await?;
 
     for normalized_event in normalized_events {
-        state.realtime.emit(normalized_event);
+        state
+            .realtime
+            .emit_for_workspace(&home_workspace_id, normalized_event);
+    }
+
+    Ok(Json(RuntimeIngestResponse {
+        source: request.source,
+        accepted_count: fingerprints.len(),
+        received_at,
+    }))
+}
+
+pub async fn post_workspace_runtime_ingest(
+    Path(workspace_id): Path<String>,
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<RuntimeIngestRequest>,
+) -> RuntimeIngestResult {
+    let Some(expected_token) = &state.runtime_ingest_token else {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(
+                serde_json::json!({ "error": "runtime ingest is disabled until RUNTIME_INGEST_TOKEN is configured" }),
+            ),
+        ));
+    };
+
+    let provided_token = headers
+        .get("x-runtime-ingest-token")
+        .and_then(|value| value.to_str().ok())
+        .or_else(|| {
+            headers
+                .get(axum::http::header::AUTHORIZATION)
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| value.strip_prefix("Bearer "))
+        });
+
+    if provided_token != Some(expected_token.as_str()) {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({ "error": "runtime ingest token is invalid" })),
+        ));
+    }
+
+    if request.source.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "source is required" })),
+        ));
+    }
+
+    if request.events.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "at least one runtime event is required" })),
+        ));
+    }
+
+    if request.events.len() > MAX_RUNTIME_INGEST_EVENTS {
+        return Err((
+            StatusCode::PAYLOAD_TOO_LARGE,
+            Json(serde_json::json!({
+                "error": format!(
+                    "runtime ingest accepts at most {} events per request",
+                    MAX_RUNTIME_INGEST_EVENTS
+                )
+            })),
+        ));
+    }
+
+    let received_at = now_millis();
+    let mut normalized_events = Vec::with_capacity(request.events.len());
+    let mut fingerprints = Vec::with_capacity(request.events.len());
+    let scoped_source = format!("{workspace_id}:{}", request.source);
+    for event in request.events {
+        match &event {
+            RuntimeIngestEvent::PositionUpdate { payload, .. } => {
+                let exists = state
+                    .store
+                    .workspace_has_entity(&workspace_id, &payload.entity_id)
+                    .await
+                    .map_err(|error| {
+                        (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(serde_json::json!({ "error": error.to_string() })),
+                        )
+                    })?;
+                if !exists {
+                    return Err((
+                        StatusCode::NOT_FOUND,
+                        Json(serde_json::json!({
+                            "error": format!(
+                                "entity {} was not found in workspace {}",
+                                payload.entity_id, workspace_id
+                            )
+                        })),
+                    ));
+                }
+            }
+            RuntimeIngestEvent::StatusUpdate { payload, .. } => {
+                let exists = state
+                    .store
+                    .workspace_has_entity(&workspace_id, &payload.entity_id)
+                    .await
+                    .map_err(|error| {
+                        (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(serde_json::json!({ "error": error.to_string() })),
+                        )
+                    })?;
+                if !exists {
+                    return Err((
+                        StatusCode::NOT_FOUND,
+                        Json(serde_json::json!({
+                            "error": format!(
+                                "entity {} was not found in workspace {}",
+                                payload.entity_id, workspace_id
+                            )
+                        })),
+                    ));
+                }
+            }
+            _ => {}
+        }
+
+        fingerprints.push(fingerprint_runtime_event(&scoped_source, &event)?);
+        normalized_events.push(normalize_runtime_event(event, received_at)?);
+    }
+
+    state
+        .runtime_ingest_state
+        .validate_and_record(&scoped_source, &request.source, &fingerprints, received_at)
+        .await?;
+
+    for normalized_event in normalized_events {
+        state
+            .realtime
+            .emit_for_workspace(&workspace_id, normalized_event);
     }
 
     Ok(Json(RuntimeIngestResponse {

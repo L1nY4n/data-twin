@@ -5,12 +5,14 @@ import { ArrowUpRight, Plus, RefreshCw, Save, Trash2 } from 'lucide-react'
 import Link from 'next/link'
 import { AdvancedJsonEditor } from '@/components/admin/AdvancedJsonEditor'
 import {
+  AdminButton,
+  AdminInsetBlock,
   AdminSectionFrame,
+  AdminSelectableCard,
   SectionPanel,
   WorkspaceEmptyState,
 } from '@/components/admin/admin-surface'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -25,9 +27,8 @@ import {
   listWorkspaces,
   updateWorkspace,
 } from '@/lib/digital-twin/bootstrap-client'
-import { buildEditorWorkspaceHref } from '@/lib/digital-twin/editor-workspace'
+import { buildEditorHref } from '@/lib/digital-twin/editor-routing'
 import type { WorkspaceRecord } from '@/lib/digital-twin/types'
-import { cn } from '@/lib/utils'
 
 export function WorkspacesSection() {
   const [workspaces, setWorkspaces] = useState<WorkspaceRecord[]>([])
@@ -102,46 +103,26 @@ export function WorkspacesSection() {
       section="workspaces"
       statusMessage={statusMessage}
       isLoading={isLoading}
+      showSummaryCards={false}
       actions={
-        <Button variant="outline" onClick={() => void loadWorkspaces()} disabled={isLoading}>
+        <AdminButton onClick={() => void loadWorkspaces()} disabled={isLoading}>
           <RefreshCw className="mr-1 h-4 w-4" />
           刷新工作区
-        </Button>
+        </AdminButton>
       }
-      metrics={[
-        {
-          label: '工作区总数',
-          value: workspaces.length,
-          detail: `${workspaces.filter((item) => item.isHomepage).length} 个首页工作区`,
-        },
-        {
-          label: '当前选择',
-          value: selectedWorkspace?.name ?? draft.draft?.name ?? '--',
-          detail: selectedWorkspace?.slug ?? draft.draft?.slug ?? '未选择',
-        },
-      ]}
-      railCards={[
-        {
-          title: '首页映射',
-          value: '指定工作区',
-          detail: '标记为首页的工作区用于 `/` 的默认进入目标。',
-        },
-        {
-          title: '编辑入口',
-          value: '进入工作区',
-          detail: 'viewer 和 scene 模块都应跳入具体工作区，而不是抽象 editor。',
-        },
-      ]}
     >
-      <div className="grid gap-4 2xl:grid-cols-[320px_minmax(0,1fr)]">
+      <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
         <SectionPanel
-          eyebrow="Workspace Directory"
+          eyebrow="工作区"
           title="工作区列表"
-          description="管理多个模型工作区及其首页映射。"
+          action={
+            <Badge variant="outline" className="rounded-full px-2.5 text-[10px]">
+              共 {workspaces.length} 个
+            </Badge>
+          }
         >
           <div className="space-y-3">
-            <Button
-              variant="outline"
+            <AdminButton
               className="w-full"
               onClick={() => {
                 const template = createWorkspaceTemplate()
@@ -153,21 +134,16 @@ export function WorkspacesSection() {
             >
               <Plus className="mr-1 h-4 w-4" />
               新建工作区
-            </Button>
+            </AdminButton>
 
             {workspaces.length > 0 ? (
               <ScrollArea className="h-[520px]">
                 <div className="space-y-2 pr-3">
                   {workspaces.map((workspace) => (
-                    <button
+                    <AdminSelectableCard
                       key={workspace.id}
-                      type="button"
-                      className={cn(
-                        'w-full rounded-2xl border px-3 py-3 text-left text-sm transition',
-                        selectedWorkspaceId === workspace.id && draftSeed === null
-                          ? 'border-primary bg-primary/10'
-                          : 'viewer-admin-soft-card'
-                      )}
+                      active={selectedWorkspaceId === workspace.id && draftSeed === null}
+                      className="px-3 py-3"
                       onClick={() => {
                         setDraftSeed(null)
                         setSelectedWorkspaceId(workspace.id)
@@ -184,32 +160,21 @@ export function WorkspacesSection() {
                           <Badge variant="outline">普通</Badge>
                         )}
                       </div>
-                    </button>
+                    </AdminSelectableCard>
                   ))}
                 </div>
               </ScrollArea>
             ) : (
               <WorkspaceEmptyState
-                eyebrow="Workspace Bootstrap"
-                title="先建立工作区目录"
-                description="工作区是 viewer、editor 和首页映射的统一入口。"
-                cues={[
-                  { title: '目录化', detail: '每个工作区维护自己的名称与 slug。' },
-                  { title: '首页映射', detail: '一个工作区可被指定为首页默认目标。' },
-                  { title: '进入编辑', detail: '编辑器应以工作区为入口。' },
-                ]}
-                asideTitle="Workspace"
-                asideDetail="先有工作区目录，后续内容隔离和首页映射才有稳定锚点。"
+                eyebrow="工作区"
+                title="暂无工作区"
+                items={['名称', 'slug', '首页']}
               />
             )}
           </div>
         </SectionPanel>
 
-        <SectionPanel
-          eyebrow="Workspace Editor"
-          title={draft.draft ? `${draft.draft.name} 配置` : '工作区详情'}
-          description="维护工作区名称、slug、首页状态与进入链接。"
-        >
+        <SectionPanel eyebrow="编辑器" title={draft.draft ? `${draft.draft.name} 配置` : '工作区详情'}>
           {draft.draft ? (
             <div className="space-y-4">
               <div className="grid gap-4 md:grid-cols-2">
@@ -271,17 +236,17 @@ export function WorkspacesSection() {
                 />
               </div>
 
-              <div className="rounded-xl border p-4 text-sm text-muted-foreground">
+              <AdminInsetBlock className="text-sm text-muted-foreground">
                 <div className="flex items-center justify-between gap-3">
-                  <span>工作区入口</span>
-                  <Button asChild variant="outline" size="sm">
-                    <Link href={buildEditorWorkspaceHref(draft.draft.id, '/admin/workspaces')}>
+                  <span>全局编辑入口</span>
+                  <AdminButton asChild>
+                    <Link href={buildEditorHref('/admin/workspaces')}>
                       <ArrowUpRight className="mr-1 h-4 w-4" />
-                      进入工作区
+                      打开编辑器
                     </Link>
-                  </Button>
+                  </AdminButton>
                 </div>
-              </div>
+              </AdminInsetBlock>
 
               <AdvancedJsonEditor
                 value={draft.draftText}
@@ -296,14 +261,14 @@ export function WorkspacesSection() {
               />
 
               <div className="flex flex-wrap justify-end gap-2">
-                <Button variant="destructive" onClick={() => void removeWorkspace()}>
+                <AdminButton tone="danger" onClick={() => void removeWorkspace()}>
                   <Trash2 className="mr-1 h-4 w-4" />
                   删除工作区
-                </Button>
-                <Button onClick={() => void saveWorkspace()}>
+                </AdminButton>
+                <AdminButton tone="primary" onClick={() => void saveWorkspace()}>
                   <Save className="mr-1 h-4 w-4" />
                   保存工作区
-                </Button>
+                </AdminButton>
               </div>
             </div>
           ) : null}

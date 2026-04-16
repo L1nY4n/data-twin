@@ -142,21 +142,71 @@ async fn emit_config_changed(
     scene_version: u64,
     scope: ConfigChangedScope,
 ) -> Result<(), ApiError> {
+    let workspace = state
+        .store
+        .get_homepage_workspace()
+        .await
+        .map_err(ApiError::from_store)?;
     let published_scene = state
         .store
         .published_scene_descriptor()
         .await
         .map_err(ApiError::from_store)?;
-    state
-        .realtime
-        .emit_config_changed(scene_version, scope, published_scene);
+    state.realtime.emit_config_changed_for_workspace(
+        &workspace.id,
+        scene_version,
+        scope,
+        published_scene,
+    );
     Ok(())
+}
+
+async fn emit_workspace_config_changed(
+    state: &AppState,
+    workspace_id: &str,
+    scene_version: u64,
+    scope: ConfigChangedScope,
+) -> Result<(), ApiError> {
+    let published_scene = state
+        .store
+        .workspace_published_state(workspace_id)
+        .await
+        .map_err(ApiError::from_store)?
+        .published_scene;
+    state.realtime.emit_config_changed_for_workspace(
+        workspace_id,
+        scene_version,
+        scope,
+        published_scene,
+    );
+    Ok(())
+}
+
+async fn homepage_workspace_id(state: &AppState) -> Result<String, ApiError> {
+    Ok(state
+        .store
+        .get_homepage_workspace()
+        .await
+        .map_err(ApiError::from_store)?
+        .id)
 }
 
 pub async fn get_scene(State(state): State<AppState>) -> ApiResult<SceneResponse> {
     let scene = state
         .store
         .get_scene()
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(Json(scene))
+}
+
+pub async fn get_workspace_scene(
+    Path(workspace_id): Path<String>,
+    State(state): State<AppState>,
+) -> ApiResult<SceneResponse> {
+    let scene = state
+        .store
+        .workspace_get_scene(&workspace_id)
         .await
         .map_err(ApiError::from_store)?;
     Ok(Json(scene))
@@ -178,11 +228,91 @@ pub async fn get_editor_bootstrap(State(state): State<AppState>) -> ApiResult<Bo
     Ok(Json(payload))
 }
 
+pub async fn get_workspace_editor_bootstrap(
+    Path(workspace_id): Path<String>,
+    State(state): State<AppState>,
+) -> ApiResult<BootstrapResponse> {
+    let payload = state
+        .store
+        .workspace_editor_bootstrap(&workspace_id)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(Json(payload))
+}
+
 pub async fn get_publish_status(State(state): State<AppState>) -> ApiResult<PublishStatusResponse> {
     let status = publish_service::load_publish_status(&state.store, &state.publish)
         .await
         .map_err(ApiError::from_store)?;
     Ok(Json(status))
+}
+
+pub async fn get_workspace_publish_status(
+    Path(workspace_id): Path<String>,
+    State(state): State<AppState>,
+) -> ApiResult<PublishStatusResponse> {
+    let status = publish_service::load_publish_status_for_workspace(
+        &state.store,
+        &state.publish,
+        &workspace_id,
+    )
+    .await
+    .map_err(ApiError::from_store)?;
+    Ok(Json(status))
+}
+
+pub async fn get_workspace_overview(
+    Path(workspace_id): Path<String>,
+    State(state): State<AppState>,
+) -> ApiResult<AdminOverviewResponse> {
+    let scene_version = state
+        .store
+        .workspace_scene_version(&workspace_id)
+        .await
+        .map_err(ApiError::from_store)?;
+    let entities = state
+        .store
+        .workspace_list_entities(&workspace_id)
+        .await
+        .map_err(ApiError::from_store)?;
+    let rules = state
+        .store
+        .workspace_list_rules(&workspace_id)
+        .await
+        .map_err(ApiError::from_store)?;
+    let connectors = state
+        .store
+        .workspace_list_connectors(&workspace_id)
+        .await
+        .map_err(ApiError::from_store)?;
+    let binding_count = state
+        .store
+        .workspace_binding_count(&workspace_id)
+        .await
+        .map_err(ApiError::from_store)?;
+    let alarms = state
+        .store
+        .workspace_list_alarms(&workspace_id)
+        .await
+        .map_err(ApiError::from_store)?;
+    let recent_change_at = state
+        .store
+        .workspace_list_audit_events(&workspace_id, 1)
+        .await
+        .map_err(ApiError::from_store)?
+        .into_iter()
+        .next()
+        .map(|event| event.created_at);
+
+    Ok(Json(AdminOverviewResponse {
+        scene_version,
+        entity_count: entities.len() as u64,
+        rule_count: rules.len() as u64,
+        connector_count: connectors.len() as u64,
+        binding_count,
+        unacknowledged_alarm_count: alarms.iter().filter(|alarm| !alarm.acknowledged).count() as u64,
+        recent_change_at,
+    }))
 }
 
 pub async fn post_publish(State(state): State<AppState>) -> ApiResult<PublishStatusResponse> {
@@ -255,14 +385,9 @@ pub async fn post_publish(State(state): State<AppState>) -> ApiResult<PublishSta
 
     match publish_result {
         Ok(published) => {
-            let published_scene = published.published_scene.clone();
             let scene_version = published.published_scene_version;
             drop(lease);
-            state.realtime.emit_config_changed(
-                scene_version,
-                ConfigChangedScope::Publish,
-                published_scene,
-            );
+            emit_config_changed(&state, scene_version, ConfigChangedScope::Publish).await?;
             let status = publish_service::load_publish_status(&state.store, &state.publish)
                 .await
                 .map_err(ApiError::from_store)?;
@@ -279,6 +404,122 @@ pub async fn post_publish(State(state): State<AppState>) -> ApiResult<PublishSta
                 current_scene_version: None,
                 recovery_action: None,
             })
+        }
+    }
+}
+
+pub async fn post_workspace_publish(
+    Path(workspace_id): Path<String>,
+    State(state): State<AppState>,
+) -> ApiResult<PublishStatusResponse> {
+    let workspace = state
+        .store
+        .get_workspace(&workspace_id)
+        .await
+        .map_err(ApiError::from_store)?
+        .ok_or_else(|| {
+            ApiError::simple(StatusCode::NOT_FOUND, format!("workspace {workspace_id} not found"))
+        })?;
+    let snapshot = state
+        .store
+        .workspace_load_working_snapshot(&workspace_id)
+        .await
+        .map_err(ApiError::from_store)?;
+
+    let publish_token = Uuid::new_v4().to_string();
+    let lock_acquired = state
+        .store
+        .workspace_try_begin_publish(
+            &workspace_id,
+            &publish_token,
+            now_millis(),
+            publish_service::publish_lock_stale_after_ms(),
+        )
+        .await
+        .map_err(ApiError::from_store)?;
+    if !lock_acquired {
+        return Err(ApiError {
+            status: StatusCode::CONFLICT,
+            message: "publish already in progress".to_string(),
+            code: None,
+            expected_scene_version: None,
+            current_scene_version: None,
+            recovery_action: None,
+        });
+    }
+
+    let (heartbeat_stop_tx, mut heartbeat_stop_rx) = watch::channel(false);
+    let heartbeat_store = state.store.clone();
+    let heartbeat_token = publish_token.clone();
+    let workspace_id_for_heartbeat = workspace_id.clone();
+    let heartbeat_task = tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(std::time::Duration::from_millis(
+            publish_service::PUBLISH_HEARTBEAT_INTERVAL_MS,
+        ));
+        loop {
+            tokio::select! {
+                _ = heartbeat_stop_rx.changed() => {
+                    break;
+                }
+                _ = ticker.tick() => {
+                    let refreshed = heartbeat_store
+                        .workspace_refresh_publish_heartbeat(
+                            &workspace_id_for_heartbeat,
+                            &heartbeat_token,
+                            now_millis(),
+                        )
+                        .await
+                        .unwrap_or(false);
+                    if !refreshed {
+                        break;
+                    }
+                }
+            }
+        }
+    });
+
+    let publish_result = publish_service::publish_working_snapshot_for_workspace(
+        &state.store,
+        &workspace_id,
+        &workspace.slug,
+        &snapshot,
+        &state.publish_config,
+    )
+    .await;
+    let _ = heartbeat_stop_tx.send(true);
+    let _ = heartbeat_task.await;
+
+    match publish_result {
+        Ok(published) => {
+            emit_workspace_config_changed(
+                &state,
+                &workspace_id,
+                published.published_scene_version,
+                ConfigChangedScope::Publish,
+            )
+            .await?;
+            let status = publish_service::load_publish_status_for_workspace(
+                &state.store,
+                &state.publish,
+                &workspace_id,
+            )
+            .await
+            .map_err(ApiError::from_store)?;
+            Ok(Json(status))
+        }
+        Err(error) => {
+            publish_service::record_publish_failure_for_workspace(
+                &state.store,
+                &workspace_id,
+                &snapshot,
+                &error,
+            )
+            .await
+            .map_err(ApiError::from_store)?;
+            Err(ApiError::simple(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                error.to_string(),
+            ))
         }
     }
 }
@@ -305,6 +546,26 @@ pub async fn put_scene(
     Ok(Json(scene))
 }
 
+pub async fn put_workspace_scene(
+    Path(workspace_id): Path<String>,
+    State(state): State<AppState>,
+    Json(payload): Json<SceneConfig>,
+) -> ApiResult<SceneResponse> {
+    let scene = state
+        .store
+        .workspace_update_scene(&workspace_id, payload)
+        .await
+        .map_err(ApiError::from_store)?;
+    emit_workspace_config_changed(
+        &state,
+        &workspace_id,
+        scene.scene_version,
+        ConfigChangedScope::Scene,
+    )
+    .await?;
+    Ok(Json(scene))
+}
+
 pub async fn post_editor_save(
     State(state): State<AppState>,
     Json(payload): Json<EditorSaveRequest>,
@@ -326,10 +587,45 @@ pub async fn post_editor_save(
     Ok(Json(response))
 }
 
+pub async fn post_workspace_editor_save(
+    Path(workspace_id): Path<String>,
+    State(state): State<AppState>,
+    Json(payload): Json<EditorSaveRequest>,
+) -> ApiResult<EditorSaveResponse> {
+    let scope = if payload.static_asset.is_some() {
+        ConfigChangedScope::StaticAsset
+    } else if payload.entity.is_some() {
+        ConfigChangedScope::Entity
+    } else {
+        ConfigChangedScope::Scene
+    };
+
+    let response = state
+        .store
+        .workspace_save_editor_changes(&workspace_id, payload)
+        .await
+        .map_err(ApiError::from_store)?;
+    emit_workspace_config_changed(&state, &workspace_id, response.scene_version, scope).await?;
+    Ok(Json(response))
+}
+
 pub async fn list_entities(State(state): State<AppState>) -> ApiResult<Vec<Entity>> {
+    let workspace_id = homepage_workspace_id(&state).await?;
     let entities = state
         .store
-        .list_entities()
+        .workspace_list_entities(&workspace_id)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(Json(entities))
+}
+
+pub async fn list_workspace_entities(
+    Path(workspace_id): Path<String>,
+    State(state): State<AppState>,
+) -> ApiResult<Vec<Entity>> {
+    let entities = state
+        .store
+        .workspace_list_entities(&workspace_id)
         .await
         .map_err(ApiError::from_store)?;
     Ok(Json(entities))
@@ -339,9 +635,24 @@ pub async fn get_entity(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> ApiResult<Entity> {
+    let workspace_id = homepage_workspace_id(&state).await?;
     let entity = state
         .store
-        .get_entity(&id)
+        .workspace_get_entity(&workspace_id, &id)
+        .await
+        .map_err(ApiError::from_store)?
+        .ok_or_else(|| ApiError::simple(StatusCode::NOT_FOUND, format!("entity {id} not found")))?;
+
+    Ok(Json(entity))
+}
+
+pub async fn get_workspace_entity(
+    Path((workspace_id, id)): Path<(String, String)>,
+    State(state): State<AppState>,
+) -> ApiResult<Entity> {
+    let entity = state
+        .store
+        .workspace_get_entity(&workspace_id, &id)
         .await
         .map_err(ApiError::from_store)?
         .ok_or_else(|| ApiError::simple(StatusCode::NOT_FOUND, format!("entity {id} not found")))?;
@@ -353,9 +664,10 @@ pub async fn create_entity(
     State(state): State<AppState>,
     Json(payload): Json<Entity>,
 ) -> ApiResult<Entity> {
+    let workspace_id = homepage_workspace_id(&state).await?;
     let entity = state
         .store
-        .create_entity(payload)
+        .workspace_create_entity(&workspace_id, payload)
         .await
         .map_err(ApiError::from_store)?;
     let scene_version = state
@@ -364,6 +676,25 @@ pub async fn create_entity(
         .await
         .map_err(ApiError::from_store)?;
     emit_config_changed(&state, scene_version, ConfigChangedScope::Entity).await?;
+    Ok(Json(entity))
+}
+
+pub async fn create_workspace_entity(
+    Path(workspace_id): Path<String>,
+    State(state): State<AppState>,
+    Json(payload): Json<Entity>,
+) -> ApiResult<Entity> {
+    let entity = state
+        .store
+        .workspace_create_entity(&workspace_id, payload)
+        .await
+        .map_err(ApiError::from_store)?;
+    let scene_version = state
+        .store
+        .workspace_scene_version(&workspace_id)
+        .await
+        .map_err(ApiError::from_store)?;
+    emit_workspace_config_changed(&state, &workspace_id, scene_version, ConfigChangedScope::Entity).await?;
     Ok(Json(entity))
 }
 
@@ -372,9 +703,10 @@ pub async fn update_entity(
     Path(id): Path<String>,
     Json(payload): Json<Entity>,
 ) -> ApiResult<Entity> {
+    let workspace_id = homepage_workspace_id(&state).await?;
     let entity = state
         .store
-        .update_entity(&id, payload)
+        .workspace_update_entity(&workspace_id, &id, payload)
         .await
         .map_err(ApiError::from_store)?;
     let scene_version = state
@@ -386,13 +718,33 @@ pub async fn update_entity(
     Ok(Json(entity))
 }
 
+pub async fn update_workspace_entity(
+    Path((workspace_id, id)): Path<(String, String)>,
+    State(state): State<AppState>,
+    Json(payload): Json<Entity>,
+) -> ApiResult<Entity> {
+    let entity = state
+        .store
+        .workspace_update_entity(&workspace_id, &id, payload)
+        .await
+        .map_err(ApiError::from_store)?;
+    let scene_version = state
+        .store
+        .workspace_scene_version(&workspace_id)
+        .await
+        .map_err(ApiError::from_store)?;
+    emit_workspace_config_changed(&state, &workspace_id, scene_version, ConfigChangedScope::Entity).await?;
+    Ok(Json(entity))
+}
+
 pub async fn delete_entity(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
+    let workspace_id = homepage_workspace_id(&state).await?;
     let deleted = state
         .store
-        .delete_entity(&id)
+        .workspace_delete_entity(&workspace_id, &id)
         .await
         .map_err(ApiError::from_store)?;
 
@@ -409,6 +761,31 @@ pub async fn delete_entity(
         .await
         .map_err(ApiError::from_store)?;
     emit_config_changed(&state, scene_version, ConfigChangedScope::Entity).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn delete_workspace_entity(
+    Path((workspace_id, id)): Path<(String, String)>,
+    State(state): State<AppState>,
+) -> Result<StatusCode, ApiError> {
+    let deleted = state
+        .store
+        .workspace_delete_entity(&workspace_id, &id)
+        .await
+        .map_err(ApiError::from_store)?;
+    if !deleted {
+        return Err(ApiError::simple(
+            StatusCode::NOT_FOUND,
+            format!("entity {id} not found"),
+        ));
+    }
+
+    let scene_version = state
+        .store
+        .workspace_scene_version(&workspace_id)
+        .await
+        .map_err(ApiError::from_store)?;
+    emit_workspace_config_changed(&state, &workspace_id, scene_version, ConfigChangedScope::Entity).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -739,9 +1116,22 @@ pub async fn upload_model_asset(
 pub async fn list_static_assets(
     State(state): State<AppState>,
 ) -> ApiResult<Vec<StaticAssetInstance>> {
+    let workspace_id = homepage_workspace_id(&state).await?;
     let static_assets = state
         .store
-        .list_static_assets()
+        .workspace_list_static_assets(&workspace_id)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(Json(static_assets))
+}
+
+pub async fn list_workspace_static_assets(
+    Path(workspace_id): Path<String>,
+    State(state): State<AppState>,
+) -> ApiResult<Vec<StaticAssetInstance>> {
+    let static_assets = state
+        .store
+        .workspace_list_static_assets(&workspace_id)
         .await
         .map_err(ApiError::from_store)?;
     Ok(Json(static_assets))
@@ -751,9 +1141,29 @@ pub async fn get_static_asset(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> ApiResult<StaticAssetInstance> {
+    let workspace_id = homepage_workspace_id(&state).await?;
     let static_asset = state
         .store
-        .get_static_asset(&id)
+        .workspace_get_static_asset(&workspace_id, &id)
+        .await
+        .map_err(ApiError::from_store)?
+        .ok_or_else(|| {
+            ApiError::simple(
+                StatusCode::NOT_FOUND,
+                format!("static asset {id} not found"),
+            )
+        })?;
+
+    Ok(Json(static_asset))
+}
+
+pub async fn get_workspace_static_asset(
+    Path((workspace_id, id)): Path<(String, String)>,
+    State(state): State<AppState>,
+) -> ApiResult<StaticAssetInstance> {
+    let static_asset = state
+        .store
+        .workspace_get_static_asset(&workspace_id, &id)
         .await
         .map_err(ApiError::from_store)?
         .ok_or_else(|| {
@@ -770,9 +1180,10 @@ pub async fn create_static_asset(
     State(state): State<AppState>,
     Json(payload): Json<StaticAssetInstance>,
 ) -> ApiResult<StaticAssetInstance> {
+    let workspace_id = homepage_workspace_id(&state).await?;
     let static_asset = state
         .store
-        .create_static_asset(payload)
+        .workspace_create_static_asset(&workspace_id, payload)
         .await
         .map_err(ApiError::from_store)?;
     let scene_version = state
@@ -781,6 +1192,25 @@ pub async fn create_static_asset(
         .await
         .map_err(ApiError::from_store)?;
     emit_config_changed(&state, scene_version, ConfigChangedScope::StaticAsset).await?;
+    Ok(Json(static_asset))
+}
+
+pub async fn create_workspace_static_asset(
+    Path(workspace_id): Path<String>,
+    State(state): State<AppState>,
+    Json(payload): Json<StaticAssetInstance>,
+) -> ApiResult<StaticAssetInstance> {
+    let static_asset = state
+        .store
+        .workspace_create_static_asset(&workspace_id, payload)
+        .await
+        .map_err(ApiError::from_store)?;
+    let scene_version = state
+        .store
+        .workspace_scene_version(&workspace_id)
+        .await
+        .map_err(ApiError::from_store)?;
+    emit_workspace_config_changed(&state, &workspace_id, scene_version, ConfigChangedScope::StaticAsset).await?;
     Ok(Json(static_asset))
 }
 
@@ -789,9 +1219,10 @@ pub async fn update_static_asset(
     Path(id): Path<String>,
     Json(payload): Json<StaticAssetInstance>,
 ) -> ApiResult<StaticAssetInstance> {
+    let workspace_id = homepage_workspace_id(&state).await?;
     let static_asset = state
         .store
-        .update_static_asset(&id, payload)
+        .workspace_update_static_asset(&workspace_id, &id, payload)
         .await
         .map_err(ApiError::from_store)?;
     let scene_version = state
@@ -803,13 +1234,33 @@ pub async fn update_static_asset(
     Ok(Json(static_asset))
 }
 
+pub async fn update_workspace_static_asset(
+    Path((workspace_id, id)): Path<(String, String)>,
+    State(state): State<AppState>,
+    Json(payload): Json<StaticAssetInstance>,
+) -> ApiResult<StaticAssetInstance> {
+    let static_asset = state
+        .store
+        .workspace_update_static_asset(&workspace_id, &id, payload)
+        .await
+        .map_err(ApiError::from_store)?;
+    let scene_version = state
+        .store
+        .workspace_scene_version(&workspace_id)
+        .await
+        .map_err(ApiError::from_store)?;
+    emit_workspace_config_changed(&state, &workspace_id, scene_version, ConfigChangedScope::StaticAsset).await?;
+    Ok(Json(static_asset))
+}
+
 pub async fn delete_static_asset(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
+    let workspace_id = homepage_workspace_id(&state).await?;
     let deleted = state
         .store
-        .delete_static_asset(&id)
+        .workspace_delete_static_asset(&workspace_id, &id)
         .await
         .map_err(ApiError::from_store)?;
 
@@ -829,24 +1280,93 @@ pub async fn delete_static_asset(
     Ok(StatusCode::NO_CONTENT)
 }
 
+pub async fn delete_workspace_static_asset(
+    Path((workspace_id, id)): Path<(String, String)>,
+    State(state): State<AppState>,
+) -> Result<StatusCode, ApiError> {
+    let deleted = state
+        .store
+        .workspace_delete_static_asset(&workspace_id, &id)
+        .await
+        .map_err(ApiError::from_store)?;
+
+    if !deleted {
+        return Err(ApiError::simple(
+            StatusCode::NOT_FOUND,
+            format!("static asset {id} not found"),
+        ));
+    }
+
+    let scene_version = state
+        .store
+        .workspace_scene_version(&workspace_id)
+        .await
+        .map_err(ApiError::from_store)?;
+    emit_workspace_config_changed(&state, &workspace_id, scene_version, ConfigChangedScope::StaticAsset).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 pub async fn list_data_sources(State(state): State<AppState>) -> ApiResult<Vec<DataConnector>> {
+    let workspace_id = homepage_workspace_id(&state).await?;
     let sources = state
         .store
-        .list_connectors()
+        .workspace_list_connectors(&workspace_id)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(Json(sources))
+}
+
+pub async fn list_workspace_data_sources(
+    Path(workspace_id): Path<String>,
+    State(state): State<AppState>,
+) -> ApiResult<Vec<DataConnector>> {
+    let sources = state
+        .store
+        .workspace_list_connectors(&workspace_id)
         .await
         .map_err(ApiError::from_store)?;
     Ok(Json(sources))
 }
 
 pub async fn list_alarms(State(state): State<AppState>) -> ApiResult<Vec<Alarm>> {
-    let alarms = admin_service::load_admin_alarms(&state.store)
+    let workspace_id = homepage_workspace_id(&state).await?;
+    let alarms = state
+        .store
+        .workspace_list_alarms(&workspace_id)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(Json(alarms))
+}
+
+pub async fn list_workspace_alarms(
+    Path(workspace_id): Path<String>,
+    State(state): State<AppState>,
+) -> ApiResult<Vec<Alarm>> {
+    let alarms = state
+        .store
+        .workspace_list_alarms(&workspace_id)
         .await
         .map_err(ApiError::from_store)?;
     Ok(Json(alarms))
 }
 
 pub async fn list_audit_events(State(state): State<AppState>) -> ApiResult<Vec<AuditEventRecord>> {
-    let audit_events = admin_service::load_audit_events(&state.store, 100)
+    let workspace_id = homepage_workspace_id(&state).await?;
+    let audit_events = state
+        .store
+        .workspace_list_audit_events(&workspace_id, 100)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(Json(audit_events))
+}
+
+pub async fn list_workspace_audit_events(
+    Path(workspace_id): Path<String>,
+    State(state): State<AppState>,
+) -> ApiResult<Vec<AuditEventRecord>> {
+    let audit_events = state
+        .store
+        .workspace_list_audit_events(&workspace_id, 100)
         .await
         .map_err(ApiError::from_store)?;
     Ok(Json(audit_events))
@@ -856,9 +1376,10 @@ pub async fn create_data_source(
     State(state): State<AppState>,
     Json(payload): Json<DataConnector>,
 ) -> ApiResult<DataConnector> {
+    let workspace_id = homepage_workspace_id(&state).await?;
     let source = state
         .store
-        .create_connector(payload)
+        .workspace_create_connector(&workspace_id, payload)
         .await
         .map_err(ApiError::from_store)?;
     let scene_version = state
@@ -867,6 +1388,25 @@ pub async fn create_data_source(
         .await
         .map_err(ApiError::from_store)?;
     emit_config_changed(&state, scene_version, ConfigChangedScope::Binding).await?;
+    Ok(Json(source))
+}
+
+pub async fn create_workspace_data_source(
+    Path(workspace_id): Path<String>,
+    State(state): State<AppState>,
+    Json(payload): Json<DataConnector>,
+) -> ApiResult<DataConnector> {
+    let source = state
+        .store
+        .workspace_create_connector(&workspace_id, payload)
+        .await
+        .map_err(ApiError::from_store)?;
+    let scene_version = state
+        .store
+        .workspace_scene_version(&workspace_id)
+        .await
+        .map_err(ApiError::from_store)?;
+    emit_workspace_config_changed(&state, &workspace_id, scene_version, ConfigChangedScope::Binding).await?;
     Ok(Json(source))
 }
 
@@ -875,9 +1415,10 @@ pub async fn update_data_source(
     Path(id): Path<String>,
     Json(payload): Json<DataConnector>,
 ) -> ApiResult<DataConnector> {
+    let workspace_id = homepage_workspace_id(&state).await?;
     let source = state
         .store
-        .update_connector(&id, payload)
+        .workspace_update_connector(&workspace_id, &id, payload)
         .await
         .map_err(ApiError::from_store)?;
     let scene_version = state
@@ -889,13 +1430,33 @@ pub async fn update_data_source(
     Ok(Json(source))
 }
 
+pub async fn update_workspace_data_source(
+    Path((workspace_id, id)): Path<(String, String)>,
+    State(state): State<AppState>,
+    Json(payload): Json<DataConnector>,
+) -> ApiResult<DataConnector> {
+    let source = state
+        .store
+        .workspace_update_connector(&workspace_id, &id, payload)
+        .await
+        .map_err(ApiError::from_store)?;
+    let scene_version = state
+        .store
+        .workspace_scene_version(&workspace_id)
+        .await
+        .map_err(ApiError::from_store)?;
+    emit_workspace_config_changed(&state, &workspace_id, scene_version, ConfigChangedScope::Binding).await?;
+    Ok(Json(source))
+}
+
 pub async fn delete_data_source(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
+    let workspace_id = homepage_workspace_id(&state).await?;
     let deleted = state
         .store
-        .delete_connector(&id)
+        .workspace_delete_connector(&workspace_id, &id)
         .await
         .map_err(ApiError::from_store)?;
 
@@ -915,13 +1476,53 @@ pub async fn delete_data_source(
     Ok(StatusCode::NO_CONTENT)
 }
 
+pub async fn delete_workspace_data_source(
+    Path((workspace_id, id)): Path<(String, String)>,
+    State(state): State<AppState>,
+) -> Result<StatusCode, ApiError> {
+    let deleted = state
+        .store
+        .workspace_delete_connector(&workspace_id, &id)
+        .await
+        .map_err(ApiError::from_store)?;
+
+    if !deleted {
+        return Err(ApiError::simple(
+            StatusCode::NOT_FOUND,
+            format!("data source {id} not found"),
+        ));
+    }
+
+    let scene_version = state
+        .store
+        .workspace_scene_version(&workspace_id)
+        .await
+        .map_err(ApiError::from_store)?;
+    emit_workspace_config_changed(&state, &workspace_id, scene_version, ConfigChangedScope::Binding).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 pub async fn list_entity_bindings(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> ApiResult<Vec<EntityBinding>> {
+    let workspace_id = homepage_workspace_id(&state).await?;
     let bindings = state
         .store
-        .list_bindings_by_entity(&id)
+        .workspace_list_bindings_by_entity(&workspace_id, &id)
+        .await
+        .map_err(ApiError::from_store)?;
+
+    Ok(Json(bindings))
+}
+
+pub async fn list_workspace_entity_bindings(
+    Path((workspace_id, id)): Path<(String, String)>,
+    State(state): State<AppState>,
+) -> ApiResult<Vec<EntityBinding>> {
+    let bindings = state
+        .store
+        .workspace_list_bindings_by_entity(&workspace_id, &id)
         .await
         .map_err(ApiError::from_store)?;
 
@@ -933,9 +1534,10 @@ pub async fn replace_entity_bindings(
     Path(id): Path<String>,
     Json(payload): Json<ReplaceBindingsRequest>,
 ) -> ApiResult<Vec<EntityBinding>> {
+    let workspace_id = homepage_workspace_id(&state).await?;
     let bindings = state
         .store
-        .replace_entity_bindings(&id, payload.bindings)
+        .workspace_replace_entity_bindings(&workspace_id, &id, payload.bindings)
         .await
         .map_err(ApiError::from_store)?;
     let scene_version = state
@@ -947,10 +1549,43 @@ pub async fn replace_entity_bindings(
     Ok(Json(bindings))
 }
 
+pub async fn replace_workspace_entity_bindings(
+    Path((workspace_id, id)): Path<(String, String)>,
+    State(state): State<AppState>,
+    Json(payload): Json<ReplaceBindingsRequest>,
+) -> ApiResult<Vec<EntityBinding>> {
+    let bindings = state
+        .store
+        .workspace_replace_entity_bindings(&workspace_id, &id, payload.bindings)
+        .await
+        .map_err(ApiError::from_store)?;
+    let scene_version = state
+        .store
+        .workspace_scene_version(&workspace_id)
+        .await
+        .map_err(ApiError::from_store)?;
+    emit_workspace_config_changed(&state, &workspace_id, scene_version, ConfigChangedScope::Binding).await?;
+    Ok(Json(bindings))
+}
+
 pub async fn list_rules(State(state): State<AppState>) -> ApiResult<Vec<RuleConfig>> {
+    let workspace_id = homepage_workspace_id(&state).await?;
     let rules = state
         .store
-        .list_rules()
+        .workspace_list_rules(&workspace_id)
+        .await
+        .map_err(ApiError::from_store)?;
+
+    Ok(Json(rules))
+}
+
+pub async fn list_workspace_rules(
+    Path(workspace_id): Path<String>,
+    State(state): State<AppState>,
+) -> ApiResult<Vec<RuleConfig>> {
+    let rules = state
+        .store
+        .workspace_list_rules(&workspace_id)
         .await
         .map_err(ApiError::from_store)?;
 
@@ -961,9 +1596,10 @@ pub async fn create_rule(
     State(state): State<AppState>,
     Json(payload): Json<RuleConfig>,
 ) -> ApiResult<RuleConfig> {
+    let workspace_id = homepage_workspace_id(&state).await?;
     let rule = state
         .store
-        .create_rule(payload)
+        .workspace_create_rule(&workspace_id, payload)
         .await
         .map_err(ApiError::from_store)?;
 
@@ -977,13 +1613,49 @@ pub async fn create_rule(
     Ok(Json(rule))
 }
 
+pub async fn create_workspace_rule(
+    Path(workspace_id): Path<String>,
+    State(state): State<AppState>,
+    Json(payload): Json<RuleConfig>,
+) -> ApiResult<RuleConfig> {
+    let rule = state
+        .store
+        .workspace_create_rule(&workspace_id, payload)
+        .await
+        .map_err(ApiError::from_store)?;
+
+    let scene_version = state
+        .store
+        .workspace_scene_version(&workspace_id)
+        .await
+        .map_err(ApiError::from_store)?;
+    emit_workspace_config_changed(&state, &workspace_id, scene_version, ConfigChangedScope::Rule).await?;
+
+    Ok(Json(rule))
+}
+
 pub async fn get_rule(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> ApiResult<RuleConfig> {
+    let workspace_id = homepage_workspace_id(&state).await?;
     let rule = state
         .store
-        .get_rule(&id)
+        .workspace_get_rule(&workspace_id, &id)
+        .await
+        .map_err(ApiError::from_store)?
+        .ok_or_else(|| ApiError::simple(StatusCode::NOT_FOUND, format!("rule {id} not found")))?;
+
+    Ok(Json(rule))
+}
+
+pub async fn get_workspace_rule(
+    Path((workspace_id, id)): Path<(String, String)>,
+    State(state): State<AppState>,
+) -> ApiResult<RuleConfig> {
+    let rule = state
+        .store
+        .workspace_get_rule(&workspace_id, &id)
         .await
         .map_err(ApiError::from_store)?
         .ok_or_else(|| ApiError::simple(StatusCode::NOT_FOUND, format!("rule {id} not found")))?;
@@ -996,9 +1668,10 @@ pub async fn update_rule(
     Path(id): Path<String>,
     Json(payload): Json<RuleConfig>,
 ) -> ApiResult<RuleConfig> {
+    let workspace_id = homepage_workspace_id(&state).await?;
     let rule = state
         .store
-        .update_rule(&id, payload)
+        .workspace_update_rule(&workspace_id, &id, payload)
         .await
         .map_err(ApiError::from_store)?;
 
@@ -1012,13 +1685,35 @@ pub async fn update_rule(
     Ok(Json(rule))
 }
 
+pub async fn update_workspace_rule(
+    Path((workspace_id, id)): Path<(String, String)>,
+    State(state): State<AppState>,
+    Json(payload): Json<RuleConfig>,
+) -> ApiResult<RuleConfig> {
+    let rule = state
+        .store
+        .workspace_update_rule(&workspace_id, &id, payload)
+        .await
+        .map_err(ApiError::from_store)?;
+
+    let scene_version = state
+        .store
+        .workspace_scene_version(&workspace_id)
+        .await
+        .map_err(ApiError::from_store)?;
+    emit_workspace_config_changed(&state, &workspace_id, scene_version, ConfigChangedScope::Rule).await?;
+
+    Ok(Json(rule))
+}
+
 pub async fn delete_rule(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
+    let workspace_id = homepage_workspace_id(&state).await?;
     let deleted = state
         .store
-        .delete_rule(&id)
+        .workspace_delete_rule(&workspace_id, &id)
         .await
         .map_err(ApiError::from_store)?;
 
@@ -1039,6 +1734,33 @@ pub async fn delete_rule(
     Ok(StatusCode::NO_CONTENT)
 }
 
+pub async fn delete_workspace_rule(
+    Path((workspace_id, id)): Path<(String, String)>,
+    State(state): State<AppState>,
+) -> Result<StatusCode, ApiError> {
+    let deleted = state
+        .store
+        .workspace_delete_rule(&workspace_id, &id)
+        .await
+        .map_err(ApiError::from_store)?;
+
+    if !deleted {
+        return Err(ApiError::simple(
+            StatusCode::NOT_FOUND,
+            format!("rule {id} not found"),
+        ));
+    }
+
+    let scene_version = state
+        .store
+        .workspace_scene_version(&workspace_id)
+        .await
+        .map_err(ApiError::from_store)?;
+    emit_workspace_config_changed(&state, &workspace_id, scene_version, ConfigChangedScope::Rule).await?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
 pub async fn validate_rule(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -1050,6 +1772,28 @@ pub async fn validate_rule(
         state
             .store
             .get_rule(&id)
+            .await
+            .map_err(ApiError::from_store)?
+            .ok_or_else(|| {
+                ApiError::simple(StatusCode::NOT_FOUND, format!("rule {id} not found"))
+            })?
+    };
+
+    let result = state.store.validate_rule(&rule);
+    Ok(Json(result))
+}
+
+pub async fn validate_workspace_rule(
+    Path((workspace_id, id)): Path<(String, String)>,
+    State(state): State<AppState>,
+    payload: Option<Json<RuleConfig>>,
+) -> ApiResult<RuleValidationResponse> {
+    let rule = if let Some(payload) = payload {
+        payload.0
+    } else {
+        state
+            .store
+            .workspace_get_rule(&workspace_id, &id)
             .await
             .map_err(ApiError::from_store)?
             .ok_or_else(|| {

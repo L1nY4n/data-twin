@@ -12,11 +12,19 @@ import type {
   StaticAssetInstance,
   WorkspaceRecord,
 } from './types'
-import { getAdminApiBaseUrl, getBackendHttpBaseUrl, getBootstrapUrl } from './backend-config'
+import {
+  getAdminApiBaseUrl,
+  getBackendHttpBaseUrl,
+  getBootstrapUrl,
+  getWorkspaceApiBaseUrl,
+} from './backend-config'
 import type { AuditEventRecord, AdminOverview, PublishStatus } from './admin'
 
 export interface BootstrapPayload {
   siteId: string
+  workspaceId: string
+  workspaceSlug: string
+  workspaceName: string
   sceneVersion: number
   sceneConfig: SceneConfig
   entities: Entity[]
@@ -191,24 +199,40 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T
 }
 
-export async function fetchBootstrap(): Promise<BootstrapPayload> {
-  return requestJson<BootstrapPayload>(getBootstrapUrl())
+export async function fetchBootstrap(workspaceId: string): Promise<BootstrapPayload> {
+  return requestJson<BootstrapPayload>(getBootstrapUrl(workspaceId))
 }
 
 export async function fetchHomeWorkspace(): Promise<WorkspaceRecord> {
   return requestJson<WorkspaceRecord>(`${getBackendHttpBaseUrl()}/api/v1/site/home-workspace`)
 }
 
-export async function fetchEditorBootstrap(): Promise<BootstrapPayload> {
-  return requestJson<BootstrapPayload>(`${getAdminApiBaseUrl()}/bootstrap`)
+export async function fetchWorkspaceById(workspaceId: string): Promise<WorkspaceRecord> {
+  return requestJson<WorkspaceRecord>(`${getAdminApiBaseUrl()}/workspaces/${encodeURIComponent(workspaceId)}`)
 }
 
-export async function fetchAdminScene(): Promise<SceneResponse> {
-  return requestJson<SceneResponse>(`${getAdminApiBaseUrl()}/scene`)
+export async function fetchWorkspaceBySlug(slug: string): Promise<WorkspaceRecord> {
+  return requestJson<WorkspaceRecord>(`${getBackendHttpBaseUrl()}/api/v1/workspaces/by-slug/${encodeURIComponent(slug)}`)
 }
 
-export async function fetchAdminOverview(): Promise<AdminOverview> {
-  return requestJson<AdminOverview>(`${getAdminApiBaseUrl()}/overview`)
+export async function fetchEditorBootstrap(workspaceId: string): Promise<BootstrapPayload> {
+  return requestJson<BootstrapPayload>(`${getWorkspaceApiBaseUrl(workspaceId)}/editor/bootstrap`)
+}
+
+export async function fetchAdminScene(workspaceId?: string): Promise<SceneResponse> {
+  return requestJson<SceneResponse>(
+    workspaceId
+      ? `${getWorkspaceApiBaseUrl(workspaceId)}/scene`
+      : `${getAdminApiBaseUrl()}/scene`
+  )
+}
+
+export async function fetchAdminOverview(workspaceId?: string): Promise<AdminOverview> {
+  return requestJson<AdminOverview>(
+    workspaceId
+      ? `${getWorkspaceApiBaseUrl(workspaceId)}/admin/overview`
+      : `${getAdminApiBaseUrl()}/overview`
+  )
 }
 
 export async function listWorkspaces(): Promise<WorkspaceRecord[]> {
@@ -240,45 +264,113 @@ export async function deleteWorkspace(id: string): Promise<void> {
   })
 }
 
-export async function fetchAdminPublishStatus(): Promise<PublishStatus> {
-  return requestJson<PublishStatus>(`${getAdminApiBaseUrl()}/publish`)
+export async function fetchAdminPublishStatus(workspaceId?: string): Promise<PublishStatus> {
+  return requestJson<PublishStatus>(
+    workspaceId
+      ? `${getWorkspaceApiBaseUrl(workspaceId)}/publish`
+      : `${getAdminApiBaseUrl()}/publish`
+  )
 }
 
-export async function triggerAdminPublish(): Promise<PublishStatus> {
-  return requestJson<PublishStatus>(`${getAdminApiBaseUrl()}/publish`, {
+export async function triggerAdminPublish(workspaceId?: string): Promise<PublishStatus> {
+  return requestJson<PublishStatus>(
+    workspaceId
+      ? `${getWorkspaceApiBaseUrl(workspaceId)}/publish`
+      : `${getAdminApiBaseUrl()}/publish`,
+    {
     method: 'POST',
-  })
+    }
+  )
 }
 
-export async function updateAdminScene(sceneConfig: SceneConfig): Promise<SceneResponse> {
-  return requestJson<SceneResponse>(`${getAdminApiBaseUrl()}/scene`, {
-    method: 'PUT',
-    body: JSON.stringify(sceneConfig),
-  })
+export async function updateAdminScene(
+  workspaceIdOrSceneConfig: string | SceneConfig,
+  sceneConfig?: SceneConfig
+): Promise<SceneResponse> {
+  const workspaceId =
+    typeof workspaceIdOrSceneConfig === 'string' ? workspaceIdOrSceneConfig : undefined
+  const payload =
+    typeof workspaceIdOrSceneConfig === 'string'
+      ? sceneConfig
+      : workspaceIdOrSceneConfig
+
+  if (!payload) {
+    throw new Error('sceneConfig is required')
+  }
+
+  return requestJson<SceneResponse>(
+    workspaceId
+      ? `${getWorkspaceApiBaseUrl(workspaceId)}/scene`
+      : `${getAdminApiBaseUrl()}/scene`,
+    {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }
+  )
 }
 
 export async function saveAdminEditorDrafts(
-  request: EditorSaveRequest
+  workspaceIdOrRequest: string | EditorSaveRequest,
+  request?: EditorSaveRequest
 ): Promise<EditorSaveResponse> {
-  return requestJson<EditorSaveResponse>(`${getAdminApiBaseUrl()}/editor-save`, {
+  const workspaceId =
+    typeof workspaceIdOrRequest === 'string' ? workspaceIdOrRequest : undefined
+  const payload =
+    typeof workspaceIdOrRequest === 'string' ? request : workspaceIdOrRequest
+
+  if (!payload) {
+    throw new Error('editor save request is required')
+  }
+
+  return requestJson<EditorSaveResponse>(
+    workspaceId
+      ? `${getWorkspaceApiBaseUrl(workspaceId)}/editor-save`
+      : `${getAdminApiBaseUrl()}/editor-save`,
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }
+  )
+}
+
+export async function listAdminEntities(workspaceId?: string): Promise<Entity[]> {
+  return requestJson<Entity[]>(
+    workspaceId
+      ? `${getWorkspaceApiBaseUrl(workspaceId)}/entities`
+      : `${getAdminApiBaseUrl()}/entities`
+  )
+}
+
+export async function listAdminStaticAssets(workspaceId?: string): Promise<StaticAssetInstance[]> {
+  return requestJson<StaticAssetInstance[]>(
+    workspaceId
+      ? `${getWorkspaceApiBaseUrl(workspaceId)}/static-assets`
+      : `${getAdminApiBaseUrl()}/static-assets`
+  )
+}
+
+export async function createAdminEntity(
+  workspaceIdOrEntity: string | Entity,
+  entity?: Entity
+): Promise<Entity> {
+  const workspaceId =
+    typeof workspaceIdOrEntity === 'string' ? workspaceIdOrEntity : undefined
+  const payload =
+    typeof workspaceIdOrEntity === 'string' ? entity : workspaceIdOrEntity
+
+  if (!payload) {
+    throw new Error('entity payload is required')
+  }
+
+  return requestJson<Entity>(
+    workspaceId
+      ? `${getWorkspaceApiBaseUrl(workspaceId)}/entities`
+      : `${getAdminApiBaseUrl()}/entities`,
+    {
     method: 'POST',
-    body: JSON.stringify(request),
-  })
-}
-
-export async function listAdminEntities(): Promise<Entity[]> {
-  return requestJson<Entity[]>(`${getAdminApiBaseUrl()}/entities`)
-}
-
-export async function listAdminStaticAssets(): Promise<StaticAssetInstance[]> {
-  return requestJson<StaticAssetInstance[]>(`${getAdminApiBaseUrl()}/static-assets`)
-}
-
-export async function createAdminEntity(entity: Entity): Promise<Entity> {
-  return requestJson<Entity>(`${getAdminApiBaseUrl()}/entities`, {
-    method: 'POST',
-    body: JSON.stringify(entity),
-  })
+    body: JSON.stringify(payload),
+    }
+  )
 }
 
 export async function listEntityCategories(): Promise<EntityCategory[]> {
@@ -360,122 +452,312 @@ export async function uploadArchetypeModel(file: File): Promise<ArchetypeModelAs
 }
 
 export async function createAdminStaticAsset(
-  staticAsset: StaticAssetInstance
+  workspaceIdOrStaticAsset: string | StaticAssetInstance,
+  staticAsset?: StaticAssetInstance
 ): Promise<StaticAssetInstance> {
-  return requestJson<StaticAssetInstance>(`${getAdminApiBaseUrl()}/static-assets`, {
+  const workspaceId =
+    typeof workspaceIdOrStaticAsset === 'string' ? workspaceIdOrStaticAsset : undefined
+  const payload =
+    typeof workspaceIdOrStaticAsset === 'string'
+      ? staticAsset
+      : workspaceIdOrStaticAsset
+
+  if (!payload) {
+    throw new Error('static asset payload is required')
+  }
+
+  return requestJson<StaticAssetInstance>(
+    workspaceId
+      ? `${getWorkspaceApiBaseUrl(workspaceId)}/static-assets`
+      : `${getAdminApiBaseUrl()}/static-assets`,
+    {
     method: 'POST',
-    body: JSON.stringify(staticAsset),
-  })
+    body: JSON.stringify(payload),
+    }
+  )
 }
 
-export async function updateAdminEntity(id: string, entity: Entity): Promise<Entity> {
-  return requestJson<Entity>(`${getAdminApiBaseUrl()}/entities/${id}`, {
+export async function updateAdminEntity(
+  workspaceIdOrId: string,
+  idOrEntity: string | Entity,
+  entity?: Entity
+): Promise<Entity> {
+  const workspaceId = entity ? workspaceIdOrId : undefined
+  const entityId = entity ? (idOrEntity as string) : workspaceIdOrId
+  const payload = entity ?? (idOrEntity as Entity)
+
+  return requestJson<Entity>(
+    workspaceId
+      ? `${getWorkspaceApiBaseUrl(workspaceId)}/entities/${entityId}`
+      : `${getAdminApiBaseUrl()}/entities/${entityId}`,
+    {
     method: 'PUT',
-    body: JSON.stringify(entity),
-  })
+    body: JSON.stringify(payload),
+    }
+  )
 }
 
 export async function updateAdminStaticAsset(
-  id: string,
-  staticAsset: StaticAssetInstance
+  workspaceIdOrId: string,
+  idOrStaticAsset: string | StaticAssetInstance,
+  staticAsset?: StaticAssetInstance
 ): Promise<StaticAssetInstance> {
-  return requestJson<StaticAssetInstance>(`${getAdminApiBaseUrl()}/static-assets/${id}`, {
+  const workspaceId = staticAsset ? workspaceIdOrId : undefined
+  const assetId = staticAsset ? (idOrStaticAsset as string) : workspaceIdOrId
+  const payload = staticAsset ?? (idOrStaticAsset as StaticAssetInstance)
+
+  return requestJson<StaticAssetInstance>(
+    workspaceId
+      ? `${getWorkspaceApiBaseUrl(workspaceId)}/static-assets/${assetId}`
+      : `${getAdminApiBaseUrl()}/static-assets/${assetId}`,
+    {
     method: 'PUT',
-    body: JSON.stringify(staticAsset),
-  })
+    body: JSON.stringify(payload),
+    }
+  )
 }
 
-export async function deleteAdminEntity(id: string): Promise<void> {
-  await requestJson<void>(`${getAdminApiBaseUrl()}/entities/${id}`, {
-    method: 'DELETE',
-  })
+export async function deleteAdminEntity(
+  workspaceIdOrId: string,
+  id?: string
+): Promise<void> {
+  const workspaceId = id ? workspaceIdOrId : undefined
+  const entityId = id ?? workspaceIdOrId
+  await requestJson<void>(
+    workspaceId
+      ? `${getWorkspaceApiBaseUrl(workspaceId)}/entities/${entityId}`
+      : `${getAdminApiBaseUrl()}/entities/${entityId}`,
+    {
+      method: 'DELETE',
+    }
+  )
 }
 
-export async function deleteAdminStaticAsset(id: string): Promise<void> {
-  await requestJson<void>(`${getAdminApiBaseUrl()}/static-assets/${id}`, {
-    method: 'DELETE',
-  })
+export async function deleteAdminStaticAsset(
+  workspaceIdOrId: string,
+  id?: string
+): Promise<void> {
+  const workspaceId = id ? workspaceIdOrId : undefined
+  const assetId = id ?? workspaceIdOrId
+  await requestJson<void>(
+    workspaceId
+      ? `${getWorkspaceApiBaseUrl(workspaceId)}/static-assets/${assetId}`
+      : `${getAdminApiBaseUrl()}/static-assets/${assetId}`,
+    {
+      method: 'DELETE',
+    }
+  )
 }
 
-export async function listDataConnectors(): Promise<DataConnector[]> {
-  return requestJson<DataConnector[]>(`${getAdminApiBaseUrl()}/data-sources`)
+export async function listDataConnectors(workspaceId?: string): Promise<DataConnector[]> {
+  return requestJson<DataConnector[]>(
+    workspaceId
+      ? `${getWorkspaceApiBaseUrl(workspaceId)}/data-sources`
+      : `${getAdminApiBaseUrl()}/data-sources`
+  )
 }
 
-export async function listAdminAlarms(): Promise<Alarm[]> {
-  return requestJson<Alarm[]>(`${getAdminApiBaseUrl()}/alarms`)
+export async function listAdminAlarms(workspaceId?: string): Promise<Alarm[]> {
+  return requestJson<Alarm[]>(
+    workspaceId
+      ? `${getWorkspaceApiBaseUrl(workspaceId)}/alarms`
+      : `${getAdminApiBaseUrl()}/alarms`
+  )
 }
 
-export async function listAdminAuditEvents(): Promise<AuditEventRecord[]> {
-  return requestJson<AuditEventRecord[]>(`${getAdminApiBaseUrl()}/audit`)
+export async function listAdminAuditEvents(
+  workspaceId?: string
+): Promise<AuditEventRecord[]> {
+  return requestJson<AuditEventRecord[]>(
+    workspaceId
+      ? `${getWorkspaceApiBaseUrl(workspaceId)}/audit`
+      : `${getAdminApiBaseUrl()}/audit`
+  )
 }
 
-export async function createDataConnector(connector: DataConnector): Promise<DataConnector> {
-  return requestJson<DataConnector>(`${getAdminApiBaseUrl()}/data-sources`, {
+export async function createDataConnector(
+  workspaceIdOrConnector: string | DataConnector,
+  connector?: DataConnector
+): Promise<DataConnector> {
+  const workspaceId =
+    typeof workspaceIdOrConnector === 'string' ? workspaceIdOrConnector : undefined
+  const payload =
+    typeof workspaceIdOrConnector === 'string' ? connector : workspaceIdOrConnector
+
+  if (!payload) {
+    throw new Error('connector payload is required')
+  }
+
+  return requestJson<DataConnector>(
+    workspaceId
+      ? `${getWorkspaceApiBaseUrl(workspaceId)}/data-sources`
+      : `${getAdminApiBaseUrl()}/data-sources`,
+    {
     method: 'POST',
-    body: JSON.stringify(connector),
-  })
+    body: JSON.stringify(payload),
+    }
+  )
 }
 
 export async function updateDataConnector(
-  id: string,
-  connector: DataConnector
+  workspaceIdOrId: string,
+  idOrConnector: string | DataConnector,
+  connector?: DataConnector
 ): Promise<DataConnector> {
-  return requestJson<DataConnector>(`${getAdminApiBaseUrl()}/data-sources/${id}`, {
+  const workspaceId = connector ? workspaceIdOrId : undefined
+  const connectorId = connector ? (idOrConnector as string) : workspaceIdOrId
+  const payload = connector ?? (idOrConnector as DataConnector)
+
+  return requestJson<DataConnector>(
+    workspaceId
+      ? `${getWorkspaceApiBaseUrl(workspaceId)}/data-sources/${connectorId}`
+      : `${getAdminApiBaseUrl()}/data-sources/${connectorId}`,
+    {
     method: 'PUT',
-    body: JSON.stringify(connector),
-  })
+    body: JSON.stringify(payload),
+    }
+  )
 }
 
-export async function deleteDataConnector(id: string): Promise<void> {
-  await requestJson<void>(`${getAdminApiBaseUrl()}/data-sources/${id}`, {
-    method: 'DELETE',
-  })
+export async function deleteDataConnector(
+  workspaceIdOrId: string,
+  id?: string
+): Promise<void> {
+  const workspaceId = id ? workspaceIdOrId : undefined
+  const connectorId = id ?? workspaceIdOrId
+  await requestJson<void>(
+    workspaceId
+      ? `${getWorkspaceApiBaseUrl(workspaceId)}/data-sources/${connectorId}`
+      : `${getAdminApiBaseUrl()}/data-sources/${connectorId}`,
+    {
+      method: 'DELETE',
+    }
+  )
 }
 
-export async function listEntityBindings(entityId: string): Promise<EntityBinding[]> {
-  return requestJson<EntityBinding[]>(`${getAdminApiBaseUrl()}/entities/${entityId}/bindings`)
+export async function listEntityBindings(
+  workspaceIdOrEntityId: string,
+  entityId?: string
+): Promise<EntityBinding[]> {
+  const workspaceId = entityId ? workspaceIdOrEntityId : undefined
+  const resolvedEntityId = entityId ?? workspaceIdOrEntityId
+  return requestJson<EntityBinding[]>(
+    workspaceId
+      ? `${getWorkspaceApiBaseUrl(workspaceId)}/entities/${resolvedEntityId}/bindings`
+      : `${getAdminApiBaseUrl()}/entities/${resolvedEntityId}/bindings`
+  )
 }
 
 export async function replaceEntityBindings(
-  entityId: string,
-  bindings: EntityBinding[]
+  workspaceIdOrEntityId: string,
+  entityIdOrBindings: string | EntityBinding[],
+  bindings?: EntityBinding[]
 ): Promise<EntityBinding[]> {
-  return requestJson<EntityBinding[]>(`${getAdminApiBaseUrl()}/entities/${entityId}/bindings`, {
+  const workspaceId = Array.isArray(entityIdOrBindings) ? undefined : workspaceIdOrEntityId
+  const entityId = Array.isArray(entityIdOrBindings) ? workspaceIdOrEntityId : entityIdOrBindings
+  const payload = Array.isArray(entityIdOrBindings) ? entityIdOrBindings : bindings
+
+  if (!payload) {
+    throw new Error('bindings payload is required')
+  }
+
+  return requestJson<EntityBinding[]>(
+    workspaceId
+      ? `${getWorkspaceApiBaseUrl(workspaceId)}/entities/${entityId}/bindings`
+      : `${getAdminApiBaseUrl()}/entities/${entityId}/bindings`,
+    {
     method: 'PUT',
-    body: JSON.stringify({ bindings }),
-  })
+    body: JSON.stringify({ bindings: payload }),
+    }
+  )
 }
 
-export async function listRules(): Promise<RuleConfig[]> {
-  return requestJson<RuleConfig[]>(`${getAdminApiBaseUrl()}/rules`)
+export async function listRules(workspaceId?: string): Promise<RuleConfig[]> {
+  return requestJson<RuleConfig[]>(
+    workspaceId
+      ? `${getWorkspaceApiBaseUrl(workspaceId)}/rules`
+      : `${getAdminApiBaseUrl()}/rules`
+  )
 }
 
-export async function createRule(rule: RuleConfig): Promise<RuleConfig> {
-  return requestJson<RuleConfig>(`${getAdminApiBaseUrl()}/rules`, {
+export async function createRule(
+  workspaceIdOrRule: string | RuleConfig,
+  rule?: RuleConfig
+): Promise<RuleConfig> {
+  const workspaceId = typeof workspaceIdOrRule === 'string' ? workspaceIdOrRule : undefined
+  const payload = typeof workspaceIdOrRule === 'string' ? rule : workspaceIdOrRule
+
+  if (!payload) {
+    throw new Error('rule payload is required')
+  }
+
+  return requestJson<RuleConfig>(
+    workspaceId
+      ? `${getWorkspaceApiBaseUrl(workspaceId)}/rules`
+      : `${getAdminApiBaseUrl()}/rules`,
+    {
     method: 'POST',
-    body: JSON.stringify(rule),
-  })
+    body: JSON.stringify(payload),
+    }
+  )
 }
 
-export async function updateRule(id: string, rule: RuleConfig): Promise<RuleConfig> {
-  return requestJson<RuleConfig>(`${getAdminApiBaseUrl()}/rules/${id}`, {
+export async function updateRule(
+  workspaceIdOrId: string,
+  idOrRule: string | RuleConfig,
+  rule?: RuleConfig
+): Promise<RuleConfig> {
+  const workspaceId = rule ? workspaceIdOrId : undefined
+  const ruleId = rule ? (idOrRule as string) : workspaceIdOrId
+  const payload = rule ?? (idOrRule as RuleConfig)
+
+  return requestJson<RuleConfig>(
+    workspaceId
+      ? `${getWorkspaceApiBaseUrl(workspaceId)}/rules/${ruleId}`
+      : `${getAdminApiBaseUrl()}/rules/${ruleId}`,
+    {
     method: 'PUT',
-    body: JSON.stringify(rule),
-  })
+    body: JSON.stringify(payload),
+    }
+  )
 }
 
-export async function deleteRule(id: string): Promise<void> {
-  await requestJson<void>(`${getAdminApiBaseUrl()}/rules/${id}`, {
-    method: 'DELETE',
-  })
+export async function deleteRule(workspaceIdOrId: string, id?: string): Promise<void> {
+  const workspaceId = id ? workspaceIdOrId : undefined
+  const ruleId = id ?? workspaceIdOrId
+  await requestJson<void>(
+    workspaceId
+      ? `${getWorkspaceApiBaseUrl(workspaceId)}/rules/${ruleId}`
+      : `${getAdminApiBaseUrl()}/rules/${ruleId}`,
+    {
+      method: 'DELETE',
+    }
+  )
 }
 
 export async function validateRule(
-  id: string,
+  workspaceIdOrId: string,
+  idOrRule?: string | RuleConfig,
   rule?: RuleConfig
 ): Promise<RuleValidationResponse> {
-  return requestJson<RuleValidationResponse>(`${getAdminApiBaseUrl()}/rules/${id}/validate`, {
-    method: 'POST',
-    body: rule ? JSON.stringify(rule) : undefined,
-  })
+  const workspaceId =
+    typeof idOrRule === 'string' && rule !== undefined ? workspaceIdOrId : undefined
+  const ruleId =
+    typeof idOrRule === 'string' && rule !== undefined
+      ? idOrRule
+      : workspaceIdOrId
+  const payload =
+    typeof idOrRule === 'string' && rule !== undefined
+      ? rule
+      : (idOrRule as RuleConfig | undefined)
+
+  return requestJson<RuleValidationResponse>(
+    workspaceId
+      ? `${getWorkspaceApiBaseUrl(workspaceId)}/rules/${ruleId}/validate`
+      : `${getAdminApiBaseUrl()}/rules/${ruleId}/validate`,
+    {
+      method: 'POST',
+      body: payload ? JSON.stringify(payload) : undefined,
+    }
+  )
 }

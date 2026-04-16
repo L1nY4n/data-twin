@@ -5,12 +5,13 @@ import { Plus, RefreshCw, Save, Trash2 } from 'lucide-react'
 import { AdvancedJsonEditor } from '@/components/admin/AdvancedJsonEditor'
 import { ArchetypeModelPreview } from '@/components/admin/ArchetypeModelPreview'
 import {
+  AdminButton,
+  AdminSelectableCard,
   AdminSectionFrame,
   SectionPanel,
   WorkspaceEmptyState,
 } from '@/components/admin/admin-surface'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -37,7 +38,6 @@ import type {
   EntityArchetype,
   EntityCategory,
 } from '@/lib/digital-twin/types'
-import { cn } from '@/lib/utils'
 
 export function ArchetypesSection() {
   const [categories, setCategories] = useState<EntityCategory[]>([])
@@ -193,56 +193,54 @@ export function ArchetypesSection() {
       section="archetypes"
       statusMessage={statusMessage}
       isLoading={isLoading || isUploading}
+      showSummaryCards={false}
       actions={
-        <Button variant="outline" onClick={() => void loadRegistry()} disabled={isLoading || isUploading}>
+        <AdminButton onClick={() => void loadRegistry()} disabled={isLoading || isUploading}>
           <RefreshCw className="mr-1 h-4 w-4" />
           刷新原型管理
-        </Button>
+        </AdminButton>
       }
       metrics={[
         {
           label: '实体大类',
           value: categories.length,
-          detail: '业务分类 registry',
         },
         {
           label: '实体原型',
           value: archetypes.length,
-          detail: `${archetypes.filter((item) => item.capabilities.hasModel).length} 个已绑定模型`,
         },
         {
           label: '当前大类',
           value: selectedCategory?.displayName ?? categoryDraft.draft?.displayName ?? '--',
-          detail: selectedCategory?.key ?? categoryDraft.draft?.key ?? '未选择',
         },
         {
           label: '当前原型',
           value: selectedArchetype?.displayName ?? archetypeDraft.draft?.displayName ?? '--',
-          detail: selectedArchetype?.categoryKey ?? archetypeDraft.draft?.categoryKey ?? '未选择',
         },
       ]}
       railCards={[
         {
-          title: 'Registry',
-          value: 'Category → Archetype',
-          detail: '大类负责业务分组，原型负责模型与默认能力。',
+          title: '大类',
+          value: `${categories.length}`,
         },
         {
-          title: '模型工作流',
-          value: '上传 → 预览 → 校准',
-          detail: '先确认尺寸与朝向，再让实例引用原型。',
+          title: '模型',
+          value: `${archetypes.filter((item) => item.capabilities.hasModel).length}`,
         },
       ]}
     >
-      <div className="grid gap-4 2xl:grid-cols-[280px_320px_minmax(0,1fr)]">
+      <div className="grid gap-4 xl:grid-cols-[260px_300px_minmax(0,1fr)]">
         <SectionPanel
-          eyebrow="Category Registry"
+          eyebrow="大类"
           title="实体大类"
-          description="业务分类与展示元信息。"
+          action={
+            <Badge variant="outline" className="rounded-full px-2.5 text-[10px]">
+              共 {categories.length} 个
+            </Badge>
+          }
         >
           <div className="space-y-3">
-            <Button
-              variant="outline"
+            <AdminButton
               className="w-full"
               onClick={() => {
                 const template = createEntityCategoryTemplate()
@@ -254,20 +252,15 @@ export function ArchetypesSection() {
             >
               <Plus className="mr-1 h-4 w-4" />
               新建实体大类
-            </Button>
+            </AdminButton>
 
             <ScrollArea className="h-[520px]">
               <div className="space-y-2 pr-3">
                 {categories.map((category) => (
-                  <button
+                  <AdminSelectableCard
                     key={category.id}
-                    type="button"
-                    className={cn(
-                      'w-full rounded-2xl border px-3 py-3 text-left text-sm transition',
-                      selectedCategoryId === category.id && categoryDraftSeed === null
-                        ? 'border-primary bg-primary/10'
-                        : 'viewer-admin-soft-card'
-                    )}
+                    active={selectedCategoryId === category.id && categoryDraftSeed === null}
+                    className="px-3 py-3"
                     onClick={() => {
                       setCategoryDraftSeed(null)
                       setSelectedCategoryId(category.id)
@@ -280,7 +273,7 @@ export function ArchetypesSection() {
                       </div>
                       <Badge variant="outline">{category.sortOrder}</Badge>
                     </div>
-                  </button>
+                  </AdminSelectableCard>
                 ))}
               </div>
             </ScrollArea>
@@ -288,13 +281,16 @@ export function ArchetypesSection() {
         </SectionPanel>
 
         <SectionPanel
-          eyebrow="Prototype Registry"
+          eyebrow="原型"
           title="实体原型"
-          description="原型承载模型、默认能力和校准参数。"
+          action={
+            <Badge variant="outline" className="rounded-full px-2.5 text-[10px]">
+              共 {archetypes.length} 个
+            </Badge>
+          }
         >
           <div className="space-y-3">
-            <Button
-              variant="outline"
+            <AdminButton
               className="w-full"
               onClick={() => {
                 const template = createEntityArchetypeTemplate(selectedCategory)
@@ -306,20 +302,15 @@ export function ArchetypesSection() {
             >
               <Plus className="mr-1 h-4 w-4" />
               新建实体原型
-            </Button>
+            </AdminButton>
 
             <ScrollArea className="h-[520px]">
               <div className="space-y-2 pr-3">
                 {archetypes.map((archetype) => (
-                  <button
+                  <AdminSelectableCard
                     key={archetype.id}
-                    type="button"
-                    className={cn(
-                      'w-full rounded-2xl border px-3 py-3 text-left text-sm transition',
-                      selectedArchetypeId === archetype.id && archetypeDraftSeed === null
-                        ? 'border-primary bg-primary/10'
-                        : 'viewer-admin-soft-card'
-                    )}
+                    active={selectedArchetypeId === archetype.id && archetypeDraftSeed === null}
+                    className="px-3 py-3"
                     onClick={() => {
                       setArchetypeDraftSeed(null)
                       setSelectedArchetypeId(archetype.id)
@@ -336,7 +327,7 @@ export function ArchetypesSection() {
                         {archetype.capabilities.hasModel ? '有模型' : '无模型'}
                       </Badge>
                     </div>
-                  </button>
+                  </AdminSelectableCard>
                 ))}
               </div>
             </ScrollArea>
@@ -345,9 +336,8 @@ export function ArchetypesSection() {
 
         <div className="space-y-4">
           <SectionPanel
-            eyebrow="Category Editor"
+            eyebrow="编辑器"
             title={categoryDraft.draft ? `${categoryDraft.draft.displayName || '实体大类草稿'} 配置` : '实体大类编辑器'}
-            description="维护 key、显示名称和展示元信息。"
           >
             {categoryDraft.draft ? (
               <div className="space-y-4">
@@ -426,36 +416,28 @@ export function ArchetypesSection() {
                 />
 
                 <div className="flex flex-wrap justify-end gap-2">
-                  <Button variant="destructive" onClick={() => void removeCategory()}>
+                  <AdminButton tone="danger" onClick={() => void removeCategory()}>
                     <Trash2 className="mr-1 h-4 w-4" />
                     删除实体大类
-                  </Button>
-                  <Button onClick={() => void saveCategory()}>
+                  </AdminButton>
+                  <AdminButton tone="primary" onClick={() => void saveCategory()}>
                     <Save className="mr-1 h-4 w-4" />
                     保存实体大类
-                  </Button>
+                  </AdminButton>
                 </div>
               </div>
             ) : (
               <WorkspaceEmptyState
-                eyebrow="Category Standby"
-                title="先选择或新建一个实体大类"
-                description="业务分类作为 registry 第一层，决定后续原型和实例的分组语义。"
-                cues={[
-                  { title: 'Key 稳定', detail: '后续原型与实例会引用它。' },
-                  { title: '显示分离', detail: '图标与颜色属于展示层。' },
-                  { title: '先分组再建模', detail: '避免直接把实例当模板维护。' },
-                ]}
-                asideTitle="Category"
-                asideDetail="先定义业务分类，再往下维护原型和模型，结构会更稳定。"
+                eyebrow="大类"
+                title="选择或新建实体大类"
+                items={['Key', '显示名', '排序']}
               />
             )}
           </SectionPanel>
 
           <SectionPanel
-            eyebrow="Archetype Editor"
+            eyebrow="编辑器"
             title={archetypeDraft.draft ? `${archetypeDraft.draft.displayName || '实体原型草稿'} 配置` : '实体原型编辑器'}
-            description="模型、能力与默认展示字段。"
           >
             {archetypeDraft.draft ? (
               <div className="space-y-4">
@@ -522,7 +504,7 @@ export function ArchetypesSection() {
                     ['statusBearing', '有状态'],
                     ['detailFieldsVisible', '详情可见'],
                   ].map(([key, label]) => (
-                    <label key={key} className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm">
+                    <label key={key} className="admin-choice-chip flex items-center gap-2 px-3 py-2 text-sm">
                       <input
                         type="checkbox"
                         checked={
@@ -545,13 +527,10 @@ export function ArchetypesSection() {
                   ))}
                 </div>
 
-                <div className="space-y-3 rounded-2xl border p-4">
+                <div className="admin-inset-block space-y-3">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <div className="font-medium text-foreground">模型上传与预览</div>
-                      <div className="text-xs text-muted-foreground">
-                        先上传模型，再在预览器中检查朝向和尺寸。
-                      </div>
                     </div>
                     <Input
                       type="file"
@@ -606,28 +585,21 @@ export function ArchetypesSection() {
                 />
 
                 <div className="flex flex-wrap justify-end gap-2">
-                  <Button variant="destructive" onClick={() => void removeArchetype()}>
+                  <AdminButton tone="danger" onClick={() => void removeArchetype()}>
                     <Trash2 className="mr-1 h-4 w-4" />
                     删除实体原型
-                  </Button>
-                  <Button onClick={() => void saveArchetype()}>
+                  </AdminButton>
+                  <AdminButton tone="primary" onClick={() => void saveArchetype()}>
                     <Save className="mr-1 h-4 w-4" />
                     保存实体原型
-                  </Button>
+                  </AdminButton>
                 </div>
               </div>
             ) : (
               <WorkspaceEmptyState
-                eyebrow="Archetype Standby"
-                title="先选择或新建一个实体原型"
-                description="原型承载模型、默认能力和后续实例的共享基线。"
-                cues={[
-                  { title: '模型', detail: '上传并校准尺寸与朝向。' },
-                  { title: '能力', detail: '声明 movable / bindable 等能力。' },
-                  { title: '复用', detail: '实例只引用原型，不重复维护模型。' },
-                ]}
-                asideTitle="Archetype"
-                asideDetail="原型层负责复用和一致性，实例层只保留场景位置和状态。"
+                eyebrow="原型"
+                title="选择或新建实体原型"
+                items={['模型', '能力', '校准']}
               />
             )}
           </SectionPanel>

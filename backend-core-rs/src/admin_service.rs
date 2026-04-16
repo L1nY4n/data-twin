@@ -4,14 +4,15 @@ use crate::{
 };
 
 pub async fn load_admin_overview(store: &Store) -> Result<AdminOverviewResponse, StoreError> {
-    let scene_version = store.scene_version().await?;
-    let entities = store.list_entities().await?;
-    let rules = store.list_rules().await?;
-    let connectors = store.list_connectors().await?;
-    let binding_count = store.binding_count().await?;
-    let alarms = store.list_alarms().await?;
+    let workspace = store.get_homepage_workspace().await?;
+    let scene_version = store.workspace_scene_version(&workspace.id).await?;
+    let entities = store.workspace_list_entities(&workspace.id).await?;
+    let rules = store.workspace_list_rules(&workspace.id).await?;
+    let connectors = store.workspace_list_connectors(&workspace.id).await?;
+    let binding_count = store.workspace_binding_count(&workspace.id).await?;
+    let alarms = store.workspace_list_alarms(&workspace.id).await?;
     let recent_change_at = store
-        .list_audit_events(1)
+        .workspace_list_audit_events(&workspace.id, 1)
         .await?
         .into_iter()
         .next()

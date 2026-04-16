@@ -31,6 +31,9 @@ function createEntity(): Entity {
 function createBootstrapPayload(entity: Entity): BootstrapPayload {
   return {
     siteId: 'site-1',
+    workspaceId: 'factory-demo-scene',
+    workspaceSlug: 'factory-demo-scene',
+    workspaceName: '工厂演示场景',
     sceneVersion: 1,
     sceneConfig: DEFAULT_PUBLISHED_SCENE_PACKAGE.sceneConfig,
     entities: [entity],

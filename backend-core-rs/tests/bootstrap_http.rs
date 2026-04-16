@@ -220,6 +220,142 @@ async fn bootstrap_endpoint_recovers_when_published_state_row_is_missing() {
     let _ = fs::remove_file(database_path);
 }
 
+#[tokio::test]
+async fn workspace_scoped_bootstrap_and_scene_updates_are_isolated() {
+    let app = backend_core_rs::app::build_app_with_database_url(
+        "http://localhost:3000",
+        "sqlite::memory:",
+    )
+    .await
+    .expect("valid allowed origin should build the app");
+
+    let create_workspace_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/admin/workspaces")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({
+                        "id": "workspace-b",
+                        "slug": "workspace-b",
+                        "name": "Workspace B",
+                        "description": "secondary workspace",
+                        "isHomepage": false,
+                        "createdAt": 0,
+                        "updatedAt": 0
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(create_workspace_response.status(), StatusCode::OK);
+
+    let slug_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/workspaces/by-slug/workspace-b")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(slug_response.status(), StatusCode::OK);
+    let slug_body = slug_response.into_body().collect().await.unwrap().to_bytes();
+    let slug_body = serde_json::from_slice::<serde_json::Value>(&slug_body).unwrap();
+    assert_eq!(slug_body["id"], "workspace-b");
+    assert_eq!(slug_body["slug"], "workspace-b");
+
+    let workspace_bootstrap_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/workspaces/workspace-b/editor/bootstrap")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(workspace_bootstrap_response.status(), StatusCode::OK);
+    let workspace_bootstrap_body = workspace_bootstrap_response
+        .into_body()
+        .collect()
+        .await
+        .unwrap()
+        .to_bytes();
+    let workspace_bootstrap_body =
+        serde_json::from_slice::<serde_json::Value>(&workspace_bootstrap_body).unwrap();
+    assert_eq!(workspace_bootstrap_body["workspaceId"], "workspace-b");
+    assert_eq!(workspace_bootstrap_body["workspaceSlug"], "workspace-b");
+    assert_eq!(workspace_bootstrap_body["sceneConfig"]["id"], "workspace-b");
+    assert_eq!(workspace_bootstrap_body["sceneConfig"]["name"], "Workspace B");
+
+    let mut next_scene = workspace_bootstrap_body["sceneConfig"].clone();
+    next_scene["backgroundColor"] = serde_json::json!("#123456");
+    next_scene["name"] = serde_json::json!("Workspace B Scene");
+
+    let update_scene_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/api/v1/workspaces/workspace-b/scene")
+                .header("content-type", "application/json")
+                .body(Body::from(next_scene.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(update_scene_response.status(), StatusCode::OK);
+
+    let workspace_after_update = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/workspaces/workspace-b/editor/bootstrap")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let workspace_after_update_body = workspace_after_update
+        .into_body()
+        .collect()
+        .await
+        .unwrap()
+        .to_bytes();
+    let workspace_after_update_body =
+        serde_json::from_slice::<serde_json::Value>(&workspace_after_update_body).unwrap();
+    assert_eq!(workspace_after_update_body["sceneConfig"]["backgroundColor"], "#123456");
+    assert_eq!(workspace_after_update_body["sceneConfig"]["name"], "Workspace B Scene");
+    assert_eq!(workspace_after_update_body["sceneVersion"], 2);
+
+    let default_workspace_response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/workspaces/factory-demo-scene/editor/bootstrap")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let default_workspace_body = default_workspace_response
+        .into_body()
+        .collect()
+        .await
+        .unwrap()
+        .to_bytes();
+    let default_workspace_body =
+        serde_json::from_slice::<serde_json::Value>(&default_workspace_body).unwrap();
+    assert_eq!(default_workspace_body["workspaceId"], "factory-demo-scene");
+    assert_eq!(default_workspace_body["sceneConfig"]["name"], "工厂演示场景");
+    assert_eq!(default_workspace_body["sceneConfig"]["backgroundColor"], "#0a0a0f");
+}
+
 fn init_file_test_database_url(label: &str) -> (String, PathBuf) {
     let path = unique_test_db_path(label);
     let url = format!("sqlite://{}?mode=rwc", path.display());

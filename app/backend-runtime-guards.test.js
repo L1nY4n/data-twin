@@ -3,8 +3,12 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 describe('backend runtime guards', () => {
-  test('home page should redirect to the configured homepage workspace', () => {
+  test('home page should be the canonical live runtime entry and workspace routes should be legacy aliases', () => {
     const source = readFileSync(join(process.cwd(), 'app/page.tsx'), 'utf8')
+    const canonicalWorkspacePage = readFileSync(
+      join(process.cwd(), 'app/workspaces/[workspaceSlug]/page.tsx'),
+      'utf8'
+    )
     const workspacePage = readFileSync(
       join(process.cwd(), 'app/workspace/[workspaceId]/page.tsx'),
       'utf8'
@@ -21,22 +25,31 @@ describe('backend runtime guards', () => {
       join(process.cwd(), 'components/chrome/ProductModuleNav.tsx'),
       'utf8'
     )
-    const workspaceHelper = readFileSync(
-      join(process.cwd(), 'lib/digital-twin/editor-workspace.ts'),
+    const editorRouting = readFileSync(
+      join(process.cwd(), 'lib/digital-twin/editor-routing.ts'),
       'utf8'
     )
 
-    expect(source.includes("dynamic = 'force-dynamic'")).toBe(true)
-    expect(source.includes('/api/v1/site/home-workspace')).toBe(true)
-    expect(source.includes('redirect(`/workspace/${encodeURIComponent(workspace.id')).toBe(true)
-    expect(workspacePage.includes('DigitalTwinViewerPage')).toBe(true)
+    expect(source.includes('fetchHomeWorkspace')).toBe(true)
+    expect(source.includes("redirect(`/workspaces/${encodeURIComponent(workspace.slug)}`)")).toBe(true)
+    expect(canonicalWorkspacePage.includes('DigitalTwinViewerPage')).toBe(true)
+    expect(canonicalWorkspacePage.includes('fetchWorkspaceBySlug')).toBe(true)
+    expect(workspacePage.includes('fetchWorkspaceById')).toBe(true)
+    expect(workspacePage.includes("redirect(`/workspaces/${encodeURIComponent(workspace.slug)}`)")).toBe(true)
     expect(viewerPage.includes('useLiveDigitalTwin')).toBe(true)
     expect(viewerPage.includes('useCitationRuntime')).toBe(false)
     expect(viewerPage.includes('正在连接后端数据')).toBe(true)
     expect(toolbar.includes('ProductModuleNav')).toBe(true)
-    expect(toolbar.includes('进入工作区')).toBe(true)
-    expect(toolbar.includes('buildEditorWorkspaceHref(sceneConfig.id, \'/\')')).toBe(true)
-    expect(workspaceHelper.includes('DEFAULT_EDITOR_WORKSPACE_ID')).toBe(true)
+    expect(toolbar.includes('进入编辑器')).toBe(true)
+    expect(toolbar.includes('workspaceSlug')).toBe(true)
+    expect(toolbar.includes("buildEditorHref(workspaceSlug, '/')")).toBe(true)
+    expect(editorRouting.includes('export function buildEditorHref')).toBe(true)
+    expect(editorRouting.includes("const basePath = workspaceSlug")).toBe(true)
+    expect(editorRouting.includes("'/editor'")).toBe(true)
+    expect(nav.includes('resolveViewerHref')).toBe(true)
+    expect(nav.includes("href: '/admin/workspaces'")).toBe(true)
+    expect(nav.includes("currentPathname === '/'")).toBe(true)
+    expect(nav.includes("^\\/workspaces\\/[^/]+$")).toBe(true)
     expect(nav.includes("href: '/editor'")).toBe(false)
   })
 

@@ -501,6 +501,7 @@ export interface IncidentMessage {
 }
 
 export interface ConfigChangedMessage {
+  workspaceId: string
   sceneVersion: number
   changedAt: number
   scope: 'scene' | 'entity' | 'static_asset' | 'binding' | 'rule' | 'publish'

@@ -1,5 +1,6 @@
 use axum::{
     extract::{
+        Path,
         ws::{Message, WebSocket, WebSocketUpgrade},
         State,
     },
@@ -7,6 +8,7 @@ use axum::{
     response::IntoResponse,
 };
 use futures_util::{SinkExt, StreamExt};
+use std::{collections::HashMap, sync::{Arc, Mutex}};
 use tokio::sync::broadcast;
 use tracing::{debug, warn};
 
@@ -19,22 +21,34 @@ use crate::{
 
 #[derive(Clone)]
 pub struct RealtimeState {
-    broadcaster: broadcast::Sender<RealtimeEvent>,
+    broadcasters: Arc<Mutex<HashMap<String, broadcast::Sender<RealtimeEvent>>>>,
     allowed_origins: Vec<HeaderValue>,
 }
 
 impl RealtimeState {
     pub fn new(allowed_origins: Vec<HeaderValue>) -> Self {
-        let (broadcaster, _) = broadcast::channel(128);
-
         Self {
-            broadcaster,
+            broadcasters: Arc::new(Mutex::new(HashMap::new())),
             allowed_origins,
         }
     }
 
-    fn subscribe(&self) -> broadcast::Receiver<RealtimeEvent> {
-        self.broadcaster.subscribe()
+    fn sender_for(&self, workspace_id: &str) -> broadcast::Sender<RealtimeEvent> {
+        let mut broadcasters = self
+            .broadcasters
+            .lock()
+            .expect("realtime broadcaster mutex should not be poisoned");
+        broadcasters
+            .entry(workspace_id.to_string())
+            .or_insert_with(|| {
+                let (sender, _) = broadcast::channel(128);
+                sender
+            })
+            .clone()
+    }
+
+    fn subscribe(&self, workspace_id: &str) -> broadcast::Receiver<RealtimeEvent> {
+        self.sender_for(workspace_id).subscribe()
     }
 
     fn origin_allowed(&self, origin: Option<&HeaderValue>) -> bool {
@@ -44,7 +58,11 @@ impl RealtimeState {
     }
 
     pub fn emit(&self, event: RealtimeEvent) {
-        let _ = self.broadcaster.send(event);
+        self.emit_for_workspace("global", event);
+    }
+
+    pub fn emit_for_workspace(&self, workspace_id: &str, event: RealtimeEvent) {
+        let _ = self.sender_for(workspace_id).send(event);
     }
 
     pub fn emit_config_changed(
@@ -57,12 +75,36 @@ impl RealtimeState {
         self.emit(RealtimeEvent::ConfigChanged {
             timestamp,
             payload: ConfigChangedPayload {
+                workspace_id: "global".to_string(),
                 scene_version,
                 changed_at: timestamp,
                 scope,
                 published_scene,
             },
         });
+    }
+
+    pub fn emit_config_changed_for_workspace(
+        &self,
+        workspace_id: &str,
+        scene_version: u64,
+        scope: ConfigChangedScope,
+        published_scene: Option<PublishedSceneDescriptor>,
+    ) {
+        let timestamp = now_millis();
+        self.emit_for_workspace(
+            workspace_id,
+            RealtimeEvent::ConfigChanged {
+                timestamp,
+                payload: ConfigChangedPayload {
+                    workspace_id: workspace_id.to_string(),
+                    scene_version,
+                    changed_at: timestamp,
+                    scope,
+                    published_scene,
+                },
+            },
+        );
     }
 }
 
@@ -80,11 +122,40 @@ pub async fn realtime_ws_handler(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    Ok(ws.on_upgrade(move |socket| client_stream(socket, state.realtime.clone())))
+    let home_workspace_id = state
+        .store
+        .get_homepage_workspace()
+        .await
+        .map(|workspace| workspace.id)
+        .unwrap_or_else(|_| "global".to_string());
+
+    Ok(ws.on_upgrade(move |socket| {
+        client_stream(socket, state.realtime.clone(), home_workspace_id)
+    }))
 }
 
-async fn client_stream(socket: WebSocket, state: RealtimeState) {
-    let mut subscription = state.subscribe();
+pub async fn workspace_realtime_ws_handler(
+    Path(workspace_id): Path<String>,
+    ws: WebSocketUpgrade,
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<impl IntoResponse, StatusCode> {
+    if !state.realtime.origin_allowed(headers.get(header::ORIGIN)) {
+        warn!(
+            request_origin = ?headers.get(header::ORIGIN),
+            allowed_origins = ?state.realtime.allowed_origins,
+            "rejected websocket handshake due to invalid origin"
+        );
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    Ok(ws.on_upgrade(move |socket| {
+        client_stream(socket, state.realtime.clone(), workspace_id)
+    }))
+}
+
+async fn client_stream(socket: WebSocket, state: RealtimeState, workspace_id: String) {
+    let mut subscription = state.subscribe(&workspace_id);
 
     let (mut sender, mut receiver) = socket.split();
 

@@ -18,14 +18,18 @@ export function getBackendWsBaseUrl(): string {
   return getBackendHttpBaseUrl().replace(/^http/i, 'ws')
 }
 
-export function getBootstrapUrl(): string {
-  return `${getBackendHttpBaseUrl()}/api/v1/site/bootstrap`
+export function getBootstrapUrl(workspaceId: string): string {
+  return `${getBackendHttpBaseUrl()}/api/v1/workspaces/${encodeURIComponent(workspaceId)}/runtime/bootstrap`
 }
 
-export function getRealtimeWsUrl(): string {
-  return `${getBackendWsBaseUrl()}/ws/realtime`
+export function getRealtimeWsUrl(workspaceId: string): string {
+  return `${getBackendWsBaseUrl()}/ws/workspaces/${encodeURIComponent(workspaceId)}/realtime`
 }
 
 export function getAdminApiBaseUrl(): string {
   return `${getBackendHttpBaseUrl()}/api/v1/admin`
+}
+
+export function getWorkspaceApiBaseUrl(workspaceId: string): string {
+  return `${getBackendHttpBaseUrl()}/api/v1/workspaces/${encodeURIComponent(workspaceId)}`
 }

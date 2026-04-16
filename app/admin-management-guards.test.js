@@ -5,7 +5,12 @@ import { join } from 'node:path'
 describe('admin management guards', () => {
   test('admin should use sidebar shell and route sections instead of a single tabs page', () => {
     const layout = readFileSync(join(process.cwd(), 'app/admin/layout.tsx'), 'utf8')
-    const routePage = readFileSync(join(process.cwd(), 'app/admin/[section]/page.tsx'), 'utf8')
+    const legacyRoutePage = readFileSync(join(process.cwd(), 'app/admin/[section]/page.tsx'), 'utf8')
+    const workspacesPage = readFileSync(join(process.cwd(), 'app/admin/workspaces/page.tsx'), 'utf8')
+    const scopedRoutePage = readFileSync(
+      join(process.cwd(), 'app/admin/workspaces/[workspaceId]/[section]/page.tsx'),
+      'utf8'
+    )
     const redirectPage = readFileSync(join(process.cwd(), 'app/admin/page.tsx'), 'utf8')
     const shell = readFileSync(join(process.cwd(), 'components/admin/AdminShell.tsx'), 'utf8')
     const adminMeta = readFileSync(join(process.cwd(), 'components/admin/admin-meta.ts'), 'utf8')
@@ -18,10 +23,17 @@ describe('admin management guards', () => {
     expect(shell.includes('overflow-y-auto overscroll-contain')).toBe(true)
     expect(shell.includes('relative flex min-h-0 flex-1')).toBe(true)
     expect(shell.includes('ProductModuleNav')).toBe(true)
-    expect(shell.includes('basis-full')).toBe(true)
-    expect(routePage.includes('AdminConsole')).toBe(true)
-    expect(routePage.includes('notFound')).toBe(true)
-    expect(redirectPage.includes("redirect('/admin/overview')")).toBe(true)
+    expect(shell.includes('--sidebar-width')).toBe(true)
+    expect(shell.includes('--header-height')).toBe(true)
+    expect(shell.includes('@container/main')).toBe(true)
+    expect(shell.includes('sticky top-0')).toBe(true)
+    expect(legacyRoutePage.includes('fetchHomeWorkspace')).toBe(true)
+    expect(legacyRoutePage.includes('buildAdminHref')).toBe(true)
+    expect(legacyRoutePage.includes('redirect(')).toBe(true)
+    expect(workspacesPage.includes('AdminConsole')).toBe(true)
+    expect(scopedRoutePage.includes('AdminConsole')).toBe(true)
+    expect(scopedRoutePage.includes('fetchWorkspaceById')).toBe(true)
+    expect(redirectPage.includes("redirect('/admin/workspaces')")).toBe(true)
   })
 
   test('runtime should expose management navigation and remove direct edit entry points', () => {
@@ -56,7 +68,7 @@ describe('admin management guards', () => {
       'utf8'
     )
     const workspaceHelper = readFileSync(
-      join(process.cwd(), 'lib/digital-twin/editor-workspace.ts'),
+      join(process.cwd(), 'lib/digital-twin/editor-routing.ts'),
       'utf8'
     )
     const entitiesSection = readFileSync(
@@ -90,9 +102,10 @@ describe('admin management guards', () => {
     expect(consoleSource.includes('ArchetypesSection')).toBe(true)
     expect(adminSurface.includes('export function SaveLiveWarning')).toBe(true)
     expect(consoleSource.includes('AdvancedJsonEditor')).toBe(true)
-    expect(sceneSection.includes('进入工作区')).toBe(true)
-    expect(sceneSection.includes('buildEditorWorkspaceHref(sceneDraft.id, \'/admin/scene\')')).toBe(true)
-    expect(workspaceHelper.includes('/editor/${normalizedWorkspaceId}')).toBe(true)
+    expect(sceneSection.includes('进入编辑器')).toBe(true)
+    expect(sceneSection.includes('buildEditorHref(')).toBe(true)
+    expect(consoleSource.includes('workspaceId')).toBe(true)
+    expect(workspaceHelper.includes('export function buildEditorHref')).toBe(true)
     expect(workspacesSection.includes('listWorkspaces')).toBe(true)
     expect(workspacesSection.includes('createWorkspace')).toBe(true)
     expect(workspacesSection.includes('updateWorkspace')).toBe(true)

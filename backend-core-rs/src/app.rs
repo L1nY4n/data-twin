@@ -16,9 +16,9 @@ use crate::{
     admin,
     health::{live, ready},
     publish_service::PublishRuntime,
-    realtime::{realtime_ws_handler, RealtimeState},
-    runtime_ingest::{post_runtime_ingest, RuntimeIngestState},
-    site::bootstrap,
+    realtime::{realtime_ws_handler, workspace_realtime_ws_handler, RealtimeState},
+    runtime_ingest::{post_runtime_ingest, post_workspace_runtime_ingest, RuntimeIngestState},
+    site::{bootstrap, workspace_bootstrap, workspace_by_slug},
     store::{Store, StoreError},
 };
 
@@ -126,6 +126,87 @@ async fn build_app_with_store(
         .route("/health/ready", get(ready))
         .route("/api/v1/site/bootstrap", get(bootstrap))
         .route("/api/v1/site/home-workspace", get(admin::get_home_workspace))
+        .route("/api/v1/workspaces/by-slug/:slug", get(workspace_by_slug))
+        .route(
+            "/api/v1/workspaces/:workspaceId/runtime/bootstrap",
+            get(workspace_bootstrap),
+        )
+        .route(
+            "/api/v1/workspaces/:workspaceId/editor/bootstrap",
+            get(admin::get_workspace_editor_bootstrap),
+        )
+        .route(
+            "/api/v1/workspaces/:workspaceId/scene",
+            get(admin::get_workspace_scene).put(admin::put_workspace_scene),
+        )
+        .route(
+            "/api/v1/workspaces/:workspaceId/admin/overview",
+            get(admin::get_workspace_overview),
+        )
+        .route(
+            "/api/v1/workspaces/:workspaceId/editor-save",
+            post(admin::post_workspace_editor_save),
+        )
+        .route(
+            "/api/v1/workspaces/:workspaceId/entities",
+            get(admin::list_workspace_entities).post(admin::create_workspace_entity),
+        )
+        .route(
+            "/api/v1/workspaces/:workspaceId/entities/:id",
+            get(admin::get_workspace_entity)
+                .put(admin::update_workspace_entity)
+                .delete(admin::delete_workspace_entity),
+        )
+        .route(
+            "/api/v1/workspaces/:workspaceId/static-assets",
+            get(admin::list_workspace_static_assets).post(admin::create_workspace_static_asset),
+        )
+        .route(
+            "/api/v1/workspaces/:workspaceId/static-assets/:id",
+            get(admin::get_workspace_static_asset)
+                .put(admin::update_workspace_static_asset)
+                .delete(admin::delete_workspace_static_asset),
+        )
+        .route(
+            "/api/v1/workspaces/:workspaceId/entities/:id/bindings",
+            get(admin::list_workspace_entity_bindings)
+                .put(admin::replace_workspace_entity_bindings),
+        )
+        .route(
+            "/api/v1/workspaces/:workspaceId/data-sources",
+            get(admin::list_workspace_data_sources).post(admin::create_workspace_data_source),
+        )
+        .route(
+            "/api/v1/workspaces/:workspaceId/data-sources/:id",
+            put(admin::update_workspace_data_source)
+                .delete(admin::delete_workspace_data_source),
+        )
+        .route(
+            "/api/v1/workspaces/:workspaceId/alarms",
+            get(admin::list_workspace_alarms),
+        )
+        .route(
+            "/api/v1/workspaces/:workspaceId/audit",
+            get(admin::list_workspace_audit_events),
+        )
+        .route(
+            "/api/v1/workspaces/:workspaceId/rules",
+            get(admin::list_workspace_rules).post(admin::create_workspace_rule),
+        )
+        .route(
+            "/api/v1/workspaces/:workspaceId/rules/:id",
+            get(admin::get_workspace_rule)
+                .put(admin::update_workspace_rule)
+                .delete(admin::delete_workspace_rule),
+        )
+        .route(
+            "/api/v1/workspaces/:workspaceId/rules/:id/validate",
+            post(admin::validate_workspace_rule),
+        )
+        .route(
+            "/api/v1/workspaces/:workspaceId/publish",
+            get(admin::get_workspace_publish_status).post(admin::post_workspace_publish),
+        )
         .route("/api/v1/admin/overview", get(admin::get_overview))
         .route("/api/v1/admin/bootstrap", get(admin::get_editor_bootstrap))
         .route(
@@ -220,7 +301,15 @@ async fn build_app_with_store(
             post(admin::validate_rule),
         )
         .route("/api/v1/runtime/ingest", post(post_runtime_ingest))
+        .route(
+            "/api/v1/workspaces/:workspaceId/runtime/ingest",
+            post(post_workspace_runtime_ingest),
+        )
         .route("/ws/realtime", get(realtime_ws_handler))
+        .route(
+            "/ws/workspaces/:workspaceId/realtime",
+            get(workspace_realtime_ws_handler),
+        )
         .with_state(app_state)
         .layer(
             CorsLayer::new()

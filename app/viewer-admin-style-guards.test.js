@@ -78,12 +78,80 @@ describe('viewer/admin shared style primitives', () => {
       join(process.cwd(), 'components/admin/AdminConsole.tsx'),
       'utf8'
     )
+    const workspacesSource = readFileSync(
+      join(process.cwd(), 'components/admin/WorkspacesSection.tsx'),
+      'utf8'
+    )
+    const sceneSource = readFileSync(
+      join(process.cwd(), 'components/admin/SceneSection.tsx'),
+      'utf8'
+    )
+    const connectorsSource = readFileSync(
+      join(process.cwd(), 'components/admin/ConnectorsSection.tsx'),
+      'utf8'
+    )
+    const entitiesSource = readFileSync(
+      join(process.cwd(), 'components/admin/EntitiesSection.tsx'),
+      'utf8'
+    )
+    const archetypesSource = readFileSync(
+      join(process.cwd(), 'components/admin/ArchetypesSection.tsx'),
+      'utf8'
+    )
+    const advancedJsonEditor = readFileSync(
+      join(process.cwd(), 'components/admin/AdvancedJsonEditor.tsx'),
+      'utf8'
+    )
+    const archetypePreview = readFileSync(
+      join(process.cwd(), 'components/admin/ArchetypeModelPreview.tsx'),
+      'utf8'
+    )
 
     expect(adminSurface.includes('export function MetricCard')).toBe(true)
+    expect(adminSurface.includes('export function AdminButton')).toBe(true)
     expect(adminSurface.includes('export function SectionPanel')).toBe(true)
     expect(adminSurface.includes('export function WorkspaceEmptyState')).toBe(true)
     expect(adminSurface.includes('export function AdminSectionFrame')).toBe(true)
     expect(consoleSource.includes("@/components/admin/admin-surface")).toBe(true)
+    expect(consoleSource.includes('AdminButton')).toBe(true)
+    expect(workspacesSource.includes('AdminButton')).toBe(true)
+    expect(sceneSource.includes('AdminButton')).toBe(true)
+    expect(connectorsSource.includes('AdminButton')).toBe(true)
+    expect(entitiesSource.includes('AdminButton')).toBe(true)
+    expect(archetypesSource.includes('AdminButton')).toBe(true)
+    expect(advancedJsonEditor.includes('AdminButton')).toBe(true)
+    expect(archetypePreview.includes('AdminButton')).toBe(true)
+    expect(consoleSource.includes("from '@/components/ui/button'")).toBe(false)
+    expect(workspacesSource.includes("from '@/components/ui/button'")).toBe(false)
+    expect(sceneSource.includes("from '@/components/ui/button'")).toBe(false)
+    expect(connectorsSource.includes("from '@/components/ui/button'")).toBe(false)
+    expect(entitiesSource.includes("from '@/components/ui/button'")).toBe(false)
+    expect(archetypesSource.includes("from '@/components/ui/button'")).toBe(false)
+    expect(advancedJsonEditor.includes("from '@/components/ui/button'")).toBe(false)
+    expect(archetypePreview.includes("from '@/components/ui/button'")).toBe(false)
+  })
+
+  test('admin surface CSS should expose semantic theme tokens and module nav hooks', () => {
+    const styles = readFileSync(
+      join(process.cwd(), 'app/viewer-admin-surface.css'),
+      'utf8'
+    )
+    const nav = readFileSync(
+      join(process.cwd(), 'components/chrome/ProductModuleNav.tsx'),
+      'utf8'
+    )
+
+    expect(styles.includes('--viewer-admin-accent')).toBe(true)
+    expect(styles.includes('--viewer-admin-surface-1')).toBe(true)
+    expect(styles.includes('--viewer-admin-border-subtle')).toBe(true)
+    expect(styles.includes('.viewer-admin-surface .admin-section-panel__header')).toBe(true)
+    expect(styles.includes('.viewer-admin-surface .product-module-nav')).toBe(true)
+    expect(styles.includes('.viewer-admin-surface .product-module-nav__link')).toBe(true)
+    expect(styles.includes(".viewer-admin-surface [data-sidebar='menu-button'][data-active='true']")).toBe(true)
+    expect(styles.includes('--sidebar-accent: rgba(125, 167, 255, 0.18);')).toBe(true)
+    expect(styles.includes('hsl(var(--sidebar-border))')).toBe(false)
+    expect(nav.includes('product-module-nav')).toBe(true)
+    expect(nav.includes('product-module-nav__link')).toBe(true)
   })
 
   test('homepage entity list uses code-level spline sidebar parameters instead of generic card rows', () => {
@@ -106,7 +174,7 @@ describe('viewer/admin shared style primitives', () => {
     expect(styles.includes('min-height: 32px;')).toBe(true)
     expect(styles.includes('font-size: 11px !important;')).toBe(true)
     expect(styles.includes('border-radius: 8px !important;')).toBe(true)
-    expect(styles.includes('background: rgba(255, 255, 255, 0.05) !important;')).toBe(true)
+    expect(styles.includes('background: var(--viewer-admin-surface-4) !important;')).toBe(true)
     expect(styles.includes('padding: 4px 8px 4px 32px !important;')).toBe(true)
     expect(styles.includes('padding: 6px 8px !important;')).toBe(true)
   })

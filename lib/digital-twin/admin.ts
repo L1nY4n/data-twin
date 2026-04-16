@@ -23,7 +23,6 @@ export type AdminSection =
 export interface AdminNavItem {
   title: string
   href: `/admin/${AdminSection}`
-  description: string
   section: AdminSection
 }
 

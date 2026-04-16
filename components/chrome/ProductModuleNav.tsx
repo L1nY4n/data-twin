@@ -4,24 +4,47 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 
-const PRODUCT_MODULES = [
-  { href: '/', label: 'Viewer', match: (pathname: string) => pathname === '/' },
-  { href: '/admin/overview', label: 'Console', match: (pathname: string) => pathname.startsWith('/admin') },
-  { href: '/benchmark', label: 'Benchmark', match: (pathname: string) => pathname.startsWith('/benchmark') },
-]
+function resolveViewerHref(pathname: string) {
+  const workspaceMatch = pathname.match(/^\/workspaces\/([^/]+)/)
+  if (workspaceMatch) {
+    return `/workspaces/${workspaceMatch[1]}`
+  }
+
+  return '/'
+}
 
 export function ProductModuleNav({ className }: { className?: string }) {
   const pathname = usePathname()
+  const productModules = [
+    {
+      href: resolveViewerHref(pathname),
+      label: 'Viewer',
+      match: (currentPathname: string) =>
+        currentPathname === '/' ||
+        /^\/workspaces\/[^/]+$/.test(currentPathname) ||
+        currentPathname.startsWith('/workspace/'),
+    },
+    {
+      href: '/admin/workspaces',
+      label: 'Console',
+      match: (currentPathname: string) => currentPathname.startsWith('/admin'),
+    },
+    {
+      href: '/benchmark',
+      label: 'Benchmark',
+      match: (currentPathname: string) => currentPathname.startsWith('/benchmark'),
+    },
+  ]
 
   return (
     <nav
       className={cn(
-        'flex max-w-full items-center gap-2 overflow-x-auto pb-1',
+        'product-module-nav flex max-w-full items-center gap-2 overflow-x-auto pb-1',
         className
       )}
       aria-label="Product Modules"
     >
-      {PRODUCT_MODULES.map((module) => {
+      {productModules.map((module) => {
         const active = module.match(pathname)
 
         return (
@@ -29,7 +52,8 @@ export function ProductModuleNav({ className }: { className?: string }) {
             key={module.href}
             href={module.href}
             className={cn(
-              'shrink-0 rounded-full border px-3 py-1 text-[11px] font-medium tracking-[0.08em] transition',
+              'product-module-nav__link shrink-0 rounded-full border px-3 py-1 text-[11px] font-medium tracking-[0.08em] transition',
+              active && 'product-module-nav__link--active',
               active
                 ? 'border-white/18 bg-white/12 text-white'
                 : 'border-white/10 bg-white/4 text-white/65 hover:border-white/16 hover:bg-white/8 hover:text-white'

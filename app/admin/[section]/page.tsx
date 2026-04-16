@@ -1,6 +1,7 @@
-import { notFound } from 'next/navigation'
-import { AdminConsole } from '@/components/admin/AdminConsole'
+import { notFound, redirect } from 'next/navigation'
+import { fetchHomeWorkspace } from '@/lib/digital-twin/bootstrap-client'
 import { ADMIN_SECTIONS, type AdminSection } from '@/lib/digital-twin/admin'
+import { buildAdminHref } from '@/components/admin/admin-meta'
 
 export default async function AdminSectionPage({
   params,
@@ -13,5 +14,10 @@ export default async function AdminSectionPage({
     notFound()
   }
 
-  return <AdminConsole section={section as AdminSection} />
+  if (section === 'workspaces') {
+    redirect('/admin/workspaces')
+  }
+
+  const workspace = await fetchHomeWorkspace()
+  redirect(buildAdminHref(section as AdminSection, workspace.id))
 }

@@ -40,7 +40,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { ViewerAdminToolbarBar } from '@/components/viewer-admin/primitives'
 import { ProductModuleNav } from '@/components/chrome/ProductModuleNav'
-import { buildEditorWorkspaceHref } from '@/lib/digital-twin/editor-workspace'
+import { buildEditorHref } from '@/lib/digital-twin/editor-routing'
 import { cn } from '@/lib/utils'
 
 const VIEW_MODE_CONFIG: Record<ViewMode, { icon: typeof Move; label: string }> = {
@@ -50,7 +50,7 @@ const VIEW_MODE_CONFIG: Record<ViewMode, { icon: typeof Move; label: string }> =
   firstperson: { icon: Camera, label: '第一人称' },
 }
 
-export function Toolbar() {
+export function Toolbar({ workspaceSlug }: { workspaceSlug: string }) {
   const { resolvedTheme, setTheme } = useTheme()
   const sceneConfig = useDigitalTwinStore((state) => state.sceneConfig)
   const setSceneConfig = useDigitalTwinStore((state) => state.setSceneConfig)
@@ -80,7 +80,7 @@ export function Toolbar() {
   const setRendererMode = useDigitalTwinStore((state) => state.setRendererMode)
   const isDarkTheme = resolvedTheme === 'dark'
   const sceneTitle = sceneConfig.name?.trim() || '数字孪生平台'
-  const workspaceHref = buildEditorWorkspaceHref(sceneConfig.id, '/')
+  const editorHref = buildEditorHref(workspaceSlug, '/')
 
   const handleViewModeSelect = (mode: ViewMode) => {
     if (mode === 'topdown') {
@@ -346,9 +346,9 @@ export function Toolbar() {
           </Tooltip>
 
           <Button asChild variant="secondary" size="sm" className="h-8 gap-1.5 px-3 text-[11px]">
-            <Link href={workspaceHref}>
+            <Link href={editorHref}>
               <ArrowUpRight className="h-4 w-4" />
-              进入工作区
+              进入编辑器
             </Link>
           </Button>
 

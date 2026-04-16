@@ -23,10 +23,30 @@
     --sidebar-foreground: rgba(255, 255, 255, 0.9);
     --sidebar-primary: #77a7ff;
     --sidebar-primary-foreground: #08111f;
-    --sidebar-accent: rgba(255, 255, 255, 0.06);
-    --sidebar-accent-foreground: rgba(255, 255, 255, 0.92);
+    --sidebar-accent: rgba(125, 167, 255, 0.18);
+    --sidebar-accent-foreground: rgba(255, 255, 255, 0.94);
     --sidebar-border: rgba(255, 255, 255, 0.08);
-    --sidebar-ring: rgba(140, 178, 255, 0.46);
+    --sidebar-ring: rgba(125, 167, 255, 0.42);
+    --viewer-admin-shell-top-left: rgba(122, 164, 255, 0.12);
+    --viewer-admin-shell-top-right: rgba(56, 189, 248, 0.1);
+    --viewer-admin-shell-overlay: rgba(255, 255, 255, 0.03);
+    --viewer-admin-shell-vignette: rgba(8, 12, 20, 0.22);
+    --viewer-admin-surface-1: rgba(18, 19, 22, 0.9);
+    --viewer-admin-surface-2: rgba(18, 19, 22, 0.84);
+    --viewer-admin-surface-3: rgba(255, 255, 255, 0.03);
+    --viewer-admin-surface-4: rgba(255, 255, 255, 0.05);
+    --viewer-admin-surface-5: rgba(255, 255, 255, 0.08);
+    --viewer-admin-border-subtle: rgba(255, 255, 255, 0.08);
+    --viewer-admin-border-default: rgba(255, 255, 255, 0.1);
+    --viewer-admin-border-strong: rgba(255, 255, 255, 0.16);
+    --viewer-admin-accent: #7da7ff;
+    --viewer-admin-accent-soft: rgba(125, 167, 255, 0.18);
+    --viewer-admin-accent-border: rgba(125, 167, 255, 0.42);
+    --viewer-admin-accent-glow: rgba(125, 167, 255, 0.14);
+    --viewer-admin-text-primary: rgba(255, 255, 255, 0.94);
+    --viewer-admin-text-secondary: rgba(255, 255, 255, 0.76);
+    --viewer-admin-text-muted: rgba(255, 255, 255, 0.54);
+    --viewer-admin-text-dim: rgba(255, 255, 255, 0.4);
     color-scheme: dark;
     color: var(--editor-text-primary);
     font-family: var(--editor-font-sans, 'Geist', 'Geist Fallback', sans-serif);
@@ -37,10 +57,10 @@
 @layer components {
   .viewer-admin-shell {
     background:
-      radial-gradient(circle at top left, rgba(122, 164, 255, 0.12), transparent 26%),
-      radial-gradient(circle at top right, rgba(56, 189, 248, 0.1), transparent 24%),
+      radial-gradient(circle at top left, var(--viewer-admin-shell-top-left), transparent 26%),
+      radial-gradient(circle at top right, var(--viewer-admin-shell-top-right), transparent 24%),
       linear-gradient(180deg, #0c1017 0%, #11161f 48%, #0b1119 100%);
-    color: var(--editor-text-primary);
+    color: var(--viewer-admin-text-primary);
   }
 
   .viewer-admin-shell::after {
@@ -49,8 +69,8 @@
     inset: 0;
     pointer-events: none;
     background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 24%),
-      radial-gradient(circle at center, transparent 42%, rgba(8, 12, 20, 0.22) 100%);
+      linear-gradient(180deg, var(--viewer-admin-shell-overlay), transparent 24%),
+      radial-gradient(circle at center, transparent 42%, var(--viewer-admin-shell-vignette) 100%);
     opacity: 0.92;
   }
 
@@ -63,7 +83,7 @@
   .viewer-admin-surface [data-slot='card'],
   .viewer-admin-surface [data-slot='sidebar-inner'],
   .viewer-admin-surface [data-slot='sidebar-inset'] {
-    border-color: rgba(255, 255, 255, 0.08) !important;
+    border-color: var(--viewer-admin-border-subtle) !important;
     background: var(--editor-surface-modal) !important;
     box-shadow:
       var(--editor-shadow-panel),
@@ -73,7 +93,7 @@
   }
 
   .viewer-admin-surface .viewer-admin-panel--soft {
-    background: rgba(18, 19, 22, 0.84) !important;
+    background: var(--viewer-admin-surface-2) !important;
   }
 
   .viewer-admin-surface .viewer-admin-panel--accent {
@@ -83,7 +103,7 @@
   }
 
   .viewer-admin-surface .viewer-admin-toolbar {
-    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    border: 1px solid var(--viewer-admin-border-default) !important;
     background: var(--editor-surface-toolbar) !important;
     box-shadow: var(--editor-shadow-toolbar);
     -webkit-backdrop-filter: blur(24px);
@@ -108,13 +128,19 @@
   }
 
   .viewer-admin-surface [data-slot='card-header'] {
-    border-color: rgba(255, 255, 255, 0.08) !important;
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.015));
+    border-color: var(--viewer-admin-border-subtle) !important;
+    background: linear-gradient(180deg, var(--viewer-admin-surface-4), rgba(255, 255, 255, 0.015));
+  }
+
+  .viewer-admin-surface .admin-section-panel__header {
+    min-height: auto !important;
+    border-color: var(--viewer-admin-border-subtle) !important;
+    background: transparent !important;
   }
 
   .viewer-admin-surface [data-slot='card-description'],
   .viewer-admin-surface .text-muted-foreground {
-    color: var(--editor-text-tertiary) !important;
+    color: var(--viewer-admin-text-muted) !important;
   }
 
   .viewer-admin-surface [data-slot='sidebar-wrapper'],
@@ -129,7 +155,73 @@
 
   .viewer-admin-surface [data-slot='sidebar-header'],
   .viewer-admin-surface [data-slot='sidebar-footer'] {
-    border-color: rgba(255, 255, 255, 0.08) !important;
+    border-color: var(--viewer-admin-border-subtle) !important;
+  }
+
+  .viewer-admin-surface [data-sidebar='menu-button'] {
+    border: 1px solid transparent;
+    color: var(--viewer-admin-text-secondary) !important;
+    box-shadow: none !important;
+  }
+
+  .viewer-admin-surface [data-sidebar='menu-button']:hover,
+  .viewer-admin-surface [data-sidebar='menu-button'][data-state='open'] {
+    border-color: var(--viewer-admin-border-default) !important;
+    background: var(--viewer-admin-surface-4) !important;
+    color: var(--viewer-admin-text-primary) !important;
+  }
+
+  .viewer-admin-surface [data-sidebar='menu-button'][data-active='true'] {
+    border-color: var(--viewer-admin-accent-border) !important;
+    background: var(--viewer-admin-accent-soft) !important;
+    color: var(--viewer-admin-text-primary) !important;
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.02),
+      0 0 0 1px var(--viewer-admin-accent-border) !important;
+  }
+
+  .viewer-admin-surface [data-sidebar='menu-button'][data-active='true']:hover {
+    background: var(--viewer-admin-accent-soft) !important;
+  }
+
+  .viewer-admin-surface [data-sidebar='menu-button'] svg {
+    color: inherit;
+  }
+
+  .viewer-admin-surface .admin-selectable-card {
+    border: 1px solid var(--viewer-admin-border-subtle);
+    border-radius: 22px;
+    background: var(--viewer-admin-surface-3);
+    color: var(--viewer-admin-text-primary);
+  }
+
+  .viewer-admin-surface .admin-selectable-card:hover {
+    border-color: var(--viewer-admin-border-strong);
+    background: var(--viewer-admin-surface-4);
+  }
+
+  .viewer-admin-surface .admin-selectable-card.is-active {
+    border-color: var(--viewer-admin-accent-border);
+    background: var(--viewer-admin-accent-soft);
+    box-shadow: 0 0 0 1px var(--viewer-admin-accent-border);
+  }
+
+  .viewer-admin-surface .admin-inset-block {
+    border-color: var(--viewer-admin-border-subtle);
+    border-radius: 20px;
+    background: var(--viewer-admin-surface-3);
+  }
+
+  .viewer-admin-surface .admin-choice-chip {
+    border: 1px solid var(--viewer-admin-border-subtle);
+    border-radius: 18px;
+    background: var(--viewer-admin-surface-3);
+  }
+
+  .viewer-admin-surface .admin-inset-block--warning {
+    border-color: rgba(217, 119, 6, 0.28);
+    background: rgba(120, 53, 15, 0.16);
+    color: rgba(255, 245, 214, 0.92);
   }
 
   .viewer-admin-surface [data-slot='button'] {
@@ -138,8 +230,8 @@
     font-size: 11px;
     font-weight: 500;
     letter-spacing: 0.01em;
-    border-radius: var(--editor-radius-pill) !important;
-    border-color: rgba(255, 255, 255, 0.1) !important;
+    border-radius: 999px !important;
+    border-color: var(--viewer-admin-border-default) !important;
     box-shadow: none !important;
     text-shadow: 0 1px 0 rgba(7, 10, 16, 0.2);
     -webkit-backdrop-filter: blur(18px);
@@ -147,19 +239,19 @@
   }
 
   .viewer-admin-surface [data-slot='button']:not([class*='bg-primary']):not([class*='bg-destructive']):not([class*='bg-white']) {
-    background: rgba(255, 255, 255, 0.04) !important;
-    color: var(--editor-text-secondary) !important;
+    background: var(--viewer-admin-surface-4) !important;
+    color: var(--viewer-admin-text-secondary) !important;
   }
 
   .viewer-admin-surface [data-slot='button']:hover:enabled {
-    border-color: rgba(255, 255, 255, 0.16) !important;
-    background: rgba(255, 255, 255, 0.08) !important;
-    color: var(--editor-text-primary) !important;
+    border-color: var(--viewer-admin-border-strong) !important;
+    background: var(--viewer-admin-surface-5) !important;
+    color: var(--viewer-admin-text-primary) !important;
   }
 
   .viewer-admin-surface [data-slot='button'][class*='bg-primary'],
   .viewer-admin-surface [data-slot='button'][class*='bg-sidebar-primary'] {
-    border-color: rgba(125, 167, 255, 0.48) !important;
+    border-color: var(--viewer-admin-accent-border) !important;
     background: var(--editor-accent) !important;
     color: #08111f !important;
   }
@@ -223,9 +315,10 @@
   .viewer-admin-surface [data-slot='input'],
   .viewer-admin-surface [data-slot='textarea'],
   .viewer-admin-surface select {
-    border-color: rgba(255, 255, 255, 0.1) !important;
-    background: rgba(255, 255, 255, 0.04) !important;
-    color: var(--editor-text-primary) !important;
+    border-color: var(--viewer-admin-border-default) !important;
+    background: var(--viewer-admin-surface-4) !important;
+    color: var(--viewer-admin-text-primary) !important;
+    border-radius: 18px !important;
     box-shadow: none !important;
     -webkit-backdrop-filter: blur(18px);
     backdrop-filter: blur(18px);
@@ -239,10 +332,10 @@
   .viewer-admin-surface [data-slot='input']:focus-visible,
   .viewer-admin-surface [data-slot='textarea']:focus-visible,
   .viewer-admin-surface select:focus-visible {
-    border-color: rgba(125, 167, 255, 0.42) !important;
+    border-color: var(--viewer-admin-accent-border) !important;
     box-shadow:
-      0 0 0 1px rgba(125, 167, 255, 0.42),
-      0 0 0 4px rgba(125, 167, 255, 0.14) !important;
+      0 0 0 1px var(--viewer-admin-accent-border),
+      0 0 0 4px var(--viewer-admin-accent-glow) !important;
     outline: none;
   }
 
@@ -277,22 +370,44 @@
   }
 
   .viewer-admin-surface [data-slot='tabs-list'] {
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--viewer-admin-border-subtle);
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.04) !important;
+    background: var(--viewer-admin-surface-4) !important;
     padding: 2px;
   }
 
   .viewer-admin-surface [data-slot='tabs-trigger'] {
     border-radius: 999px !important;
-    color: var(--editor-text-secondary) !important;
+    color: var(--viewer-admin-text-secondary) !important;
   }
 
   .viewer-admin-surface [data-slot='tabs-trigger'][data-state='active'] {
-    border-color: rgba(125, 167, 255, 0.42) !important;
-    background: rgba(125, 167, 255, 0.18) !important;
-    color: var(--editor-text-primary) !important;
+    border-color: var(--viewer-admin-accent-border) !important;
+    background: var(--viewer-admin-accent-soft) !important;
+    color: var(--viewer-admin-text-primary) !important;
     box-shadow: none !important;
+  }
+
+  .viewer-admin-surface .product-module-nav {
+    gap: 0.5rem;
+  }
+
+  .viewer-admin-surface .product-module-nav__link {
+    border-color: var(--viewer-admin-border-default) !important;
+    background: var(--viewer-admin-surface-4) !important;
+    color: var(--viewer-admin-text-secondary) !important;
+  }
+
+  .viewer-admin-surface .product-module-nav__link:hover {
+    border-color: var(--viewer-admin-border-strong) !important;
+    background: var(--viewer-admin-surface-5) !important;
+    color: var(--viewer-admin-text-primary) !important;
+  }
+
+  .viewer-admin-surface .product-module-nav__link--active {
+    border-color: var(--viewer-admin-accent-border) !important;
+    background: var(--viewer-admin-accent-soft) !important;
+    color: var(--viewer-admin-text-primary) !important;
   }
 
   .viewer-admin-surface .viewer-admin-side-panel {
@@ -306,14 +421,14 @@
   .viewer-admin-surface .viewer-admin-side-panel :is(div, section, article)[class*='rounded-lg'][class*='border'],
   .viewer-admin-surface .viewer-admin-side-panel :is(div, section, article)[class*='rounded-md'][class*='border'],
   .viewer-admin-surface .viewer-admin-side-panel :is(div, section, article)[class*='rounded-xl'][class*='border'] {
-    border-color: rgba(255, 255, 255, 0.08);
-    background: rgba(255, 255, 255, 0.03);
+    border-color: var(--viewer-admin-border-subtle);
+    background: var(--viewer-admin-surface-3);
     box-shadow: none;
   }
 
   .viewer-admin-surface .viewer-admin-side-panel :is(button)[class*='rounded-lg'][class*='border'],
   .viewer-admin-surface .viewer-admin-side-panel :is(button)[class*='rounded-xl'][class*='border'] {
-    border-color: rgba(255, 255, 255, 0.08);
+    border-color: var(--viewer-admin-border-subtle);
   }
 
   .viewer-admin-surface .viewer-admin-kicker {
@@ -342,7 +457,7 @@
 
   .viewer-admin-surface .viewer-admin-entity-search,
   .viewer-admin-surface .viewer-admin-entity-filter-toggle {
-    background: rgba(255, 255, 255, 0.05) !important;
+    background: var(--viewer-admin-surface-4) !important;
   }
 
   .viewer-admin-surface .viewer-admin-entity-search {
@@ -350,21 +465,21 @@
   }
 
   .viewer-admin-surface .viewer-admin-entity-search::placeholder {
-    color: rgba(255, 255, 255, 0.38);
+    color: var(--viewer-admin-text-dim);
   }
 
   .viewer-admin-surface .viewer-admin-entity-filter-toggle,
   .viewer-admin-surface .viewer-admin-entity-group-trigger,
   .viewer-admin-surface .viewer-admin-entity-row-main {
     padding: 6px 8px !important;
-    color: rgba(255, 255, 255, 0.72) !important;
+    color: var(--viewer-admin-text-secondary) !important;
   }
 
   .viewer-admin-surface .viewer-admin-entity-filter-toggle:hover:enabled,
   .viewer-admin-surface .viewer-admin-entity-group-trigger:hover:enabled,
   .viewer-admin-surface .viewer-admin-entity-row-main:hover {
-    background: rgba(255, 255, 255, 0.05) !important;
-    color: rgba(255, 255, 255, 0.92) !important;
+    background: var(--viewer-admin-surface-4) !important;
+    color: var(--viewer-admin-text-primary) !important;
   }
 
   .viewer-admin-surface .viewer-admin-entity-group-trigger {
@@ -374,7 +489,7 @@
   .viewer-admin-surface .viewer-admin-entity-group-meta {
     font-size: 11px;
     line-height: 16px;
-    color: rgba(255, 255, 255, 0.45);
+    color: var(--viewer-admin-text-dim);
   }
 
   .viewer-admin-surface .viewer-admin-list-item {
@@ -393,8 +508,8 @@
   }
 
   .viewer-admin-surface .viewer-admin-list-item.is-active .viewer-admin-entity-row-main {
-    background: rgba(255, 255, 255, 0.06) !important;
-    color: rgba(255, 255, 255, 0.96) !important;
+    background: var(--viewer-admin-surface-5) !important;
+    color: var(--viewer-admin-text-primary) !important;
     box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
   }
 
@@ -405,7 +520,7 @@
   }
 
   .viewer-admin-surface .viewer-admin-entity-focus {
-    color: rgba(255, 255, 255, 0.52) !important;
+    color: var(--viewer-admin-text-muted) !important;
     opacity: 0;
     transition:
       opacity 160ms ease,
@@ -414,17 +529,17 @@
   }
 
   .viewer-admin-surface .viewer-admin-entity-focus:hover:enabled {
-    background: rgba(255, 255, 255, 0.05) !important;
-    color: rgba(255, 255, 255, 0.9) !important;
+    background: var(--viewer-admin-surface-4) !important;
+    color: var(--viewer-admin-text-primary) !important;
   }
 
   .viewer-admin-surface .viewer-admin-empty,
   .viewer-admin-surface .viewer-admin-soft-card,
   .viewer-admin-surface .viewer-admin-grid-note {
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--viewer-admin-border-subtle);
     border-radius: 18px;
-    background: rgba(255, 255, 255, 0.03);
-    color: var(--editor-text-secondary);
+    background: var(--viewer-admin-surface-3);
+    color: var(--viewer-admin-text-secondary);
   }
 
   .viewer-admin-surface .viewer-admin-empty[class*='border-dashed'] {
@@ -432,9 +547,9 @@
   }
 
   .viewer-admin-surface .viewer-admin-link-card {
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--viewer-admin-border-subtle);
     border-radius: 20px;
-    background: rgba(255, 255, 255, 0.03);
+    background: var(--viewer-admin-surface-3);
     transition:
       border-color 180ms ease,
       background-color 180ms ease,
@@ -442,8 +557,8 @@
   }
 
   .viewer-admin-surface .viewer-admin-link-card:hover {
-    border-color: rgba(255, 255, 255, 0.16);
-    background: rgba(255, 255, 255, 0.055);
+    border-color: var(--viewer-admin-border-strong);
+    background: var(--viewer-admin-surface-4);
     transform: translateY(-1px);
   }
 
@@ -452,9 +567,9 @@
   }
 
   .viewer-admin-surface pre {
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--viewer-admin-border-subtle);
     border-radius: 16px;
     background: rgba(7, 10, 16, 0.4) !important;
-    color: var(--editor-text-secondary) !important;
+    color: var(--viewer-admin-text-secondary) !important;
   }
 }

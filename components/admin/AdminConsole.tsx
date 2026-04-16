@@ -46,10 +46,14 @@ import type {
 } from '@/lib/digital-twin/admin'
 import {
   ADMIN_NAV_GROUPS,
+  buildAdminHref,
+  getAdminNavGroupDisplayTitle,
 } from '@/components/admin/admin-meta'
 import {
+  AdminButton,
+  AdminInsetBlock,
   AdminSectionFrame,
-  MetricCard,
+  AdminSelectableCard,
   SectionPanel,
 } from '@/components/admin/admin-surface'
 import type {
@@ -61,7 +65,6 @@ import type {
 } from '@/lib/digital-twin/types'
 import { RuleEditor } from '@/components/digital-twin/rules/RuleEditor'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -70,9 +73,8 @@ import { Textarea } from '@/components/ui/textarea'
 import {
   ViewerAdminSoftCard,
 } from '@/components/viewer-admin/primitives'
-import { cn } from '@/lib/utils'
 
-function OverviewSection() {
+function OverviewSection({ workspaceId }: { workspaceId?: string }) {
   const [overview, setOverview] = useState<AdminOverview | null>(null)
   const [alarms, setAlarms] = useState<Alarm[]>([])
   const [auditEvents, setAuditEvents] = useState<AuditEventRecord[]>([])
@@ -83,28 +85,32 @@ function OverviewSection() {
     setIsLoading(true)
     try {
       const [overviewPayload, alarmPayload, auditPayload] = await Promise.all([
-        fetchAdminOverview(),
-        listAdminAlarms(),
-        listAdminAuditEvents(),
+        fetchAdminOverview(workspaceId),
+        listAdminAlarms(workspaceId),
+        listAdminAuditEvents(workspaceId),
       ])
       setOverview(overviewPayload)
       setAlarms(alarmPayload)
       setAuditEvents(auditPayload)
-      setStatusMessage('已同步后台总览与治理信息')
+      setStatusMessage('总览数据已更新')
     } catch (error) {
       setStatusMessage(error instanceof Error ? error.message : '加载总览失败')
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [workspaceId])
 
   useEffect(() => {
     void loadData()
   }, [loadData])
 
-  const quickLinks = ADMIN_NAV_GROUPS.flatMap((group) => group.items).filter(
-    (item) => item.section !== 'overview'
-  )
+  const quickLinks = ADMIN_NAV_GROUPS.flatMap((group) =>
+    group.items.map((item) => ({
+      ...item,
+      groupTitle: getAdminNavGroupDisplayTitle(group.title),
+    }))
+  ).filter((item) => item.section !== 'overview')
+  const latestAuditEvent = auditEvents[0]
 
   return (
     <AdminSectionFrame
@@ -112,26 +118,23 @@ function OverviewSection() {
       statusMessage={statusMessage}
       isLoading={isLoading}
       actions={
-        <Button variant="outline" onClick={() => void loadData()} disabled={isLoading}>
+        <AdminButton onClick={() => void loadData()} disabled={isLoading}>
           <RefreshCw className="mr-1 h-4 w-4" />
           刷新总览
-        </Button>
+        </AdminButton>
       }
       metrics={[
         {
-          label: 'Scene Version',
+          label: '场景版本',
           value: overview?.sceneVersion ?? '--',
-          detail: '当前运行态引用的场景版本。',
         },
         {
           label: '实体规模',
           value: overview?.entityCount ?? '--',
-          detail: `规则 ${overview?.ruleCount ?? '--'} / 连接器 ${overview?.connectorCount ?? '--'}`,
         },
         {
           label: '待处理告警',
           value: overview?.unacknowledgedAlarmCount ?? '--',
-          detail: alarms.length > 0 ? `已同步 ${alarms.length} 条告警` : '当前无告警快照',
         },
         {
           label: '最近变更',
@@ -139,60 +142,37 @@ function OverviewSection() {
             overview?.recentChangeAt != null
               ? new Date(overview.recentChangeAt).toLocaleDateString('zh-CN')
               : '--',
-          detail:
-            overview?.recentChangeAt != null
-              ? new Date(overview.recentChangeAt).toLocaleTimeString('zh-CN')
-              : '暂无变更记录',
         },
       ]}
       railCards={[
         {
-          title: '告警概况',
-          value: alarms.some((alarm) => !alarm.acknowledged) ? '存在待处理项' : '当前稳定',
-          detail: `${overview?.unacknowledgedAlarmCount ?? 0} 条未确认告警`,
+          title: '告警',
+          value: `${overview?.unacknowledgedAlarmCount ?? 0}`,
         },
         {
-          title: '变更概况',
-          value:
-            overview?.recentChangeAt != null
-              ? new Date(overview.recentChangeAt).toLocaleDateString('zh-CN')
-              : '暂无记录',
-          detail: auditEvents.length > 0 ? `${auditEvents.length} 条最近审计事件` : '当前无审计事件',
+          title: '审计',
+          value: latestAuditEvent?.actor ?? '--',
         },
       ]}
     >
-      <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-6">
-        <MetricCard label="Scene Version" value={overview?.sceneVersion ?? '--'} />
-        <MetricCard label="实体总数" value={overview?.entityCount ?? '--'} />
-        <MetricCard label="规则数" value={overview?.ruleCount ?? '--'} />
-        <MetricCard label="连接器数" value={overview?.connectorCount ?? '--'} />
-        <MetricCard label="绑定数" value={overview?.bindingCount ?? '--'} />
-        <MetricCard
-          label="未确认告警"
-          value={overview?.unacknowledgedAlarmCount ?? '--'}
-          hint={
-            overview?.recentChangeAt
-              ? `最近变更 ${new Date(overview.recentChangeAt).toLocaleString('zh-CN')}`
-              : '暂无变更记录'
-          }
-        />
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
+      <div className="grid gap-4 2xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.95fr)_260px]">
         <SectionPanel
-          eyebrow="Governance Feed"
+          eyebrow="告警"
           title="当前告警"
-          description="把最需要被响应的事项放在工作台首屏。"
+          className="h-full"
         >
-          <div className="space-y-3">
+          <div className="grid gap-3 xl:grid-cols-2">
             {alarms.length === 0 ? (
-              <p className="text-sm text-muted-foreground">当前无持久化告警。</p>
+              <p className="text-sm text-muted-foreground xl:col-span-2">--</p>
             ) : (
-              alarms.slice(0, 8).map((alarm) => (
+              alarms.slice(0, 6).map((alarm) => (
                 <ViewerAdminSoftCard key={alarm.id} className="p-4">
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium">{alarm.message}</span>
-                    <Badge variant={alarm.acknowledged ? 'outline' : 'destructive'}>
+                  <div className="flex items-start justify-between gap-3">
+                    <span className="font-medium leading-6">{alarm.message}</span>
+                    <Badge
+                      variant={alarm.acknowledged ? 'outline' : 'destructive'}
+                      className="shrink-0"
+                    >
                       {alarm.acknowledged ? '已确认' : '待处理'}
                     </Badge>
                   </div>
@@ -206,22 +186,28 @@ function OverviewSection() {
         </SectionPanel>
 
         <SectionPanel
-          eyebrow="Change Radar"
-          title="最近变更审计"
-          description="在进入场景或规则编辑前先看最近谁改过什么。"
+          eyebrow="审计"
+          title="最近变更"
+          className="h-full"
         >
           <div className="space-y-3">
             {auditEvents.length === 0 ? (
-              <p className="text-sm text-muted-foreground">当前暂无审计事件。</p>
+              <p className="text-sm text-muted-foreground">--</p>
             ) : (
-              auditEvents.slice(0, 8).map((event) => (
+              auditEvents.slice(0, 6).map((event) => (
                 <ViewerAdminSoftCard key={event.id} className="p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="font-medium">{event.action}</span>
-                    <Badge variant="outline">{event.resourceType}</Badge>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-medium leading-6">{event.action}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {event.actor} · {event.resourceId}
+                      </p>
+                    </div>
+                    <Badge variant="outline" className="shrink-0">
+                      {event.resourceType}
+                    </Badge>
                   </div>
                   <p className="mt-2 text-xs text-muted-foreground">
-                    {event.actor} · {event.resourceId} ·{' '}
                     {new Date(event.createdAt).toLocaleString('zh-CN')}
                   </p>
                 </ViewerAdminSoftCard>
@@ -229,39 +215,36 @@ function OverviewSection() {
             )}
           </div>
         </SectionPanel>
-      </div>
 
-      <div className="grid gap-4">
-        <SectionPanel
-          eyebrow="Quick Routes"
-          title="模块入口"
-          description="常用后台模块的直接入口。"
-        >
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            {quickLinks.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                className="viewer-admin-link-card group p-4"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="font-medium text-foreground">{item.title}</p>
-                    <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                      {item.description}
+        <div className="space-y-4 2xl:sticky 2xl:top-24 2xl:self-start">
+          <SectionPanel
+            eyebrow="导航"
+            title="模块入口"
+          >
+            <div className="space-y-3">
+              {quickLinks.map((item) => (
+                <Link
+                  key={item.href}
+                  href={buildAdminHref(item.section, workspaceId)}
+                  className="viewer-admin-link-card group flex items-start justify-between gap-3 p-4"
+                >
+                  <div className="min-w-0">
+                    <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
+                      {item.groupTitle}
                     </p>
+                    <p className="font-medium text-foreground">{item.title}</p>
                   </div>
-                  <ArrowUpRight className="h-4 w-4 text-muted-foreground transition group-hover:text-foreground" />
-                </div>
-              </Link>
-            ))}
-          </div>
-        </SectionPanel>
+                  <ArrowUpRight className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition group-hover:text-foreground" />
+                </Link>
+              ))}
+            </div>
+          </SectionPanel>
+        </div>
       </div>
     </AdminSectionFrame>
   )
 }
-function BindingsSection() {
+function BindingsSection({ workspaceId }: { workspaceId?: string }) {
   const [entities, setEntities] = useState<Entity[]>([])
   const [connectors, setConnectors] = useState<DataConnector[]>([])
   const [selectedEntityId, setSelectedEntityId] = useState('')
@@ -274,11 +257,15 @@ function BindingsSection() {
     setIsLoading(true)
     try {
       const [loadedEntities, loadedConnectors] = await Promise.all([
-        listAdminEntities(),
-        listDataConnectors(),
+        listAdminEntities(workspaceId),
+        listDataConnectors(workspaceId),
       ])
       const nextEntityId = entityId ?? selectedEntityId ?? loadedEntities[0]?.id ?? ''
-      const nextBindings = nextEntityId ? await listEntityBindings(nextEntityId) : []
+      const nextBindings = nextEntityId
+        ? workspaceId
+          ? await listEntityBindings(workspaceId, nextEntityId)
+          : await listEntityBindings(nextEntityId)
+        : []
 
       setEntities(loadedEntities)
       setConnectors(loadedConnectors)
@@ -290,7 +277,7 @@ function BindingsSection() {
     } finally {
       setIsLoading(false)
     }
-  }, [selectedEntityId])
+  }, [selectedEntityId, workspaceId])
 
   useEffect(() => {
     void loadData()
@@ -309,13 +296,17 @@ function BindingsSection() {
     }
 
     try {
-      await replaceEntityBindings(selectedEntityId, payload)
+      if (workspaceId) {
+        await replaceEntityBindings(workspaceId, selectedEntityId, payload)
+      } else {
+        await replaceEntityBindings(selectedEntityId, payload)
+      }
       setStatusMessage('绑定已保存')
       await loadData(selectedEntityId)
     } catch (error) {
       setStatusMessage(error instanceof Error ? error.message : '保存绑定失败')
     }
-  }, [draft, loadData, selectedEntityId])
+  }, [draft, loadData, selectedEntityId, workspaceId])
 
   const bindingCount = draft.draft?.length ?? bindingsSource.length
 
@@ -324,46 +315,46 @@ function BindingsSection() {
       section="bindings"
       statusMessage={statusMessage}
       isLoading={isLoading}
+      showSummaryCards={false}
       actions={
-        <Button variant="outline" onClick={() => void loadData()} disabled={isLoading}>
+        <AdminButton onClick={() => void loadData()} disabled={isLoading}>
           <RefreshCw className="mr-1 h-4 w-4" />
           刷新绑定
-        </Button>
+        </AdminButton>
       }
       metrics={[
         {
           label: '目标实体',
           value: entities.find((entity) => entity.id === selectedEntityId)?.name ?? '--',
-          detail: selectedEntityId || '先选择一个实体',
         },
         {
           label: '绑定条目',
           value: bindingCount,
-          detail: `连接器池 ${connectors.length} 个`,
         },
         {
           label: '编辑方式',
           value: 'Structured + JSON',
-          detail: '既保留点位映射表单，也允许整批 JSON 直接覆盖。',
         },
       ]}
       railCards={[
         {
-          title: '模块位置',
-          value: '实体与连接器之间',
-          detail: 'bindings 是中间层，负责把业务对象接到实时点位，不承担源系统定义。',
+          title: '连接器',
+          value: `${connectors.length}`,
         },
         {
-          title: '操作建议',
-          value: '一边选实体，一边维护映射',
-          detail: '先切实体，再按条目编辑 sourcePath 和 mapping，避免上下文混乱。',
+          title: '实体',
+          value: selectedEntityId || '--',
         },
       ]}
     >
       <SectionPanel
-        eyebrow="Binding Workspace"
+        eyebrow="绑定"
         title="绑定编辑器"
-        description="把选择实体、查看连接器池和编辑绑定条目放进同一工作区。"
+        action={
+          <Badge variant="outline" className="rounded-full px-2.5 text-[10px]">
+            共 {bindingCount} 条
+          </Badge>
+        }
       >
         <div className="space-y-4">
           <div className="grid gap-4 md:grid-cols-2">
@@ -386,17 +377,16 @@ function BindingsSection() {
             </div>
             <div className="space-y-2">
               <Label>连接器概览</Label>
-              <div className="rounded-md border px-3 py-2 text-sm text-muted-foreground">
+              <AdminInsetBlock className="px-3 py-2 text-sm text-muted-foreground">
                 已接入 {connectors.length} 个连接器
-              </div>
+              </AdminInsetBlock>
             </div>
           </div>
 
           <div className="space-y-3">
             <div className="flex justify-between">
               <Label>结构化绑定表单</Label>
-              <Button
-                variant="outline"
+              <AdminButton
                 size="sm"
                 disabled={!selectedEntityId}
                 onClick={() => {
@@ -408,12 +398,12 @@ function BindingsSection() {
               >
                 <Plus className="mr-1 h-4 w-4" />
                 新增绑定
-              </Button>
+              </AdminButton>
             </div>
 
             {draft.draft && draft.draft.length > 0 ? (
               draft.draft.map((binding, index) => (
-                <div key={binding.bindingId} className="space-y-3 rounded-lg border p-3">
+                <AdminInsetBlock key={binding.bindingId} className="space-y-3 p-3">
                   <div className="grid gap-3 md:grid-cols-3">
                     <div className="space-y-2">
                       <Label>连接器</Label>
@@ -492,8 +482,8 @@ function BindingsSection() {
                           <option value="false">停用</option>
                         </select>
                       </div>
-                      <Button
-                        variant="destructive"
+                      <AdminButton
+                        tone="danger"
                         size="sm"
                         onClick={() =>
                           draft.updateDraft((current) =>
@@ -503,13 +493,13 @@ function BindingsSection() {
                       >
                         <Trash2 className="mr-1 h-4 w-4" />
                         删除
-                      </Button>
+                      </AdminButton>
                     </div>
                   </div>
-                </div>
+                </AdminInsetBlock>
               ))
             ) : (
-              <p className="text-sm text-muted-foreground">当前实体暂无绑定，可直接新增。</p>
+              <p className="text-sm text-muted-foreground">--</p>
             )}
           </div>
 
@@ -526,10 +516,10 @@ function BindingsSection() {
           />
 
           <div className="flex justify-end">
-            <Button onClick={() => void saveBindings()}>
+            <AdminButton tone="primary" onClick={() => void saveBindings()}>
               <Save className="mr-1 h-4 w-4" />
               保存绑定
-            </Button>
+            </AdminButton>
           </div>
         </div>
       </SectionPanel>
@@ -537,7 +527,7 @@ function BindingsSection() {
   )
 }
 
-function RulesSection() {
+function RulesSection({ workspaceId }: { workspaceId?: string }) {
   const [rules, setRules] = useState<RuleConfig[]>([])
   const [selectedRuleId, setSelectedRuleId] = useState<string | null>(null)
   const [draftSeed, setDraftSeed] = useState<RuleConfig | null>(null)
@@ -553,7 +543,7 @@ function RulesSection() {
   const loadRulesData = useCallback(async () => {
     setIsLoading(true)
     try {
-      const loaded = await listRules()
+      const loaded = await listRules(workspaceId)
       setRules(loaded)
       setSelectedRuleId((current) => current ?? loaded[0]?.id ?? null)
       setStatusMessage('已同步规则配置')
@@ -562,7 +552,7 @@ function RulesSection() {
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [workspaceId])
 
   useEffect(() => {
     void loadRulesData()
@@ -585,10 +575,18 @@ function RulesSection() {
 
       try {
         if (rules.some((rule) => rule.id === nextRule.id)) {
-          await updateRule(nextRule.id, nextRule)
+          if (workspaceId) {
+            await updateRule(workspaceId, nextRule.id, nextRule)
+          } else {
+            await updateRule(nextRule.id, nextRule)
+          }
           setStatusMessage('规则已更新')
         } else {
-          await createRule(nextRule)
+          if (workspaceId) {
+            await createRule(workspaceId, nextRule)
+          } else {
+            await createRule(nextRule)
+          }
           setStatusMessage('规则已创建')
         }
         setDraftSeed(null)
@@ -598,7 +596,7 @@ function RulesSection() {
         setStatusMessage(error instanceof Error ? error.message : '保存规则失败')
       }
     },
-    [draft, loadRulesData, rules]
+    [draft, loadRulesData, rules, workspaceId]
   )
 
   const removeRule = useCallback(async () => {
@@ -608,7 +606,11 @@ function RulesSection() {
     }
 
     try {
-      await deleteRule(selectedRuleId)
+      if (workspaceId) {
+        await deleteRule(workspaceId, selectedRuleId)
+      } else {
+        await deleteRule(selectedRuleId)
+      }
       setStatusMessage('规则已删除')
       setSelectedRuleId(null)
       setDraftSeed(null)
@@ -617,7 +619,7 @@ function RulesSection() {
     } catch (error) {
       setStatusMessage(error instanceof Error ? error.message : '删除规则失败')
     }
-  }, [loadRulesData, selectedRule, selectedRuleId])
+  }, [loadRulesData, selectedRule, selectedRuleId, workspaceId])
 
   const runRuleValidation = useCallback(async () => {
     const payload = draft.applyDraftText() ?? draft.draft
@@ -627,66 +629,65 @@ function RulesSection() {
     }
 
     try {
-      const result = await validateRule(payload.id, payload)
+      const result = workspaceId
+        ? await validateRule(workspaceId, payload.id, payload)
+        : await validateRule(payload.id, payload)
       setRuleValidation(result.errors)
       setStatusMessage(result.valid ? '规则校验通过' : '规则校验未通过')
     } catch (error) {
       setStatusMessage(error instanceof Error ? error.message : '规则校验失败')
     }
-  }, [draft])
-
-  const enabledRuleCount = rules.filter((rule) => rule.enabled).length
+  }, [draft, workspaceId])
 
   return (
     <AdminSectionFrame
       section="rules"
       statusMessage={statusMessage}
       isLoading={isLoading}
+      showSummaryCards={false}
       actions={
-        <Button variant="outline" onClick={() => void loadRulesData()} disabled={isLoading}>
+        <AdminButton onClick={() => void loadRulesData()} disabled={isLoading}>
           <RefreshCw className="mr-1 h-4 w-4" />
           刷新规则
-        </Button>
+        </AdminButton>
       }
       metrics={[
         {
           label: '规则总数',
           value: rules.length,
-          detail: `${enabledRuleCount} 条当前启用`,
         },
         {
           label: '当前规则',
           value: draft.draft?.name ?? selectedRule?.name ?? '--',
-          detail: draft.draft?.enabled ? '启用中' : '未启用或未选择',
         },
         {
           label: '校验结果',
           value: ruleValidation.length > 0 ? `${ruleValidation.length} 条问题` : 'Ready',
-          detail: '规则图保存前建议至少跑一次后端校验。',
         },
       ]}
       railCards={[
         {
-          title: '编排模式',
+          title: '画布',
           value: 'List + Canvas',
-          detail: '左侧挑选规则，右侧在图画布和描述区内完成编辑。',
         },
         {
-          title: '安全边界',
-          value: '先校验，再保存',
-          detail: '规则错误的破坏面比普通配置大，后台需要给出更强的验证反馈。',
+          title: '校验',
+          value: ruleValidation.length > 0 ? `${ruleValidation.length}` : '0',
         },
       ]}
     >
-      <div className="grid gap-4 2xl:grid-cols-[320px_minmax(0,1fr)]">
+      <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
         <SectionPanel
-          eyebrow="Rule Inventory"
+          eyebrow="规则"
           title="规则列表"
-          description="把规则作为一组可编排资产管理，而不是孤立的 JSON 文本。"
+          action={
+            <Badge variant="outline" className="rounded-full px-2.5 text-[10px]">
+              共 {rules.length} 条
+            </Badge>
+          }
         >
           <div className="space-y-3">
-            <Button
-              variant="outline"
+            <AdminButton
               className="w-full"
               onClick={() => {
                 const template = createRuleTemplate()
@@ -699,41 +700,33 @@ function RulesSection() {
             >
               <Plus className="mr-1 h-4 w-4" />
               新建规则
-            </Button>
+            </AdminButton>
 
             <ScrollArea className="h-[520px]">
               <div className="space-y-2 pr-3">
                 {rules.map((rule) => (
-                  <button
+                  <AdminSelectableCard
                     key={rule.id}
-                    type="button"
-                    className={`w-full rounded-md border px-3 py-2 text-left text-sm ${
-                      selectedRuleId === rule.id && draftSeed === null
-                        ? 'border-primary bg-primary/10'
-                        : ''
-                    }`}
+                    active={selectedRuleId === rule.id && draftSeed === null}
+                    className="px-3 py-3"
                     onClick={() => {
                       setDraftSeed(null)
                       setSelectedRuleId(rule.id)
                       setRuleValidation([])
                     }}
                   >
-                    <div className="font-medium">{rule.name}</div>
-                    <div className="text-xs text-muted-foreground">
+                    <div className="font-medium text-foreground">{rule.name}</div>
+                    <div className="mt-1 text-xs text-muted-foreground">
                       {rule.enabled ? '启用' : '停用'} · version {rule.version ?? 1}
                     </div>
-                  </button>
+                  </AdminSelectableCard>
                 ))}
               </div>
             </ScrollArea>
           </div>
         </SectionPanel>
 
-        <SectionPanel
-          eyebrow="Rule Workspace"
-          title={draft.draft ? draft.draft.name : '规则详情'}
-          description="描述、启停、图编排与校验结果都应该聚合在同一个编辑工作区。"
-        >
+        <SectionPanel eyebrow="编辑器" title={draft.draft ? draft.draft.name : '规则详情'}>
           <div className="space-y-4">
             {draft.draft ? (
               <>
@@ -782,7 +775,7 @@ function RulesSection() {
                   />
                 </div>
 
-                <div className="h-[480px] overflow-hidden rounded-lg border">
+                <AdminInsetBlock className="h-[480px] overflow-hidden p-0">
                   <RuleEditor
                     ruleId={draft.draft.id}
                     ruleName={draft.draft.name}
@@ -797,12 +790,12 @@ function RulesSection() {
                       void saveRule(nodes, edges)
                     }}
                   />
-                </div>
+                </AdminInsetBlock>
 
                 {ruleValidation.length > 0 ? (
-                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                  <AdminInsetBlock tone="warning" className="text-xs">
                     {ruleValidation.join('；')}
-                  </div>
+                  </AdminInsetBlock>
                 ) : null}
 
                 <AdvancedJsonEditor
@@ -818,22 +811,22 @@ function RulesSection() {
                 />
 
                 <div className="flex flex-wrap justify-end gap-2">
-                  <Button variant="outline" onClick={() => void runRuleValidation()}>
+                  <AdminButton onClick={() => void runRuleValidation()}>
                     校验规则
-                  </Button>
-                  <Button variant="destructive" onClick={() => void removeRule()}>
+                  </AdminButton>
+                  <AdminButton tone="danger" onClick={() => void removeRule()}>
                     <Trash2 className="mr-1 h-4 w-4" />
                     删除规则
-                  </Button>
-                  <Button onClick={() => void saveRule()}>
+                  </AdminButton>
+                  <AdminButton tone="primary" onClick={() => void saveRule()}>
                     <Save className="mr-1 h-4 w-4" />
                     保存规则
-                  </Button>
+                  </AdminButton>
                 </div>
               </>
-            ) : (
-              <p className="text-sm text-muted-foreground">请选择规则或创建新模板。</p>
-            )}
+              ) : (
+                <p className="text-sm text-muted-foreground">--</p>
+              )}
           </div>
         </SectionPanel>
       </div>
@@ -841,7 +834,7 @@ function RulesSection() {
   )
 }
 
-function AlarmsSection() {
+function AlarmsSection({ workspaceId }: { workspaceId?: string }) {
   const [alarms, setAlarms] = useState<Alarm[]>([])
   const [statusMessage, setStatusMessage] = useState('')
   const [isLoading, setIsLoading] = useState(false)
@@ -849,7 +842,7 @@ function AlarmsSection() {
   const loadAlarms = useCallback(async () => {
     setIsLoading(true)
     try {
-      const loaded = await listAdminAlarms()
+      const loaded = await listAdminAlarms(workspaceId)
       setAlarms(loaded)
       setStatusMessage('已同步告警中心数据')
     } catch (error) {
@@ -857,7 +850,7 @@ function AlarmsSection() {
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [workspaceId])
 
   useEffect(() => {
     void loadAlarms()
@@ -870,46 +863,47 @@ function AlarmsSection() {
       section="alarms"
       statusMessage={statusMessage}
       isLoading={isLoading}
+      showSummaryCards={false}
       actions={
-        <Button variant="outline" onClick={() => void loadAlarms()} disabled={isLoading}>
+        <AdminButton onClick={() => void loadAlarms()} disabled={isLoading}>
           <RefreshCw className="mr-1 h-4 w-4" />
           刷新告警
-        </Button>
+        </AdminButton>
       }
       metrics={[
         {
           label: '告警总数',
           value: alarms.length,
-          detail: `${unacknowledgedCount} 条待确认`,
         },
         {
-          label: '治理阶段',
+          label: '模式',
           value: 'Read Only',
-          detail: '首期以观测和排查为主，处置流留到后续阶段。',
         },
       ]}
       railCards={[
         {
-          title: '当前能力',
-          value: '观察与聚焦',
-          detail: '告警中心先承担态势展示职责，后续再承接完整处置动作。',
+          title: '待确认',
+          value: `${unacknowledgedCount}`,
         },
         {
-          title: '阅读方式',
-          value: '先看待确认，再看时间线',
-          detail: '后台页需要让高优先级告警天然浮到上面。',
+          title: '总数',
+          value: `${alarms.length}`,
         },
       ]}
       showLiveWarning={false}
     >
       <SectionPanel
-        eyebrow="Alarm Feed"
+        eyebrow="告警"
         title="当前告警列表"
-        description="把告警做成治理 feed，而不是普通列表。"
+        action={
+          <Badge variant="outline" className="rounded-full px-2.5 text-[10px]">
+            共 {alarms.length} 条
+          </Badge>
+        }
       >
         <div className="space-y-3">
           {alarms.length === 0 ? (
-            <p className="text-sm text-muted-foreground">当前没有持久化告警记录。</p>
+            <p className="text-sm text-muted-foreground">--</p>
           ) : (
             alarms.map((alarm) => (
               <div
@@ -936,7 +930,7 @@ function AlarmsSection() {
   )
 }
 
-function AuditSection() {
+function AuditSection({ workspaceId }: { workspaceId?: string }) {
   const [auditEvents, setAuditEvents] = useState<AuditEventRecord[]>([])
   const [statusMessage, setStatusMessage] = useState('')
   const [isLoading, setIsLoading] = useState(false)
@@ -944,7 +938,7 @@ function AuditSection() {
   const loadAudit = useCallback(async () => {
     setIsLoading(true)
     try {
-      const loaded = await listAdminAuditEvents()
+      const loaded = await listAdminAuditEvents(workspaceId)
       setAuditEvents(loaded)
       setStatusMessage('已同步审计日志')
     } catch (error) {
@@ -952,7 +946,7 @@ function AuditSection() {
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [workspaceId])
 
   useEffect(() => {
     void loadAudit()
@@ -963,46 +957,47 @@ function AuditSection() {
       section="audit"
       statusMessage={statusMessage}
       isLoading={isLoading}
+      showSummaryCards={false}
       actions={
-        <Button variant="outline" onClick={() => void loadAudit()} disabled={isLoading}>
+        <AdminButton onClick={() => void loadAudit()} disabled={isLoading}>
           <RefreshCw className="mr-1 h-4 w-4" />
           刷新审计
-        </Button>
+        </AdminButton>
       }
       metrics={[
         {
           label: '事件数',
           value: auditEvents.length,
-          detail: '用于追踪后台配置行为和生效时间。',
         },
         {
           label: '最近操作者',
           value: auditEvents[0]?.actor ?? '--',
-          detail: auditEvents[0]?.resourceType ?? '暂无审计记录',
         },
       ]}
       railCards={[
         {
-          title: '模块定位',
-          value: '变更时间线',
-          detail: '审计页是后台责任链，不该只是普通文本列表。',
+          title: '最新事件',
+          value: auditEvents[0]?.action ?? '--',
         },
         {
-          title: '使用方式',
-          value: '改完即回看',
-          detail: '每次修改后回到审计页，确认 actor、resource 和 payload 是否正确落库。',
+          title: '操作者',
+          value: auditEvents[0]?.actor ?? '--',
         },
       ]}
       showLiveWarning={false}
     >
       <SectionPanel
-        eyebrow="Audit Timeline"
+        eyebrow="审计"
         title="最近审计事件"
-        description="突出变更责任和 payload，而不是让日志淹没在统一卡片里。"
+        action={
+          <Badge variant="outline" className="rounded-full px-2.5 text-[10px]">
+            共 {auditEvents.length} 条
+          </Badge>
+        }
       >
         <div className="space-y-3">
           {auditEvents.length === 0 ? (
-            <p className="text-sm text-muted-foreground">当前暂无审计记录。</p>
+            <p className="text-sm text-muted-foreground">--</p>
           ) : (
             auditEvents.map((event) => (
               <div
@@ -1032,28 +1027,36 @@ function AuditSection() {
   )
 }
 
-export function AdminConsole({ section }: { section: AdminSection }) {
+export function AdminConsole({
+  section,
+  workspaceId,
+  workspaceSlug,
+}: {
+  section: AdminSection
+  workspaceId?: string
+  workspaceSlug?: string
+}) {
   switch (section) {
     case 'overview':
-      return <OverviewSection />
+      return <OverviewSection workspaceId={workspaceId} />
     case 'workspaces':
       return <WorkspacesSection />
     case 'scene':
-      return <SceneSection />
+      return <SceneSection workspaceId={workspaceId} workspaceSlug={workspaceSlug} />
     case 'entities':
-      return <EntitiesSection />
+      return <EntitiesSection workspaceId={workspaceId} />
     case 'archetypes':
       return <ArchetypesSection />
     case 'connectors':
-      return <ConnectorsSection />
+      return <ConnectorsSection workspaceId={workspaceId} />
     case 'bindings':
-      return <BindingsSection />
+      return <BindingsSection workspaceId={workspaceId} />
     case 'rules':
-      return <RulesSection />
+      return <RulesSection workspaceId={workspaceId} />
     case 'alarms':
-      return <AlarmsSection />
+      return <AlarmsSection workspaceId={workspaceId} />
     case 'audit':
-      return <AuditSection />
+      return <AuditSection workspaceId={workspaceId} />
     default:
       return (
         <Card>

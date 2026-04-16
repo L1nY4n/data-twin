@@ -63,8 +63,14 @@ function useDigitalTwinViewportState() {
   }
 }
 
-export function DigitalTwinViewerPage() {
-  const { isLoading, error } = useLiveDigitalTwin()
+export function DigitalTwinViewerPage({
+  workspaceId,
+  workspaceSlug,
+}: {
+  workspaceId: string
+  workspaceSlug: string
+}) {
+  const { isLoading, error } = useLiveDigitalTwin(workspaceId)
   const {
     leftPanelOpen,
     rightPanelOpen,
@@ -80,7 +86,7 @@ export function DigitalTwinViewerPage() {
       className="viewer-surface h-screen overflow-hidden"
       innerClassName="viewer-admin-content flex h-screen flex-col"
     >
-      <Toolbar />
+      <Toolbar workspaceSlug={workspaceSlug} />
 
       <div className="relative flex flex-1 overflow-hidden px-2 pb-2">
         <div className="relative flex-1">

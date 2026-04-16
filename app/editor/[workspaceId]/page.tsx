@@ -1,6 +1,8 @@
-import { EditorShell } from '@/components/editor/EditorShell'
+import { notFound, redirect } from 'next/navigation'
+import { fetchWorkspaceById } from '@/lib/digital-twin/bootstrap-client'
+import { buildEditorHref } from '@/lib/digital-twin/editor-routing'
 
-export default async function EditorWorkspacePage({
+export default async function LegacyEditorWorkspacePage({
   params,
   searchParams,
 }: {
@@ -10,10 +12,10 @@ export default async function EditorWorkspacePage({
   const routeParams = await params
   const query = (await searchParams) ?? {}
 
-  return (
-    <EditorShell
-      workspaceHint={routeParams.workspaceId}
-      returnHref={query.returnTo}
-    />
-  )
+  try {
+    const workspace = await fetchWorkspaceById(routeParams.workspaceId)
+    redirect(buildEditorHref(workspace.slug, query.returnTo))
+  } catch {
+    notFound()
+  }
 }

@@ -6,6 +6,9 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "camelCase")]
 pub struct BootstrapResponse {
     pub site_id: String,
+    pub workspace_id: String,
+    pub workspace_slug: String,
+    pub workspace_name: String,
     pub scene_version: u64,
     pub scene_config: SceneConfig,
     pub entities: Vec<Entity>,
@@ -885,6 +888,7 @@ pub struct RuntimeIngestResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConfigChangedPayload {
+    pub workspace_id: String,
     pub scene_version: u64,
     pub changed_at: u64,
     pub scope: ConfigChangedScope,

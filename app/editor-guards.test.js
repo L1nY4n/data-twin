@@ -5,12 +5,16 @@ import { join } from 'node:path'
 describe('editor guards', () => {
   test('editor should live on a separate route with its own shell and local panel layout', () => {
     const page = readFileSync(join(process.cwd(), 'app/editor/page.tsx'), 'utf8')
+    const canonicalEditorPage = readFileSync(
+      join(process.cwd(), 'app/workspaces/[workspaceSlug]/editor/page.tsx'),
+      'utf8'
+    )
     const workspacePage = readFileSync(
       join(process.cwd(), 'app/editor/[workspaceId]/page.tsx'),
       'utf8'
     )
-    const workspaceHelper = readFileSync(
-      join(process.cwd(), 'lib/digital-twin/editor-workspace.ts'),
+    const editorRouting = readFileSync(
+      join(process.cwd(), 'lib/digital-twin/editor-routing.ts'),
       'utf8'
     )
     const shell = readFileSync(
@@ -26,22 +30,26 @@ describe('editor guards', () => {
       'utf8'
     )
 
-    expect(page.includes('redirect')).toBe(true)
-    expect(page.includes('DEFAULT_EDITOR_WORKSPACE_ID')).toBe(true)
-    expect(page.includes('/editor/${DEFAULT_EDITOR_WORKSPACE_ID}')).toBe(true)
-    expect(workspacePage.includes('EditorShell')).toBe(true)
-    expect(workspacePage.includes('workspaceHint={routeParams.workspaceId}')).toBe(true)
-    expect(workspacePage.includes('returnHref={query.returnTo}')).toBe(true)
-    expect(workspaceHelper.includes('/editor/${normalizedWorkspaceId}')).toBe(true)
+    expect(page.includes('fetchHomeWorkspace')).toBe(true)
+    expect(page.includes('redirect(buildEditorHref(workspace.slug, query.returnTo))')).toBe(true)
+    expect(canonicalEditorPage.includes('EditorShell')).toBe(true)
+    expect(canonicalEditorPage.includes('fetchWorkspaceBySlug')).toBe(true)
+    expect(canonicalEditorPage.includes('workspaceId={workspace.id}')).toBe(true)
+    expect(workspacePage.includes('fetchWorkspaceById')).toBe(true)
+    expect(workspacePage.includes('redirect(buildEditorHref(workspace.slug, query.returnTo))')).toBe(true)
+    expect(editorRouting.includes('export function buildEditorHref')).toBe(true)
+    expect(editorRouting.includes("const basePath = workspaceSlug")).toBe(true)
+    expect(editorRouting.includes("'/editor'")).toBe(true)
     expect(shell.includes('SidebarProvider')).toBe(false)
     expect(shell.includes('EditorAppSidebar')).toBe(true)
     expect(shell.includes('EditorToolbar')).toBe(true)
     expect(shell.includes('场景建模与发布工作台')).toBe(false)
     expect(shell.includes('在统一工作区内完成资源摆放、属性编辑与发布协同')).toBe(false)
     expect(toolbar.includes('ProductModuleNav')).toBe(false)
-    expect(toolbar.includes('模型工作区')).toBe(true)
+    expect(toolbar.includes('模型编辑器')).toBe(true)
     expect(toolbar.includes('退出编辑')).toBe(false)
     expect(toolbar.includes('sceneConfig.id')).toBe(true)
+    expect(toolbar.includes('workspaceHint')).toBe(false)
     expect(toolbar.includes('returnHref')).toBe(false)
     expect(toolbar.includes('resolvedReturnHref')).toBe(false)
     expect(shell.includes('EditorCanvas')).toBe(true)

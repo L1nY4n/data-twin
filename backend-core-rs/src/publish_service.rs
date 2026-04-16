@@ -170,6 +170,43 @@ pub async fn load_publish_status(
     })
 }
 
+pub async fn load_publish_status_for_workspace(
+    store: &Store,
+    _runtime: &PublishRuntime,
+    workspace_id: &str,
+) -> Result<PublishStatusResponse, StoreError> {
+    let current_scene_version = store.workspace_scene_version(workspace_id).await?;
+    let published = store.workspace_published_state(workspace_id).await?;
+    let has_unpublished_changes = current_scene_version > published.published_scene_version;
+    let failed_current_version = published.last_failure_scene_version
+        == Some(current_scene_version)
+        && has_unpublished_changes;
+
+    let status = if is_publish_lock_active(&published) {
+        PublishState::Publishing
+    } else if failed_current_version {
+        PublishState::Failed
+    } else if has_unpublished_changes {
+        PublishState::SavedUnpublished
+    } else {
+        PublishState::Published
+    };
+
+    Ok(PublishStatusResponse {
+        status,
+        current_scene_version,
+        published_scene_version: published.published_scene_version,
+        has_unpublished_changes,
+        active_publish_started_at: published.active_publish_started_at,
+        active_publish_heartbeat_at: published.active_publish_heartbeat_at,
+        last_published_at: published.last_published_at,
+        last_published_version: published.last_published_version,
+        last_error: published.last_publish_error,
+        published_scene: published.published_scene,
+        compiler_source: published.compiler_source,
+    })
+}
+
 pub fn publish_lock_stale_after_ms() -> u64 {
     PUBLISH_LOCK_STALE_AFTER_MS
 }
@@ -183,7 +220,7 @@ pub async fn publish_working_snapshot(
     let publish_config = config.clone();
     let snapshot_for_export = snapshot.clone();
     let build = task::spawn_blocking(move || {
-        run_publish_export(&publish_config, &snapshot_for_export, &version_slug)
+        run_publish_export(&publish_config, &snapshot_for_export, &version_slug, "global")
     })
     .await
     .map_err(|error| PublishError::Join(error.to_string()))??;
@@ -194,22 +231,64 @@ pub async fn publish_working_snapshot(
         .map_err(PublishError::Store)
 }
 
+pub async fn publish_working_snapshot_for_workspace(
+    store: &Store,
+    workspace_id: &str,
+    workspace_slug: &str,
+    snapshot: &WorkingSnapshot,
+    config: &PublishConfig,
+) -> Result<PublishedStateRecord, PublishError> {
+    let version_slug = format!("{}-{}", snapshot.scene_version, current_publish_millis());
+    let publish_config = config.clone();
+    let snapshot_for_export = snapshot.clone();
+    let workspace_slug = workspace_slug.to_string();
+    let build = task::spawn_blocking(move || {
+        run_publish_export(&publish_config, &snapshot_for_export, &version_slug, &workspace_slug)
+    })
+    .await
+    .map_err(|error| PublishError::Join(error.to_string()))??;
+
+    store
+        .workspace_promote_working_snapshot(
+            workspace_id,
+            snapshot,
+            Some(build.descriptor),
+            &build.compiler_source,
+        )
+        .await
+        .map_err(PublishError::Store)
+}
+
 fn run_publish_export(
     config: &PublishConfig,
     snapshot: &WorkingSnapshot,
     version_slug: &str,
+    workspace_slug: &str,
 ) -> Result<PublishBuildOutput, PublishError> {
     let repo_root = &config.repo_root;
     let generated_root = &config.generated_root;
-    let versions_root = generated_root.join("versions");
+    let is_global_alias = workspace_slug == "global";
+    let workspace_root = if is_global_alias {
+        generated_root.clone()
+    } else {
+        generated_root.join("workspaces").join(workspace_slug)
+    };
+    let versions_root = workspace_root.join("versions");
     let final_dir = versions_root.join(version_slug);
     let temp_public_root = generated_root.join(format!(".tmp-publish-root-{version_slug}"));
     let temp_snapshot_path =
         generated_root.join(format!(".tmp-publish-snapshot-{version_slug}.json"));
-    let public_base_url = format!(
-        "{}/versions/{version_slug}",
-        config.public_base_url_root.trim_end_matches('/')
-    );
+    let public_base_url = if is_global_alias {
+        format!(
+            "{}/versions/{version_slug}",
+            config.public_base_url_root.trim_end_matches('/'),
+        )
+    } else {
+        format!(
+            "{}/workspaces/{workspace_slug}/versions/{version_slug}",
+            config.public_base_url_root.trim_end_matches('/'),
+        )
+    };
     let temp_dir = temp_public_root.join(public_base_url.trim_start_matches('/'));
 
     if temp_public_root.exists() {
@@ -245,9 +324,10 @@ fn run_publish_export(
     }
 
     fs::rename(&temp_dir, &final_dir)?;
+    fs::create_dir_all(&workspace_root)?;
     fs::copy(
         final_dir.join("published-scene-package.json"),
-        generated_root.join("published-scene-package.json"),
+        workspace_root.join("published-scene-package.json"),
     )?;
     let _ = fs::remove_dir_all(&temp_public_root);
     let _ = fs::remove_file(&temp_snapshot_path);
@@ -278,6 +358,17 @@ pub async fn record_publish_failure(
 ) -> Result<(), StoreError> {
     store
         .record_publish_failure(snapshot.scene_version, &error.to_string())
+        .await
+}
+
+pub async fn record_publish_failure_for_workspace(
+    store: &Store,
+    workspace_id: &str,
+    snapshot: &WorkingSnapshot,
+    error: &PublishError,
+) -> Result<(), StoreError> {
+    store
+        .workspace_record_publish_failure(workspace_id, snapshot.scene_version, &error.to_string())
         .await
 }
 

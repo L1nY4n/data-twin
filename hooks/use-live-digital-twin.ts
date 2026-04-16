@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { fetchBootstrap } from '@/lib/digital-twin/bootstrap-client'
+import { type BootstrapPayload, fetchBootstrap } from '@/lib/digital-twin/bootstrap-client'
 import { getRealtimeWsUrl } from '@/lib/digital-twin/backend-config'
 import {
   DEFAULT_PUBLISHED_SCENE_PACKAGE,
@@ -28,7 +28,8 @@ import { runtimeVehicleSnapshotRegistry } from '@/lib/digital-twin/runtime-vehic
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
 
 function hydrateBootstrapState(
-  payload: Awaited<ReturnType<typeof fetchBootstrap>>,
+  workspaceId: string,
+  payload: BootstrapPayload,
   publishedScenePackage: PublishedScenePackage
 ) {
   const store = useDigitalTwinStore.getState()
@@ -53,7 +54,7 @@ function hydrateBootstrapState(
 
   store.setRuntimeRunning(false)
   store.setRuntimeDataSource('live')
-  store.setConnectionStatus(true, getRealtimeWsUrl())
+  store.setConnectionStatus(true, getRealtimeWsUrl(workspaceId))
 }
 
 function describeLoadError(error: unknown) {
@@ -79,7 +80,7 @@ async function resolvePublishedScenePackage(
   )
 }
 
-export function useLiveDigitalTwin() {
+export function useLiveDigitalTwin(workspaceId: string) {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const wsRef = useRef<DigitalTwinWebSocket | null>(null)
@@ -101,12 +102,12 @@ export function useLiveDigitalTwin() {
     isRefreshingRef.current = true
 
     try {
-      const payload = await fetchBootstrap()
+      const payload = await fetchBootstrap(workspaceId)
       const publishedScenePackage = await resolvePublishedScenePackage(payload.publishedScene)
       sceneVersionRef.current = payload.sceneVersion
       publishedSceneRef.current = payload.publishedScene ?? null
       needsBootstrapResyncRef.current = false
-      hydrateBootstrapState(payload, publishedScenePackage)
+      hydrateBootstrapState(workspaceId, payload, publishedScenePackage)
       setError(null)
     } catch (loadError) {
       const message = describeLoadError(loadError)
@@ -120,7 +121,7 @@ export function useLiveDigitalTwin() {
       setIsLoading(false)
       isRefreshingRef.current = false
     }
-  }, [setConnectionStatus])
+  }, [setConnectionStatus, workspaceId])
 
   const connectWs = useCallback(() => {
     if (wsRef.current) {
@@ -128,7 +129,7 @@ export function useLiveDigitalTwin() {
       wsRef.current.disconnect()
     }
 
-    const wsUrl = getRealtimeWsUrl()
+    const wsUrl = getRealtimeWsUrl(workspaceId)
     const ws = new DigitalTwinWebSocket({
       url: wsUrl,
       onConnect: () => {
@@ -255,6 +256,9 @@ export function useLiveDigitalTwin() {
           }
           case 'config_changed': {
             const configChanged = message.payload as ConfigChangedMessage
+            if (configChanged.workspaceId !== workspaceId) {
+              break
+            }
             const hasPublishedSceneUpdate =
               Boolean(configChanged.publishedScene) &&
               (configChanged.publishedScene?.packageVersion !==
@@ -292,6 +296,7 @@ export function useLiveDigitalTwin() {
     setConnectionStatus,
     updateEntity,
     upsertIncident,
+    workspaceId,
   ])
 
   useEffect(() => {
