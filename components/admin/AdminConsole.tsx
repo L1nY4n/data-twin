@@ -1,7 +1,7 @@
 'use client'
 
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { Edge, Node } from '@xyflow/react'
 import {
   ArrowUpRight,
@@ -1040,7 +1040,11 @@ export function AdminConsole({
     case 'overview':
       return <OverviewSection workspaceId={workspaceId} />
     case 'workspaces':
-      return <WorkspacesSection />
+      return (
+        <Suspense fallback={null}>
+          <WorkspacesSection />
+        </Suspense>
+      )
     case 'scene':
       return <SceneSection workspaceId={workspaceId} workspaceSlug={workspaceSlug} />
     case 'entities':

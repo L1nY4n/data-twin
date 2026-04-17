@@ -29,6 +29,7 @@ const POINTER = new THREE.Vector2()
 const GROUND_PLANE = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0)
 const GROUND_INTERSECTION = new THREE.Vector3()
 const MARQUEE_THRESHOLD = 8
+const CLICK_SUPPRESSION_DRAG_THRESHOLD = 1
 const WALL_FACE_CLEARANCE = 0.02
 const WALL_EDGE_PADDING = 0.1
 const DOOR_LOCK_EDGE_RATIO = 0.28
@@ -834,10 +835,10 @@ export function EditorScenePicking({
 
     const handlePointerDown = (event: PointerEvent) => {
       if (event.button !== 0 || draggingRef.current || placementCatalogIdRef.current) return
-      if (transformModeRef.current !== 'select') return
-
       const pointer = { offsetX: event.offsetX, offsetY: event.offsetY }
       clickSuppressionStartRef.current = pointer
+
+      if (transformModeRef.current !== 'select') return
 
       if (!event.shiftKey) return
 
@@ -865,7 +866,10 @@ export function EditorScenePicking({
 
       if (
         clickSuppressionStartRef.current &&
-        getPointerDistance(clickSuppressionStartRef.current, currentPointer) >= MARQUEE_THRESHOLD
+        getPointerDistance(
+          clickSuppressionStartRef.current,
+          currentPointer
+        ) >= CLICK_SUPPRESSION_DRAG_THRESHOLD
       ) {
         suppressClickRef.current = true
       }
@@ -888,6 +892,17 @@ export function EditorScenePicking({
           domElement.style.cursor = 'crosshair'
           return
         }
+      }
+
+      if (event.buttons !== 0) {
+        if (rafRef.current !== null) {
+          window.cancelAnimationFrame(rafRef.current)
+          rafRef.current = null
+        }
+        setHoveredEntity(null)
+        setHoveredStaticAsset(null)
+        domElement.style.cursor = 'auto'
+        return
       }
 
       if (marqueeActiveRef.current) {

@@ -12,6 +12,7 @@ import { EditorInspector } from './EditorInspector'
 import { EditorToolbar } from './EditorToolbar'
 import { EditorViewportDock } from './EditorViewportDock'
 import { useEditorChromeMotion } from './useEditorChromeMotion'
+import { useEditorKeyboardShortcuts } from './useEditorKeyboardShortcuts'
 
 const EditorCanvas = dynamic(
   () => import('@/components/editor/EditorCanvas').then((mod) => mod.EditorCanvas),
@@ -65,6 +66,7 @@ export function EditorShell({
     deleteSelection,
     duplicateSelection,
     createStandardRoom,
+    importDetectedFloorPlan,
     publish,
     publishStatus,
     activityStatus,
@@ -274,6 +276,10 @@ export function EditorShell({
     resourcesPanelOpen,
     inspectorCollapsed,
   })
+  useEditorKeyboardShortcuts({
+    deleteSelection,
+    duplicateSelection,
+  })
 
   const shouldShowStatusBanner =
     Boolean(error) || activityStatus.phase === 'recovering' || activityStatus.phase === 'error'
@@ -352,6 +358,8 @@ export function EditorShell({
                 >
                   <EditorAppSidebar
                     collapsed={!resourcesPanelOpen}
+                    importBusy={activityStatus.isBusy}
+                    onImportDetectedFloorPlan={importDetectedFloorPlan}
                     onToggleCollapse={() => setResourcesPanelOpen((value) => !value)}
                     returnHref={returnHref}
                   />

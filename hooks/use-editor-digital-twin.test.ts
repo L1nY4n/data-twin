@@ -6,6 +6,8 @@ import {
   createEditorSceneSavePayload,
   createEditorSaveRequest,
   describeEditorOperationError,
+  executeFloorPlanImport,
+  FloorPlanImportError,
   resolveEditorPublishResult,
   resolveEditorSaveFailureStatus,
   resolveEditorSaveSelectionResult,
@@ -649,6 +651,55 @@ describe('useEditorDigitalTwin standard room workflow', () => {
       expect((error as StandardRoomCreationError).createdCount).toBe(2)
       expect((error as StandardRoomCreationError).focusAssetId).toBeNull()
       expect((error as StandardRoomCreationError).message).toBe('east wall failed')
+    }
+  })
+
+  test('captures partial floor plan import progress when an asset save fails', async () => {
+    try {
+      await executeFloorPlanImport({
+        detection: {
+          imageWidth: 100,
+          imageHeight: 50,
+          walls: [
+            {
+              start: { x: 10, y: 20 },
+              end: { x: 90, y: 20 },
+              orientation: 'horizontal',
+              length: 80,
+              thickness: 4,
+            },
+          ],
+          doors: [
+            {
+              type: 'door',
+              position: { x: 50, y: 20 },
+              span: 10,
+              orientation: 'horizontal',
+              bounds: { minX: 45, minY: 18, maxX: 55, maxY: 22 },
+            },
+          ],
+          windows: [],
+        },
+        reference: {
+          position: { x: 0, y: 0, z: 0 },
+          scaleMeters: 10,
+        },
+        createStaticAsset: async (asset) => {
+          if (asset.assetKind === 'door-system') {
+            throw new Error('door import failed')
+          }
+
+          return createSavedAsset(asset, `${asset.assetKind}-saved`)
+        },
+        reload: async () => true,
+        selectStaticAsset: () => true,
+      })
+      throw new Error('expected executeFloorPlanImport to fail')
+    } catch (error) {
+      expect(error).toBeInstanceOf(FloorPlanImportError)
+      expect((error as FloorPlanImportError).createdCount).toBe(1)
+      expect((error as FloorPlanImportError).focusAssetId).toBe('wall-system-saved')
+      expect((error as FloorPlanImportError).message).toBe('door import failed')
     }
   })
 })

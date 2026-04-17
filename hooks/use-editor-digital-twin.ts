@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
+  type BootstrapPayload,
   type EditorSaveRequest,
   createAdminStaticAsset,
   deleteAdminEntity,
@@ -16,6 +17,7 @@ import {
 import type { PublishStatus } from '@/lib/digital-twin/admin'
 import {
   buildEditorSceneSavePayload,
+  type EditorFloorPlanReference,
   getEditorSceneState,
   getEditorUiState,
   getEditorViewerState,
@@ -25,9 +27,12 @@ import {
   useEditorUiStore,
   useEditorViewerStore,
 } from '@/lib/digital-twin/editor-store'
+import type { FloorPlanDetectionResultDto } from '@/lib/digital-twin/floor-plan-detector'
+import { createStaticAssetsFromFloorPlanDetection } from '@/lib/digital-twin/floor-plan-import'
 import {
   DEFAULT_PUBLISHED_SCENE_PACKAGE,
   loadPublishedScenePackage,
+  type PublishedScenePackage,
   withVersionedPublishedScenePackage,
 } from '@/lib/digital-twin/publish'
 import {
@@ -35,7 +40,7 @@ import {
   isStandardRoomEntryDoorAsset,
 } from '@/lib/digital-twin/standard-room'
 import type {
-  PublishedSceneRuntimeDescriptor,
+  Entity,
   StaticAssetInstance,
   Vector3,
 } from '@/lib/digital-twin/types'
@@ -55,6 +60,7 @@ export type EditorRetryAction =
   | 'delete'
   | 'publish'
   | 'create_standard_room'
+  | 'import_floor_plan'
 
 type ReloadReason = 'initial' | 'manual' | 'publish'
 
@@ -69,10 +75,70 @@ export interface EditorActivityStatus {
   retryAction?: EditorRetryAction
 }
 
+function countEditorEntityTypes(entities: Entity[]) {
+  return entities.reduce(
+    (counts, entity) => {
+      if (entity.type === 'person') counts.persons += 1
+      if (entity.type === 'vehicle') counts.vehicles += 1
+      if (entity.type === 'equipment') counts.equipment += 1
+      return counts
+    },
+    { persons: 0, vehicles: 0, equipment: 0 }
+  )
+}
+
+function createEmptyEditorPublishedScenePackage(
+  payload: BootstrapPayload
+): PublishedScenePackage {
+  const halfExtent = Math.max(payload.sceneConfig.gridSize / 2, 20)
+  const counts = countEditorEntityTypes(payload.entities)
+
+  return {
+    schemaVersion: 1,
+    sceneId: payload.sceneConfig.id,
+    profile: 'default',
+    generatedAt: new Date().toISOString(),
+    source: 'working-snapshot',
+    staticAssetManifestUrl: '/generated/published-static/empty-manifest.json',
+    bounds: {
+      min: { x: -halfExtent, y: 0, z: -halfExtent },
+      max: { x: halfExtent, y: halfExtent, z: halfExtent },
+    },
+    sceneConfig: {
+      ...payload.sceneConfig,
+      cameraPosition: { ...payload.sceneConfig.cameraPosition },
+      cameraTarget: { ...payload.sceneConfig.cameraTarget },
+    },
+    sectors: [],
+    staticChunks: [],
+    interactionLayers: [],
+    zoneOverlays: [],
+    dynamicLayers: [],
+    routingLayers: [],
+    cameraPresets: [
+      {
+        id: 'editor-default',
+        name: '编辑器默认视角',
+        position: { ...payload.sceneConfig.cameraPosition },
+        target: { ...payload.sceneConfig.cameraTarget },
+        fov: 50,
+      },
+    ],
+    entityCounts: {
+      default: { ...counts },
+      production: { ...counts },
+    },
+  }
+}
+
 async function resolvePublishedScenePackage(
-  publishedScene?: PublishedSceneRuntimeDescriptor | null
+  payload: BootstrapPayload
 ) {
-  if (!publishedScene) return DEFAULT_PUBLISHED_SCENE_PACKAGE
+  const publishedScene = payload.publishedScene
+
+  if (!publishedScene) {
+    return createEmptyEditorPublishedScenePackage(payload)
+  }
 
   const pkg = await loadPublishedScenePackage(
     publishedScene.packageUrl,
@@ -398,6 +464,31 @@ export function isStandardRoomCreationError(
   return error instanceof StandardRoomCreationError
 }
 
+export class FloorPlanImportError extends Error {
+  createdCount: number
+  focusAssetId: string | null
+
+  constructor(
+    message: string,
+    options: {
+      createdCount: number
+      focusAssetId: string | null
+      cause?: unknown
+    }
+  ) {
+    super(message)
+    this.name = 'FloorPlanImportError'
+    this.createdCount = options.createdCount
+    this.focusAssetId = options.focusAssetId
+    ;(this as Error & { cause?: unknown }).cause = options.cause
+    Object.setPrototypeOf(this, new.target.prototype)
+  }
+}
+
+export function isFloorPlanImportError(error: unknown): error is FloorPlanImportError {
+  return error instanceof FloorPlanImportError
+}
+
 export async function executeStandardRoomCreation({
   center,
   createStaticAsset,
@@ -425,6 +516,57 @@ export async function executeStandardRoomCreation({
     const message =
       error instanceof Error ? error.message : '生成标准房间时创建构件失败'
     throw new StandardRoomCreationError(message, {
+      createdCount,
+      focusAssetId,
+      cause: error,
+    })
+  }
+
+  const reloadSucceeded = await reload()
+  let selectionRestored = false
+  if (reloadSucceeded && focusAssetId) {
+    selectionRestored = selectStaticAsset(focusAssetId)
+  }
+
+  return {
+    createdCount,
+    focusAssetId,
+    reloadSucceeded,
+    selectionRestored,
+  }
+}
+
+export async function executeFloorPlanImport({
+  detection,
+  reference,
+  createStaticAsset,
+  reload,
+  selectStaticAsset,
+}: {
+  detection: FloorPlanDetectionResultDto
+  reference: Pick<EditorFloorPlanReference, 'position' | 'scaleMeters'>
+  createStaticAsset: (asset: StaticAssetInstance) => Promise<StaticAssetInstance>
+  reload: () => Promise<boolean>
+  selectStaticAsset: (id: string) => boolean
+}) {
+  const importedAssets = createStaticAssetsFromFloorPlanDetection(detection, reference)
+  if (importedAssets.length > 500) {
+    throw new Error('Detected too many assets; refine the floor plan before importing')
+  }
+  let focusAssetId: string | null = null
+  let createdCount = 0
+
+  try {
+    for (const [index, asset] of importedAssets.entries()) {
+      const savedAsset = await createStaticAsset(asset)
+      createdCount += 1
+      if (index === 0) {
+        focusAssetId = savedAsset.id
+      }
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'floor plan 导入时创建构件失败'
+    throw new FloorPlanImportError(message, {
       createdCount,
       focusAssetId,
       cause: error,
@@ -485,7 +627,7 @@ export function useEditorDigitalTwin(workspaceId: string) {
           fetchEditorBootstrap(workspaceId),
           fetchAdminPublishStatus(workspaceId),
         ])
-        const publishedScenePackage = await resolvePublishedScenePackage(payload.publishedScene)
+        const publishedScenePackage = await resolvePublishedScenePackage(payload)
         getEditorSceneState().hydrateFromBootstrap(
           payload,
           publishedScenePackage,
@@ -862,6 +1004,104 @@ export function useEditorDigitalTwin(workspaceId: string) {
     }
   }, [reload, workspaceId])
 
+  const importDetectedFloorPlan = useCallback(
+    async (
+      detection: FloorPlanDetectionResultDto,
+      reference: Pick<EditorFloorPlanReference, 'position' | 'scaleMeters'>
+    ) => {
+      const sceneStore = getEditorSceneState()
+      const viewerStore = getEditorViewerState()
+      const uiStore = getEditorUiState()
+      const store = {
+        ...sceneStore,
+        ...viewerStore,
+        ...uiStore,
+      }
+      if (store.isLoading || store.isSaving) return false
+
+      uiStore.setSaving(true)
+      uiStore.setError(null)
+      setActivityStatus({
+        phase: 'saving',
+        tone: 'info',
+        title: '导入 floor plan',
+        detail: '正在把识别结果转换成当前工作区的墙体、门窗构件。',
+        isBusy: true,
+      })
+
+      try {
+        const result = await executeFloorPlanImport({
+          detection,
+          reference,
+          createStaticAsset: (asset) => createAdminStaticAsset(workspaceId, asset),
+          reload: () => reload('manual'),
+          selectStaticAsset: (id) => {
+            getEditorViewerState().selectStaticAsset(id)
+            return getEditorViewerState().selectedStaticAssetId === id
+          },
+        })
+
+        if (!result.reloadSucceeded) {
+          const message = 'floor plan 已导入，但工作台重新同步失败。请重新同步后继续编辑。'
+          getEditorUiState().setError(message)
+          setActivityStatus({
+            phase: 'error',
+            tone: 'warning',
+            title: 'floor plan 已导入但同步失败',
+            detail: message,
+            isBusy: false,
+            canRetry: true,
+            retryLabel: '重新同步',
+            retryAction: 'reload',
+          })
+          return false
+        }
+
+        setActivityStatus({
+          phase: 'ready',
+          tone: 'success',
+          title: 'floor plan 已导入',
+          detail: `已创建 ${result.createdCount} 个可编辑构件。`,
+          isBusy: false,
+        })
+        return true
+      } catch (error) {
+        const createdCount = isFloorPlanImportError(error) ? error.createdCount : 0
+        const focusAssetId = isFloorPlanImportError(error) ? error.focusAssetId : null
+        let partialReloadSucceeded = false
+
+        if (createdCount > 0) {
+          partialReloadSucceeded = await reload('manual')
+          if (partialReloadSucceeded && focusAssetId) {
+            getEditorViewerState().selectStaticAsset(focusAssetId)
+          }
+        }
+
+        const message = describeEditorOperationError(error, 'floor plan 导入失败')
+        getEditorUiState().setError(message)
+        setActivityStatus({
+          phase: 'error',
+          tone: 'danger',
+          title: createdCount > 0 ? 'floor plan 导入未完成' : 'floor plan 导入失败',
+          detail:
+            createdCount > 0
+              ? partialReloadSucceeded
+                ? `已导入 ${createdCount} 个构件，当前结果已同步。${message}`
+                : `已导入 ${createdCount} 个构件，但重新同步失败。${message}`
+              : message,
+          isBusy: false,
+          canRetry: createdCount > 0,
+          retryLabel: createdCount > 0 ? '重新同步' : undefined,
+          retryAction: createdCount > 0 ? 'reload' : undefined,
+        })
+        return false
+      } finally {
+        getEditorUiState().setSaving(false)
+      }
+    },
+    [reload, workspaceId]
+  )
+
   const publish = useCallback(async (): Promise<EditorPublishResult> => {
     const sceneStore = getEditorSceneState()
     const uiStore = getEditorUiState()
@@ -1006,6 +1246,8 @@ export function useEditorDigitalTwin(workspaceId: string) {
       case 'create_standard_room':
         await createStandardRoom()
         return
+      case 'import_floor_plan':
+        return
       default:
         return
     }
@@ -1028,6 +1270,7 @@ export function useEditorDigitalTwin(workspaceId: string) {
     deleteSelection,
     duplicateSelection,
     createStandardRoom,
+    importDetectedFloorPlan,
     publish,
     publishStatus: effectivePublishStatus,
     activityStatus,

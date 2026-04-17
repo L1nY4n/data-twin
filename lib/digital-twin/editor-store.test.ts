@@ -449,6 +449,60 @@ describe('editor store', () => {
     expect(useEditorDigitalTwinStore.getState().isDirty).toBe(true)
   })
 
+  test('stores floor plan reference controls in the editor ui slice only', () => {
+    useEditorDigitalTwinStore.getState().reset()
+    const store = useEditorDigitalTwinStore.getState()
+
+    store.setFloorPlanReference({
+      src: 'blob:floor-plan',
+      label: 'office-plan.png',
+      position: { x: 12, y: 0, z: -8 },
+      scaleMeters: 18,
+      opacity: 0.8,
+      visible: true,
+    })
+    store.updateFloorPlanReference({
+      scaleMeters: 24,
+      opacity: 2,
+      visible: false,
+    })
+
+    const state = useEditorDigitalTwinStore.getState()
+    expect(state.floorPlanReference).toEqual({
+      src: 'blob:floor-plan',
+      label: 'office-plan.png',
+      position: { x: 12, y: 0, z: -8 },
+      scaleMeters: 24,
+      opacity: 1,
+      visible: false,
+    })
+    expect(state.hasSceneChanges).toBe(false)
+    expect(state.hasSelectionChanges).toBe(false)
+    expect(state.isDirty).toBe(false)
+  })
+
+  test('clears floor plan reference when bootstrap state rehydrates', () => {
+    useEditorDigitalTwinStore.getState().reset()
+    const entity = createEntity()
+    const store = useEditorDigitalTwinStore.getState()
+
+    store.setFloorPlanReference({
+      src: 'blob:floor-plan',
+      label: 'office-plan.png',
+      position: { x: 0, y: 0, z: 0 },
+      scaleMeters: 12,
+      opacity: 0.72,
+      visible: true,
+    })
+
+    store.hydrateFromBootstrap(
+      createBootstrapPayload(entity),
+      DEFAULT_PUBLISHED_SCENE_PACKAGE
+    )
+
+    expect(useEditorDigitalTwinStore.getState().floorPlanReference).toBeNull()
+  })
+
   test('tracks unsaved scene configuration changes across selection transitions', () => {
     useEditorDigitalTwinStore.getState().reset()
     const entity = createEntity()

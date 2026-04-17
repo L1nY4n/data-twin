@@ -9,12 +9,27 @@ import * as THREE from 'three'
 import { useEditorSceneStore, useEditorUiStore } from '@/lib/digital-twin/editor-store'
 import type { EntityType } from '@/lib/digital-twin/types'
 import {
+  setEditorDragCheckDragMetaProvider,
   installEditorDragCheckBridge,
   setEditorDragCheckGizmoProvider,
   setEditorDragCheckTargetTransformProvider,
 } from './editor-drag-check-bridge'
 
 export type EditorTransformTargetKind = EntityType | 'static-asset'
+
+const TRANSLATE_DRAG_DEADZONE_PIXELS = 4
+const TRANSFORM_HANDLE_HIT_PATCH_VERSION = 3
+
+type ScreenPointerSnapshot = {
+  x: number
+  y: number
+}
+
+type EditorTransformSnapshot = {
+  position: { x: number; y: number; z: number }
+  rotation: { x: number; y: number; z: number }
+  scale: { x: number; y: number; z: number }
+}
 
 type EditorCanvasControls = {
   enabled?: boolean
@@ -89,44 +104,220 @@ function resolveWorldScreenPoint(
   }
 }
 
-function resolveGizmoXAxisScreenPoint(
-  controls: TransformControlsImpl,
+function resolveObjectScreenPoint(
+  object: THREE.Object3D,
   camera: THREE.Camera,
   domElement: HTMLCanvasElement
 ) {
-  const pickerTranslate = (
-    controls as unknown as {
-      picker?: {
-        translate?: THREE.Object3D
-      }
-    }
-  ).picker?.translate
-  const xAxisHandle =
-    pickerTranslate?.children.find(
-      (child) => child.name === 'X' && (child as { tag?: string }).tag !== 'helper'
-    ) ?? controls.getObjectByName('X')
-  if (!xAxisHandle) return null
   const worldPosition = new THREE.Vector3()
-  const geometry = (xAxisHandle as THREE.Mesh).geometry
+  const maybeMesh = object as THREE.Mesh
+  const geometry = maybeMesh.geometry
 
   if (geometry && 'computeBoundingBox' in geometry) {
     geometry.computeBoundingBox()
     const boundsCenter = geometry.boundingBox?.getCenter(new THREE.Vector3())
     if (boundsCenter) {
-      xAxisHandle.localToWorld(worldPosition.copy(boundsCenter))
+      object.localToWorld(worldPosition.copy(boundsCenter))
     } else {
-      xAxisHandle.getWorldPosition(worldPosition)
+      object.getWorldPosition(worldPosition)
     }
   } else {
-    xAxisHandle.getWorldPosition(worldPosition)
+    object.getWorldPosition(worldPosition)
   }
 
   return resolveWorldScreenPoint(worldPosition, camera, domElement)
 }
 
+function resolveNamedGizmoHandleScreenPoint(
+  controls: TransformControlsImpl,
+  camera: THREE.Camera,
+  domElement: HTMLCanvasElement,
+  collectionKey: 'gizmo' | 'picker',
+  handleName: string
+) {
+  const controlCollections = controls as unknown as {
+    gizmo?: {
+      translate?: THREE.Object3D
+    }
+    picker?: {
+      translate?: THREE.Object3D
+    }
+  }
+  const collection = controlCollections[collectionKey]?.translate
+  const handle =
+    collection?.children.find(
+      (child) => child.name === handleName && (child as { tag?: string }).tag !== 'helper'
+    ) ?? controls.getObjectByName(handleName)
+  if (!handle) return null
+  return resolveObjectScreenPoint(handle, camera, domElement)
+}
+
 function resolveTransformControlsActiveAxis(controls: TransformControlsImpl) {
   const activeAxis = (controls as unknown as { axis?: string | null }).axis
   return typeof activeAxis === 'string' ? activeAxis : null
+}
+
+function hasEditorTransformSnapshotChanged(
+  left: EditorTransformSnapshot,
+  right: EditorTransformSnapshot
+) {
+  return (
+    left.position.x !== right.position.x ||
+    left.position.y !== right.position.y ||
+    left.position.z !== right.position.z ||
+    left.rotation.x !== right.rotation.x ||
+    left.rotation.y !== right.rotation.y ||
+    left.rotation.z !== right.rotation.z ||
+    left.scale.x !== right.scale.x ||
+    left.scale.y !== right.scale.y ||
+    left.scale.z !== right.scale.z
+  )
+}
+
+function patchTransformControlsPointerDown(
+  controls: TransformControlsImpl,
+  camera: THREE.Camera,
+  domElement: HTMLCanvasElement,
+  pointerDownDebugRef: RefObject<{
+    pointer: ScreenPointerSnapshot | null
+    handlePoint: ScreenPointerSnapshot | null
+    handleName: string | null
+    handleType: string | null
+    maxDistance: number | null
+    blocked: boolean
+  } | null>
+) {
+  const patchedControls = controls as unknown as {
+    __editorVisibleHitPatchVersion?: number
+    pointerHover?: (pointer: { x: number; y: number; button: number }) => void
+    pointerDown?: (pointer: { x: number; y: number; button: number }) => void
+    raycaster: THREE.Raycaster
+    gizmo: {
+      [mode: string]: THREE.Object3D
+    }
+    mode: 'translate' | 'rotate' | 'scale'
+    axis: string | null
+    intersectObjectWithRay: (
+      object: THREE.Object3D,
+      raycaster: THREE.Raycaster,
+      includeInvisible?: boolean
+    ) => THREE.Intersection<THREE.Object3D> | false
+  }
+
+  if (
+    patchedControls.__editorVisibleHitPatchVersion === TRANSFORM_HANDLE_HIT_PATCH_VERSION ||
+    !patchedControls.pointerDown ||
+    !patchedControls.pointerHover
+  ) {
+    return
+  }
+
+  const originalPointerHover = patchedControls.pointerHover.bind(patchedControls)
+  const originalPointerDown = patchedControls.pointerDown.bind(patchedControls)
+
+  const resolveVisibleHandleHit = (pointer: {
+    x: number
+    y: number
+    button: number
+  }) => {
+    patchedControls.raycaster.setFromCamera(
+      new THREE.Vector2(pointer.x, pointer.y),
+      camera
+    )
+    const rect = domElement.getBoundingClientRect()
+    const pointerScreenPoint = {
+      x: rect.left + ((pointer.x + 1) / 2) * rect.width,
+      y: rect.top + ((-pointer.y + 1) / 2) * rect.height,
+    }
+    const visibleIntersect = patchedControls.intersectObjectWithRay(
+      patchedControls.gizmo[patchedControls.mode],
+      patchedControls.raycaster,
+      false
+    )
+
+    if (!visibleIntersect) {
+      return {
+        blocked: true,
+        pointerScreenPoint,
+        handleScreenPoint: null,
+        axisName: null,
+        handleType: null,
+        maxDistance: null,
+      }
+    }
+
+    const handleScreenPoint = resolveObjectScreenPoint(
+      visibleIntersect.object,
+      camera,
+      domElement
+    )
+    const axisName = visibleIntersect.object.name
+    const maxDistance =
+      axisName === 'XYZ'
+        ? 18
+        : axisName === 'XY' || axisName === 'YZ' || axisName === 'XZ'
+          ? 22
+          : 12
+
+    const pointerToHandleDistance = handleScreenPoint
+      ? Math.hypot(
+          handleScreenPoint.x - pointerScreenPoint.x,
+          handleScreenPoint.y - pointerScreenPoint.y
+        )
+      : Number.POSITIVE_INFINITY
+    const blocked = pointerToHandleDistance > maxDistance
+
+    return {
+      blocked,
+      pointerScreenPoint,
+      handleScreenPoint,
+      axisName,
+      handleType: visibleIntersect.object.constructor.name,
+      maxDistance,
+    }
+  }
+
+  patchedControls.pointerHover = (pointer) => {
+    const hit = resolveVisibleHandleHit(pointer)
+    pointerDownDebugRef.current = {
+      pointer: hit.pointerScreenPoint,
+      handlePoint: hit.handleScreenPoint,
+      handleName: hit.axisName,
+      handleType: hit.handleType,
+      maxDistance: hit.maxDistance,
+      blocked: hit.blocked,
+    }
+
+    if (hit.blocked || !hit.axisName) {
+      patchedControls.axis = null
+      return
+    }
+
+    originalPointerHover(pointer)
+    patchedControls.axis = hit.axisName
+  }
+
+  patchedControls.pointerDown = (pointer) => {
+    const hit = resolveVisibleHandleHit(pointer)
+    pointerDownDebugRef.current = {
+      pointer: hit.pointerScreenPoint,
+      handlePoint: hit.handleScreenPoint,
+      handleName: hit.axisName,
+      handleType: hit.handleType,
+      maxDistance: hit.maxDistance,
+      blocked: hit.blocked,
+    }
+
+    if (hit.blocked || !hit.axisName) {
+      patchedControls.axis = null
+      return
+    }
+
+    patchedControls.axis = hit.axisName
+    originalPointerDown(pointer)
+  }
+
+  patchedControls.__editorVisibleHitPatchVersion = TRANSFORM_HANDLE_HIT_PATCH_VERSION
 }
 
 export function EditorTransformGizmo({
@@ -152,12 +343,27 @@ export function EditorTransformGizmo({
   const setTransformDragging = useEditorUiStore((state) => state.setTransformDragging)
   const targetRef = useRef<THREE.Group>(null!)
   const transformControlsRef = useRef<TransformControlsImpl>(null)
-  const previewFrameRef = useRef<number | null>(null)
-  const pendingPreviewRef = useRef<{
-    position: { x: number; y: number; z: number }
-    rotation: { x: number; y: number; z: number }
-    scale: { x: number; y: number; z: number }
-  } | null>(null)
+  const pendingPreviewRef = useRef<EditorTransformSnapshot | null>(null)
+  const lastPointerRef = useRef<ScreenPointerSnapshot | null>(null)
+  const dragStartPointerRef = useRef<ScreenPointerSnapshot | null>(null)
+  const dragStartSnapshotRef = useRef<EditorTransformSnapshot | null>(null)
+  const dragActivatedRef = useRef(false)
+  const transformDragConfirmedRef = useRef(false)
+  const pointerDownDebugRef = useRef<{
+    pointer: ScreenPointerSnapshot | null
+    handlePoint: ScreenPointerSnapshot | null
+    handleName: string | null
+    handleType: string | null
+    maxDistance: number | null
+    blocked: boolean
+  }>({
+    pointer: null,
+    handlePoint: null,
+    handleName: null,
+    handleType: null,
+    maxDistance: null,
+    blocked: false,
+  })
 
   const draftTarget = draftStaticAsset ?? draftEntity
   const targetKind: EditorTransformTargetKind | undefined = draftStaticAsset
@@ -188,6 +394,20 @@ export function EditorTransformGizmo({
   }, [draftTarget, isTransformDragging])
 
   useEffect(() => {
+    const updatePointer = (event: PointerEvent) => {
+      lastPointerRef.current = {
+        x: event.clientX,
+        y: event.clientY,
+      }
+    }
+
+    window.addEventListener('pointermove', updatePointer, { passive: true })
+    return () => {
+      window.removeEventListener('pointermove', updatePointer)
+    }
+  }, [])
+
+  useEffect(() => {
     installEditorDragCheckBridge()
 
     setEditorDragCheckTargetTransformProvider(() => {
@@ -212,20 +432,67 @@ export function EditorTransformGizmo({
       if (!controls) {
         return {
           xAxisScreenPoint: null,
+          visibleXAxisScreenPoint: null,
+          pickerXAxisScreenPoint: null,
           activeAxis: null,
         }
       }
       return {
-        xAxisScreenPoint: resolveGizmoXAxisScreenPoint(controls, camera, domElement),
+        xAxisScreenPoint: resolveNamedGizmoHandleScreenPoint(
+          controls,
+          camera,
+          domElement,
+          'picker',
+          'X'
+        ),
+        visibleXAxisScreenPoint: resolveNamedGizmoHandleScreenPoint(
+          controls,
+          camera,
+          domElement,
+          'gizmo',
+          'X'
+        ),
+        pickerXAxisScreenPoint: resolveNamedGizmoHandleScreenPoint(
+          controls,
+          camera,
+          domElement,
+          'picker',
+          'X'
+        ),
         activeAxis: resolveTransformControlsActiveAxis(controls),
       }
     })
 
+    setEditorDragCheckDragMetaProvider(() => ({
+      dragActivated: dragActivatedRef.current,
+      deadzonePixels: TRANSLATE_DRAG_DEADZONE_PIXELS,
+      dragStartPointer: dragStartPointerRef.current,
+      lastPointer: lastPointerRef.current,
+      pointerDownPointer: pointerDownDebugRef.current.pointer,
+      pointerDownHandlePoint: pointerDownDebugRef.current.handlePoint,
+      pointerDownHandleName: pointerDownDebugRef.current.handleName,
+      pointerDownHandleType: pointerDownDebugRef.current.handleType,
+      pointerDownMaxDistance: pointerDownDebugRef.current.maxDistance,
+      pointerDownBlocked: pointerDownDebugRef.current.blocked,
+    }))
+
     return () => {
+      setEditorDragCheckDragMetaProvider(null)
       setEditorDragCheckTargetTransformProvider(null)
       setEditorDragCheckGizmoProvider(null)
     }
   }, [camera, domElement, draftTarget])
+
+  useLayoutEffect(() => {
+    const controls = transformControlsRef.current
+    if (!controls) return
+    patchTransformControlsPointerDown(
+      controls,
+      camera,
+      domElement,
+      pointerDownDebugRef
+    )
+  })
 
   const captureObjectSnapshot = useCallback(() => {
     if (!draftTarget || !targetRef.current) return null
@@ -256,38 +523,89 @@ export function EditorTransformGizmo({
   }, [allowVerticalTranslation, draftTarget, transformMode])
 
   const flushTransformPreview = useCallback(() => {
-    if (previewFrameRef.current !== null) {
-      window.cancelAnimationFrame(previewFrameRef.current)
-      previewFrameRef.current = null
-    }
     if (!pendingPreviewRef.current) return
     setTransformPreview(pendingPreviewRef.current)
     pendingPreviewRef.current = null
   }, [setTransformPreview])
 
+  const confirmTransformDrag = useCallback(() => {
+    if (transformDragConfirmedRef.current) return
+    transformDragConfirmedRef.current = true
+    setTransformDragging(true)
+  }, [setTransformDragging])
+
+  const restoreTargetRefSnapshot = useCallback(
+    (snapshot: EditorTransformSnapshot) => {
+      if (!targetRef.current) return
+      targetRef.current.position.set(
+        snapshot.position.x,
+        snapshot.position.y,
+        snapshot.position.z
+      )
+      targetRef.current.rotation.set(
+        snapshot.rotation.x,
+        snapshot.rotation.y,
+        snapshot.rotation.z
+      )
+      targetRef.current.scale.set(
+        snapshot.scale.x,
+        snapshot.scale.y,
+        snapshot.scale.z
+      )
+      targetRef.current.updateMatrixWorld(true)
+      transformControlsRef.current?.updateMatrixWorld()
+    },
+    []
+  )
+
   const scheduleTransformPreview = useCallback(() => {
     const nextSnapshot = captureObjectSnapshot()
     if (!nextSnapshot) return
 
-    pendingPreviewRef.current = nextSnapshot
-    if (previewFrameRef.current !== null) return
+    if (
+      transformMode === 'translate' &&
+      dragStartSnapshotRef.current &&
+      dragStartPointerRef.current &&
+      lastPointerRef.current &&
+      !dragActivatedRef.current
+    ) {
+      const startSnapshot = dragStartSnapshotRef.current
+      const delta = Math.hypot(
+        lastPointerRef.current.x - dragStartPointerRef.current.x,
+        lastPointerRef.current.y - dragStartPointerRef.current.y
+      )
 
-    previewFrameRef.current = window.requestAnimationFrame(() => {
-      previewFrameRef.current = null
-      if (!pendingPreviewRef.current) return
-      setTransformPreview(pendingPreviewRef.current)
-      pendingPreviewRef.current = null
-    })
-  }, [captureObjectSnapshot, setTransformPreview])
-
-  useEffect(
-    () => () => {
-      if (previewFrameRef.current !== null) {
-        window.cancelAnimationFrame(previewFrameRef.current)
+      if (delta < TRANSLATE_DRAG_DEADZONE_PIXELS) {
+        pendingPreviewRef.current = startSnapshot
+        restoreTargetRefSnapshot(startSnapshot)
+        setTransformPreview(startSnapshot)
+        return
       }
-    },
-    []
-  )
+
+      dragActivatedRef.current = true
+    }
+
+    if (
+      dragStartSnapshotRef.current &&
+      !transformDragConfirmedRef.current
+    ) {
+      const startSnapshot = dragStartSnapshotRef.current
+      if (!hasEditorTransformSnapshotChanged(startSnapshot, nextSnapshot)) {
+        return
+      }
+
+      confirmTransformDrag()
+    }
+
+    pendingPreviewRef.current = nextSnapshot
+    setTransformPreview(nextSnapshot)
+  }, [
+    captureObjectSnapshot,
+    confirmTransformDrag,
+    restoreTargetRefSnapshot,
+    setTransformPreview,
+    transformMode,
+  ])
 
   if (!draftTarget || transformMode === 'select') return null
 
@@ -316,11 +634,19 @@ export function EditorTransformGizmo({
             : undefined
         }
         onMouseDown={() => {
+          const startSnapshot = captureObjectSnapshot()
+          dragStartSnapshotRef.current = startSnapshot
+          dragStartPointerRef.current =
+            pointerDownDebugRef.current.pointer ?? lastPointerRef.current
+          dragActivatedRef.current = false
+          transformDragConfirmedRef.current = false
           pendingPreviewRef.current = null
           setTransformPreview(null)
+          if (startSnapshot) {
+            restoreTargetRefSnapshot(startSnapshot)
+          }
           setEditorCanvasControlsEnabled(orbitControlsRef.current, false)
           beginTransformSession()
-          setTransformDragging(true)
         }}
         onObjectChange={scheduleTransformPreview}
         onMouseUp={() => {
@@ -329,6 +655,10 @@ export function EditorTransformGizmo({
           if (finalSnapshot) {
             updateDraftTransform(finalSnapshot)
           }
+          dragStartPointerRef.current = null
+          dragStartSnapshotRef.current = null
+          dragActivatedRef.current = false
+          transformDragConfirmedRef.current = false
           commitTransformSession()
           setEditorCanvasControlsEnabled(orbitControlsRef.current, true)
           setTransformDragging(false)

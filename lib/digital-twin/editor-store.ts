@@ -42,6 +42,15 @@ interface EditorSelectionMarquee {
   height: number
 }
 
+export interface EditorFloorPlanReference {
+  src: string
+  label: string
+  position: Vector3
+  scaleMeters: number
+  opacity: number
+  visible: boolean
+}
+
 interface HydrateEditorOptions {
   preserveEditorCameraPose?: boolean
 }
@@ -73,6 +82,7 @@ interface EditorDigitalTwinState {
   snapEnabled: boolean
   translateSnap: number
   rotateSnapDegrees: number
+  floorPlanReference: EditorFloorPlanReference | null
   placementPreview: StaticAssetPlacementPreview | null
   transformPreview: TransformSnapshot | null
   draftEntity: Entity | null
@@ -119,6 +129,8 @@ interface EditorDigitalTwinActions {
   setSnapEnabled: (enabled: boolean) => void
   setTranslateSnap: (value: number) => void
   setRotateSnapDegrees: (value: number) => void
+  setFloorPlanReference: (reference: EditorFloorPlanReference | null) => void
+  updateFloorPlanReference: (patch: Partial<EditorFloorPlanReference>) => void
   setPlacementPreview: (placement: StaticAssetPlacementPreview | null) => void
   setTransformPreview: (preview: TransformSnapshot | null) => void
   setTransformDragging: (dragging: boolean) => void
@@ -216,6 +228,7 @@ export type EditorUiStoreSlice = Pick<
   | 'snapEnabled'
   | 'translateSnap'
   | 'rotateSnapDegrees'
+  | 'floorPlanReference'
   | 'placementPreview'
   | 'transformPreview'
   | 'isLoading'
@@ -232,6 +245,8 @@ export type EditorUiStoreSlice = Pick<
   | 'setSnapEnabled'
   | 'setTranslateSnap'
   | 'setRotateSnapDegrees'
+  | 'setFloorPlanReference'
+  | 'updateFloorPlanReference'
   | 'setPlacementPreview'
   | 'setTransformPreview'
   | 'setTransformDragging'
@@ -300,6 +315,10 @@ function cloneCameraPresets(presets: CameraPreset[]) {
 
 function snapNumber(value: number, step: number) {
   return Math.round(value / step) * step
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value))
 }
 
 function createDirectionalFocusRequest(
@@ -481,6 +500,7 @@ const initialState: EditorDigitalTwinState = {
   snapEnabled: false,
   translateSnap: DEFAULT_TRANSLATE_SNAP,
   rotateSnapDegrees: DEFAULT_ROTATE_SNAP_DEGREES,
+  floorPlanReference: null,
   placementPreview: null,
   transformPreview: null,
   draftEntity: null,
@@ -553,6 +573,7 @@ export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, ge
           savedEntity: null,
           draftStaticAsset: cloneStaticAssetDraft(selectedStaticAsset),
           savedStaticAsset: cloneStaticAssetDraft(selectedStaticAsset),
+          floorPlanReference: null,
           transformPreview: null,
           transformSessionStart: null,
           history: [],
@@ -594,6 +615,7 @@ export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, ge
         savedEntity: editableSelection ? cloneEntityDraft(editableSelection) : null,
         draftStaticAsset: null,
         savedStaticAsset: null,
+        floorPlanReference: null,
         transformPreview: null,
         transformSessionStart: null,
         history: [],
@@ -791,6 +813,35 @@ export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, ge
     set({ translateSnap: Math.max(0.1, translateSnap) }),
   setRotateSnapDegrees: (rotateSnapDegrees) =>
     set({ rotateSnapDegrees: Math.max(1, rotateSnapDegrees) }),
+  setFloorPlanReference: (floorPlanReference) =>
+    set({
+      floorPlanReference: floorPlanReference
+        ? {
+            ...floorPlanReference,
+            scaleMeters: Math.max(1, floorPlanReference.scaleMeters),
+            opacity: clampNumber(floorPlanReference.opacity, 0.05, 1),
+          }
+        : null,
+    }),
+  updateFloorPlanReference: (patch) =>
+    set((state) => {
+      if (!state.floorPlanReference) return state
+
+      return {
+        floorPlanReference: {
+          ...state.floorPlanReference,
+          ...patch,
+          scaleMeters:
+            typeof patch.scaleMeters === 'number'
+              ? Math.max(1, patch.scaleMeters)
+              : state.floorPlanReference.scaleMeters,
+          opacity:
+            typeof patch.opacity === 'number'
+              ? clampNumber(patch.opacity, 0.05, 1)
+              : state.floorPlanReference.opacity,
+        },
+      }
+    }),
   setPlacementPreview: (placementPreview) => set({ placementPreview }),
   setTransformPreview: (transformPreview) =>
     set({
@@ -1183,6 +1234,7 @@ function selectEditorUiSlice(state: EditorDigitalTwinStore): EditorUiStoreSlice 
     snapEnabled: state.snapEnabled,
     translateSnap: state.translateSnap,
     rotateSnapDegrees: state.rotateSnapDegrees,
+    floorPlanReference: state.floorPlanReference,
     placementPreview: state.placementPreview,
     transformPreview: state.transformPreview,
     isLoading: state.isLoading,
@@ -1199,6 +1251,8 @@ function selectEditorUiSlice(state: EditorDigitalTwinStore): EditorUiStoreSlice 
     setSnapEnabled: state.setSnapEnabled,
     setTranslateSnap: state.setTranslateSnap,
     setRotateSnapDegrees: state.setRotateSnapDegrees,
+    setFloorPlanReference: state.setFloorPlanReference,
+    updateFloorPlanReference: state.updateFloorPlanReference,
     setPlacementPreview: state.setPlacementPreview,
     setTransformPreview: state.setTransformPreview,
     setTransformDragging: state.setTransformDragging,

@@ -2,10 +2,13 @@
 
 import Link from 'next/link'
 import {
+  useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type DragEvent,
+  type ChangeEvent,
   type ReactNode,
 } from 'react'
 import {
@@ -19,6 +22,8 @@ import {
   Search,
   TowerControl,
   Workflow,
+  Upload,
+  Image as ImageIcon,
 } from 'lucide-react'
 import Image from 'next/image'
 import { Badge } from '@/components/ui/badge'
@@ -26,7 +31,10 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { EDITOR_CATALOG_TRANSFER_MIME } from '@/lib/digital-twin/editor-dnd'
+import type { FloorPlanDetectionResultDto } from '@/lib/digital-twin/floor-plan-detector'
+import { detectFloorPlanFromImageUrl } from '@/lib/digital-twin/floor-plan-detector'
 import {
+  type EditorFloorPlanReference,
   isEditorEntityEditable,
   useEditorSceneStore,
   useEditorUiStore,
@@ -70,6 +78,11 @@ type EditorAppSidebarProps = {
   collapsed?: boolean
   onToggleCollapse?: () => void
   returnHref?: string
+  importBusy?: boolean
+  onImportDetectedFloorPlan?: (
+    detection: FloorPlanDetectionResultDto,
+    reference: Pick<EditorFloorPlanReference, 'position' | 'scaleMeters'>
+  ) => Promise<boolean>
 }
 
 const CATALOG_FILTERS: Array<{ key: CatalogFilter; label: string }> = [
@@ -88,6 +101,9 @@ const ENTITY_TYPE_LABELS: Record<string, string> = {
   camera: '摄像头',
   zone: '区域',
 }
+
+const ALLOWED_FLOOR_PLAN_TYPES = new Set(['image/png', 'image/jpeg'])
+const MAX_FLOOR_PLAN_BYTES = 10 * 1024 * 1024
 
 function normalizeText(value: string) {
   return value.trim().toLowerCase()
@@ -300,24 +316,33 @@ export function EditorAppSidebar({
   collapsed = false,
   onToggleCollapse,
   returnHref,
+  importBusy = false,
+  onImportDetectedFloorPlan,
 }: EditorAppSidebarProps) {
   const entities = useEditorSceneStore((state) => state.entities)
   const staticAssets = useEditorSceneStore((state) => state.staticAssets)
   const draftStaticAsset = useEditorSceneStore((state) => state.draftStaticAsset)
   const selectedEntityId = useEditorViewerStore((state) => state.selectedEntityId)
   const selectedStaticAssetId = useEditorViewerStore((state) => state.selectedStaticAssetId)
+  const editorCameraTarget = useEditorViewerStore((state) => state.editorCameraTarget)
   const placementCatalogId = useEditorUiStore((state) => state.placementCatalogId)
+  const floorPlanReference = useEditorUiStore((state) => state.floorPlanReference)
   const selectEntity = useEditorViewerStore((state) => state.selectEntity)
   const selectStaticAsset = useEditorViewerStore((state) => state.selectStaticAsset)
   const armStaticAssetPlacement = useEditorUiStore((state) => state.armStaticAssetPlacement)
+  const setFloorPlanReference = useEditorUiStore((state) => state.setFloorPlanReference)
+  const updateFloorPlanReference = useEditorUiStore((state) => state.updateFloorPlanReference)
   const isLoading = useEditorUiStore((state) => state.isLoading)
+  const setError = useEditorUiStore((state) => state.setError)
   const [resourceTab, setResourceTab] = useState<ResourceTab>('catalog')
+  const [isDetectingFloorPlan, setIsDetectingFloorPlan] = useState(false)
   const [catalogSearch, setCatalogSearch] = useState('')
   const [sceneSearch, setSceneSearch] = useState('')
   const [catalogFilter, setCatalogFilter] = useState<CatalogFilter>('all')
   const [sceneLayerFilter, setSceneLayerFilter] = useState<SceneLayerFilter>('all')
   const [sceneGroupFilter, setSceneGroupFilter] = useState('all')
   const [collapsedTreeSections, setCollapsedTreeSections] = useState<Record<string, boolean>>({})
+  const floorPlanInputRef = useRef<HTMLInputElement | null>(null)
 
   const catalogItems = listStaticAssetCatalog()
 
@@ -443,6 +468,79 @@ export function EditorAppSidebar({
 
   const collapseLabel = collapsed ? 'Expand resources panel' : 'Collapse resources panel'
   const resolvedReturnHref = returnHref?.trim() || '/'
+  const floorPlanBusy = importBusy || isDetectingFloorPlan
+
+  const handleFloorPlanFileChange = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0]
+      if (!file) return
+
+      if (!ALLOWED_FLOOR_PLAN_TYPES.has(file.type)) {
+        setError('floor plan 仅支持 PNG 或 JPEG 图片。')
+        event.target.value = ''
+        return
+      }
+
+      if (file.size > MAX_FLOOR_PLAN_BYTES) {
+        setError('floor plan 图片过大，请控制在 10MB 以内。')
+        event.target.value = ''
+        return
+      }
+
+      const nextUrl = URL.createObjectURL(file)
+      if (floorPlanReference?.src?.startsWith('blob:')) {
+        URL.revokeObjectURL(floorPlanReference.src)
+      }
+
+      setError(null)
+      setFloorPlanReference({
+        src: nextUrl,
+        label: file.name,
+        position: {
+          x: editorCameraTarget.x,
+          y: 0,
+          z: editorCameraTarget.z,
+        },
+        scaleMeters: 12,
+        opacity: 0.72,
+        visible: true,
+      })
+      event.target.value = ''
+    },
+    [
+      editorCameraTarget.x,
+      editorCameraTarget.z,
+      floorPlanReference?.src,
+      setError,
+      setFloorPlanReference,
+    ]
+  )
+
+  const handleImportFloorPlan = useCallback(async () => {
+    if (!floorPlanReference || !onImportDetectedFloorPlan || floorPlanBusy) return
+
+    setIsDetectingFloorPlan(true)
+    try {
+      setError(null)
+      const detection = await detectFloorPlanFromImageUrl(floorPlanReference.src)
+      await onImportDetectedFloorPlan(detection, {
+        position: floorPlanReference.position,
+        scaleMeters: floorPlanReference.scaleMeters,
+      })
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'floor plan 识别失败')
+    } finally {
+      setIsDetectingFloorPlan(false)
+    }
+  }, [floorPlanBusy, floorPlanReference, onImportDetectedFloorPlan, setError])
+
+  useEffect(() => {
+    return () => {
+      if (floorPlanReference?.src?.startsWith('blob:')) {
+        URL.revokeObjectURL(floorPlanReference.src)
+      }
+    }
+  }, [floorPlanReference?.src])
 
   if (collapsed) {
     return (
@@ -532,6 +630,154 @@ export function EditorAppSidebar({
                 </div>
 
               <TabsContent value="catalog" className="space-y-2">
+                <section className="editor-group p-1.5">
+                  <div className="flex items-center justify-between px-2">
+                    <div className="flex items-center gap-2">
+                      <ImageIcon className="size-4 text-white/44" />
+                      <span className="text-[10px] font-medium uppercase tracking-[0.28em] text-white/38">
+                        Floor Plan
+                      </span>
+                    </div>
+                    <span className="editor-mini-pill">
+                      {floorPlanReference ? 'Loaded' : 'Empty'}
+                    </span>
+                  </div>
+
+                  <input
+                    ref={floorPlanInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg"
+                    className="hidden"
+                    onChange={handleFloorPlanFileChange}
+                  />
+
+                  <div className="mt-2 space-y-2 rounded-[12px] border border-white/6 bg-black/10 p-2">
+                    <div className="flex flex-wrap gap-1.5">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="editor-control gap-1 px-2 text-[11px]"
+                        onClick={() => floorPlanInputRef.current?.click()}
+                      >
+                        <Upload className="size-3.5" />
+                        上传图纸
+                      </Button>
+                      {floorPlanReference ? (
+                        <>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="editor-control gap-1 px-2 text-[11px]"
+                            onClick={() =>
+                              updateFloorPlanReference({
+                                visible: !floorPlanReference.visible,
+                              })
+                            }
+                          >
+                            {floorPlanReference.visible ? '隐藏参考' : '显示参考'}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="editor-control gap-1 px-2 text-[11px]"
+                            onClick={() => {
+                              if (floorPlanReference.src.startsWith('blob:')) {
+                                URL.revokeObjectURL(floorPlanReference.src)
+                              }
+                              setFloorPlanReference(null)
+                            }}
+                          >
+                            移除
+                          </Button>
+                        </>
+                      ) : null}
+                    </div>
+
+                    {floorPlanReference ? (
+                      <div className="space-y-2">
+                        <p className="text-[11px] text-white/52">{floorPlanReference.label}</p>
+                        <div className="grid grid-cols-[auto,1fr] items-center gap-2 text-[11px]">
+                          <span className="text-white/48">锚点 X</span>
+                          <Input
+                            type="number"
+                            step={0.5}
+                            value={floorPlanReference.position.x}
+                            onChange={(event) =>
+                              updateFloorPlanReference({
+                                position: {
+                                  ...floorPlanReference.position,
+                                  x: Number(event.target.value) || 0,
+                                },
+                              })
+                            }
+                            className="editor-input h-8"
+                          />
+                          <span className="text-white/48">锚点 Z</span>
+                          <Input
+                            type="number"
+                            step={0.5}
+                            value={floorPlanReference.position.z}
+                            onChange={(event) =>
+                              updateFloorPlanReference({
+                                position: {
+                                  ...floorPlanReference.position,
+                                  z: Number(event.target.value) || 0,
+                                },
+                              })
+                            }
+                            className="editor-input h-8"
+                          />
+                          <span className="text-white/48">宽度</span>
+                          <Input
+                            type="number"
+                            min={1}
+                            step={1}
+                            value={floorPlanReference.scaleMeters}
+                            onChange={(event) =>
+                              updateFloorPlanReference({
+                                scaleMeters: Number(event.target.value) || 12,
+                              })
+                            }
+                            className="editor-input h-8"
+                          />
+                          <span className="text-white/48">透明度</span>
+                          <Input
+                            type="number"
+                            min={0.05}
+                            max={1}
+                            step={0.05}
+                            value={floorPlanReference.opacity}
+                            onChange={(event) =>
+                              updateFloorPlanReference({
+                                opacity: Number(event.target.value) || 0.72,
+                              })
+                            }
+                            className="editor-input h-8"
+                          />
+                        </div>
+
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          disabled={!onImportDetectedFloorPlan || floorPlanBusy}
+                          className="editor-control w-full justify-center gap-1 px-2 text-[11px]"
+                          onClick={() => void handleImportFloorPlan()}
+                        >
+                          {floorPlanBusy ? '识别中…' : '识别并导入墙体 / 门窗'}
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="editor-empty">
+                        上传 floor plan 图片作为地面参考，并导入可编辑墙体 / 门窗。
+                      </div>
+                    )}
+                  </div>
+                </section>
+
                 <div className="editor-group p-1.5">
                   <div className="relative">
                     <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-white/36" />
