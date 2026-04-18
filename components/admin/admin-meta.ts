@@ -118,12 +118,6 @@ export const ADMIN_NAV_GROUPS: NavConfigGroup[] = [
     title: '配置建模',
     items: [
       {
-        title: '3D 场景编辑',
-        href: '/admin/scene',
-        section: 'scene',
-        icon: ADMIN_SECTION_META.scene.icon,
-      },
-      {
         title: '实体管理',
         href: '/admin/entities',
         section: 'entities',

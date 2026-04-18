@@ -150,7 +150,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
 
   return (
     <ViewerAdminSurfaceShell
-      className="admin-surface h-svh overflow-hidden [--admin-section-header-height:5.5rem] [--header-height:3.5rem]"
+      className="admin-surface h-svh overflow-hidden [--admin-section-header-height:4.5rem] [--header-height:3.5rem]"
       innerClassName="flex h-svh flex-col overflow-hidden"
     >
       <SidebarProvider

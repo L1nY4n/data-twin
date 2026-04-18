@@ -8,6 +8,7 @@ import {
 } from '../campus-layout'
 import {
   buildPublishedCampusScenePackageFromSnapshot,
+  buildPublishedScenePackageForScope,
   buildPublishedScenePackage,
   buildPublishedScenePackageFromSnapshot,
 } from './compiler'
@@ -333,5 +334,41 @@ describe('buildPublishedScenePackage', () => {
         layer.kind === 'zones' && layer.zones.some((zone) => zone.id === 'zone-1')
       )
     ).toBe(true)
+  })
+
+  test('workspace-scope snapshot exports do not inherit campus sectors or campus dynamic layers', () => {
+    const published = buildPublishedScenePackageForScope(
+      {
+        sceneVersion: 3,
+        sceneConfig: {
+          id: 'workspace-jiazhuang',
+          name: '加庄办公室',
+          gridSize: 60,
+          gridDivisions: 30,
+          backgroundColor: '#0a0a0f',
+          ambientLightIntensity: 0.52,
+          showAxes: false,
+          showGrid: true,
+          cameraPosition: { x: 16, y: 20, z: 22 },
+          cameraTarget: { x: 0, y: 0, z: 0 },
+        },
+        entities: [],
+        staticAssets: [],
+      },
+      {
+        scope: 'workspace',
+        staticAssetManifestUrl:
+          '/generated/published-static/workspaces/jiazhuang-office/versions/build-1/chunk-manifest.json',
+      }
+    )
+
+    expect(published.sceneId).toBe('workspace-jiazhuang')
+    expect(published.source).toBe('working-snapshot')
+    expect(published.sectors).toHaveLength(1)
+    expect(published.sectors[0]?.name).toBe('加庄办公室')
+    expect(published.staticChunks).toHaveLength(1)
+    expect(published.dynamicLayers).toHaveLength(3)
+    expect(published.sectors.some((sector) => sector.id === 'sector-east')).toBe(false)
+    expect(published.dynamicLayers.some((layer) => layer.id.includes('sector-east'))).toBe(false)
   })
 })

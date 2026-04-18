@@ -153,6 +153,10 @@
     border-radius: 24px !important;
   }
 
+  .admin-surface [data-slot='sidebar-inner'] {
+    border-radius: 0 !important;
+  }
+
   .viewer-admin-surface [data-slot='sidebar-header'],
   .viewer-admin-surface [data-slot='sidebar-footer'] {
     border-color: var(--viewer-admin-border-subtle) !important;

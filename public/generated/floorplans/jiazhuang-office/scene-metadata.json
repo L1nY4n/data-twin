@@ -1,0 +1,112 @@
+{
+  "input": "/Users/l1ny4n/Downloads/加庄办公室平面图_副本.dxf",
+  "output_glb": "/Users/l1ny4n/Documents/study/spatial-modeling/data-t/public/generated/floorplans/jiazhuang-office/scene.glb",
+  "transform_policy": {
+    "up_axis": "y",
+    "center_mode": "grounded-xz",
+    "uniform_scale": 1.0,
+    "offset": {
+      "x": -65.742855,
+      "y": -0.0,
+      "z": 8.193908
+    }
+  },
+  "params": {
+    "door_mode": "block",
+    "center_mode": "grounded-xz",
+    "unit_scale": 0.001,
+    "uniform_scale": 1.0,
+    "wall_height_m": 3.2,
+    "door_height_m": 2.3,
+    "wall_thickness_mm": 280.0,
+    "column_thickness_mm": 280.0,
+    "ground_thickness_m": 0.08,
+    "ground_margin_m": 0.6,
+    "window_pad_mm": 20.0
+  },
+  "counts": {
+    "wall_count": 292,
+    "door_count": 17,
+    "window_count": 26,
+    "filtered_door_count": 0,
+    "pruned_wall_overlap_count": 9,
+    "footprints_total": 308,
+    "extruded_wall_boxes": 291,
+    "extruded_door_boxes": 17
+  },
+  "bbox_before": {
+    "min_x": 53.477855,
+    "min_y": 0.0,
+    "min_z": -18.763908,
+    "max_x": 78.007855,
+    "max_y": 3.28,
+    "max_z": 2.376092
+  },
+  "final_bbox": {
+    "min_x": -12.265,
+    "min_y": 0.0,
+    "min_z": -10.57,
+    "max_x": 12.265,
+    "max_y": 3.28,
+    "max_z": 10.57
+  },
+  "material_profile": {
+    "preset": "plaster-wall",
+    "materials": {
+      "ground": {
+        "finish": "custom",
+        "baseColor": "#ece9e2",
+        "opacity": 1.0,
+        "roughness": 0.9,
+        "metallic": 0.0,
+        "emissive": "#000000",
+        "specular": 0.5,
+        "transmission": 0.0,
+        "ior": 1.5,
+        "clearcoat": 0.0,
+        "clearcoatRoughness": 0.5,
+        "sheen": 0.0,
+        "sheenColor": "#ffffff",
+        "sheenRoughness": 1.0,
+        "doubleSided": true,
+        "alphaMode": "OPAQUE"
+      },
+      "wall": {
+        "finish": "custom",
+        "baseColor": "#c0bfbb",
+        "opacity": 1.0,
+        "roughness": 0.9,
+        "metallic": 0.0,
+        "emissive": "#000000",
+        "specular": 0.5,
+        "transmission": 0.0,
+        "ior": 1.5,
+        "clearcoat": 0.0,
+        "clearcoatRoughness": 0.65,
+        "sheen": 0.0,
+        "sheenColor": "#ffffff",
+        "sheenRoughness": 1.0,
+        "doubleSided": true,
+        "alphaMode": "OPAQUE"
+      },
+      "door": {
+        "finish": "custom",
+        "baseColor": "#8e6f52",
+        "opacity": 1.0,
+        "roughness": 0.62,
+        "metallic": 0.0,
+        "emissive": "#000000",
+        "specular": 0.45,
+        "transmission": 0.0,
+        "ior": 1.5,
+        "clearcoat": 0.08,
+        "clearcoatRoughness": 0.3,
+        "sheen": 0.04,
+        "sheenColor": "#f2e9dc",
+        "sheenRoughness": 0.8,
+        "doubleSided": true,
+        "alphaMode": "OPAQUE"
+      }
+    }
+  }
+}

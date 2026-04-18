@@ -309,6 +309,8 @@ fn run_publish_export(
         .arg(&temp_public_root)
         .arg("--base-url")
         .arg(&public_base_url)
+        .arg("--scope")
+        .arg(if is_global_alias { "campus" } else { "workspace" })
         .arg("--snapshot")
         .arg(&temp_snapshot_path)
         .current_dir(repo_root)

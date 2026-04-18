@@ -15,12 +15,14 @@ import {
 } from '@/components/digital-twin/scene/SpriteInfoCard'
 import { SpriteTextLabel } from '@/components/digital-twin/scene/SpriteTextLabel'
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
+import { resolveRenderablePosition, resolveRenderableRotation } from './render-transform'
 
 interface PersonMarkerProps {
   entity: PersonEntity
   isSelected: boolean
   isHovered: boolean
   showModel?: boolean
+  fullTransform?: boolean
 }
 
 const STATUS_COLORS = {
@@ -35,6 +37,7 @@ export const PersonMarker = memo(function PersonMarker({
   isSelected,
   isHovered,
   showModel = true,
+  fullTransform = false,
 }: PersonMarkerProps) {
   const groupRef = useRef<THREE.Group>(null)
   const statusColor = STATUS_COLORS[entity.status]
@@ -42,6 +45,7 @@ export const PersonMarker = memo(function PersonMarker({
   const showLabel = isSelected || isHovered || labelMode !== 'hidden'
 
   useFrame(() => {
+    if (fullTransform) return
     if (!groupRef.current || (!isSelected && !isHovered)) return
     const snapshot = useDigitalTwinStore.getState().getEcsSnapshotById(entity.id)
     const position = snapshot?.position ?? entity.position
@@ -51,11 +55,11 @@ export const PersonMarker = memo(function PersonMarker({
   return (
     <group
       ref={groupRef}
-      position={[entity.position.x, entity.position.y, entity.position.z]}
+      position={resolveRenderablePosition(entity.position, { fullTransform })}
       userData={{ pickable: true, entityId: entity.id }}
     >
       {showModel && (
-        <group rotation={[0, entity.rotation.y, 0]}>
+        <group rotation={resolveRenderableRotation(entity.rotation, { fullTransform })}>
           <mesh position={[0, 0.5, 0]} castShadow>
             <cylinderGeometry args={[0.25, 0.3, 1, 16]} />
             <meshStandardMaterial

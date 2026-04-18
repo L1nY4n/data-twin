@@ -2,9 +2,14 @@
 
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { Box, Boxes, Pause, Play } from 'lucide-react'
-import { memo, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import type { StaticAssetCatalogItem } from '@/lib/digital-twin/static-asset-catalog'
+
+type PreviewBounds = {
+  min: { x: number; y: number; z: number }
+  max: { x: number; y: number; z: number }
+}
 
 function getPreviewCameraConfig(item: StaticAssetCatalogItem) {
   switch (item.assetKind) {
@@ -77,57 +82,82 @@ function getPreviewCameraConfig(item: StaticAssetCatalogItem) {
   }
 }
 
-function resolvePreviewFocusY(
-  item: StaticAssetCatalogItem,
-  previewConfig: ReturnType<typeof getPreviewCameraConfig>
-) {
-  return item.dimensions.height * (0.5 - previewConfig.lift)
+function toPreviewBounds(box: THREE.Box3): PreviewBounds {
+  return {
+    min: { x: box.min.x, y: box.min.y, z: box.min.z },
+    max: { x: box.max.x, y: box.max.y, z: box.max.z },
+  }
 }
 
-function resolvePreviewScale(
-  item: StaticAssetCatalogItem,
+export function resolvePreviewFocusPoint(
+  bounds: PreviewBounds,
   previewConfig: ReturnType<typeof getPreviewCameraConfig>,
-  aspectRatio: number
 ) {
-  const maxDimension = Math.max(
-    item.dimensions.width,
-    item.dimensions.depth,
-    item.dimensions.height,
-    0.1
+  return {
+    x: (bounds.min.x + bounds.max.x) / 2,
+    y: bounds.min.y + (bounds.max.y - bounds.min.y) * (0.5 - previewConfig.lift),
+    z: (bounds.min.z + bounds.max.z) / 2,
+  }
+}
+
+export function resolvePreviewFrameRadius(
+  bounds: PreviewBounds,
+  focusPoint: { x: number; y: number; z: number }
+) {
+  const corners = [
+    [bounds.min.x, bounds.min.y, bounds.min.z],
+    [bounds.min.x, bounds.min.y, bounds.max.z],
+    [bounds.min.x, bounds.max.y, bounds.min.z],
+    [bounds.min.x, bounds.max.y, bounds.max.z],
+    [bounds.max.x, bounds.min.y, bounds.min.z],
+    [bounds.max.x, bounds.min.y, bounds.max.z],
+    [bounds.max.x, bounds.max.y, bounds.min.z],
+    [bounds.max.x, bounds.max.y, bounds.max.z],
+  ] as const
+
+  return corners.reduce((radius, [x, y, z]) => {
+    const distance = Math.hypot(x - focusPoint.x, y - focusPoint.y, z - focusPoint.z)
+    return Math.max(radius, distance)
+  }, 0.1)
+}
+
+export function resolvePreviewScale(
+  previewConfig: ReturnType<typeof getPreviewCameraConfig>,
+  aspectRatio: number,
+  radius: number
+) {
+  const cameraDistance = Math.hypot(
+    previewConfig.cameraPosition[0],
+    previewConfig.cameraPosition[1],
+    previewConfig.cameraPosition[2]
   )
-  const focusY = resolvePreviewFocusY(item, previewConfig)
-  const cameraPosition = new THREE.Vector3(...previewConfig.cameraPosition)
-  const framingDistance = cameraPosition.distanceTo(new THREE.Vector3(0, focusY, 0))
   const visibleHeight =
     2 *
     Math.tan(THREE.MathUtils.degToRad(previewConfig.fov) / 2) *
-    framingDistance
+    cameraDistance
   const visibleWidth = visibleHeight * Math.max(aspectRatio, 1)
-  const fillSpan = Math.min(visibleWidth, visibleHeight) * 0.74
+  const fillRadius = Math.min(visibleWidth, visibleHeight) * 0.37
 
-  return THREE.MathUtils.clamp(fillSpan / maxDimension, 0.75, 3)
+  return THREE.MathUtils.clamp(fillRadius / Math.max(radius, 0.1), 0.75, 3)
 }
 
 function PreviewCameraController({
-  item,
   previewConfig,
 }: {
-  item: StaticAssetCatalogItem
   previewConfig: ReturnType<typeof getPreviewCameraConfig>
 }) {
   const camera = useThree((state) => state.camera)
 
   useEffect(() => {
-    const focusY = resolvePreviewFocusY(item, previewConfig)
     camera.position.set(...previewConfig.cameraPosition)
     if ('fov' in camera) {
       camera.fov = previewConfig.fov
     }
     camera.near = 0.1
     camera.far = 64
-    camera.lookAt(0, focusY, 0)
+    camera.lookAt(0, 0, 0)
     camera.updateProjectionMatrix()
-  }, [camera, item, previewConfig])
+  }, [camera, previewConfig])
 
   return null
 }
@@ -143,31 +173,53 @@ function PreviewGeometry({
   paused: boolean
   wireframe: boolean
 }) {
-  const groupRef = useRef<THREE.Group>(null)
+  const spinRef = useRef<THREE.Group>(null)
+  const contentRef = useRef<THREE.Group>(null)
   const size = useThree((state) => state.size)
   const previewConfig = useMemo(() => getPreviewCameraConfig(item), [item])
   const aspectRatio = size.width / Math.max(size.height, 1)
-  const scale = useMemo(
-    () => resolvePreviewScale(item, previewConfig, aspectRatio),
-    [aspectRatio, item, previewConfig]
-  )
+  const [frameMetrics, setFrameMetrics] = useState(() => ({
+    focusPoint: { x: 0, y: 0, z: 0 },
+    scale: 1,
+  }))
   const bodyColor = '#dbe8ff'
   const accentColor = '#7da7ff'
   const supportColor = '#5d739a'
 
+  useLayoutEffect(() => {
+    if (!contentRef.current) return
+    contentRef.current.updateWorldMatrix(true, true)
+    const bounds = toPreviewBounds(new THREE.Box3().setFromObject(contentRef.current))
+    const focusPoint = resolvePreviewFocusPoint(bounds, previewConfig)
+    const radius = resolvePreviewFrameRadius(bounds, focusPoint)
+    const scale = resolvePreviewScale(previewConfig, aspectRatio, radius)
+    setFrameMetrics((current) => {
+      const unchanged =
+        Math.abs(current.focusPoint.x - focusPoint.x) < 0.0001 &&
+        Math.abs(current.focusPoint.y - focusPoint.y) < 0.0001 &&
+        Math.abs(current.focusPoint.z - focusPoint.z) < 0.0001 &&
+        Math.abs(current.scale - scale) < 0.0001
+
+      return unchanged ? current : { focusPoint, scale }
+    })
+  }, [aspectRatio, item.id, previewConfig])
+
   useFrame((_, delta) => {
-    if (!groupRef.current || paused) return
-    groupRef.current.rotation.y += delta * (hovered ? 1.45 : 0.8)
+    if (!spinRef.current || paused) return
+    spinRef.current.rotation.y += delta * (hovered ? 1.45 : 0.8)
   })
 
   return (
-    <group
-      ref={groupRef}
-      scale={scale}
-      rotation={previewConfig.rotation}
-      position={[0, -item.dimensions.height * previewConfig.lift, 0]}
-    >
-      {item.assetKind === 'process-train' ? (
+    <group ref={spinRef} scale={frameMetrics.scale}>
+      <group
+        position={[
+          -frameMetrics.focusPoint.x,
+          -frameMetrics.focusPoint.y,
+          -frameMetrics.focusPoint.z,
+        ]}
+      >
+        <group ref={contentRef} rotation={previewConfig.rotation}>
+          {item.assetKind === 'process-train' ? (
         <>
           <mesh position={[-3.8, item.dimensions.height * 0.28, 0]}>
             <cylinderGeometry args={[1.5, 1.9, item.dimensions.height * 0.62, 20]} />
@@ -186,9 +238,9 @@ function PreviewGeometry({
             <meshStandardMaterial color={accentColor} roughness={0.42} metalness={0.14} wireframe={wireframe} />
           </mesh>
         </>
-      ) : null}
+          ) : null}
 
-      {item.assetKind === 'pipe-rack' ? (
+          {item.assetKind === 'pipe-rack' ? (
         <>
           {[ -4.8, -1.6, 1.6, 4.8 ].map((x) => (
             <mesh key={x} position={[x, 2.8, 0]}>
@@ -203,9 +255,9 @@ function PreviewGeometry({
             </mesh>
           ))}
         </>
-      ) : null}
+          ) : null}
 
-      {item.assetKind === 'vertical-tank' ? (
+          {item.assetKind === 'vertical-tank' ? (
         <>
           <mesh position={[-2.8, item.dimensions.height * 0.28, 0]}>
             <cylinderGeometry args={[2.25, 2.55, item.dimensions.height * 0.58, 26]} />
@@ -216,9 +268,9 @@ function PreviewGeometry({
             <meshStandardMaterial color="#c8d9f7" roughness={0.48} metalness={0.14} wireframe={wireframe} />
           </mesh>
         </>
-      ) : null}
+          ) : null}
 
-      {item.assetKind === 'sphere-tank' ? (
+          {item.assetKind === 'sphere-tank' ? (
         <>
           <mesh position={[0, item.dimensions.height * 0.28, 0]}>
             <sphereGeometry args={[3.2, 28, 24]} />
@@ -231,9 +283,9 @@ function PreviewGeometry({
             </mesh>
           ))}
         </>
-      ) : null}
+          ) : null}
 
-      {item.assetKind === 'pump-manifold' ? (
+          {item.assetKind === 'pump-manifold' ? (
         <>
           <mesh position={[0, 1.2, 0]}>
             <boxGeometry args={[10, 1.4, 3.8]} />
@@ -246,9 +298,9 @@ function PreviewGeometry({
             </mesh>
           ))}
         </>
-      ) : null}
+          ) : null}
 
-      {item.assetKind === 'service-building' ? (
+          {item.assetKind === 'service-building' ? (
         <>
           <mesh position={[-1.2, 2, 0]}>
             <boxGeometry args={[7, 4, 5.4]} />
@@ -263,9 +315,9 @@ function PreviewGeometry({
             <meshStandardMaterial color="#c6d7f2" roughness={0.56} metalness={0.06} wireframe={wireframe} />
           </mesh>
         </>
-      ) : null}
+          ) : null}
 
-      {item.assetKind === 'wall-system' ? (
+          {item.assetKind === 'wall-system' ? (
         item.variant === 'glass-partition' ? (
           <>
             <mesh position={[0, item.dimensions.height * 0.48, 0]}>
@@ -296,9 +348,9 @@ function PreviewGeometry({
             </mesh>
           </>
         )
-      ) : null}
+          ) : null}
 
-      {item.assetKind === 'door-system' ? (
+          {item.assetKind === 'door-system' ? (
         <>
           <mesh position={[0, item.dimensions.height * 0.5, 0]}>
             <boxGeometry args={[item.dimensions.width + 0.12, item.dimensions.height, 0.12]} />
@@ -327,9 +379,9 @@ function PreviewGeometry({
             </mesh>
           )}
         </>
-      ) : null}
+          ) : null}
 
-      {item.assetKind === 'window-system' ? (
+          {item.assetKind === 'window-system' ? (
         <>
           <mesh position={[0, item.dimensions.height * 0.5, 0]}>
             <boxGeometry args={[item.dimensions.width, item.dimensions.height, 0.12]} />
@@ -347,9 +399,9 @@ function PreviewGeometry({
             />
           </mesh>
         </>
-      ) : null}
+          ) : null}
 
-      {item.assetKind === 'security-device' ? (
+          {item.assetKind === 'security-device' ? (
         item.variant === 'access-reader' ? (
           <>
             <mesh position={[0, 0.65, 0]}>
@@ -373,9 +425,9 @@ function PreviewGeometry({
             </mesh>
           </>
         )
-      ) : null}
+          ) : null}
 
-      {item.assetKind === 'smart-sensor' ? (
+          {item.assetKind === 'smart-sensor' ? (
         item.variant === 'occupancy-sensor' ? (
           <>
             <mesh position={[0, 0.18, 0]}>
@@ -399,9 +451,9 @@ function PreviewGeometry({
             </mesh>
           </>
         )
-      ) : null}
+          ) : null}
 
-      {item.assetKind === 'smart-control' ? (
+          {item.assetKind === 'smart-control' ? (
         item.variant === 'smart-lock' ? (
           <>
             <mesh position={[0, 0.62, 0]}>
@@ -425,7 +477,9 @@ function PreviewGeometry({
             </mesh>
           </>
         )
-      ) : null}
+          ) : null}
+        </group>
+      </group>
     </group>
   )
 }
@@ -473,18 +527,16 @@ export const EditorCatalogRealtimePreview = memo(function EditorCatalogRealtimeP
         }}
       >
         <color attach="background" args={['#0b1421']} />
-        <PreviewCameraController item={item} previewConfig={previewConfig} />
+        <PreviewCameraController previewConfig={previewConfig} />
         <ambientLight intensity={1.1} />
         <directionalLight position={[8, 10, 6]} intensity={1.3} />
         <directionalLight position={[-6, 3, -4]} intensity={0.35} color="#7da7ff" />
-        <group position={[0, -0.55, 0]}>
-          <PreviewGeometry
-            item={item}
-            hovered={isHovered}
-            paused={!shouldAnimatePreview}
-            wireframe={isWireframe}
-          />
-        </group>
+        <PreviewGeometry
+          item={item}
+          hovered={isHovered}
+          paused={!shouldAnimatePreview}
+          wireframe={isWireframe}
+        />
       </Canvas>
       <div
         className={`pointer-events-none absolute inset-x-1.5 top-1 flex justify-end gap-1 transition-opacity ${

@@ -60,6 +60,7 @@ describe('editor guards', () => {
     expect(toolbar.includes('returnHref')).toBe(false)
     expect(toolbar.includes('resolvedReturnHref')).toBe(false)
     expect(shell.includes('EditorCanvas')).toBe(true)
+    expect(shell.includes('hasHydratedFromBootstrap')).toBe(true)
     expect(shell.includes('resourcesPanelOpen')).toBe(true)
     expect(sidebar.includes('资源库 / 场景')).toBe(true)
     expect(sidebar.includes('退出编辑')).toBe(true)
@@ -133,6 +134,14 @@ describe('editor guards', () => {
       join(process.cwd(), 'lib/digital-twin/floor-plan-import.ts'),
       'utf8'
     )
+    const renderTransform = readFileSync(
+      join(process.cwd(), 'components/digital-twin/entities/render-transform.ts'),
+      'utf8'
+    )
+    const editorEntityLayer = readFileSync(
+      join(process.cwd(), 'components/editor/scene/EditorEntityLayer.tsx'),
+      'utf8'
+    )
 
     expect(gizmo.includes('TransformControls')).toBe(true)
     expect(gizmo.includes('useEditorSceneStore')).toBe(true)
@@ -141,21 +150,24 @@ describe('editor guards', () => {
     expect(gizmo.includes('TRANSLATE_DRAG_DEADZONE_PIXELS')).toBe(true)
     expect(gizmo.includes('dragStartSnapshotRef')).toBe(true)
     expect(gizmo.includes('dragStartPointerRef')).toBe(true)
-    expect(gizmo.includes('dragActivatedRef')).toBe(true)
-    expect(gizmo.includes('transformDragConfirmedRef')).toBe(true)
-    expect(gizmo.includes('confirmTransformDrag')).toBe(true)
+    expect(gizmo.includes('dragActivatedRef')).toBe(false)
+    expect(gizmo.includes('transformDragConfirmedRef')).toBe(false)
+    expect(gizmo.includes('confirmTransformDrag')).toBe(false)
     expect(gizmo.includes('if (!draftTarget || !targetRef.current || isTransformDragging) return')).toBe(true)
     expect(gizmo.includes('position={[draftTarget.position.x')).toBe(false)
     expect(gizmo.includes('setTransformPreview(nextSnapshot)')).toBe(true)
     expect(gizmo.includes('window.requestAnimationFrame(() => {')).toBe(false)
     expect(gizmo.includes("window.addEventListener('pointermove', updatePointer, { passive: true })")).toBe(true)
-    expect(gizmo.includes('if (delta < TRANSLATE_DRAG_DEADZONE_PIXELS) {')).toBe(true)
+    expect(gizmo.includes('if (delta < TRANSLATE_DRAG_DEADZONE_PIXELS) {')).toBe(false)
     expect(gizmo.includes('restoreTargetRefSnapshot(startSnapshot)')).toBe(true)
     expect(gizmo.includes('visibleIntersect.object instanceof THREE.Line')).toBe(false)
     expect(gizmo.includes('pointerDownDebugRef.current.pointer ?? lastPointerRef.current')).toBe(true)
-    expect(gizmo.includes('setEditorCanvasControlsEnabled(orbitControlsRef.current, false)')).toBe(true)
-    expect(gizmo.includes('setEditorCanvasControlsEnabled(orbitControlsRef.current, true)')).toBe(true)
-    expect(canvas.includes('orbitControlsRef={controlsRef}')).toBe(true)
+    expect(gizmo.includes('setTransformDragging(true)')).toBe(true)
+    expect(gizmo.includes('y: targetRef.current.position.y')).toBe(true)
+    expect(gizmo.includes('x: targetRef.current.rotation.x')).toBe(true)
+    expect(gizmo.includes('z: targetRef.current.rotation.z')).toBe(true)
+    expect(gizmo.includes('setEditorCanvasControlsEnabled(')).toBe(false)
+    expect(canvas.includes('orbitControlsRef={controlsRef}')).toBe(false)
     expect(canvas.includes('resolveEditorOrbitMouseButtons')).toBe(false)
     expect(canvas.includes('shouldLockEditorCameraDuringTransform')).toBe(false)
     expect(canvas.includes('lockedCameraPoseRef')).toBe(true)
@@ -174,6 +186,7 @@ describe('editor guards', () => {
     expect(canvas.includes('useEditorViewerStore')).toBe(true)
     expect(canvas.includes('useEditorUiStore')).toBe(true)
     expect(canvas.includes('EditorFloorPlanOverlay')).toBe(true)
+    expect(editorEntityLayer.includes('fullTransform')).toBe(true)
     expect(picking.includes('event.shiftKey')).toBe(true)
     expect(picking.includes('stopImmediatePropagation')).toBe(true)
     expect(picking.includes('suppressClickRef')).toBe(true)
@@ -228,6 +241,7 @@ describe('editor guards', () => {
     expect(store.includes('editorCameraPosition')).toBe(true)
     expect(store.includes('editorCameraTarget')).toBe(true)
     expect(store.includes('floorPlanReference')).toBe(true)
+    expect(store.includes('hasHydratedFromBootstrap')).toBe(true)
     expect(store.includes('updateDraftMetadata')).toBe(true)
     expect(store.includes('focusCameraDirection')).toBe(true)
     expect(store.includes('hydrateFromBootstrap')).toBe(true)
@@ -241,6 +255,8 @@ describe('editor guards', () => {
     expect(floorPlanOverlay.includes('useTexture')).toBe(true)
     expect(floorPlanImport.includes('createStaticAssetsFromFloorPlanDetection')).toBe(true)
     expect(floorPlanImport.includes("hostSurface: hostWall ? 'opening-center' : 'ground'")).toBe(true)
+    expect(renderTransform.includes('resolveRenderableRotation')).toBe(true)
+    expect(renderTransform.includes('resolveRenderablePosition')).toBe(true)
     expect(staticEnvironment.includes('if (staticChunkRegistry.length === 0) {')).toBe(true)
     expect(staticEnvironment.includes('setAssetManifest(null)')).toBe(true)
   })
@@ -334,7 +350,7 @@ describe('editor guards', () => {
     expect(canvas.includes('const lockedPose = lockedCameraPoseRef.current')).toBe(true)
     expect(canvas.includes('activeCamera.lookAt(')).toBe(true)
     expect(canvas.includes('activeCamera.updateMatrixWorld()')).toBe(true)
-    expect(canvas.includes('TransformControls claims, so pin the pose for the active gizmo drag.')).toBe(true)
+    expect(canvas.includes('still needs pose pinning while a')).toBe(true)
     expect(canvas.includes("powerPreference: 'low-power'")).toBe(true)
   })
 

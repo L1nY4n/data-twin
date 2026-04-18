@@ -26,7 +26,6 @@ import {
   Image as ImageIcon,
 } from 'lucide-react'
 import Image from 'next/image'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -608,7 +607,6 @@ export function EditorAppSidebar({
                       : `${authoredStaticAssets.length} 个已摆放对象 / ${editableEntities.length} 个运行实体`}
                   </p>
                 </div>
-                <Badge className="editor-pill">Dock</Badge>
               </div>
             </div>
 

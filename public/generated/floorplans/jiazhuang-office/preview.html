@@ -1,0 +1,981 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DXF GLB Workbench</title>
+  <style>
+    :root {
+      --bg: #eff1f7;
+      --status-bg: #111827cc;
+      --status-text: #e5e7eb;
+      --line: #d9dde8;
+      --muted: #6f788b;
+    }
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: var(--bg);
+      font-family: ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif;
+    }
+    #viewport {
+      width: 100%;
+      height: 100%;
+      position: relative;
+    }
+    #canvas-host {
+      width: 100%;
+      height: 100%;
+    }
+    #viewer-gui-host {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      z-index: 30;
+    }
+    #viewer-gui-host .dg.main {
+      opacity: 0.96;
+    }
+    #stats-host {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      z-index: 21;
+      pointer-events: none;
+    }
+    #status {
+      position: absolute;
+      left: 12px;
+      bottom: 12px;
+      z-index: 20;
+      background: var(--status-bg);
+      color: var(--status-text);
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 12px;
+      max-width: 72%;
+      line-height: 1.35;
+    }
+    #paths {
+      position: absolute;
+      right: 12px;
+      bottom: 12px;
+      z-index: 20;
+      max-width: 62%;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: #ffffffdd;
+      color: var(--muted);
+      padding: 7px 9px;
+      font-size: 11px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      text-align: right;
+      overflow-wrap: anywhere;
+      line-height: 1.35;
+    }
+    @media (max-width: 960px) {
+      #viewer-gui-host {
+        top: 8px;
+        right: 8px;
+      }
+      #status {
+        max-width: calc(100% - 24px);
+      }
+      #paths {
+        right: 8px;
+        bottom: 8px;
+        max-width: calc(100% - 24px);
+        text-align: left;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="viewport">
+    <div id="canvas-host"></div>
+    <div id="viewer-gui-host"></div>
+    <div id="stats-host"></div>
+    <div id="status">Initializing preview...</div>
+    <div id="paths"></div>
+    <input type="file" id="importProfileFile" accept="application/json" style="display:none" />
+  </div>
+
+  <script type="importmap">{"imports":{"three":"https://unpkg.com/three@0.161.0/build/three.module.js","three/addons/":"https://unpkg.com/three@0.161.0/examples/jsm/","dat.gui":"https://unpkg.com/dat.gui@0.7.9/build/dat.gui.module.js"}}</script>
+  <script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { EXRLoader } from 'three/addons/loaders/EXRLoader.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import Stats from 'three/addons/libs/stats.module.js';
+import { GUI } from 'dat.gui';
+
+const state = {"geometry": {"door_mode": "block", "center_mode": "grounded-xz", "unit_scale": 0.001, "uniform_scale": 1.0, "wall_height_m": 3.2, "door_height_m": 2.3, "wall_thickness_mm": 280.0, "column_thickness_mm": 280.0, "ground_thickness_m": 0.08, "ground_margin_m": 0.6, "window_pad_mm": 20.0}, "profile": {"preset": "plaster-wall", "materials": {"ground": {"finish": "custom", "baseColor": "#ece9e2", "opacity": 1.0, "roughness": 0.9, "metallic": 0.0, "emissive": "#000000", "specular": 0.5, "transmission": 0.0, "ior": 1.5, "clearcoat": 0.0, "clearcoatRoughness": 0.5, "sheen": 0.0, "sheenColor": "#ffffff", "sheenRoughness": 1.0, "doubleSided": true, "alphaMode": "OPAQUE"}, "wall": {"finish": "custom", "baseColor": "#c0bfbb", "opacity": 1.0, "roughness": 0.9, "metallic": 0.0, "emissive": "#000000", "specular": 0.5, "transmission": 0.0, "ior": 1.5, "clearcoat": 0.0, "clearcoatRoughness": 0.65, "sheen": 0.0, "sheenColor": "#ffffff", "sheenRoughness": 1.0, "doubleSided": true, "alphaMode": "OPAQUE"}, "door": {"finish": "custom", "baseColor": "#8e6f52", "opacity": 1.0, "roughness": 0.62, "metallic": 0.0, "emissive": "#000000", "specular": 0.45, "transmission": 0.0, "ior": 1.5, "clearcoat": 0.08, "clearcoatRoughness": 0.3, "sheen": 0.04, "sheenColor": "#f2e9dc", "sheenRoughness": 0.8, "doubleSided": true, "alphaMode": "OPAQUE"}}}, "modelUrl": "scene.glb", "jsonUrl": "scene-metadata.json", "apiEnabled": false};
+const presets = {"plaster-wall": {"materials": {"ground": {"baseColor": "#ece9e2", "opacity": 1.0, "roughness": 0.9, "metallic": 0.0, "emissive": "#000000", "specular": 0.5, "transmission": 0.0, "ior": 1.5, "doubleSided": true, "alphaMode": "OPAQUE"}, "wall": {"baseColor": "#c0bfbb", "opacity": 1.0, "roughness": 0.9, "metallic": 0.0, "emissive": "#000000", "specular": 0.5, "transmission": 0.0, "ior": 1.5, "doubleSided": true, "alphaMode": "OPAQUE"}, "door": {"baseColor": "#8e6f52", "opacity": 1.0, "roughness": 0.62, "metallic": 0.0, "emissive": "#000000", "specular": 0.45, "transmission": 0.0, "ior": 1.5, "doubleSided": true, "alphaMode": "OPAQUE"}}}, "crystal-purple": {"materials": {"ground": {"baseColor": "#eef0f8", "opacity": 1.0, "roughness": 0.88, "metallic": 0.02, "emissive": "#000000", "specular": 0.42, "transmission": 0.0, "ior": 1.45, "doubleSided": true, "alphaMode": "OPAQUE"}, "wall": {"baseColor": "#9d8bff", "opacity": 1.0, "roughness": 0.38, "metallic": 0.02, "emissive": "#120a36", "specular": 0.38, "transmission": 0.0, "ior": 1.45, "doubleSided": true, "alphaMode": "OPAQUE"}, "door": {"baseColor": "#4f3ac6", "opacity": 0.78, "roughness": 0.18, "metallic": 0.05, "emissive": "#080419", "specular": 0.62, "transmission": 0.2, "ior": 1.45, "doubleSided": true, "alphaMode": "BLEND"}}}, "frosted-purple": {"materials": {"ground": {"baseColor": "#f1f3f8", "opacity": 1.0, "roughness": 0.9, "metallic": 0.0, "emissive": "#000000", "specular": 0.35, "transmission": 0.0, "ior": 1.45, "doubleSided": true, "alphaMode": "OPAQUE"}, "wall": {"baseColor": "#a798ff", "opacity": 1.0, "roughness": 0.58, "metallic": 0.0, "emissive": "#0d0824", "specular": 0.28, "transmission": 0.0, "ior": 1.45, "doubleSided": true, "alphaMode": "OPAQUE"}, "door": {"baseColor": "#5d4cc5", "opacity": 0.84, "roughness": 0.4, "metallic": 0.05, "emissive": "#090613", "specular": 0.3, "transmission": 0.08, "ior": 1.45, "doubleSided": true, "alphaMode": "BLEND"}}}, "mirror-purple": {"materials": {"ground": {"baseColor": "#eceef6", "opacity": 1.0, "roughness": 0.86, "metallic": 0.02, "emissive": "#000000", "specular": 0.4, "transmission": 0.0, "ior": 1.45, "doubleSided": true, "alphaMode": "OPAQUE"}, "wall": {"baseColor": "#8972ff", "opacity": 0.98, "roughness": 0.24, "metallic": 0.25, "emissive": "#0f0933", "specular": 0.6, "transmission": 0.0, "ior": 1.45, "doubleSided": true, "alphaMode": "OPAQUE"}, "door": {"baseColor": "#4a35a3", "opacity": 0.86, "roughness": 0.08, "metallic": 0.25, "emissive": "#0c0820", "specular": 0.92, "transmission": 0.12, "ior": 1.48, "doubleSided": true, "alphaMode": "BLEND"}}}, "warm-sand": {"materials": {"ground": {"baseColor": "#f4ede2", "opacity": 1.0, "roughness": 0.92, "metallic": 0.0, "emissive": "#000000", "specular": 0.25, "transmission": 0.0, "ior": 1.45, "doubleSided": true, "alphaMode": "OPAQUE"}, "wall": {"baseColor": "#d9c2a3", "opacity": 0.52, "roughness": 0.28, "metallic": 0.03, "emissive": "#26190e", "specular": 0.45, "transmission": 0.32, "ior": 1.46, "doubleSided": true, "alphaMode": "BLEND"}, "door": {"baseColor": "#7d5a3a", "opacity": 0.86, "roughness": 0.32, "metallic": 0.05, "emissive": "#1f1308", "specular": 0.4, "transmission": 0.05, "ior": 1.45, "doubleSided": true, "alphaMode": "BLEND"}}}, "ocean-cyan": {"materials": {"ground": {"baseColor": "#e9f4f7", "opacity": 1.0, "roughness": 0.9, "metallic": 0.0, "emissive": "#000000", "specular": 0.3, "transmission": 0.0, "ior": 1.45, "doubleSided": true, "alphaMode": "OPAQUE"}, "wall": {"baseColor": "#45c1d2", "opacity": 0.44, "roughness": 0.07, "metallic": 0.12, "emissive": "#04202b", "specular": 0.9, "transmission": 0.72, "ior": 1.49, "doubleSided": true, "alphaMode": "BLEND"}, "door": {"baseColor": "#127f8e", "opacity": 0.82, "roughness": 0.16, "metallic": 0.18, "emissive": "#031217", "specular": 0.62, "transmission": 0.14, "ior": 1.47, "doubleSided": true, "alphaMode": "BLEND"}}}, "emerald-glass": {"materials": {"ground": {"baseColor": "#edf4ef", "opacity": 1.0, "roughness": 0.9, "metallic": 0.0, "emissive": "#000000", "specular": 0.28, "transmission": 0.0, "ior": 1.45, "doubleSided": true, "alphaMode": "OPAQUE"}, "wall": {"baseColor": "#2ca878", "opacity": 0.4, "roughness": 0.06, "metallic": 0.08, "emissive": "#072418", "specular": 0.88, "transmission": 0.8, "ior": 1.5, "doubleSided": true, "alphaMode": "BLEND"}, "door": {"baseColor": "#1b6d4c", "opacity": 0.84, "roughness": 0.2, "metallic": 0.12, "emissive": "#07140e", "specular": 0.58, "transmission": 0.18, "ior": 1.48, "doubleSided": true, "alphaMode": "BLEND"}}}, "charcoal-tech": {"materials": {"ground": {"baseColor": "#d8dbe0", "opacity": 1.0, "roughness": 0.86, "metallic": 0.04, "emissive": "#000000", "specular": 0.34, "transmission": 0.0, "ior": 1.45, "doubleSided": true, "alphaMode": "OPAQUE"}, "wall": {"baseColor": "#5b6471", "opacity": 0.46, "roughness": 0.12, "metallic": 0.4, "emissive": "#0c0f15", "specular": 0.95, "transmission": 0.58, "ior": 1.5, "doubleSided": true, "alphaMode": "BLEND"}, "door": {"baseColor": "#313842", "opacity": 0.88, "roughness": 0.16, "metallic": 0.45, "emissive": "#090b10", "specular": 0.9, "transmission": 0.08, "ior": 1.48, "doubleSided": true, "alphaMode": "BLEND"}}}};
+const materialSpecDefaults = {"baseColor": "#ffffff", "opacity": 1.0, "roughness": 0.5, "metallic": 0.0, "emissive": "#000000", "specular": 0.5, "transmission": 0.0, "ior": 1.45, "doubleSided": true, "alphaMode": "OPAQUE", "clearcoat": 0.0, "clearcoatRoughness": 0.2, "sheen": 0.0, "sheenColor": "#ffffff", "sheenRoughness": 1.0, "finish": "custom"};
+const materialSurfacePresets = {"wall": {"matte-paint": {"baseColor": "#d6d9df", "roughness": 0.9, "metallic": 0.0, "specular": 0.2, "sheen": 0.1, "sheenColor": "#ffffff", "sheenRoughness": 0.95, "clearcoat": 0.0, "transmission": 0.0, "opacity": 1.0, "alphaMode": "OPAQUE"}, "microcement": {"baseColor": "#b8bcc3", "roughness": 0.56, "metallic": 0.04, "specular": 0.5, "clearcoat": 0.14, "clearcoatRoughness": 0.22, "sheen": 0.0, "transmission": 0.0, "opacity": 1.0, "alphaMode": "OPAQUE"}, "brushed-aluminum": {"baseColor": "#7f8794", "roughness": 0.34, "metallic": 0.84, "specular": 0.95, "clearcoat": 0.08, "clearcoatRoughness": 0.12, "sheen": 0.0, "transmission": 0.0, "opacity": 1.0, "alphaMode": "OPAQUE"}, "frosted-glass": {"baseColor": "#d9e6f5", "roughness": 0.45, "metallic": 0.0, "specular": 0.88, "transmission": 0.72, "ior": 1.45, "clearcoat": 0.0, "sheen": 0.0, "opacity": 0.85, "alphaMode": "BLEND"}, "acoustic-fabric": {"baseColor": "#7f8692", "roughness": 0.92, "metallic": 0.0, "specular": 0.08, "sheen": 0.35, "sheenColor": "#c7cfda", "sheenRoughness": 0.86, "clearcoat": 0.0, "transmission": 0.0, "opacity": 1.0, "alphaMode": "OPAQUE"}}, "door": {"oak-wood": {"baseColor": "#8f6841", "roughness": 0.62, "metallic": 0.0, "specular": 0.34, "clearcoat": 0.16, "clearcoatRoughness": 0.38, "sheen": 0.08, "sheenColor": "#f4ead8", "sheenRoughness": 0.74, "transmission": 0.0, "opacity": 1.0, "alphaMode": "OPAQUE"}, "walnut-wood": {"baseColor": "#5b3f2a", "roughness": 0.58, "metallic": 0.0, "specular": 0.3, "clearcoat": 0.22, "clearcoatRoughness": 0.32, "sheen": 0.06, "sheenColor": "#d0b59b", "sheenRoughness": 0.7, "transmission": 0.0, "opacity": 1.0, "alphaMode": "OPAQUE"}, "powder-metal": {"baseColor": "#646d7a", "roughness": 0.36, "metallic": 0.75, "specular": 0.92, "clearcoat": 0.1, "clearcoatRoughness": 0.24, "sheen": 0.0, "transmission": 0.0, "opacity": 1.0, "alphaMode": "OPAQUE"}, "tinted-glass": {"baseColor": "#6f8fa8", "roughness": 0.12, "metallic": 0.04, "specular": 0.85, "transmission": 0.82, "ior": 1.46, "clearcoat": 0.0, "sheen": 0.0, "opacity": 0.74, "alphaMode": "BLEND"}, "painted-wood": {"baseColor": "#f3f1ed", "roughness": 0.52, "metallic": 0.0, "specular": 0.4, "clearcoat": 0.24, "clearcoatRoughness": 0.26, "sheen": 0.06, "sheenColor": "#ffffff", "sheenRoughness": 0.78, "transmission": 0.0, "opacity": 1.0, "alphaMode": "OPAQUE"}}, "ground": {"raw-concrete": {"baseColor": "#c3c7cc", "roughness": 0.93, "metallic": 0.0, "specular": 0.16, "clearcoat": 0.0, "sheen": 0.0, "transmission": 0.0, "opacity": 1.0, "alphaMode": "OPAQUE"}, "polished-concrete": {"baseColor": "#b8bcc3", "roughness": 0.3, "metallic": 0.03, "specular": 0.58, "clearcoat": 0.36, "clearcoatRoughness": 0.14, "sheen": 0.0, "transmission": 0.0, "opacity": 1.0, "alphaMode": "OPAQUE"}, "terrazzo": {"baseColor": "#e2ddd4", "roughness": 0.46, "metallic": 0.01, "specular": 0.56, "clearcoat": 0.42, "clearcoatRoughness": 0.2, "sheen": 0.08, "sheenColor": "#f5eee2", "sheenRoughness": 0.66, "transmission": 0.0, "opacity": 1.0, "alphaMode": "OPAQUE"}, "oak-floor": {"baseColor": "#a97f52", "roughness": 0.55, "metallic": 0.0, "specular": 0.32, "clearcoat": 0.2, "clearcoatRoughness": 0.35, "sheen": 0.12, "sheenColor": "#f7e9ce", "sheenRoughness": 0.68, "transmission": 0.0, "opacity": 1.0, "alphaMode": "OPAQUE"}, "epoxy-floor": {"baseColor": "#9cb4cc", "roughness": 0.12, "metallic": 0.02, "specular": 0.92, "clearcoat": 0.72, "clearcoatRoughness": 0.08, "sheen": 0.0, "transmission": 0.0, "opacity": 1.0, "alphaMode": "OPAQUE"}}};
+const environmentPresets = [{"id": "", "name": "None", "path": null}, {"id": "neutral", "name": "Neutral", "path": null}, {"id": "venice-sunset", "name": "Venice Sunset", "path": "https://storage.googleapis.com/donmccurdy-static/venice_sunset_1k.exr"}, {"id": "footprint-court", "name": "Footprint Court (HDR Labs)", "path": "https://storage.googleapis.com/donmccurdy-static/footprint_court_2k.exr"}];
+
+const DEFAULT_CAMERA = '[default]';
+const MATERIAL_GROUPS = ['wall', 'door', 'ground'];
+const fallbackPreset = Object.keys(presets)[0];
+
+const statusEl = document.getElementById('status');
+const pathsEl = document.getElementById('paths');
+const canvasHost = document.getElementById('canvas-host');
+const guiHost = document.getElementById('viewer-gui-host');
+const statsHost = document.getElementById('stats-host');
+const importProfileInput = document.getElementById('importProfileFile');
+
+const deepClone = (value) => JSON.parse(JSON.stringify(value));
+const toNumber = (value, fallback) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+const clamp01 = (value, fallback) => Math.min(1, Math.max(0, toNumber(value, fallback)));
+const normalizeHex = (value, fallback) => {
+  const raw = String(value || '').trim().toLowerCase().replace(/^#/, '');
+  const expanded = raw.length === 3 ? raw.split('').map((ch) => ch + ch).join('') : raw;
+  return /^[0-9a-f]{6}$/.test(expanded) ? `#${expanded}` : fallback;
+};
+
+function normalizeMaterialSpecLocal(group, rawSpec, fallbackSpec) {
+  const source = rawSpec && typeof rawSpec === 'object' ? rawSpec : {};
+  const fallback = fallbackSpec && typeof fallbackSpec === 'object' ? fallbackSpec : {};
+  const catalog = materialSurfacePresets[group] || {};
+
+  let finish = String(source.finish || fallback.finish || materialSpecDefaults.finish || 'custom').toLowerCase();
+  if (!Object.prototype.hasOwnProperty.call(catalog, finish)) finish = 'custom';
+
+  const merged = Object.assign({}, materialSpecDefaults, fallback);
+  if (finish !== 'custom') Object.assign(merged, catalog[finish] || {});
+  Object.assign(merged, source);
+  merged.finish = finish;
+
+  merged.baseColor = normalizeHex(merged.baseColor, materialSpecDefaults.baseColor || '#ffffff');
+  merged.emissive = normalizeHex(merged.emissive, materialSpecDefaults.emissive || '#000000');
+  merged.sheenColor = normalizeHex(merged.sheenColor, materialSpecDefaults.sheenColor || '#ffffff');
+  merged.opacity = clamp01(merged.opacity, 1.0);
+  merged.roughness = clamp01(merged.roughness, 0.5);
+  merged.metallic = clamp01(merged.metallic, 0.0);
+  merged.specular = clamp01(merged.specular, 0.5);
+  merged.transmission = clamp01(merged.transmission, 0.0);
+  merged.clearcoat = clamp01(merged.clearcoat, 0.0);
+  merged.clearcoatRoughness = clamp01(merged.clearcoatRoughness, 0.2);
+  merged.sheen = clamp01(merged.sheen, 0.0);
+  merged.sheenRoughness = clamp01(merged.sheenRoughness, 1.0);
+  merged.ior = Math.min(2.5, Math.max(1.0, toNumber(merged.ior, 1.45)));
+  merged.doubleSided = Boolean(merged.doubleSided);
+  merged.alphaMode = String(merged.alphaMode || (merged.opacity < 0.999 ? 'BLEND' : 'OPAQUE')).toUpperCase();
+  if (!['OPAQUE', 'BLEND', 'MASK'].includes(merged.alphaMode)) {
+    merged.alphaMode = merged.opacity < 0.999 ? 'BLEND' : 'OPAQUE';
+  }
+  return merged;
+}
+
+function normalizeLocalProfile(rawProfile, forcedPreset) {
+  const requestedPreset = forcedPreset || (rawProfile && rawProfile.preset) || fallbackPreset;
+  const presetName = Object.prototype.hasOwnProperty.call(presets, requestedPreset) ? requestedPreset : fallbackPreset;
+  const base = deepClone(presets[presetName]);
+  const incoming = rawProfile && typeof rawProfile === 'object' ? (rawProfile.materials && typeof rawProfile.materials === 'object' ? rawProfile.materials : rawProfile) : {};
+  MATERIAL_GROUPS.forEach((group) => {
+    const source = incoming[group];
+    base.materials[group] = normalizeMaterialSpecLocal(
+      group,
+      source && typeof source === 'object' ? source : {},
+      base.materials[group] || {},
+    );
+  });
+  base.preset = presetName;
+  return base;
+}
+
+const currentProfile = normalizeLocalProfile(state.profile || {}, (state.profile || {}).preset);
+const geometryDefaults = state.geometry || {};
+const geometryState = {
+  door_mode: geometryDefaults.door_mode === 'block' ? 'block' : 'none',
+  uniform_scale: toNumber(geometryDefaults.uniform_scale, 1.0),
+  wall_height_m: toNumber(geometryDefaults.wall_height_m, 3.8),
+  door_height_m: toNumber(geometryDefaults.door_height_m, 2.4),
+  wall_thickness_mm: toNumber(geometryDefaults.wall_thickness_mm, 120),
+  column_thickness_mm: toNumber(geometryDefaults.column_thickness_mm, 180),
+  ground_thickness_m: toNumber(geometryDefaults.ground_thickness_m, 0.08),
+  ground_margin_m: toNumber(geometryDefaults.ground_margin_m, 0.6),
+};
+
+let modelRoot = null;
+let modelCameras = [];
+let activeCamera = null;
+let mixer = null;
+let clipActions = [];
+let loading = false;
+let environmentRequestId = 0;
+let suppressEnvironmentControllerCallback = false;
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(canvasHost.clientWidth, canvasHost.clientHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+canvasHost.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const sceneBgColor = new THREE.Color('#eef1f8');
+scene.background = sceneBgColor;
+
+const camera = new THREE.PerspectiveCamera(52, canvasHost.clientWidth / Math.max(canvasHost.clientHeight, 1), 0.01, 10000);
+camera.position.set(8, 8, 8);
+activeCamera = camera;
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.screenSpacePanning = true;
+controls.target.set(0, 1.5, 0);
+
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.55);
+scene.add(ambientLight);
+const directLight = new THREE.DirectionalLight(0xffffff, Math.PI * 0.8);
+directLight.position.set(0.5, 0.9, 0.7);
+scene.add(directLight);
+
+const gridHelper = new THREE.GridHelper(120, 120, 0xb8bfd2, 0xd5daea);
+gridHelper.position.y = 0;
+scene.add(gridHelper);
+const axesHelper = new THREE.AxesHelper(2.5);
+axesHelper.visible = false;
+scene.add(axesHelper);
+
+const pmremGenerator = new THREE.PMREMGenerator(renderer);
+pmremGenerator.compileEquirectangularShader();
+const neutralEnvironment = pmremGenerator.fromScene(new RoomEnvironment()).texture;
+const exrLoader = new EXRLoader();
+const environmentCache = new Map();
+environmentCache.set('None', null);
+environmentCache.set('Neutral', neutralEnvironment);
+
+const stats = new Stats();
+stats.dom.style.position = 'static';
+stats.dom.style.display = 'none';
+statsHost.appendChild(stats.dom);
+
+const toneMappingModes = {
+  Linear: THREE.LinearToneMapping,
+  'ACES Filmic': THREE.ACESFilmicToneMapping,
+};
+
+const viewerState = {
+  background: false,
+  autoRotate: false,
+  wireframe: false,
+  grid: true,
+  axes: false,
+  focusMode: 'off',
+  focusDimOpacity: 0.14,
+  environment: 'Neutral',
+  toneMapping: 'ACES Filmic',
+  exposure: 0.0,
+  ambientIntensity: 0.55,
+  ambientColor: '#ffffff',
+  directIntensity: Math.PI * 0.8,
+  directColor: '#ffffff',
+  camera: DEFAULT_CAMERA,
+  playbackSpeed: 1.0,
+  showStats: false,
+  actionStates: {},
+};
+
+const gui = new GUI({ autoPlace: false, width: 320, hideable: true });
+guiHost.appendChild(gui.domElement);
+
+const workbenchFolder = gui.addFolder('Workbench');
+const wbGeometryFolder = workbenchFolder.addFolder('Geometry');
+const wbMaterialsFolder = workbenchFolder.addFolder('Materials');
+const wbActionsFolder = workbenchFolder.addFolder('Actions');
+const viewerFolder = gui.addFolder('Viewer');
+const displayFolder = viewerFolder.addFolder('Display');
+const lightingFolder = viewerFolder.addFolder('Lighting');
+const camerasFolder = viewerFolder.addFolder('Cameras');
+const animationFolder = viewerFolder.addFolder('Animation');
+const performanceFolder = viewerFolder.addFolder('Performance');
+camerasFolder.domElement.style.display = 'none';
+animationFolder.domElement.style.display = 'none';
+
+const cameraControllers = [];
+const animationControllers = [];
+const materialControllers = [];
+let playbackSpeedController = null;
+let environmentController = null;
+let presetController = null;
+
+function setStatus(msg) {
+  statusEl.textContent = msg;
+}
+
+function setPaths(glbUrl, jsonUrl) {
+  const glb = glbUrl || state.modelUrl || '';
+  const json = jsonUrl || state.jsonUrl || '';
+  pathsEl.textContent = json ? `GLB: ${glb} | JSON: ${json}` : `GLB: ${glb}`;
+}
+
+function clearFolderControllers(folder, controllers) {
+  while (controllers.length) {
+    folder.remove(controllers.pop());
+  }
+}
+
+function refreshMaterialControllers() {
+  materialControllers.forEach((controller) => controller.updateDisplay());
+}
+
+function applyProfileValues(profileLike, forcedPreset) {
+  const normalized = normalizeLocalProfile(profileLike || currentProfile, forcedPreset);
+  currentProfile.preset = normalized.preset;
+  MATERIAL_GROUPS.forEach((group) => {
+    currentProfile.materials[group] = currentProfile.materials[group] || {};
+    Object.keys(normalized.materials[group] || {}).forEach((key) => {
+      currentProfile.materials[group][key] = normalized.materials[group][key];
+    });
+  });
+  if (presetController) presetController.updateDisplay();
+  refreshMaterialControllers();
+}
+
+function remapWallsForClarity() {
+  const wall = currentProfile.materials.wall || {};
+  wall.finish = 'custom';
+  wall.opacity = 1.0;
+  wall.alphaMode = 'OPAQUE';
+  wall.transmission = 0.0;
+  wall.roughness = Math.max(toNumber(wall.roughness, 0.88), 0.75);
+  wall.metallic = Math.min(toNumber(wall.metallic, 0.0), 0.03);
+  wall.specular = Math.min(Math.max(toNumber(wall.specular, 0.5), 0.35), 0.56);
+  wall.clearcoat = Math.min(toNumber(wall.clearcoat, 0.0), 0.05);
+  wall.clearcoatRoughness = Math.max(toNumber(wall.clearcoatRoughness, 0.6), 0.4);
+  wall.sheen = Math.min(toNumber(wall.sheen, 0.0), 0.05);
+  wall.sheenColor = wall.sheenColor || '#ffffff';
+  wall.sheenRoughness = Math.max(toNumber(wall.sheenRoughness, 0.95), 0.85);
+  wall.ior = Math.min(Math.max(toNumber(wall.ior, 1.5), 1.0), 2.5);
+  currentProfile.materials.wall = wall;
+  refreshMaterialControllers();
+  applyProfileToLoadedModel();
+}
+
+function resize() {
+  const width = canvasHost.clientWidth;
+  const height = Math.max(canvasHost.clientHeight, 1);
+  camera.aspect = width / height;
+  camera.updateProjectionMatrix();
+  modelCameras.forEach((cam) => {
+    if (cam.isPerspectiveCamera) {
+      cam.aspect = width / height;
+      cam.updateProjectionMatrix();
+    }
+  });
+  renderer.setSize(width, height);
+}
+window.addEventListener('resize', resize);
+
+function materialFromName(name) {
+  if (!name) return null;
+  const lower = String(name).toLowerCase();
+  if (lower.includes('ground')) return 'ground';
+  if (lower.includes('door')) return 'door';
+  if (lower.includes('wall')) return 'wall';
+  return null;
+}
+
+function traverseModelMaterials(callback) {
+  if (!modelRoot) return;
+  modelRoot.traverse((obj) => {
+    if (!obj.isMesh || !obj.material) return;
+    const materials = Array.isArray(obj.material) ? obj.material : [obj.material];
+    materials.forEach(callback);
+  });
+}
+
+function applyProfileToLoadedModel() {
+  if (!modelRoot) return;
+  traverseModelMaterials((material) => {
+    const group = materialFromName(material.name);
+    if (!group || !currentProfile.materials[group]) return;
+    const spec = currentProfile.materials[group];
+    material.color.set(spec.baseColor);
+    material.opacity = spec.opacity;
+    material.transparent = spec.opacity < 0.999 || spec.alphaMode === 'BLEND';
+    material.roughness = spec.roughness;
+    material.metalness = spec.metallic;
+    material.side = spec.doubleSided ? THREE.DoubleSide : THREE.FrontSide;
+    if (material.emissive) material.emissive.set(spec.emissive || '#000000');
+    if ('transmission' in material) material.transmission = spec.transmission || 0;
+    if ('ior' in material) material.ior = spec.ior || 1.45;
+    if ('specularIntensity' in material) material.specularIntensity = spec.specular || 0.5;
+    if ('clearcoat' in material) material.clearcoat = spec.clearcoat || 0;
+    if ('clearcoatRoughness' in material) material.clearcoatRoughness = spec.clearcoatRoughness || 0;
+    if ('sheen' in material) material.sheen = spec.sheen || 0;
+    if ('sheenColor' in material && material.sheenColor && material.sheenColor.set) {
+      material.sheenColor.set(spec.sheenColor || '#ffffff');
+    }
+    if ('sheenRoughness' in material) material.sheenRoughness = spec.sheenRoughness || 1;
+    material.needsUpdate = true;
+  });
+  updateDisplayState();
+}
+
+function applyFocusMode() {
+  if (!modelRoot) return;
+  const mode = viewerState.focusMode || 'off';
+  const dimOpacity = Math.min(Math.max(toNumber(viewerState.focusDimOpacity, 0.14), 0.01), 0.95);
+  const enabled = mode !== 'off';
+
+  traverseModelMaterials((material) => {
+    const group = materialFromName(material.name);
+    if (!group || !currentProfile.materials[group]) return;
+    const spec = currentProfile.materials[group];
+    const baseOpacity = toNumber(spec.opacity, 1.0);
+    const baseAlphaMode = String(spec.alphaMode || 'OPAQUE').toUpperCase();
+
+    if (!enabled || group === mode) {
+      material.opacity = baseOpacity;
+      material.transparent = baseOpacity < 0.999 || baseAlphaMode === 'BLEND';
+      material.depthWrite = !material.transparent;
+    } else {
+      material.opacity = dimOpacity;
+      material.transparent = true;
+      material.depthWrite = false;
+    }
+    material.needsUpdate = true;
+  });
+}
+
+function updateDisplayState() {
+  gridHelper.visible = viewerState.grid;
+  axesHelper.visible = viewerState.axes;
+  controls.autoRotate = viewerState.autoRotate;
+  traverseModelMaterials((material) => {
+    material.wireframe = viewerState.wireframe;
+    material.needsUpdate = true;
+  });
+  applyFocusMode();
+}
+
+function updateLightingState() {
+  renderer.toneMapping = toneMappingModes[viewerState.toneMapping] || THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = Math.pow(2, viewerState.exposure);
+  ambientLight.intensity = viewerState.ambientIntensity;
+  ambientLight.color.set(viewerState.ambientColor);
+  directLight.intensity = viewerState.directIntensity;
+  directLight.color.set(viewerState.directColor);
+}
+
+function getEnvironmentByName(name) {
+  return environmentPresets.find((entry) => entry.name === name) || environmentPresets[1];
+}
+
+async function getEnvironmentTextureByName(name) {
+  if (environmentCache.has(name)) return environmentCache.get(name);
+  const env = getEnvironmentByName(name);
+  if (!env.path) return neutralEnvironment;
+  const exr = await exrLoader.loadAsync(env.path);
+  const texture = pmremGenerator.fromEquirectangular(exr).texture;
+  exr.dispose();
+  environmentCache.set(name, texture);
+  return texture;
+}
+
+async function updateEnvironmentState() {
+  const requestId = ++environmentRequestId;
+  const requestedName = viewerState.environment;
+  let texture = neutralEnvironment;
+  try {
+    texture = await getEnvironmentTextureByName(requestedName);
+  } catch (err) {
+    console.warn('Environment load failed, fallback to Neutral', err);
+    setStatus(`Environment fallback to Neutral (${err && err.message ? err.message : 'load error'})`);
+    suppressEnvironmentControllerCallback = true;
+    viewerState.environment = 'Neutral';
+    if (environmentController) environmentController.updateDisplay();
+    suppressEnvironmentControllerCallback = false;
+    texture = neutralEnvironment;
+  }
+  if (requestId !== environmentRequestId) return;
+  scene.environment = texture;
+  scene.background = viewerState.background ? (texture || sceneBgColor) : sceneBgColor;
+}
+
+function fitCameraToObject(root) {
+  const box = new THREE.Box3().setFromObject(root);
+  if (box.isEmpty()) return;
+  const size = box.getSize(new THREE.Vector3());
+  const center = box.getCenter(new THREE.Vector3());
+  const radius = Math.max(size.length() * 0.5, 0.5);
+  const distance = radius / Math.max(Math.sin(THREE.MathUtils.degToRad(camera.fov * 0.5)), 0.2);
+  camera.near = Math.max(radius / 100, 0.01);
+  camera.far = Math.max(radius * 120, 100);
+  camera.updateProjectionMatrix();
+  camera.position.copy(center).add(new THREE.Vector3(distance * 0.75, distance * 0.52, distance * 0.75));
+  controls.target.copy(center);
+  controls.minDistance = radius * 0.02;
+  controls.maxDistance = radius * 20;
+  controls.update();
+}
+
+function disposeMaterial(material) {
+  if (!material) return;
+  Object.keys(material).forEach((key) => {
+    if (key === 'envMap') return;
+    const maybeTexture = material[key];
+    if (maybeTexture && maybeTexture.isTexture) maybeTexture.dispose();
+  });
+  if (material.dispose) material.dispose();
+}
+
+function clearModelResources() {
+  if (mixer) {
+    mixer.stopAllAction();
+    mixer = null;
+  }
+  clipActions = [];
+  viewerState.actionStates = {};
+  if (playbackSpeedController) {
+    animationFolder.remove(playbackSpeedController);
+    playbackSpeedController = null;
+  }
+  clearFolderControllers(animationFolder, animationControllers);
+  clearFolderControllers(camerasFolder, cameraControllers);
+  animationFolder.domElement.style.display = 'none';
+  camerasFolder.domElement.style.display = 'none';
+  modelCameras = [];
+  viewerState.camera = DEFAULT_CAMERA;
+  activeCamera = camera;
+  controls.enabled = true;
+  controls.update();
+
+  if (!modelRoot) return;
+  scene.remove(modelRoot);
+  modelRoot.traverse((obj) => {
+    if (obj.geometry) obj.geometry.dispose();
+    if (obj.material) {
+      const materials = Array.isArray(obj.material) ? obj.material : [obj.material];
+      materials.forEach(disposeMaterial);
+    }
+  });
+  modelRoot = null;
+}
+
+function setActiveCamera(name) {
+  if (name === DEFAULT_CAMERA) {
+    activeCamera = camera;
+    controls.enabled = true;
+    controls.update();
+    return;
+  }
+  const target = modelCameras.find((item) => item.name === name);
+  if (!target) {
+    activeCamera = camera;
+    viewerState.camera = DEFAULT_CAMERA;
+    controls.enabled = true;
+    controls.update();
+    return;
+  }
+  activeCamera = target;
+  controls.enabled = false;
+}
+
+function rebuildCameraControllers() {
+  clearFolderControllers(camerasFolder, cameraControllers);
+  const names = [DEFAULT_CAMERA, ...modelCameras.map((cam) => cam.name)];
+  if (names.length <= 1) {
+    camerasFolder.domElement.style.display = 'none';
+    return;
+  }
+  camerasFolder.domElement.style.display = '';
+  const ctrl = camerasFolder.add(viewerState, 'camera', names);
+  ctrl.onChange((name) => setActiveCamera(name));
+  cameraControllers.push(ctrl);
+}
+
+function rebuildAnimationControllers(clips) {
+  if (playbackSpeedController) {
+    animationFolder.remove(playbackSpeedController);
+    playbackSpeedController = null;
+  }
+  clearFolderControllers(animationFolder, animationControllers);
+  viewerState.actionStates = {};
+  if (!clips.length) {
+    animationFolder.domElement.style.display = 'none';
+    return;
+  }
+  animationFolder.domElement.style.display = '';
+  playbackSpeedController = animationFolder.add(viewerState, 'playbackSpeed', 0, 2, 0.01);
+  playbackSpeedController.onChange((speed) => {
+    if (mixer) mixer.timeScale = speed;
+  });
+  clips.forEach((clip, index) => {
+    const label = `${index + 1}. ${clip.name || `clip_${index + 1}`}`;
+    viewerState.actionStates[label] = index === 0;
+    const action = clipActions[index];
+    if (index === 0) action.reset().play();
+    else action.stop();
+    const ctrl = animationFolder.add(viewerState.actionStates, label).listen();
+    ctrl.onChange((enabled) => {
+      if (enabled) action.reset().play();
+      else action.stop();
+    });
+    animationControllers.push(ctrl);
+  });
+}
+
+const loader = new GLTFLoader();
+
+async function loadModel(url) {
+  clearModelResources();
+  setStatus('Loading model...');
+  const gltf = await loader.loadAsync(url);
+  modelRoot = gltf.scene || (gltf.scenes && gltf.scenes[0]) || null;
+  if (!modelRoot) throw new Error('Model contains no scene');
+  scene.add(modelRoot);
+  fitCameraToObject(modelRoot);
+
+  modelCameras = [];
+  let cameraIndex = 1;
+  modelRoot.traverse((node) => {
+    if (node.isCamera) {
+      if (!node.name) node.name = `VIEWER_camera_${cameraIndex++}`;
+      if (node.isPerspectiveCamera) {
+        node.aspect = camera.aspect;
+        node.updateProjectionMatrix();
+      }
+      modelCameras.push(node);
+    }
+  });
+
+  if (gltf.animations && gltf.animations.length) {
+    mixer = new THREE.AnimationMixer(modelRoot);
+    mixer.timeScale = viewerState.playbackSpeed;
+    clipActions = gltf.animations.map((clip) => mixer.clipAction(clip));
+    rebuildAnimationControllers(gltf.animations);
+  } else {
+    rebuildAnimationControllers([]);
+  }
+
+  rebuildCameraControllers();
+  setActiveCamera(viewerState.camera);
+  applyProfileToLoadedModel();
+  updateDisplayState();
+  setStatus('Model ready');
+}
+
+function getGeometryPayload() {
+  return {
+    door_mode: geometryState.door_mode === 'block' ? 'block' : 'none',
+    uniform_scale: toNumber(geometryState.uniform_scale, 1.0),
+    wall_height_m: toNumber(geometryState.wall_height_m, 3.8),
+    door_height_m: toNumber(geometryState.door_height_m, 2.4),
+    wall_thickness_mm: toNumber(geometryState.wall_thickness_mm, 120),
+    column_thickness_mm: toNumber(geometryState.column_thickness_mm, 180),
+    ground_thickness_m: toNumber(geometryState.ground_thickness_m, 0.08),
+    ground_margin_m: toNumber(geometryState.ground_margin_m, 0.6),
+  };
+}
+
+async function apiPost(path, payload) {
+  const response = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = await response.json();
+  if (!response.ok || !data.ok) throw new Error(data.error || `HTTP ${response.status}`);
+  return data;
+}
+
+function downloadJson(filename, data) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
+function copyCliArgs() {
+  const g = getGeometryPayload();
+  const text = `--door-mode ${g.door_mode} --uniform-scale ${g.uniform_scale} --wall-height-m ${g.wall_height_m} --door-height-m ${g.door_height_m} --wall-thickness-mm ${g.wall_thickness_mm} --column-thickness-mm ${g.column_thickness_mm} --ground-thickness-m ${g.ground_thickness_m} --ground-margin-m ${g.ground_margin_m}`;
+  navigator.clipboard.writeText(text).then(() => setStatus('CLI args copied')).catch(() => setStatus('Copy failed'));
+}
+
+async function rebuild(applyMaterialToExport) {
+  if (!state.apiEnabled) {
+    setStatus('Rebuild API disabled in static preview mode');
+    return;
+  }
+  if (loading) return;
+  loading = true;
+  setStatus('Rebuilding geometry...');
+  try {
+    const payload = {
+      geometry: getGeometryPayload(),
+      material_profile: currentProfile,
+      apply_material_to_export: Boolean(applyMaterialToExport),
+    };
+    const data = await apiPost('/api/rebuild', payload);
+    setPaths(data.glb_url, data.json_url);
+    await loadModel(data.glb_url);
+    setStatus(`Rebuild done (minY=${Number(data.final_bbox.min_y ?? 0).toFixed(4)})`);
+  } catch (err) {
+    setStatus(`Rebuild failed: ${err.message}`);
+  } finally {
+    loading = false;
+  }
+}
+
+const workbenchMaterialState = { preset: currentProfile.preset };
+const workbenchActions = {
+  applyMaterials: async () => {
+    if (state.apiEnabled) {
+      try {
+        const data = await apiPost('/api/material/preview', { profile: currentProfile });
+        applyProfileValues(data.profile, data.profile && data.profile.preset);
+      } catch (err) {
+        setStatus(`Material preview normalize failed: ${err.message}`);
+      }
+    }
+    applyProfileToLoadedModel();
+    setStatus('Materials applied in preview');
+  },
+  rebuildGeometry: () => rebuild(false),
+  rebuildWriteProfile: () => rebuild(true),
+  remapSolidWalls: () => {
+    remapWallsForClarity();
+    setStatus('Wall material remapped to solid profile');
+  },
+  copyCliArgs: () => copyCliArgs(),
+  exportProfile: () => {
+    downloadJson('material_profile.json', currentProfile);
+    setStatus('Profile exported');
+  },
+  importProfile: () => importProfileInput.click(),
+};
+
+function markMaterialAsCustom(group) {
+  const target = currentProfile.materials[group];
+  if (!target) return;
+  if (target.finish !== 'custom') target.finish = 'custom';
+}
+
+function applySurfaceFinish(group, finishName) {
+  const catalog = materialSurfacePresets[group] || {};
+  const target = currentProfile.materials[group];
+  if (!target) return;
+  if (finishName === 'custom' || !Object.prototype.hasOwnProperty.call(catalog, finishName)) {
+    target.finish = 'custom';
+    refreshMaterialControllers();
+    applyProfileToLoadedModel();
+    return;
+  }
+  const next = normalizeMaterialSpecLocal(group, Object.assign({}, catalog[finishName], { finish: finishName }), target);
+  Object.assign(target, next);
+  refreshMaterialControllers();
+  applyProfileToLoadedModel();
+}
+
+wbGeometryFolder.add(geometryState, 'door_mode', ['none', 'block']).name('door mode');
+wbGeometryFolder.add(geometryState, 'uniform_scale', 0.1, 5.0, 0.01).name('uniform-scale');
+wbGeometryFolder.add(geometryState, 'wall_height_m', 0.1, 300, 0.1).name('wall-height-m');
+wbGeometryFolder.add(geometryState, 'door_height_m', 0.1, 300, 0.1).name('door-height-m');
+wbGeometryFolder.add(geometryState, 'wall_thickness_mm', 1, 10000, 1).name('wall-thickness-mm');
+wbGeometryFolder.add(geometryState, 'column_thickness_mm', 1, 10000, 1).name('column-thickness-mm');
+wbGeometryFolder.add(geometryState, 'ground_thickness_m', 0.001, 10, 0.01).name('ground-thickness-m');
+wbGeometryFolder.add(geometryState, 'ground_margin_m', 0, 1000, 0.1).name('ground-margin-m');
+
+presetController = wbMaterialsFolder.add(workbenchMaterialState, 'preset', Object.keys(presets)).name('preset');
+presetController.onChange((name) => {
+  applyProfileValues(presets[name], name);
+  applyProfileToLoadedModel();
+  setStatus(`Preset applied: ${name}`);
+});
+
+MATERIAL_GROUPS.forEach((group) => {
+  const folder = wbMaterialsFolder.addFolder(group.toUpperCase());
+  const target = currentProfile.materials[group];
+  const finishNames = ['custom', ...Object.keys(materialSurfacePresets[group] || {})];
+
+  materialControllers.push(
+    folder.add(target, 'finish', finishNames).name('finish').onChange((value) => applySurfaceFinish(group, value)),
+  );
+  materialControllers.push(
+    folder.addColor(target, 'baseColor').name('baseColor').onChange(() => {
+      markMaterialAsCustom(group);
+      applyProfileToLoadedModel();
+    }),
+  );
+  materialControllers.push(
+    folder.add(target, 'opacity', 0, 1, 0.01).name('opacity').onChange(() => {
+      markMaterialAsCustom(group);
+      applyProfileToLoadedModel();
+    }),
+  );
+  materialControllers.push(
+    folder.add(target, 'roughness', 0, 1, 0.01).name('roughness').onChange(() => {
+      markMaterialAsCustom(group);
+      applyProfileToLoadedModel();
+    }),
+  );
+  materialControllers.push(
+    folder.add(target, 'metallic', 0, 1, 0.01).name('metallic').onChange(() => {
+      markMaterialAsCustom(group);
+      applyProfileToLoadedModel();
+    }),
+  );
+  materialControllers.push(
+    folder.addColor(target, 'emissive').name('emissive').onChange(() => {
+      markMaterialAsCustom(group);
+      applyProfileToLoadedModel();
+    }),
+  );
+  materialControllers.push(
+    folder.add(target, 'specular', 0, 1, 0.01).name('specular').onChange(() => {
+      markMaterialAsCustom(group);
+      applyProfileToLoadedModel();
+    }),
+  );
+  materialControllers.push(
+    folder.add(target, 'transmission', 0, 1, 0.01).name('transmission').onChange(() => {
+      markMaterialAsCustom(group);
+      applyProfileToLoadedModel();
+    }),
+  );
+  materialControllers.push(
+    folder.add(target, 'ior', 1, 2.5, 0.01).name('ior').onChange(() => {
+      markMaterialAsCustom(group);
+      applyProfileToLoadedModel();
+    }),
+  );
+  materialControllers.push(
+    folder.add(target, 'clearcoat', 0, 1, 0.01).name('clearcoat').onChange(() => {
+      markMaterialAsCustom(group);
+      applyProfileToLoadedModel();
+    }),
+  );
+  materialControllers.push(
+    folder.add(target, 'clearcoatRoughness', 0, 1, 0.01).name('clearcoatR').onChange(() => {
+      markMaterialAsCustom(group);
+      applyProfileToLoadedModel();
+    }),
+  );
+  materialControllers.push(
+    folder.add(target, 'sheen', 0, 1, 0.01).name('sheen').onChange(() => {
+      markMaterialAsCustom(group);
+      applyProfileToLoadedModel();
+    }),
+  );
+  materialControllers.push(
+    folder.addColor(target, 'sheenColor').name('sheenColor').onChange(() => {
+      markMaterialAsCustom(group);
+      applyProfileToLoadedModel();
+    }),
+  );
+  materialControllers.push(
+    folder.add(target, 'sheenRoughness', 0, 1, 0.01).name('sheenR').onChange(() => {
+      markMaterialAsCustom(group);
+      applyProfileToLoadedModel();
+    }),
+  );
+  materialControllers.push(
+    folder.add(target, 'doubleSided').name('doubleSided').onChange(() => {
+      markMaterialAsCustom(group);
+      applyProfileToLoadedModel();
+    }),
+  );
+  materialControllers.push(
+    folder.add(target, 'alphaMode', ['OPAQUE', 'BLEND', 'MASK']).name('alphaMode').onChange(() => {
+      markMaterialAsCustom(group);
+      applyProfileToLoadedModel();
+    }),
+  );
+});
+
+wbActionsFolder.add(workbenchActions, 'applyMaterials').name('Apply Materials');
+wbActionsFolder.add(workbenchActions, 'rebuildGeometry').name('Rebuild Geometry');
+wbActionsFolder.add(workbenchActions, 'rebuildWriteProfile').name('Rebuild + Write Profile');
+wbActionsFolder.add(workbenchActions, 'remapSolidWalls').name('Remap Solid Walls');
+wbActionsFolder.add(workbenchActions, 'copyCliArgs').name('Copy CLI Args');
+wbActionsFolder.add(workbenchActions, 'exportProfile').name('Export Profile');
+wbActionsFolder.add(workbenchActions, 'importProfile').name('Import Profile');
+
+displayFolder.add(viewerState, 'background').onChange(() => updateEnvironmentState());
+displayFolder.add(viewerState, 'autoRotate').onChange(() => { controls.autoRotate = viewerState.autoRotate; });
+displayFolder.add(viewerState, 'wireframe').onChange(() => updateDisplayState());
+displayFolder.add(viewerState, 'grid').onChange(() => updateDisplayState());
+displayFolder.add(viewerState, 'axes').onChange(() => updateDisplayState());
+displayFolder.add(viewerState, 'focusMode', ['off', 'wall', 'door', 'ground']).onChange(() => updateDisplayState());
+displayFolder.add(viewerState, 'focusDimOpacity', 0.02, 0.85, 0.01).name('focusDim').onChange(() => updateDisplayState());
+
+environmentController = lightingFolder
+  .add(viewerState, 'environment', environmentPresets.map((entry) => entry.name))
+  .onChange(() => {
+    if (!suppressEnvironmentControllerCallback) updateEnvironmentState();
+  });
+lightingFolder.add(viewerState, 'toneMapping', Object.keys(toneMappingModes)).onChange(() => updateLightingState());
+lightingFolder.add(viewerState, 'exposure', -10, 10, 0.01).onChange(() => updateLightingState());
+lightingFolder.add(viewerState, 'ambientIntensity', 0, 2, 0.01).onChange(() => updateLightingState());
+lightingFolder.addColor(viewerState, 'ambientColor').onChange(() => updateLightingState());
+lightingFolder.add(viewerState, 'directIntensity', 0, 8, 0.01).onChange(() => updateLightingState());
+lightingFolder.addColor(viewerState, 'directColor').onChange(() => updateLightingState());
+
+performanceFolder.add(viewerState, 'showStats').onChange(() => {
+  stats.dom.style.display = viewerState.showStats ? '' : 'none';
+});
+
+importProfileInput.addEventListener('change', async (evt) => {
+  const file = evt.target.files && evt.target.files[0];
+  if (!file) return;
+  const text = await file.text();
+  try {
+    const parsed = JSON.parse(text);
+    if (state.apiEnabled) {
+      const data = await apiPost('/api/profile/import', { profile: parsed });
+      applyProfileValues(data.profile, data.profile && data.profile.preset);
+    } else {
+      applyProfileValues(parsed, parsed && parsed.preset);
+    }
+    applyProfileToLoadedModel();
+    setStatus('Profile imported');
+  } catch (err) {
+    setStatus(`Invalid profile: ${err.message}`);
+  }
+  importProfileInput.value = '';
+});
+
+applyProfileValues(currentProfile, currentProfile.preset);
+updateDisplayState();
+updateLightingState();
+updateEnvironmentState();
+setPaths(state.modelUrl, state.jsonUrl);
+
+const initialModelUrl = state.modelUrl + (state.modelUrl.includes('?') ? '&' : '?') + 'ts=' + Date.now();
+loadModel(initialModelUrl).catch((err) => setStatus(`Model load failed: ${err.message}`));
+
+workbenchFolder.open();
+wbGeometryFolder.open();
+wbMaterialsFolder.open();
+displayFolder.open();
+lightingFolder.open();
+
+const clock = new THREE.Clock();
+function animate() {
+  requestAnimationFrame(animate);
+  const delta = clock.getDelta();
+  controls.update();
+  if (mixer) mixer.update(delta);
+  stats.update();
+  renderer.render(scene, activeCamera || camera);
+}
+animate();
+  </script>
+</body>
+</html>

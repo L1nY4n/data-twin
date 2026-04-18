@@ -28,6 +28,11 @@ export const EditorStaticEnvironment = memo(function EditorStaticEnvironment({
   const lodDistances: [number, number] = [0, 420]
 
   useEffect(() => {
+    if (staticChunkRegistry.length === 0) {
+      setAssetManifest(null)
+      return
+    }
+
     let cancelled = false
     setAssetManifest(undefined)
 
@@ -41,7 +46,7 @@ export const EditorStaticEnvironment = memo(function EditorStaticEnvironment({
     return () => {
       cancelled = true
     }
-  }, [publishedScenePackage.staticAssetManifestUrl])
+  }, [publishedScenePackage.staticAssetManifestUrl, staticChunkRegistry.length])
 
   return (
     <group name="editor-static-environment">

@@ -13,11 +13,13 @@ import {
   SpriteInfoCard,
 } from '@/components/digital-twin/scene/SpriteInfoCard'
 import { SpriteTextLabel } from '@/components/digital-twin/scene/SpriteTextLabel'
+import { resolveRenderablePosition, resolveRenderableRotation } from './render-transform'
 
 interface CameraMarkerProps {
   entity: CameraEntity
   isSelected: boolean
   isHovered: boolean
+  fullTransform?: boolean
 }
 
 const STATUS_COLORS = {
@@ -45,6 +47,7 @@ export const CameraMarker = memo(function CameraMarker({
   entity,
   isSelected,
   isHovered,
+  fullTransform = false,
 }: CameraMarkerProps) {
   const statusColor = STATUS_COLORS[entity.status]
   const bodyColor = CAMERA_COLORS[entity.cameraType]
@@ -54,10 +57,10 @@ export const CameraMarker = memo(function CameraMarker({
 
   return (
     <group
-      position={[entity.position.x, entity.position.y, entity.position.z]}
+      position={resolveRenderablePosition(entity.position, { fullTransform })}
       userData={{ pickable: true, entityId: entity.id }}
     >
-      <group rotation={[0, entity.rotation.y, 0]}>
+      <group rotation={resolveRenderableRotation(entity.rotation, { fullTransform })}>
         <mesh position={[0, 1, 0]} castShadow>
           <cylinderGeometry args={[0.06, 0.08, 2, 12]} />
           <meshStandardMaterial color="#475569" metalness={0.4} roughness={0.65} />

@@ -24,12 +24,14 @@ import {
   normalizeVehicleTrackLike,
   resolveVehicleRoutePose,
 } from '@/lib/digital-twin/vehicle-route-motion'
+import { resolveRenderablePosition, resolveRenderableRotation } from './render-transform'
 
 interface VehicleMarkerProps {
   entity: VehicleEntity
   isSelected: boolean
   isHovered: boolean
   showModel?: boolean
+  fullTransform?: boolean
 }
 
 const STATUS_COLORS = {
@@ -92,6 +94,7 @@ export const VehicleMarker = memo(function VehicleMarker({
   isSelected,
   isHovered,
   showModel = true,
+  fullTransform = false,
 }: VehicleMarkerProps) {
   const groupRef = useRef<THREE.Group>(null)
   const meshRef = useRef<THREE.Group>(null)
@@ -116,7 +119,7 @@ export const VehicleMarker = memo(function VehicleMarker({
   const shouldRenderTelemetryCard = showLabel && labelMode === 'html'
   const usesDetailedVehicleModel =
     showModel && (entity.vehicleType === 'truck' || entity.vehicleType === 'forklift')
-  const shouldTrackLivePose = isSelected || isHovered || usesDetailedVehicleModel
+  const shouldTrackLivePose = !fullTransform && (isSelected || isHovered || usesDetailedVehicleModel)
 
   useEffect(() => {
     if (shouldTrackLivePose) return
@@ -198,13 +201,21 @@ export const VehicleMarker = memo(function VehicleMarker({
   return (
     <group
       ref={groupRef}
-      position={[initialPose.x, initialPose.y, initialPose.z]}
+      position={
+        fullTransform
+          ? resolveRenderablePosition(entity.position, { fullTransform: true })
+          : [initialPose.x, initialPose.y, initialPose.z]
+      }
       userData={{ pickable: true, entityId: entity.id }}
     >
       {showModel && (
         <group
           ref={meshRef}
-          rotation={[0, initialPose.yaw, 0]}
+          rotation={
+            fullTransform
+              ? resolveRenderableRotation(entity.rotation, { fullTransform: true })
+              : [0, initialPose.yaw, 0]
+          }
         >
           {entity.vehicleType === 'truck' ? (
             <TruckRuntimeModel />

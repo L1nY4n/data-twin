@@ -581,8 +581,8 @@ const EditorSceneContent = memo(function EditorSceneContent({
     const controls = controlsRef.current
     if (!activeCamera || !controls || lockedCameraPoseRef.current) return
 
-    // OrbitControls can still advance the camera during the same gesture that
-    // TransformControls claims, so pin the pose for the active gizmo drag.
+    // The current React/store-driven editor still needs pose pinning while a
+    // gizmo owns the pointer, even after orbit controls are disabled.
     lockedCameraPoseRef.current = {
       position: {
         x: activeCamera.position.x,
@@ -768,7 +768,6 @@ const EditorSceneContent = memo(function EditorSceneContent({
             : perspectiveCameraRef.current ?? orthographicCameraRef.current ?? sceneCamera
         }
         domElement={gl.domElement}
-        orbitControlsRef={controlsRef}
       />
     </>
   )

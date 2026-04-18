@@ -826,6 +826,23 @@ export function buildPublishedCampusScenePackageFromSnapshot(
   }
 }
 
+export function buildPublishedScenePackageForScope(
+  snapshot: PublishedWorkingSnapshot | null,
+  options: Omit<BuildPublishedScenePackageOptions, 'profile'> & {
+    scope: 'campus' | 'workspace'
+  }
+): PublishedScenePackage {
+  if (!snapshot) {
+    return createPublishedCampusScenePackage('default', options)
+  }
+
+  if (options.scope === 'workspace') {
+    return buildPublishedScenePackageFromSnapshot(snapshot, options)
+  }
+
+  return buildPublishedCampusScenePackageFromSnapshot(snapshot, options)
+}
+
 export function buildPublishedScenePackage(
   options: BuildPublishedScenePackageOptions = {}
 ): PublishedScenePackage {

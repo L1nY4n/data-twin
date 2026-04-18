@@ -16,6 +16,9 @@ import {
   executeStandardRoomCreation,
 } from './use-editor-digital-twin'
 import type { PublishStatus } from '@/lib/digital-twin/admin'
+import { useEditorDigitalTwinStore } from '@/lib/digital-twin/editor-store'
+import { DEFAULT_PUBLISHED_SCENE_PACKAGE } from '@/lib/digital-twin/publish'
+import type { BootstrapPayload } from '@/lib/digital-twin/bootstrap-client'
 
 function createSavedAsset(
   asset: StaticAssetInstance,
@@ -64,6 +67,59 @@ function createEntityDraft(overrides: Partial<Entity> = {}): Entity {
     updatedAt: 1,
     ...overrides,
   } as Entity
+}
+
+function createRoutedVehicleDraft(overrides: Partial<Entity> = {}): Entity {
+  return {
+    id: 'vehicle-1',
+    type: 'vehicle',
+    name: '叉车 01',
+    position: { x: 4, y: 0, z: 6 },
+    rotation: { x: 0, y: 0, z: 0 },
+    scale: { x: 1, y: 1, z: 1 },
+    status: 'active',
+    visible: true,
+    metadata: {},
+    plateNumber: 'A1001',
+    vehicleType: 'forklift',
+    speed: 1,
+    heading: 0,
+    routeTrack: {
+      id: 'forklift-track-01',
+      loop: true,
+      points: [
+        { x: 0, y: 0, z: 0 },
+        { x: 10, y: 0, z: 0 },
+      ],
+    },
+    trackPosition: {
+      trackId: 'forklift-track-01',
+      segmentIndex: 0,
+      segmentProgress: 0.4,
+    },
+    createdAt: 1,
+    updatedAt: 1,
+    ...overrides,
+  } as Entity
+}
+
+function createBootstrapPayload(entity: Entity): BootstrapPayload {
+  return {
+    siteId: 'site-1',
+    workspaceId: 'factory-demo-scene',
+    workspaceSlug: 'factory-demo-scene',
+    workspaceName: '工厂演示场景',
+    sceneVersion: 1,
+    sceneConfig: DEFAULT_PUBLISHED_SCENE_PACKAGE.sceneConfig,
+    entities: [entity],
+    staticAssets: [],
+    entityCategories: [],
+    entityArchetypes: [],
+    rules: [],
+    alarms: [],
+    publishedScene: null,
+    issuedAt: Date.now(),
+  }
 }
 
 function createPublishStatus(overrides: Partial<PublishStatus> = {}): PublishStatus {
@@ -701,5 +757,51 @@ describe('useEditorDigitalTwin standard room workflow', () => {
       expect((error as FloorPlanImportError).focusAssetId).toBe('wall-system-saved')
       expect((error as FloorPlanImportError).message).toBe('door import failed')
     }
+  })
+
+  test('undo restores routed vehicle metadata before a later save request', () => {
+    useEditorDigitalTwinStore.getState().reset()
+    const vehicle = createRoutedVehicleDraft()
+    const store = useEditorDigitalTwinStore.getState()
+
+    store.hydrateFromBootstrap(
+      createBootstrapPayload(vehicle),
+      DEFAULT_PUBLISHED_SCENE_PACKAGE
+    )
+    store.selectEntity(vehicle.id)
+    store.beginTransformSession()
+    store.updateDraftTransform({
+      position: { x: 8, y: 1.5, z: 9 },
+      rotation: { x: 0.2, y: 0.4, z: 0.1 },
+      scale: { x: 1, y: 1, z: 1 },
+    })
+    store.commitTransformSession()
+    store.undo()
+    store.updateDraftProperties({ name: '叉车 01 / 已回退' })
+
+    const state = useEditorDigitalTwinStore.getState()
+    const request = createEditorSaveRequest({
+      sceneVersion: state.sceneVersion,
+      sceneConfig: state.sceneConfig,
+      savedSceneConfig: state.savedSceneConfig,
+      hasSceneChanges: state.hasSceneChanges,
+      hasSelectionChanges: state.hasSelectionChanges,
+      draftEntity: state.draftEntity,
+      draftStaticAsset: state.draftStaticAsset,
+      savedEntity: state.savedEntity,
+      savedStaticAsset: state.savedStaticAsset,
+      selectedEntityId: state.selectedEntityId,
+      selectedStaticAssetId: state.selectedStaticAssetId,
+    })
+
+    const savedEntity = request?.entity?.entity
+    expect(savedEntity?.type).toBe('vehicle')
+    if (!savedEntity || savedEntity.type !== 'vehicle') {
+      throw new Error('expected vehicle save request')
+    }
+    const savedVehicle = savedEntity as Extract<Entity, { type: 'vehicle' }>
+    const sourceVehicle = vehicle as Extract<Entity, { type: 'vehicle' }>
+    expect(savedVehicle.routeTrack).toEqual(sourceVehicle.routeTrack)
+    expect(savedVehicle.trackPosition).toEqual(sourceVehicle.trackPosition)
   })
 })

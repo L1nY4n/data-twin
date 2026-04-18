@@ -782,14 +782,14 @@ function EditorInspectorContent({
       <InspectorFrame
         collapseLabel={collapseLabel}
         onToggleCollapse={onToggleCollapse}
-        summaryKicker="Workspace"
+        summaryKicker="场景设置"
         summaryTitle={sceneConfig.name}
         summaryDescription={
           placementItem
             ? `放置准备中 · ${placementItem.name}`
-            : '空选中时显示场景级属性'
+              : '未选中对象时，在此编辑当前工作区的场景参数（工作区场景）'
         }
-        summaryBadge={isDirty ? 'Draft' : 'Scene'}
+        summaryBadge={isDirty ? '未保存' : '场景'}
       >
         {placementItem ? (
           <InspectorPanel
@@ -803,8 +803,8 @@ function EditorInspectorContent({
         <InspectorPanel
           eyebrow="Scene"
           title={sceneConfig.name}
-          description="空选中时只显示场景级设置。"
-          badge={<Badge className="editor-pill">{isDirty ? 'Draft' : 'Scene'}</Badge>}
+          description="未选中对象时，这里就是当前工作区的场景设置面板。"
+          badge={<Badge className="editor-pill">{isDirty ? '未保存' : '场景'}</Badge>}
         >
           <InspectorBlock label="Environment">
             <InspectorColorField
@@ -932,7 +932,7 @@ function EditorInspectorContent({
         <InspectorBlock label="Transform">
           <InspectorVectorEditor
             label="Position"
-            hint="与画布 gizmo 使用同一坐标约束。"
+            hint="与画布 gizmo 保持一致，支持 X / Y / Z 三轴移动。"
             value={draftTarget.position}
             step="0.1"
             disabledAxes={buildDisabledAxes(translateConfig)}
@@ -940,7 +940,7 @@ function EditorInspectorContent({
           />
           <InspectorVectorEditor
             label="Rotation"
-            hint="平面对象默认只开放 Y 轴旋转。"
+            hint="支持 X / Y / Z 三轴旋转。"
             value={draftTarget.rotation}
             step="0.05"
             disabledAxes={buildDisabledAxes(rotateConfig)}
@@ -948,7 +948,7 @@ function EditorInspectorContent({
           />
           <InspectorVectorEditor
             label="Scale"
-            hint="可独立编辑每个轴向。"
+            hint="支持 X / Y / Z 三轴缩放。"
             value={draftTarget.scale}
             step="0.05"
             onCommit={(axis, value) => setDraftTransformField('scale', axis, value)}

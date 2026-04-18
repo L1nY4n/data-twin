@@ -50,6 +50,7 @@ export function EditorEntityLayer() {
               <PersonMarker
                 key={entity.id}
                 entity={entity}
+                fullTransform
                 isSelected={isSelected}
                 isHovered={isHovered}
               />
@@ -59,6 +60,7 @@ export function EditorEntityLayer() {
               <VehicleMarker
                 key={entity.id}
                 entity={entity}
+                fullTransform
                 isSelected={isSelected}
                 isHovered={isHovered}
               />
@@ -68,6 +70,7 @@ export function EditorEntityLayer() {
               <EquipmentMarker
                 key={entity.id}
                 entity={entity}
+                fullTransform
                 isSelected={isSelected}
                 isHovered={isHovered}
               />
@@ -77,6 +80,7 @@ export function EditorEntityLayer() {
               <SensorMarker
                 key={entity.id}
                 entity={entity}
+                fullTransform
                 isSelected={isSelected}
                 isHovered={isHovered}
               />
@@ -86,6 +90,7 @@ export function EditorEntityLayer() {
               <CameraMarker
                 key={entity.id}
                 entity={entity}
+                fullTransform
                 isSelected={isSelected}
                 isHovered={isHovered}
               />

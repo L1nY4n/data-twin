@@ -2,9 +2,7 @@
 
 import { TransformControls } from '@react-three/drei'
 import { useCallback, useEffect, useLayoutEffect, useRef } from 'react'
-import type { RefObject } from 'react'
 import type { TransformControls as TransformControlsImpl } from 'three-stdlib'
-import type { OrbitControls as OrbitControlsType } from 'three-stdlib'
 import * as THREE from 'three'
 import { useEditorSceneStore, useEditorUiStore } from '@/lib/digital-twin/editor-store'
 import type { EntityType } from '@/lib/digital-twin/types'
@@ -18,8 +16,6 @@ import {
 export type EditorTransformTargetKind = EntityType | 'static-asset'
 
 const TRANSLATE_DRAG_DEADZONE_PIXELS = 4
-const TRANSFORM_HANDLE_HIT_PATCH_VERSION = 3
-
 type ScreenPointerSnapshot = {
   x: number
   y: number
@@ -31,45 +27,19 @@ type EditorTransformSnapshot = {
   scale: { x: number; y: number; z: number }
 }
 
-type EditorCanvasControls = {
-  enabled?: boolean
-} | null | undefined
-
-export function setEditorCanvasControlsEnabled(
-  controls: EditorCanvasControls,
-  enabled: boolean
-) {
-  if (!controls || typeof controls.enabled !== 'boolean') return
-  controls.enabled = enabled
-}
-
 export function resolveEditorTransformAxisConfig(
-  targetKind: EditorTransformTargetKind | undefined,
+  _targetKind: EditorTransformTargetKind | undefined,
   transformMode: 'select' | 'translate' | 'rotate' | 'scale'
 ) {
-  const allowVerticalTranslation = targetKind === 'sensor' || targetKind === 'camera'
-
-  if (transformMode === 'scale') {
+  if (transformMode === 'rotate' || transformMode === 'scale' || transformMode === 'translate') {
     return {
       showX: true,
-      showY: allowVerticalTranslation,
+      showY: true,
       showZ: true,
     }
   }
 
-  if (transformMode === 'rotate') {
-    return {
-      showX: false,
-      showY: true,
-      showZ: false,
-    }
-  }
-
-  return {
-    showX: true,
-    showY: allowVerticalTranslation,
-    showZ: true,
-  }
+  return { showX: true, showY: true, showZ: true }
 }
 
 function toVectorSnapshot(value: { x: number; y: number; z: number } | null | undefined) {
@@ -157,177 +127,12 @@ function resolveTransformControlsActiveAxis(controls: TransformControlsImpl) {
   return typeof activeAxis === 'string' ? activeAxis : null
 }
 
-function hasEditorTransformSnapshotChanged(
-  left: EditorTransformSnapshot,
-  right: EditorTransformSnapshot
-) {
-  return (
-    left.position.x !== right.position.x ||
-    left.position.y !== right.position.y ||
-    left.position.z !== right.position.z ||
-    left.rotation.x !== right.rotation.x ||
-    left.rotation.y !== right.rotation.y ||
-    left.rotation.z !== right.rotation.z ||
-    left.scale.x !== right.scale.x ||
-    left.scale.y !== right.scale.y ||
-    left.scale.z !== right.scale.z
-  )
-}
-
-function patchTransformControlsPointerDown(
-  controls: TransformControlsImpl,
-  camera: THREE.Camera,
-  domElement: HTMLCanvasElement,
-  pointerDownDebugRef: RefObject<{
-    pointer: ScreenPointerSnapshot | null
-    handlePoint: ScreenPointerSnapshot | null
-    handleName: string | null
-    handleType: string | null
-    maxDistance: number | null
-    blocked: boolean
-  } | null>
-) {
-  const patchedControls = controls as unknown as {
-    __editorVisibleHitPatchVersion?: number
-    pointerHover?: (pointer: { x: number; y: number; button: number }) => void
-    pointerDown?: (pointer: { x: number; y: number; button: number }) => void
-    raycaster: THREE.Raycaster
-    gizmo: {
-      [mode: string]: THREE.Object3D
-    }
-    mode: 'translate' | 'rotate' | 'scale'
-    axis: string | null
-    intersectObjectWithRay: (
-      object: THREE.Object3D,
-      raycaster: THREE.Raycaster,
-      includeInvisible?: boolean
-    ) => THREE.Intersection<THREE.Object3D> | false
-  }
-
-  if (
-    patchedControls.__editorVisibleHitPatchVersion === TRANSFORM_HANDLE_HIT_PATCH_VERSION ||
-    !patchedControls.pointerDown ||
-    !patchedControls.pointerHover
-  ) {
-    return
-  }
-
-  const originalPointerHover = patchedControls.pointerHover.bind(patchedControls)
-  const originalPointerDown = patchedControls.pointerDown.bind(patchedControls)
-
-  const resolveVisibleHandleHit = (pointer: {
-    x: number
-    y: number
-    button: number
-  }) => {
-    patchedControls.raycaster.setFromCamera(
-      new THREE.Vector2(pointer.x, pointer.y),
-      camera
-    )
-    const rect = domElement.getBoundingClientRect()
-    const pointerScreenPoint = {
-      x: rect.left + ((pointer.x + 1) / 2) * rect.width,
-      y: rect.top + ((-pointer.y + 1) / 2) * rect.height,
-    }
-    const visibleIntersect = patchedControls.intersectObjectWithRay(
-      patchedControls.gizmo[patchedControls.mode],
-      patchedControls.raycaster,
-      false
-    )
-
-    if (!visibleIntersect) {
-      return {
-        blocked: true,
-        pointerScreenPoint,
-        handleScreenPoint: null,
-        axisName: null,
-        handleType: null,
-        maxDistance: null,
-      }
-    }
-
-    const handleScreenPoint = resolveObjectScreenPoint(
-      visibleIntersect.object,
-      camera,
-      domElement
-    )
-    const axisName = visibleIntersect.object.name
-    const maxDistance =
-      axisName === 'XYZ'
-        ? 18
-        : axisName === 'XY' || axisName === 'YZ' || axisName === 'XZ'
-          ? 22
-          : 12
-
-    const pointerToHandleDistance = handleScreenPoint
-      ? Math.hypot(
-          handleScreenPoint.x - pointerScreenPoint.x,
-          handleScreenPoint.y - pointerScreenPoint.y
-        )
-      : Number.POSITIVE_INFINITY
-    const blocked = pointerToHandleDistance > maxDistance
-
-    return {
-      blocked,
-      pointerScreenPoint,
-      handleScreenPoint,
-      axisName,
-      handleType: visibleIntersect.object.constructor.name,
-      maxDistance,
-    }
-  }
-
-  patchedControls.pointerHover = (pointer) => {
-    const hit = resolveVisibleHandleHit(pointer)
-    pointerDownDebugRef.current = {
-      pointer: hit.pointerScreenPoint,
-      handlePoint: hit.handleScreenPoint,
-      handleName: hit.axisName,
-      handleType: hit.handleType,
-      maxDistance: hit.maxDistance,
-      blocked: hit.blocked,
-    }
-
-    if (hit.blocked || !hit.axisName) {
-      patchedControls.axis = null
-      return
-    }
-
-    originalPointerHover(pointer)
-    patchedControls.axis = hit.axisName
-  }
-
-  patchedControls.pointerDown = (pointer) => {
-    const hit = resolveVisibleHandleHit(pointer)
-    pointerDownDebugRef.current = {
-      pointer: hit.pointerScreenPoint,
-      handlePoint: hit.handleScreenPoint,
-      handleName: hit.axisName,
-      handleType: hit.handleType,
-      maxDistance: hit.maxDistance,
-      blocked: hit.blocked,
-    }
-
-    if (hit.blocked || !hit.axisName) {
-      patchedControls.axis = null
-      return
-    }
-
-    patchedControls.axis = hit.axisName
-    originalPointerDown(pointer)
-  }
-
-  patchedControls.__editorVisibleHitPatchVersion = TRANSFORM_HANDLE_HIT_PATCH_VERSION
-}
-
 export function EditorTransformGizmo({
   camera,
   domElement,
-  orbitControlsRef,
 }: {
   camera: THREE.Camera
   domElement: HTMLCanvasElement
-  orbitControlsRef: RefObject<OrbitControlsType | null>
 }) {
   const draftEntity = useEditorSceneStore((state) => state.draftEntity)
   const draftStaticAsset = useEditorSceneStore((state) => state.draftStaticAsset)
@@ -347,8 +152,6 @@ export function EditorTransformGizmo({
   const lastPointerRef = useRef<ScreenPointerSnapshot | null>(null)
   const dragStartPointerRef = useRef<ScreenPointerSnapshot | null>(null)
   const dragStartSnapshotRef = useRef<EditorTransformSnapshot | null>(null)
-  const dragActivatedRef = useRef(false)
-  const transformDragConfirmedRef = useRef(false)
   const pointerDownDebugRef = useRef<{
     pointer: ScreenPointerSnapshot | null
     handlePoint: ScreenPointerSnapshot | null
@@ -369,7 +172,6 @@ export function EditorTransformGizmo({
   const targetKind: EditorTransformTargetKind | undefined = draftStaticAsset
     ? 'static-asset'
     : draftEntity?.type
-  const allowVerticalTranslation = draftEntity?.type === 'sensor' || draftEntity?.type === 'camera'
   const axisConfig = resolveEditorTransformAxisConfig(targetKind, transformMode)
 
   useLayoutEffect(() => {
@@ -464,7 +266,7 @@ export function EditorTransformGizmo({
     })
 
     setEditorDragCheckDragMetaProvider(() => ({
-      dragActivated: dragActivatedRef.current,
+      dragActivated: isTransformDragging,
       deadzonePixels: TRANSLATE_DRAG_DEADZONE_PIXELS,
       dragStartPointer: dragStartPointerRef.current,
       lastPointer: lastPointerRef.current,
@@ -481,18 +283,7 @@ export function EditorTransformGizmo({
       setEditorDragCheckTargetTransformProvider(null)
       setEditorDragCheckGizmoProvider(null)
     }
-  }, [camera, domElement, draftTarget])
-
-  useLayoutEffect(() => {
-    const controls = transformControlsRef.current
-    if (!controls) return
-    patchTransformControlsPointerDown(
-      controls,
-      camera,
-      domElement,
-      pointerDownDebugRef
-    )
-  })
+  }, [camera, domElement, draftTarget, isTransformDragging])
 
   const captureObjectSnapshot = useCallback(() => {
     if (!draftTarget || !targetRef.current) return null
@@ -500,19 +291,13 @@ export function EditorTransformGizmo({
     return {
       position: {
         x: targetRef.current.position.x,
-        y: allowVerticalTranslation ? targetRef.current.position.y : draftTarget.position.y,
+        y: targetRef.current.position.y,
         z: targetRef.current.position.z,
       },
       rotation: {
-        x:
-          transformMode === 'rotate' || transformMode === 'scale'
-            ? draftTarget.rotation.x
-            : targetRef.current.rotation.x,
+        x: targetRef.current.rotation.x,
         y: targetRef.current.rotation.y,
-        z:
-          transformMode === 'rotate' || transformMode === 'scale'
-            ? draftTarget.rotation.z
-            : targetRef.current.rotation.z,
+        z: targetRef.current.rotation.z,
       },
       scale: {
         x: targetRef.current.scale.x,
@@ -520,19 +305,13 @@ export function EditorTransformGizmo({
         z: targetRef.current.scale.z,
       },
     }
-  }, [allowVerticalTranslation, draftTarget, transformMode])
+  }, [draftTarget])
 
   const flushTransformPreview = useCallback(() => {
     if (!pendingPreviewRef.current) return
     setTransformPreview(pendingPreviewRef.current)
     pendingPreviewRef.current = null
   }, [setTransformPreview])
-
-  const confirmTransformDrag = useCallback(() => {
-    if (transformDragConfirmedRef.current) return
-    transformDragConfirmedRef.current = true
-    setTransformDragging(true)
-  }, [setTransformDragging])
 
   const restoreTargetRefSnapshot = useCallback(
     (snapshot: EditorTransformSnapshot) => {
@@ -562,49 +341,11 @@ export function EditorTransformGizmo({
     const nextSnapshot = captureObjectSnapshot()
     if (!nextSnapshot) return
 
-    if (
-      transformMode === 'translate' &&
-      dragStartSnapshotRef.current &&
-      dragStartPointerRef.current &&
-      lastPointerRef.current &&
-      !dragActivatedRef.current
-    ) {
-      const startSnapshot = dragStartSnapshotRef.current
-      const delta = Math.hypot(
-        lastPointerRef.current.x - dragStartPointerRef.current.x,
-        lastPointerRef.current.y - dragStartPointerRef.current.y
-      )
-
-      if (delta < TRANSLATE_DRAG_DEADZONE_PIXELS) {
-        pendingPreviewRef.current = startSnapshot
-        restoreTargetRefSnapshot(startSnapshot)
-        setTransformPreview(startSnapshot)
-        return
-      }
-
-      dragActivatedRef.current = true
-    }
-
-    if (
-      dragStartSnapshotRef.current &&
-      !transformDragConfirmedRef.current
-    ) {
-      const startSnapshot = dragStartSnapshotRef.current
-      if (!hasEditorTransformSnapshotChanged(startSnapshot, nextSnapshot)) {
-        return
-      }
-
-      confirmTransformDrag()
-    }
-
     pendingPreviewRef.current = nextSnapshot
     setTransformPreview(nextSnapshot)
   }, [
     captureObjectSnapshot,
-    confirmTransformDrag,
-    restoreTargetRefSnapshot,
     setTransformPreview,
-    transformMode,
   ])
 
   if (!draftTarget || transformMode === 'select') return null
@@ -638,15 +379,13 @@ export function EditorTransformGizmo({
           dragStartSnapshotRef.current = startSnapshot
           dragStartPointerRef.current =
             pointerDownDebugRef.current.pointer ?? lastPointerRef.current
-          dragActivatedRef.current = false
-          transformDragConfirmedRef.current = false
           pendingPreviewRef.current = null
           setTransformPreview(null)
           if (startSnapshot) {
             restoreTargetRefSnapshot(startSnapshot)
           }
-          setEditorCanvasControlsEnabled(orbitControlsRef.current, false)
           beginTransformSession()
+          setTransformDragging(true)
         }}
         onObjectChange={scheduleTransformPreview}
         onMouseUp={() => {
@@ -657,10 +396,7 @@ export function EditorTransformGizmo({
           }
           dragStartPointerRef.current = null
           dragStartSnapshotRef.current = null
-          dragActivatedRef.current = false
-          transformDragConfirmedRef.current = false
           commitTransformSession()
-          setEditorCanvasControlsEnabled(orbitControlsRef.current, true)
           setTransformDragging(false)
         }}
       />

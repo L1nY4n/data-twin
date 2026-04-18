@@ -6,7 +6,7 @@ import {
   cloneStaticAssetDraft,
 } from './admin-view-models'
 import { generateId } from './mock-data'
-import { DEFAULT_PUBLISHED_SCENE_PACKAGE, type PublishedScenePackage } from './publish'
+import type { PublishedScenePackage } from './publish'
 import { createStaticAssetTemplateFromCatalog } from './static-asset-catalog'
 import type {
   CameraPreset,
@@ -15,6 +15,8 @@ import type {
   StaticAssetPlacement,
   StaticAssetPlacementPreview,
   StaticAssetInstance,
+  VehicleRouteLike,
+  VehicleTrackLike,
   Vector3,
   ViewMode,
 } from './types'
@@ -28,6 +30,8 @@ interface TransformSnapshot {
   position: Vector3
   rotation: Vector3
   scale: Vector3
+  routeTrack?: VehicleTrackLike
+  trackPosition?: VehicleRouteLike
 }
 
 interface CameraFocusRequest {
@@ -56,7 +60,7 @@ interface HydrateEditorOptions {
 }
 
 type TransformableDraft = Entity | StaticAssetInstance
-type TransformField = keyof TransformSnapshot
+type TransformField = 'position' | 'rotation' | 'scale'
 type EditableDraftPatch = Pick<TransformableDraft, 'name' | 'visible'>
 
 interface EditorDigitalTwinState {
@@ -78,6 +82,7 @@ interface EditorDigitalTwinState {
   activeCameraPreset: string | null
   editorCameraPosition: Vector3
   editorCameraTarget: Vector3
+  hasHydratedFromBootstrap: boolean
   cameraFocusRequest: CameraFocusRequest | null
   snapEnabled: boolean
   translateSnap: number
@@ -208,6 +213,7 @@ export type EditorViewerStoreSlice = Pick<
   | 'activeCameraPreset'
   | 'editorCameraPosition'
   | 'editorCameraTarget'
+  | 'hasHydratedFromBootstrap'
   | 'cameraFocusRequest'
   | 'selectEntity'
   | 'selectStaticAsset'
@@ -231,6 +237,7 @@ export type EditorUiStoreSlice = Pick<
   | 'floorPlanReference'
   | 'placementPreview'
   | 'transformPreview'
+  | 'hasHydratedFromBootstrap'
   | 'isLoading'
   | 'isSaving'
   | 'isTransformDragging'
@@ -313,6 +320,58 @@ function cloneCameraPresets(presets: CameraPreset[]) {
   return presets.map(cloneCameraPreset)
 }
 
+const EDITOR_EMPTY_SCENE_CONFIG: SceneConfig = {
+  id: 'editor-loading-workspace',
+  name: '加载编辑工作区',
+  gridSize: 120,
+  gridDivisions: 24,
+  backgroundColor: '#09131d',
+  ambientLightIntensity: 0.82,
+  showAxes: true,
+  showGrid: true,
+  cameraPosition: { x: 48, y: 32, z: 48 },
+  cameraTarget: { x: 0, y: 0, z: 0 },
+}
+
+const EDITOR_EMPTY_CAMERA_PRESETS: CameraPreset[] = [
+  {
+    id: 'editor-default',
+    name: '编辑器默认视角',
+    position: cloneVector(EDITOR_EMPTY_SCENE_CONFIG.cameraPosition),
+    target: cloneVector(EDITOR_EMPTY_SCENE_CONFIG.cameraTarget),
+    fov: 50,
+  },
+]
+
+export const EDITOR_EMPTY_PUBLISHED_SCENE_PACKAGE: PublishedScenePackage = {
+  schemaVersion: 1,
+  sceneId: 'editor-loading-workspace',
+  profile: 'default',
+  generatedAt: '1970-01-01T00:00:00.000Z',
+  source: 'working-snapshot',
+  staticAssetManifestUrl: '/generated/published-static/empty-manifest.json',
+  bounds: {
+    min: { x: -60, y: 0, z: -60 },
+    max: { x: 60, y: 60, z: 60 },
+  },
+  sceneConfig: {
+    ...EDITOR_EMPTY_SCENE_CONFIG,
+    cameraPosition: cloneVector(EDITOR_EMPTY_SCENE_CONFIG.cameraPosition),
+    cameraTarget: cloneVector(EDITOR_EMPTY_SCENE_CONFIG.cameraTarget),
+  },
+  sectors: [],
+  staticChunks: [],
+  interactionLayers: [],
+  zoneOverlays: [],
+  dynamicLayers: [],
+  routingLayers: [],
+  cameraPresets: cloneCameraPresets(EDITOR_EMPTY_CAMERA_PRESETS),
+  entityCounts: {
+    default: { persons: 0, vehicles: 0, equipment: 0 },
+    production: { persons: 0, vehicles: 0, equipment: 0 },
+  },
+}
+
 function snapNumber(value: number, step: number) {
   return Math.round(value / step) * step
 }
@@ -368,11 +427,22 @@ function createDirectionalFocusRequest(
 }
 
 function createTransformSnapshot(value: TransformableDraft): TransformSnapshot {
-  return {
+  const snapshot: TransformSnapshot = {
     position: cloneVector(value.position),
     rotation: cloneVector(value.rotation),
     scale: cloneVector(value.scale),
   }
+
+  if ('type' in value && value.type === 'vehicle') {
+    snapshot.routeTrack = value.routeTrack
+      ? JSON.parse(JSON.stringify(value.routeTrack))
+      : undefined
+    snapshot.trackPosition = value.trackPosition
+      ? JSON.parse(JSON.stringify(value.trackPosition))
+      : undefined
+  }
+
+  return snapshot
 }
 
 function cloneTransformSnapshot(snapshot: TransformSnapshot): TransformSnapshot {
@@ -380,6 +450,12 @@ function cloneTransformSnapshot(snapshot: TransformSnapshot): TransformSnapshot 
     position: cloneVector(snapshot.position),
     rotation: cloneVector(snapshot.rotation),
     scale: cloneVector(snapshot.scale),
+    routeTrack: snapshot.routeTrack
+      ? JSON.parse(JSON.stringify(snapshot.routeTrack))
+      : undefined,
+    trackPosition: snapshot.trackPosition
+      ? JSON.parse(JSON.stringify(snapshot.trackPosition))
+      : undefined,
   }
 }
 
@@ -387,13 +463,27 @@ function applyTransformSnapshot<T extends TransformableDraft>(
   value: T,
   snapshot: TransformSnapshot
 ): T {
-  return {
+  const nextValue = {
     ...value,
     position: cloneVector(snapshot.position),
     rotation: cloneVector(snapshot.rotation),
     scale: cloneVector(snapshot.scale),
     updatedAt: Date.now(),
+  } as T
+
+  if ('type' in nextValue && nextValue.type === 'vehicle') {
+    return {
+      ...nextValue,
+      routeTrack: snapshot.routeTrack
+        ? JSON.parse(JSON.stringify(snapshot.routeTrack))
+        : undefined,
+      trackPosition: snapshot.trackPosition
+        ? JSON.parse(JSON.stringify(snapshot.trackPosition))
+        : undefined,
+    }
   }
+
+  return nextValue
 }
 
 function areVectorsEqual(left: Vector3, right: Vector3) {
@@ -404,7 +494,9 @@ function hasSnapshotChanged(left: TransformSnapshot, right: TransformSnapshot) {
   return (
     !areVectorsEqual(left.position, right.position) ||
     !areVectorsEqual(left.rotation, right.rotation) ||
-    !areVectorsEqual(left.scale, right.scale)
+    !areVectorsEqual(left.scale, right.scale) ||
+    JSON.stringify(left.routeTrack ?? null) !== JSON.stringify(right.routeTrack ?? null) ||
+    JSON.stringify(left.trackPosition ?? null) !== JSON.stringify(right.trackPosition ?? null)
   )
 }
 
@@ -417,8 +509,30 @@ function hasEditableDraftChanged(
     current.name !== saved.name ||
     current.visible !== saved.visible ||
     JSON.stringify(current.metadata ?? {}) !== JSON.stringify(saved.metadata ?? {}) ||
+    ('type' in current && current.type === 'vehicle'
+      ? JSON.stringify(current.routeTrack ?? null) !==
+          JSON.stringify(
+            'type' in saved && saved.type === 'vehicle' ? saved.routeTrack ?? null : null
+          ) ||
+        JSON.stringify(current.trackPosition ?? null) !==
+          JSON.stringify(
+            'type' in saved && saved.type === 'vehicle' ? saved.trackPosition ?? null : null
+          )
+      : false) ||
     hasSnapshotChanged(createTransformSnapshot(current), createTransformSnapshot(saved))
   )
+}
+
+function detachVehicleRoutingFromDraft<T extends TransformableDraft>(draft: T): T {
+  if (!('type' in draft) || draft.type !== 'vehicle') {
+    return draft
+  }
+
+  return {
+    ...draft,
+    routeTrack: undefined,
+    trackPosition: undefined,
+  }
 }
 
 function getActiveDraft(state: EditorDigitalTwinState): TransformableDraft | null {
@@ -472,10 +586,10 @@ function cloneEditableEntitySelection(entity: Entity | null) {
   return cloneEntityDraft(entity)
 }
 
-const defaultPublishedScenePackage = DEFAULT_PUBLISHED_SCENE_PACKAGE
+const defaultPublishedScenePackage = EDITOR_EMPTY_PUBLISHED_SCENE_PACKAGE
 const defaultCameraPresets = cloneCameraPresets(defaultPublishedScenePackage.cameraPresets)
-const DEFAULT_TRANSLATE_SNAP = 1
-const DEFAULT_ROTATE_SNAP_DEGREES = 15
+const DEFAULT_TRANSLATE_SNAP = 0.25
+const DEFAULT_ROTATE_SNAP_DEGREES = 5
 
 const initialState: EditorDigitalTwinState = {
   publishedScenePackage: defaultPublishedScenePackage,
@@ -496,6 +610,7 @@ const initialState: EditorDigitalTwinState = {
   activeCameraPreset: defaultCameraPresets[0]?.id ?? null,
   editorCameraPosition: cloneVector(defaultPublishedScenePackage.sceneConfig.cameraPosition),
   editorCameraTarget: cloneVector(defaultPublishedScenePackage.sceneConfig.cameraTarget),
+  hasHydratedFromBootstrap: false,
   cameraFocusRequest: null,
   snapEnabled: false,
   translateSnap: DEFAULT_TRANSLATE_SNAP,
@@ -556,6 +671,7 @@ export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, ge
             : cameraPresets[0]?.id ?? null,
           editorCameraPosition,
           editorCameraTarget,
+          hasHydratedFromBootstrap: true,
           cameraFocusRequest: null,
           entities,
           staticAssets,
@@ -598,6 +714,7 @@ export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, ge
           : cameraPresets[0]?.id ?? null,
         editorCameraPosition,
         editorCameraTarget,
+        hasHydratedFromBootstrap: true,
         cameraFocusRequest: null,
         entities,
         staticAssets,
@@ -940,7 +1057,9 @@ export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, ge
         [axis]: value,
       }
 
-      const nextDraft = applyTransformSnapshot(draft, nextSnapshot)
+      const nextDraft = detachVehicleRoutingFromDraft(
+        applyTransformSnapshot(draft, nextSnapshot)
+      )
       const selectionDirty = hasEditableDraftChanged(nextDraft, getActiveSaved(state))
 
       return {
@@ -982,7 +1101,9 @@ export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, ge
       if (!hasSnapshotChanged(currentSnapshot, snapshot)) {
         return state
       }
-      const draftEntity = applyTransformSnapshot(state.draftEntity, snapshot)
+      const draftEntity = detachVehicleRoutingFromDraft(
+        applyTransformSnapshot(state.draftEntity, snapshot)
+      )
       const selectionDirty = hasEditableDraftChanged(draftEntity, state.savedEntity)
       return {
         draftEntity,
@@ -1213,6 +1334,7 @@ function selectEditorViewerSlice(state: EditorDigitalTwinStore): EditorViewerSto
     activeCameraPreset: state.activeCameraPreset,
     editorCameraPosition: state.editorCameraPosition,
     editorCameraTarget: state.editorCameraTarget,
+    hasHydratedFromBootstrap: state.hasHydratedFromBootstrap,
     cameraFocusRequest: state.cameraFocusRequest,
     selectEntity: state.selectEntity,
     selectStaticAsset: state.selectStaticAsset,
@@ -1237,6 +1359,7 @@ function selectEditorUiSlice(state: EditorDigitalTwinStore): EditorUiStoreSlice 
     floorPlanReference: state.floorPlanReference,
     placementPreview: state.placementPreview,
     transformPreview: state.transformPreview,
+    hasHydratedFromBootstrap: state.hasHydratedFromBootstrap,
     isLoading: state.isLoading,
     isSaving: state.isSaving,
     isTransformDragging: state.isTransformDragging,

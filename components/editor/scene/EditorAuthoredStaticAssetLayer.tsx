@@ -1,6 +1,6 @@
 'use client'
 
-import { memo, useMemo } from 'react'
+import { memo, useEffect, useMemo } from 'react'
 import { AuthoredStaticAssetLayer } from '@/components/digital-twin/scene/AuthoredStaticAssetLayer'
 import type { PublishedStaticPalette } from '@/components/digital-twin/scene/PublishedStaticRecipeMount'
 import {
@@ -8,6 +8,7 @@ import {
   useEditorUiStore,
   useEditorViewerStore,
 } from '@/lib/digital-twin/editor-store'
+import { setEditorDragCheckRenderedTargetProvider } from './editor-drag-check-bridge'
 
 export const EditorAuthoredStaticAssetLayer = memo(function EditorAuthoredStaticAssetLayer({
   palette,
@@ -52,6 +53,32 @@ export const EditorAuthoredStaticAssetLayer = memo(function EditorAuthoredStatic
       .filter((asset) => asset.visible)
       .sort((left, right) => left.createdAt - right.createdAt)
   }, [draftStaticAsset, isTransformDragging, savedStaticAsset, staticAssets, transformPreview])
+
+  useEffect(() => {
+    setEditorDragCheckRenderedTargetProvider(() => {
+      if (!selectedStaticAssetId) {
+        return {
+          position: null,
+        }
+      }
+
+      const renderedAsset =
+        renderedAssets.find((asset) => asset.id === selectedStaticAssetId) ?? null
+      return {
+        position: renderedAsset
+          ? {
+              x: renderedAsset.position.x,
+              y: renderedAsset.position.y,
+              z: renderedAsset.position.z,
+            }
+          : null,
+      }
+    })
+
+    return () => {
+      setEditorDragCheckRenderedTargetProvider(null)
+    }
+  }, [renderedAssets, selectedStaticAssetId])
 
   if (renderedAssets.length === 0) return null
 

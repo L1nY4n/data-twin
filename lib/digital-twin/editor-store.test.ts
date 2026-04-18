@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import type { BootstrapPayload } from './bootstrap-client'
 import {
   buildEditorSceneSavePayload,
+  EDITOR_EMPTY_PUBLISHED_SCENE_PACKAGE,
   useEditorDigitalTwinStore,
 } from './editor-store'
 import { DEFAULT_PUBLISHED_SCENE_PACKAGE } from './publish'
@@ -65,7 +66,56 @@ function createStaticAsset(): StaticAssetInstance {
   }
 }
 
+function createVehicleEntity(): Entity {
+  const now = Date.now()
+
+  return {
+    id: 'vehicle-1',
+    type: 'vehicle',
+    name: '叉车 01',
+    position: { x: 4, y: 0, z: 6 },
+    rotation: { x: 0, y: 0, z: 0 },
+    scale: { x: 1, y: 1, z: 1 },
+    status: 'active',
+    visible: true,
+    metadata: {},
+    plateNumber: 'A1001',
+    vehicleType: 'forklift',
+    speed: 1,
+    heading: 0,
+    routeTrack: {
+      id: 'forklift-track-01',
+      loop: true,
+      points: [
+        { x: 0, y: 0, z: 0 },
+        { x: 10, y: 0, z: 0 },
+      ],
+    },
+    trackPosition: {
+      trackId: 'forklift-track-01',
+      segmentIndex: 0,
+      segmentProgress: 0.4,
+    },
+    createdAt: now,
+    updatedAt: now,
+  }
+}
+
 describe('editor store', () => {
+  test('starts from an empty editor workspace package until bootstrap hydration completes', () => {
+    useEditorDigitalTwinStore.getState().reset()
+
+    const state = useEditorDigitalTwinStore.getState()
+
+    expect(state.hasHydratedFromBootstrap).toBe(false)
+    expect(state.publishedScenePackage.sceneId).toBe(
+      EDITOR_EMPTY_PUBLISHED_SCENE_PACKAGE.sceneId
+    )
+    expect(state.sceneConfig).toEqual(EDITOR_EMPTY_PUBLISHED_SCENE_PACKAGE.sceneConfig)
+    expect(state.staticAssets.size).toBe(0)
+    expect(state.entities.size).toBe(0)
+  })
+
   test('hydrates entities and creates isolated editable draft selection', () => {
     useEditorDigitalTwinStore.getState().reset()
     const entity = createEntity()
@@ -77,6 +127,7 @@ describe('editor store', () => {
     const state = useEditorDigitalTwinStore.getState()
 
     expect(state.selectedEntityId).toBe(entity.id)
+    expect(state.hasHydratedFromBootstrap).toBe(true)
     expect(state.draftEntity?.position.x).toBe(10)
     expect(state.savedEntity?.position.x).toBe(10)
 
@@ -198,6 +249,36 @@ describe('editor store', () => {
     expect(useEditorDigitalTwinStore.getState().draftEntity?.rotation.y).toBe(0)
     expect(useEditorDigitalTwinStore.getState().draftEntity?.name).toBe('操作员 A / Shift B')
     expect(useEditorDigitalTwinStore.getState().draftEntity?.visible).toBe(false)
+  })
+
+  test('detaches routed vehicles from their route when manually transformed', () => {
+    useEditorDigitalTwinStore.getState().reset()
+    const vehicle = createVehicleEntity()
+    const store = useEditorDigitalTwinStore.getState()
+
+    store.hydrateFromBootstrap(
+      createBootstrapPayload(vehicle),
+      DEFAULT_PUBLISHED_SCENE_PACKAGE
+    )
+    store.selectEntity(vehicle.id)
+    store.beginTransformSession()
+    store.updateDraftTransform({
+      position: { x: 8, y: 1.5, z: 9 },
+      rotation: { x: 0.2, y: 0.4, z: 0.1 },
+      scale: { x: 1, y: 1, z: 1 },
+    })
+    store.commitTransformSession()
+
+    const draft = useEditorDigitalTwinStore.getState().draftEntity
+    expect(draft?.type).toBe('vehicle')
+    if (!draft || draft.type !== 'vehicle') {
+      throw new Error('expected vehicle draft')
+    }
+    expect(draft.routeTrack).toBeUndefined()
+    expect(draft.trackPosition).toBeUndefined()
+    expect(draft.position.y).toBe(1.5)
+    expect(draft.rotation.x).toBe(0.2)
+    expect(draft.rotation.z).toBe(0.1)
   })
 
   test('hydrates and edits authored static asset selections independently from entities', () => {

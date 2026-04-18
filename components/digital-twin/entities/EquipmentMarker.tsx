@@ -9,6 +9,7 @@ import {
 } from '@/lib/digital-twin/renderer/material-stability'
 import { createStatusSpriteInfoBadge, SpriteInfoCard } from '@/components/digital-twin/scene/SpriteInfoCard'
 import { SpriteTextLabel } from '@/components/digital-twin/scene/SpriteTextLabel'
+import { resolveRenderablePosition, resolveRenderableRotation } from './render-transform'
 
 interface EquipmentMarkerProps {
   entity: EquipmentEntity
@@ -16,6 +17,7 @@ interface EquipmentMarkerProps {
   isHovered: boolean
   showModel?: boolean
   showStatusRing?: boolean
+  fullTransform?: boolean
 }
 
 const STATUS_COLORS = {
@@ -31,6 +33,7 @@ export const EquipmentMarker = memo(function EquipmentMarker({
   isHovered,
   showModel = true,
   showStatusRing = true,
+  fullTransform = false,
 }: EquipmentMarkerProps) {
   const statusColor = STATUS_COLORS[entity.status]
   const labelMode = entity.labelMode ?? 'html'
@@ -38,11 +41,14 @@ export const EquipmentMarker = memo(function EquipmentMarker({
 
   return (
     <group
-      position={[entity.position.x, 0, entity.position.z]}
+      position={resolveRenderablePosition(entity.position, {
+        fullTransform,
+        clampYToGround: true,
+      })}
       userData={{ pickable: true, entityId: entity.id }}
     >
       {showModel && (
-        <group rotation={[0, entity.rotation.y, 0]}>
+        <group rotation={resolveRenderableRotation(entity.rotation, { fullTransform })}>
           {/* 设备主体 - 工业风格 */}
           <mesh position={[0, 1.5, 0]} castShadow>
             <boxGeometry args={[2, 3, 2]} />

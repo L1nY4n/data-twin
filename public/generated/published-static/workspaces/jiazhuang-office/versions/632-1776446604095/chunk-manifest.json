@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "sceneId": "jiazhuang-office",
+  "generatedAt": "2026-04-17T17:23:24.210Z",
+  "chunks": {
+    "chunk:sector-core:static": {
+      "chunkId": "chunk:sector-core:static",
+      "detailed": {
+        "url": "/generated/published-static/workspaces/jiazhuang-office/versions/632-1776446604095/chunk-sector-core-static.detailed.glb",
+        "format": "glb",
+        "compression": "none"
+      }
+    }
+  }
+}
