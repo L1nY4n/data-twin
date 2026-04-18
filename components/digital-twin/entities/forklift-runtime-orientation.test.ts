@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { readFile } from 'node:fs/promises'
 import { Box3 } from 'three'
-import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import {
   FORKLIFT_MODEL_URL,
   inferForkliftFrontAxis,
@@ -9,16 +9,16 @@ import {
 } from './forklift-runtime-orientation'
 
 describe('forklift runtime orientation', () => {
-  test('normalizes the forklift FBX so the forks/front face +Z and the floor is stripped', async () => {
+  test('normalizes the forklift GLB so the forks/front face +Z and the floor is stripped', async () => {
     const assetPath = `public${FORKLIFT_MODEL_URL}`
     const bytes = await readFile(assetPath)
-    const loader = new FBXLoader()
-    const scene = loader.parse(
+    const loader = new GLTFLoader()
+    const gltf = await loader.parseAsync(
       bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
       ''
     )
 
-    const normalized = normalizeForkliftScene(scene)
+    const normalized = normalizeForkliftScene(gltf.scene)
     const box = new Box3().setFromObject(normalized)
 
     expect(inferForkliftFrontAxis(normalized)).toBe('positive-z')

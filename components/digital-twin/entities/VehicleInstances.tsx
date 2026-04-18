@@ -14,10 +14,11 @@ import {
   normalizeVehicleTrackLike,
   resolveVehicleRoutePose,
 } from '@/lib/digital-twin/vehicle-route-motion'
+import { runtimeVehiclePoseBuffer } from '@/lib/digital-twin/runtime-vehicle-pose-buffer'
 import {
-  resolveVehiclePoseFromSnapshots,
-} from '@/lib/digital-twin/vehicle-snapshot-interpolation'
-import { runtimeVehicleSnapshotRegistry } from '@/lib/digital-twin/runtime-vehicle-snapshot-registry'
+  reseedVehicleRuntimeState,
+  type VehicleRuntimeState,
+} from './vehicle-instance-runtime'
 
 interface VehicleInstancesProps {
   entities: VehicleEntity[]
@@ -29,17 +30,6 @@ const ARROW_TEMP = new THREE.Object3D()
 const WHEEL_TEMP = new THREE.Object3D()
 const CAMERA_PROJECTION_MATRIX = new THREE.Matrix4()
 const CAMERA_FRUSTUM = new THREE.Frustum()
-
-interface VehicleRuntimeState {
-  x: number
-  y: number
-  z: number
-  yaw: number
-  status: VehicleEntity['status']
-}
-
-const INTERPOLATION_DELAY_MS = 120
-const MAX_EXTRAPOLATION_MS = 220
 
 const VEHICLE_SIZES: Record<VehicleEntity['vehicleType'], { width: number; height: number; depth: number }> = {
   car: { width: 1.8, height: 1, depth: 3.8 },
@@ -241,7 +231,6 @@ export const VehicleInstances = memo(function VehicleInstances({ entities }: Veh
     const bodyColor = colorRef.current.body
     const cabinColor = colorRef.current.cabin
     const statusColor = colorRef.current.status
-    const nowMs = Date.now()
     const forceMatrixSync = forceMatrixSyncRef.current
     const forceColorSync = forceColorSyncRef.current
     let matrixDirty = false
@@ -268,22 +257,13 @@ export const VehicleInstances = memo(function VehicleInstances({ entities }: Veh
         shouldSyncMatrix = true
       }
 
-      const pose = resolveVehiclePoseFromSnapshots(
-        runtimeVehicleSnapshotRegistry.get(entity.id),
-        nowMs,
-        INTERPOLATION_DELAY_MS,
-        MAX_EXTRAPOLATION_MS
-      )
-      if (pose) {
-        state.x = pose.x
-        state.y = pose.y
-        state.z = pose.z
-        state.yaw = pose.yaw
-        state.status = pose.status
+      if (runtimeVehiclePoseBuffer.populate(entity.id, state)) {
         shouldSyncMatrix = true
       } else {
-        state.status = targetStatus
+        shouldSyncMatrix =
+          reseedVehicleRuntimeState(state, entity, snapshot) || shouldSyncMatrix
       }
+      state.status = targetStatus
 
       const prevStatus = statusStates.get(entity.id)
       const renderStatus = state.status

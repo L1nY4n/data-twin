@@ -11,20 +11,24 @@ import {
 } from '@/lib/digital-twin/publish'
 import type {
   ConfigChangedMessage,
+  Entity,
   IncidentMessage,
   PublishedSceneRuntimeDescriptor,
   PositionUpdateMessage,
+  RuntimeIncident,
   StatusUpdateMessage,
   VehicleEntity,
   WSMessage,
 } from '@/lib/digital-twin/types'
-import { DigitalTwinWebSocket } from '@/lib/digital-twin/websocket-client'
+import { realtimeConnectionHub } from '@/lib/digital-twin/realtime-connection-hub'
+import { createRuntimeMessageBatcher } from '@/lib/digital-twin/runtime-message-batcher'
 import {
   buildRuntimePositionEntityPatch,
   buildRuntimeStatusEntityPatch,
   resolveRuntimeIncident,
 } from '@/lib/digital-twin/runtime-ingest'
 import { runtimeVehicleSnapshotRegistry } from '@/lib/digital-twin/runtime-vehicle-snapshot-registry'
+import { runtimeVehiclePoseBuffer } from '@/lib/digital-twin/runtime-vehicle-pose-buffer'
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
 
 function hydrateBootstrapState(
@@ -83,18 +87,16 @@ async function resolvePublishedScenePackage(
 export function useLiveDigitalTwin(workspaceId: string) {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const wsRef = useRef<DigitalTwinWebSocket | null>(null)
+  const unsubscribeRef = useRef<(() => void) | null>(null)
   const sceneVersionRef = useRef(0)
   const publishedSceneRef = useRef<PublishedSceneRuntimeDescriptor | null>(null)
   const isRefreshingRef = useRef(false)
   const suppressDisconnectFallbackRef = useRef(false)
   const needsBootstrapResyncRef = useRef(false)
 
-  const updateEntity = useDigitalTwinStore((state) => state.updateEntity)
+  const applySimulationTick = useDigitalTwinStore((state) => state.applySimulationTick)
+  const batchUpsertIncidents = useDigitalTwinStore((state) => state.batchUpsertIncidents)
   const getEntityById = useDigitalTwinStore((state) => state.getEntityById)
-  const addTrajectoryPoint = useDigitalTwinStore((state) => state.addTrajectoryPoint)
-  const addAlarm = useDigitalTwinStore((state) => state.addAlarm)
-  const upsertIncident = useDigitalTwinStore((state) => state.upsertIncident)
   const setConnectionStatus = useDigitalTwinStore((state) => state.setConnectionStatus)
 
   const refreshBootstrap = useCallback(async () => {
@@ -123,51 +125,49 @@ export function useLiveDigitalTwin(workspaceId: string) {
     }
   }, [setConnectionStatus, workspaceId])
 
-  const connectWs = useCallback(() => {
-    if (wsRef.current) {
-      suppressDisconnectFallbackRef.current = true
-      wsRef.current.disconnect()
-    }
+  const processRealtimeMessages = useCallback(
+    (messages: WSMessage[]) => {
+      if (messages.length === 0) return
 
-    const wsUrl = getRealtimeWsUrl(workspaceId)
-    const ws = new DigitalTwinWebSocket({
-      url: wsUrl,
-      onConnect: () => {
-        suppressDisconnectFallbackRef.current = false
-        setConnectionStatus(true, wsUrl)
-        if (needsBootstrapResyncRef.current) {
-          void refreshBootstrap()
+      const entityUpdates = new Map<string, Partial<Entity>>()
+      const entityDrafts = new Map<string, Entity | undefined>()
+      const trajectoryUpdates: Array<{ entityId: string; point: { position: VehicleEntity['position']; timestamp: number } }> = []
+      const newAlarms: BootstrapPayload['alarms'] = []
+      const incidents: RuntimeIncident[] = []
+      let shouldRefresh = false
+
+      const readEntity = (entityId: string) => {
+        if (entityDrafts.has(entityId)) {
+          return entityDrafts.get(entityId)
         }
-      },
-      onDisconnect: () => {
-        if (suppressDisconnectFallbackRef.current) {
-          suppressDisconnectFallbackRef.current = false
-          return
+        const entity = getEntityById(entityId)
+        entityDrafts.set(entityId, entity)
+        return entity
+      }
+
+      const mergeEntityPatch = (entityId: string, patch: Partial<Entity>) => {
+        const previousPatch = entityUpdates.get(entityId) ?? {}
+        const nextPatch = {
+          ...previousPatch,
+          ...patch,
         }
-        setConnectionStatus(false)
-        setError('实时连接已断开')
-        useDigitalTwinStore
-          .getState()
-          .setRuntimeDataSource('live', '实时连接已断开')
-        needsBootstrapResyncRef.current = true
-      },
-      onError: () => {
-        if (suppressDisconnectFallbackRef.current) {
-          return
+        entityUpdates.set(entityId, nextPatch)
+
+        const current = readEntity(entityId)
+        if (current) {
+          entityDrafts.set(entityId, {
+            ...current,
+            ...nextPatch,
+          } as Entity)
         }
-        setConnectionStatus(false)
-        setError('实时连接异常')
-        useDigitalTwinStore
-          .getState()
-          .setRuntimeDataSource('live', '实时连接异常')
-        needsBootstrapResyncRef.current = true
-      },
-      onMessage: (message: WSMessage) => {
+      }
+
+      for (const message of messages) {
         switch (message.type) {
           case 'position_update': {
             const data = message.payload as PositionUpdateMessage
             const receivedAt = Date.now()
-            const currentEntity = getEntityById(data.entityId)
+            const currentEntity = readEntity(data.entityId)
             if (currentEntity?.type === 'dynamic') {
               const archetype = useDigitalTwinStore
                 .getState()
@@ -176,6 +176,7 @@ export function useLiveDigitalTwin(workspaceId: string) {
                 break
               }
             }
+
             const runtimePatch = buildRuntimePositionEntityPatch(currentEntity, data, {
               timestamp: message.timestamp,
             })
@@ -187,7 +188,7 @@ export function useLiveDigitalTwin(workspaceId: string) {
               vehiclePatch.routeTrack !== undefined ||
               vehiclePatch.trackPosition !== undefined
             ) {
-              runtimeVehicleSnapshotRegistry.append(data.entityId, {
+              const samples = runtimeVehicleSnapshotRegistry.append(data.entityId, {
                 timestamp: runtimeVehicleSnapshotRegistry.projectTimestamp(
                   message.timestamp,
                   receivedAt
@@ -198,9 +199,7 @@ export function useLiveDigitalTwin(workspaceId: string) {
                 yaw: vehiclePatch.rotation?.y ?? currentEntity?.rotation.y ?? 0,
                 speed:
                   vehiclePatch.speed ??
-                  (currentEntity?.type === 'vehicle'
-                    ? currentEntity.speed
-                    : 0),
+                  (currentEntity?.type === 'vehicle' ? currentEntity.speed : 0),
                 routeTrack:
                   vehiclePatch.routeTrack ??
                   (currentEntity?.type === 'vehicle'
@@ -216,20 +215,24 @@ export function useLiveDigitalTwin(workspaceId: string) {
                     ? currentEntity.status
                     : 'active',
               })
+              runtimeVehiclePoseBuffer.upsert(data.entityId, samples)
             }
 
-            updateEntity(data.entityId, runtimePatch)
-            addTrajectoryPoint(data.entityId, {
-              position: nextPosition,
-              timestamp: message.timestamp,
+            mergeEntityPatch(data.entityId, runtimePatch)
+            trajectoryUpdates.push({
+              entityId: data.entityId,
+              point: {
+                position: nextPosition,
+                timestamp: message.timestamp,
+              },
             })
             break
           }
           case 'status_update': {
             const data = message.payload as StatusUpdateMessage
-            updateEntity(
+            mergeEntityPatch(
               data.entityId,
-              buildRuntimeStatusEntityPatch(getEntityById(data.entityId), data)
+              buildRuntimeStatusEntityPatch(readEntity(data.entityId), data)
             )
             break
           }
@@ -239,7 +242,7 @@ export function useLiveDigitalTwin(workspaceId: string) {
               level: 'info' | 'warning' | 'error' | 'critical'
               message: string
             }
-            addAlarm({
+            newAlarms.push({
               ...alarm,
               timestamp: message.timestamp,
               acknowledged: false,
@@ -250,7 +253,7 @@ export function useLiveDigitalTwin(workspaceId: string) {
             const payload = message.payload as IncidentMessage
             const incident = resolveRuntimeIncident(payload)
             if (incident) {
-              upsertIncident(incident)
+              incidents.push(incident)
             }
             break
           }
@@ -259,6 +262,7 @@ export function useLiveDigitalTwin(workspaceId: string) {
             if (configChanged.workspaceId !== workspaceId) {
               break
             }
+
             const hasPublishedSceneUpdate =
               Boolean(configChanged.publishedScene) &&
               (configChanged.publishedScene?.packageVersion !==
@@ -266,12 +270,12 @@ export function useLiveDigitalTwin(workspaceId: string) {
                 configChanged.publishedScene?.packageUrl !==
                   publishedSceneRef.current?.packageUrl)
 
-            const shouldRefresh =
+            shouldRefresh =
+              shouldRefresh ||
               configChanged.scope === 'publish' ||
               configChanged.scope === 'entity' ||
               hasPublishedSceneUpdate
 
-            if (!shouldRefresh) break
             sceneVersionRef.current = Math.max(
               sceneVersionRef.current,
               configChanged.sceneVersion
@@ -279,34 +283,104 @@ export function useLiveDigitalTwin(workspaceId: string) {
             if (configChanged.publishedScene) {
               publishedSceneRef.current = configChanged.publishedScene
             }
-            void refreshBootstrap()
             break
           }
         }
+      }
+
+      if (
+        entityUpdates.size > 0 ||
+        trajectoryUpdates.length > 0 ||
+        newAlarms.length > 0
+      ) {
+        applySimulationTick({
+          entityUpdates: [...entityUpdates].map(([id, updates]) => ({ id, updates })),
+          trajectoryUpdates,
+          newAlarms,
+        })
+      }
+
+      if (incidents.length > 0) {
+        batchUpsertIncidents(incidents)
+      }
+
+      if (shouldRefresh) {
+        void refreshBootstrap()
+      }
+    },
+    [applySimulationTick, batchUpsertIncidents, getEntityById, refreshBootstrap, workspaceId]
+  )
+
+  const processRealtimeMessagesRef = useRef(processRealtimeMessages)
+  processRealtimeMessagesRef.current = processRealtimeMessages
+  const batcherRef = useRef(
+    createRuntimeMessageBatcher({
+      flush: (messages) => {
+        processRealtimeMessagesRef.current(messages)
       },
     })
+  )
 
-    ws.connect()
-    wsRef.current = ws
-  }, [
-    addAlarm,
-    addTrajectoryPoint,
-    refreshBootstrap,
-    getEntityById,
-    setConnectionStatus,
-    updateEntity,
-    upsertIncident,
-    workspaceId,
-  ])
+  const markRealtimeConnectionIssue = useCallback(
+    (message: string) => {
+      if (suppressDisconnectFallbackRef.current) {
+        return false
+      }
+
+      setConnectionStatus(false)
+      setError(message)
+      useDigitalTwinStore.getState().setRuntimeDataSource('live', message)
+      needsBootstrapResyncRef.current = true
+      return true
+    },
+    [setConnectionStatus]
+  )
+
+  const connectWs = useCallback(() => {
+    if (unsubscribeRef.current) {
+      suppressDisconnectFallbackRef.current = true
+      unsubscribeRef.current()
+      unsubscribeRef.current = null
+    }
+
+    const wsUrl = getRealtimeWsUrl(workspaceId)
+    unsubscribeRef.current = realtimeConnectionHub.subscribe(wsUrl, {
+      onConnect: () => {
+        suppressDisconnectFallbackRef.current = false
+        setConnectionStatus(true, wsUrl)
+        if (needsBootstrapResyncRef.current) {
+          void refreshBootstrap()
+        }
+      },
+      onDisconnect: () => {
+        if (suppressDisconnectFallbackRef.current) {
+          suppressDisconnectFallbackRef.current = false
+          return
+        }
+        markRealtimeConnectionIssue('实时连接已断开')
+      },
+      onError: () => {
+        markRealtimeConnectionIssue('实时连接异常')
+      },
+      onMessage: (message: WSMessage) => {
+        batcherRef.current.push(message)
+        if (message.type === 'config_changed') {
+          batcherRef.current.flushNow()
+        }
+      },
+    })
+  }, [markRealtimeConnectionIssue, refreshBootstrap, setConnectionStatus, workspaceId])
 
   useEffect(() => {
     void refreshBootstrap()
     connectWs()
+    const batcher = batcherRef.current
 
     return () => {
+      batcher.cancel()
       suppressDisconnectFallbackRef.current = true
-      wsRef.current?.disconnect()
-      wsRef.current = null
+      unsubscribeRef.current?.()
+      unsubscribeRef.current = null
       setConnectionStatus(false)
     }
   }, [connectWs, refreshBootstrap, setConnectionStatus])

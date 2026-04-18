@@ -78,6 +78,7 @@ import {
   shouldRetainRuntimeIncident,
 } from './incident-utils'
 import { runtimeVehicleSnapshotRegistry } from './runtime-vehicle-snapshot-registry'
+import { runtimeVehiclePoseBuffer } from './runtime-vehicle-pose-buffer'
 
 export type QualityProfile = 'balanced' | 'performance'
 export type RendererMode = 'auto' | 'webgpu' | 'webgl2'
@@ -273,6 +274,7 @@ interface DigitalTwinActions {
 
   // 事件操作
   upsertIncident: (incident: RuntimeIncident) => void
+  batchUpsertIncidents: (incidents: RuntimeIncident[]) => void
   acknowledgeIncident: (id: string) => void
   setActiveIncident: (id: string | null) => void
   openIncidentVideo: (feed: IncidentVideoFeed, incidentId?: string | null) => void
@@ -403,6 +405,42 @@ const LABEL_MODE_TO_CODE: Record<'hidden' | 'sprite' | 'html', number> = {
 
 const ecsWorld = createEcsWorld()
 type MovingSnapshot = EcsEntitySnapshot & { type: 'person' | 'vehicle' }
+
+function upsertRuntimeIncidentState(
+  state: Pick<DigitalTwinState, 'incidents' | 'activeIncidentId'>,
+  incident: RuntimeIncident,
+  now = Date.now()
+) {
+  const retainedIncidents = state.incidents.filter((entry) =>
+    shouldRetainRuntimeIncident(entry, now)
+  )
+  const existingIndex = state.incidents.findIndex((entry) => entry.id === incident.id)
+  if (existingIndex >= 0) {
+    const nextIncidents = retainedIncidents.slice()
+    const retainedIndex = nextIncidents.findIndex((entry) => entry.id === incident.id)
+    if (retainedIndex === -1) {
+      nextIncidents.unshift(incident)
+      return { incidents: nextIncidents.slice(0, 80) }
+    }
+    nextIncidents[retainedIndex] = incident
+    return { incidents: nextIncidents }
+  }
+
+  const nextIncidents = [incident, ...retainedIncidents]
+  const currentActiveIncident =
+    state.activeIncidentId
+      ? nextIncidents.find((entry) => entry.id === state.activeIncidentId) ?? null
+      : null
+  const nextActiveIncidentId =
+    currentActiveIncident && isRuntimeIncidentActive(currentActiveIncident, now)
+      ? currentActiveIncident.id
+      : incident.id
+
+  return {
+    incidents: nextIncidents.slice(0, 80),
+    activeIncidentId: nextActiveIncidentId,
+  }
+}
 
 function collectVisibleSnapshotsByTypes<T extends EntityType>(
   world: EcsWorld,
@@ -2077,6 +2115,7 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
         enqueueEcsCommands(ecsWorld, [{ type: 'remove', payload: { id } }])
         flushBufferedCommands(ecsWorld)
         runtimeVehicleSnapshotRegistry.clear(id)
+        runtimeVehiclePoseBuffer.delete(id)
         set((state) => ({
           ...buildPublishedEntityState({
             previousEntities: state.entities,
@@ -2385,37 +2424,21 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
 
       // 事件操作
       upsertIncident: (incident) =>
+        set((state) => upsertRuntimeIncidentState(state, incident)),
+
+      batchUpsertIncidents: (incidents) =>
         set((state) => {
-          const now = Date.now()
-          const retainedIncidents = state.incidents.filter((entry) =>
-            shouldRetainRuntimeIncident(entry, now)
-          )
-          const existingIndex = state.incidents.findIndex((entry) => entry.id === incident.id)
-          if (existingIndex >= 0) {
-            const nextIncidents = retainedIncidents.slice()
-            const retainedIndex = nextIncidents.findIndex((entry) => entry.id === incident.id)
-            if (retainedIndex === -1) {
-              nextIncidents.unshift(incident)
-              return { incidents: nextIncidents.slice(0, 80) }
+          if (incidents.length === 0) return state
+
+          let nextState = state
+          for (const incident of incidents) {
+            nextState = {
+              ...nextState,
+              ...upsertRuntimeIncidentState(nextState, incident),
             }
-            nextIncidents[retainedIndex] = incident
-            return { incidents: nextIncidents }
           }
 
-          const nextIncidents = [incident, ...retainedIncidents]
-          const currentActiveIncident =
-            state.activeIncidentId
-              ? nextIncidents.find((entry) => entry.id === state.activeIncidentId) ?? null
-              : null
-          const nextActiveIncidentId =
-            currentActiveIncident && isRuntimeIncidentActive(currentActiveIncident, now)
-              ? currentActiveIncident.id
-              : incident.id
-
-          return {
-            incidents: nextIncidents.slice(0, 80),
-            activeIncidentId: nextActiveIncidentId,
-          }
+          return nextState
         }),
 
       acknowledgeIncident: (id) =>
@@ -2598,6 +2621,7 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
         ecsWorld.selectedId = null
         ecsWorld.hoveredId = null
         runtimeVehicleSnapshotRegistry.clear()
+        runtimeVehiclePoseBuffer.clear()
         resetRuntimeClockState()
         set(initialState)
       },

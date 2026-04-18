@@ -9,7 +9,17 @@ import type {
 
 type MessageHandler = (message: WSMessage) => void
 
-interface WebSocketClientOptions {
+export interface WebSocketLike {
+  readyState: number
+  onopen: (() => void) | null
+  onclose: (() => void) | null
+  onerror: ((error: Event) => void) | null
+  onmessage: ((event: MessageEvent) => void) | null
+  close: () => void
+  send: (payload: string) => void
+}
+
+export interface WebSocketClientOptions {
   url: string
   reconnectInterval?: number
   maxReconnectAttempts?: number
@@ -17,10 +27,15 @@ interface WebSocketClientOptions {
   onDisconnect?: () => void
   onError?: (error: Event) => void
   onMessage?: MessageHandler
+  socketFactory?: (url: string) => WebSocketLike
+}
+
+interface DisconnectOptions {
+  suppressDisconnectEvent?: boolean
 }
 
 export class DigitalTwinWebSocket {
-  private ws: WebSocket | null = null
+  private ws: WebSocketLike | null = null
   private url: string
   private reconnectInterval: number
   private maxReconnectAttempts: number
@@ -29,12 +44,17 @@ export class DigitalTwinWebSocket {
   private handlers: Map<WSMessageType, Set<MessageHandler>> = new Map()
   private globalHandlers: Set<MessageHandler> = new Set()
   private options: WebSocketClientOptions
+  private socketFactory: (url: string) => WebSocketLike
+  private suppressDisconnectEvent = false
 
   constructor(options: WebSocketClientOptions) {
     this.options = options
     this.url = options.url
     this.reconnectInterval = options.reconnectInterval || 3000
     this.maxReconnectAttempts = options.maxReconnectAttempts || 10
+    this.socketFactory =
+      options.socketFactory ??
+      ((url) => new WebSocket(url) as unknown as WebSocketLike)
 
     if (options.onMessage) {
       this.globalHandlers.add(options.onMessage)
@@ -47,7 +67,7 @@ export class DigitalTwinWebSocket {
     }
 
     try {
-      this.ws = new WebSocket(this.url)
+      this.ws = this.socketFactory(this.url)
 
       this.ws.onopen = () => {
         console.log('[v0] WebSocket connected')
@@ -57,6 +77,11 @@ export class DigitalTwinWebSocket {
 
       this.ws.onclose = () => {
         console.log('[v0] WebSocket disconnected')
+        const shouldSuppress = this.suppressDisconnectEvent
+        this.suppressDisconnectEvent = false
+        if (shouldSuppress) {
+          return
+        }
         this.options.onDisconnect?.()
         this.scheduleReconnect()
       }
@@ -80,15 +105,18 @@ export class DigitalTwinWebSocket {
     }
   }
 
-  disconnect(): void {
+  disconnect(options?: DisconnectOptions): void {
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer)
       this.reconnectTimer = null
     }
-    
+
     if (this.ws) {
+      this.suppressDisconnectEvent = options?.suppressDisconnectEvent ?? false
       this.ws.close()
       this.ws = null
+    } else {
+      this.suppressDisconnectEvent = false
     }
   }
 
@@ -212,7 +240,7 @@ export function useWebSocketConnection(url?: string) {
 
   const connect = useCallback((wsUrl: string) => {
     if (wsRef.current) {
-      wsRef.current.disconnect()
+      wsRef.current.disconnect({ suppressDisconnectEvent: true })
     }
 
     wsRef.current = new DigitalTwinWebSocket({
@@ -266,7 +294,7 @@ export function useWebSocketConnection(url?: string) {
   }, [setConnectionStatus, updateEntityPosition, updateEntity, addAlarm, upsertIncident])
 
   const disconnect = useCallback(() => {
-    wsRef.current?.disconnect()
+    wsRef.current?.disconnect({ suppressDisconnectEvent: true })
     wsRef.current = null
     setIsConnected(false)
     setConnectionStatus(false)
@@ -282,7 +310,7 @@ export function useWebSocketConnection(url?: string) {
     }
 
     return () => {
-      wsRef.current?.disconnect()
+      wsRef.current?.disconnect({ suppressDisconnectEvent: true })
     }
   }, [url, connect])
 

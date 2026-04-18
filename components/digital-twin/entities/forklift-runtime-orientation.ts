@@ -1,8 +1,8 @@
 import { Box3, Group, Mesh } from 'three'
 
-export const FORKLIFT_MODEL_URL = '/assets/3d/Fork_Lift.fbx'
+export const FORKLIFT_MODEL_URL = '/assets/3d/Fork_Lift.glb'
 
-// Source FBX includes a presentation floor and faces +X in authoring space.
+// Source GLB includes a presentation floor and faces +X in authoring space.
 // Removing the floor, rotating -90° around Y, and scaling to 0.101 yields an
 // in-scene footprint of roughly 1.10w x 2.00h x 3.49d, which fits the campus lanes.
 export const FORKLIFT_MODEL_SCALE = 0.101

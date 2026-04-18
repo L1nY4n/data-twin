@@ -17,8 +17,7 @@ import { SpriteTextLabel } from '@/components/digital-twin/scene/SpriteTextLabel
 import { TruckRuntimeModel } from './TruckRuntimeModel'
 import { ForkliftRuntimeModel } from './ForkliftRuntimeModel'
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
-import { runtimeVehicleSnapshotRegistry } from '@/lib/digital-twin/runtime-vehicle-snapshot-registry'
-import { resolveVehiclePoseFromSnapshots } from '@/lib/digital-twin/vehicle-snapshot-interpolation'
+import { runtimeVehiclePoseBuffer } from '@/lib/digital-twin/runtime-vehicle-pose-buffer'
 import {
   normalizeVehicleRouteLike,
   normalizeVehicleTrackLike,
@@ -134,12 +133,7 @@ export const VehicleMarker = memo(function VehicleMarker({
   useFrame((_state, delta) => {
     if (!groupRef.current || !shouldTrackLivePose) return
 
-    const pose = resolveVehiclePoseFromSnapshots(
-      runtimeVehicleSnapshotRegistry.get(entity.id),
-      Date.now(),
-      120,
-      220
-    )
+    const pose = runtimeVehiclePoseBuffer.get(entity.id)
     const snapshot = useDigitalTwinStore.getState().getEcsSnapshotById(entity.id)
     const fallbackPose =
       snapshot?.type === 'vehicle'

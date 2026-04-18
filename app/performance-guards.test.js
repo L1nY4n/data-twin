@@ -221,8 +221,8 @@ describe('performance guards', () => {
     expect(equipment.includes('useFrame(')).toBe(false)
     expect(person.includes('if (!groupRef.current || (!isSelected && !isHovered)) return')).toBe(true)
     expect(vehicle.includes('if (!groupRef.current || !shouldTrackLivePose) return')).toBe(true)
-    expect(vehicle.includes('runtimeVehicleSnapshotRegistry.get(entity.id)')).toBe(true)
-    expect(vehicle.includes('resolveVehiclePoseFromSnapshots')).toBe(true)
+    expect(vehicle.includes('runtimeVehiclePoseBuffer.get(entity.id)')).toBe(true)
+    expect(vehicle.includes('resolveVehiclePoseFromSnapshots')).toBe(false)
     expect(vehicle.includes("const shouldRenderTelemetryCard = showLabel && labelMode === 'html'")).toBe(true)
     expect(vehicle.includes('if (!shouldRenderTelemetryCard) {')).toBe(true)
     expect(vehicle.includes('setRenderTelemetry({ speed, heading })')).toBe(true)
@@ -240,6 +240,18 @@ describe('performance guards', () => {
     expect(markers.includes('publishedSectors')).toBe(true)
     expect(markers.includes('showStatusRing={false}')).toBe(true)
     expect(markers.includes("qualityProfile === 'performance'")).toBe(false)
+
+    const canvas = readFileSync(
+      join(process.cwd(), 'components/digital-twin/scene/DigitalTwinCanvas.tsx'),
+      'utf8'
+    )
+    const vehicleInstances = readFileSync(
+      join(process.cwd(), 'components/digital-twin/entities/VehicleInstances.tsx'),
+      'utf8'
+    )
+    expect(canvas.includes('runtimeVehiclePoseBuffer.solve(nowMs)')).toBe(true)
+    expect(canvas.includes('runtimeVehiclePoseBuffer.get(entity.id)')).toBe(true)
+    expect(vehicleInstances.includes('runtimeVehiclePoseBuffer.populate(entity.id, state)')).toBe(true)
   })
 
   test('detailed marker labels should use sprite/canvas cards instead of Html overlays', () => {
@@ -535,8 +547,8 @@ describe('performance guards', () => {
         vehicleInstances.includes('getSnapshotById(')
     ).toBe(true)
     expect(personInstances.includes('lerpAngle(')).toBe(true)
-    expect(vehicleInstances.includes('resolveVehiclePoseFromSnapshots')).toBe(true)
-    expect(vehicleInstances.includes('runtimeVehicleSnapshotRegistry.get(entity.id)')).toBe(true)
+    expect(vehicleInstances.includes('resolveVehiclePoseFromSnapshots')).toBe(false)
+    expect(vehicleInstances.includes('runtimeVehiclePoseBuffer.populate(entity.id, state)')).toBe(true)
   })
 
   test('instanced moving entities should only upload matrices while dirty or unsettled', () => {
@@ -554,7 +566,8 @@ describe('performance guards', () => {
     expect(personInstances.includes('if (!isSettled(state))')).toBe(true)
     expect(vehicleInstances.includes('forceMatrixSyncRef')).toBe(true)
     expect(vehicleInstances.includes('let matrixDirty = false')).toBe(true)
-    expect(vehicleInstances.includes('if (pose) {')).toBe(true)
+    expect(vehicleInstances.includes('runtimeVehiclePoseBuffer.populate(entity.id, state)')).toBe(true)
+    expect(vehicleInstances.includes('state.status = targetStatus')).toBe(true)
     expect(vehicleInstances.includes('if (matrixDirty) {')).toBe(true)
   })
 

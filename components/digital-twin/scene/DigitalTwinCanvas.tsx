@@ -16,8 +16,7 @@ import type { Entity } from '@/lib/digital-twin/types'
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
 import { createPreferredRenderer } from '@/lib/digital-twin/renderer/createPreferredRenderer'
 import { getFrameDrawCallSample } from '@/lib/digital-twin/performance-runtime'
-import { runtimeVehicleSnapshotRegistry } from '@/lib/digital-twin/runtime-vehicle-snapshot-registry'
-import { resolveVehiclePoseFromSnapshots } from '@/lib/digital-twin/vehicle-snapshot-interpolation'
+import { runtimeVehiclePoseBuffer } from '@/lib/digital-twin/runtime-vehicle-pose-buffer'
 import { SpaceGrid } from './SpaceGrid'
 import { ChemicalPlantEnvironment } from './ChemicalPlantEnvironment'
 import { EntityMarkers } from '../entities/EntityMarkers'
@@ -84,16 +83,11 @@ function forwardVectorFromYaw(yaw: number) {
   }
 }
 
-function resolveTrackedEntityPose(entity: Entity, nowMs: number): TrackedEntityPose {
+function resolveTrackedEntityPose(entity: Entity): TrackedEntityPose {
   const snapshot = useDigitalTwinStore.getState().getEcsSnapshotById(entity.id)
 
   if (entity.type === 'vehicle') {
-    const interpolatedPose = resolveVehiclePoseFromSnapshots(
-      runtimeVehicleSnapshotRegistry.get(entity.id),
-      nowMs,
-      120,
-      220
-    )
+    const interpolatedPose = runtimeVehiclePoseBuffer.get(entity.id)
     return {
       position: {
         x: interpolatedPose?.x ?? snapshot?.position.x ?? entity.position.x,
@@ -288,11 +282,13 @@ const SceneContent = memo(function SceneContent({ backgroundColor }: SceneConten
   }, [cameraFocusRequest, viewMode])
 
   useFrame(({ clock, camera }, delta) => {
+    const nowMs = Date.now()
+    runtimeVehiclePoseBuffer.solve(nowMs)
     const controls = controlsRef.current
     const selectedEntity = selectedEntityId ? entities.get(selectedEntityId) ?? null : null
 
     if (isTrackedViewMode(viewMode) && controls && selectedEntity && selectedEntity.type !== 'zone') {
-      const trackedPose = resolveTrackedEntityPose(selectedEntity, Date.now())
+      const trackedPose = resolveTrackedEntityPose(selectedEntity)
       const desiredPose =
         viewMode === 'follow'
           ? resolveFollowCameraPose(trackedPose)
