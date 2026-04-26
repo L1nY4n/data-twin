@@ -26,13 +26,15 @@ export type EditorSelectionKind = 'entity' | 'static-asset'
 export type EditorViewportProjection = 'perspective' | 'orthographic'
 export type EditorCameraDirection = 'north' | 'east' | 'south' | 'west' | 'top'
 
-interface TransformSnapshot {
+export interface EditorTransformSnapshot {
   position: Vector3
   rotation: Vector3
   scale: Vector3
   routeTrack?: VehicleTrackLike
   trackPosition?: VehicleRouteLike
 }
+
+type TransformSnapshot = EditorTransformSnapshot
 
 interface CameraFocusRequest {
   position: Vector3
@@ -89,7 +91,6 @@ interface EditorDigitalTwinState {
   rotateSnapDegrees: number
   floorPlanReference: EditorFloorPlanReference | null
   placementPreview: StaticAssetPlacementPreview | null
-  transformPreview: TransformSnapshot | null
   draftEntity: Entity | null
   savedEntity: Entity | null
   draftStaticAsset: StaticAssetInstance | null
@@ -137,7 +138,6 @@ interface EditorDigitalTwinActions {
   setFloorPlanReference: (reference: EditorFloorPlanReference | null) => void
   updateFloorPlanReference: (patch: Partial<EditorFloorPlanReference>) => void
   setPlacementPreview: (placement: StaticAssetPlacementPreview | null) => void
-  setTransformPreview: (preview: TransformSnapshot | null) => void
   setTransformDragging: (dragging: boolean) => void
   setMarqueeSelecting: (selecting: boolean) => void
   setSelectionMarquee: (marquee: EditorSelectionMarquee | null) => void
@@ -236,7 +236,6 @@ export type EditorUiStoreSlice = Pick<
   | 'rotateSnapDegrees'
   | 'floorPlanReference'
   | 'placementPreview'
-  | 'transformPreview'
   | 'hasHydratedFromBootstrap'
   | 'isLoading'
   | 'isSaving'
@@ -255,7 +254,6 @@ export type EditorUiStoreSlice = Pick<
   | 'setFloorPlanReference'
   | 'updateFloorPlanReference'
   | 'setPlacementPreview'
-  | 'setTransformPreview'
   | 'setTransformDragging'
   | 'setMarqueeSelecting'
   | 'setSelectionMarquee'
@@ -445,20 +443,6 @@ function createTransformSnapshot(value: TransformableDraft): TransformSnapshot {
   return snapshot
 }
 
-function cloneTransformSnapshot(snapshot: TransformSnapshot): TransformSnapshot {
-  return {
-    position: cloneVector(snapshot.position),
-    rotation: cloneVector(snapshot.rotation),
-    scale: cloneVector(snapshot.scale),
-    routeTrack: snapshot.routeTrack
-      ? JSON.parse(JSON.stringify(snapshot.routeTrack))
-      : undefined,
-    trackPosition: snapshot.trackPosition
-      ? JSON.parse(JSON.stringify(snapshot.trackPosition))
-      : undefined,
-  }
-}
-
 function applyTransformSnapshot<T extends TransformableDraft>(
   value: T,
   snapshot: TransformSnapshot
@@ -565,7 +549,6 @@ function clearSelectionState(sceneDirty = false) {
   return {
     placementCatalogId: null,
     placementPreview: null,
-    transformPreview: null,
     selectedEntityId: null,
     selectedStaticAssetId: null,
     draftEntity: null,
@@ -617,7 +600,6 @@ const initialState: EditorDigitalTwinState = {
   rotateSnapDegrees: DEFAULT_ROTATE_SNAP_DEGREES,
   floorPlanReference: null,
   placementPreview: null,
-  transformPreview: null,
   draftEntity: null,
   savedEntity: null,
   draftStaticAsset: null,
@@ -690,7 +672,6 @@ export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, ge
           draftStaticAsset: cloneStaticAssetDraft(selectedStaticAsset),
           savedStaticAsset: cloneStaticAssetDraft(selectedStaticAsset),
           floorPlanReference: null,
-          transformPreview: null,
           transformSessionStart: null,
           history: [],
           redoHistory: [],
@@ -733,7 +714,6 @@ export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, ge
         draftStaticAsset: null,
         savedStaticAsset: null,
         floorPlanReference: null,
-        transformPreview: null,
         transformSessionStart: null,
         history: [],
         redoHistory: [],
@@ -766,7 +746,6 @@ export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, ge
         savedEntity: cloneEntityDraft(draftEntity),
         draftStaticAsset: null,
         savedStaticAsset: null,
-        transformPreview: null,
         transformSessionStart: null,
         history: [],
         redoHistory: [],
@@ -802,7 +781,6 @@ export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, ge
         savedStaticAsset: state.staticAssets.has(id)
           ? cloneStaticAssetDraft(staticAsset)
           : null,
-        transformPreview: null,
         transformSessionStart: null,
         history: [],
         redoHistory: [],
@@ -818,7 +796,6 @@ export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, ge
     set({
       placementCatalogId: catalogId,
       placementPreview: null,
-      transformPreview: null,
     }),
 
   placeStaticAsset: (placement) => {
@@ -839,7 +816,6 @@ export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, ge
       savedEntity: null,
       draftStaticAsset,
       savedStaticAsset: null,
-      transformPreview: null,
       transformSessionStart: null,
       history: [],
       redoHistory: [],
@@ -960,16 +936,7 @@ export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, ge
       }
     }),
   setPlacementPreview: (placementPreview) => set({ placementPreview }),
-  setTransformPreview: (transformPreview) =>
-    set({
-      transformPreview: transformPreview ? cloneTransformSnapshot(transformPreview) : null,
-    }),
-  setTransformDragging: (dragging) =>
-    set(
-      dragging
-        ? { isTransformDragging: true }
-        : { isTransformDragging: false, transformPreview: null }
-    ),
+  setTransformDragging: (dragging) => set({ isTransformDragging: dragging }),
   setMarqueeSelecting: (isMarqueeSelecting) => set({ isMarqueeSelecting }),
   setSelectionMarquee: (selectionMarquee) => set({ selectionMarquee }),
 
@@ -1358,7 +1325,6 @@ function selectEditorUiSlice(state: EditorDigitalTwinStore): EditorUiStoreSlice 
     rotateSnapDegrees: state.rotateSnapDegrees,
     floorPlanReference: state.floorPlanReference,
     placementPreview: state.placementPreview,
-    transformPreview: state.transformPreview,
     hasHydratedFromBootstrap: state.hasHydratedFromBootstrap,
     isLoading: state.isLoading,
     isSaving: state.isSaving,
@@ -1377,7 +1343,6 @@ function selectEditorUiSlice(state: EditorDigitalTwinStore): EditorUiStoreSlice 
     setFloorPlanReference: state.setFloorPlanReference,
     updateFloorPlanReference: state.updateFloorPlanReference,
     setPlacementPreview: state.setPlacementPreview,
-    setTransformPreview: state.setTransformPreview,
     setTransformDragging: state.setTransformDragging,
     setMarqueeSelecting: state.setMarqueeSelecting,
     setSelectionMarquee: state.setSelectionMarquee,

@@ -354,7 +354,7 @@ const AuthoredWallSystemMount = memo(function AuthoredWallSystemMount({
   )
 })
 
-const AuthoredStaticAssetMount = memo(function AuthoredStaticAssetMount({
+export const AuthoredStaticAssetMount = memo(function AuthoredStaticAssetMount({
   asset,
   assets,
   palette,

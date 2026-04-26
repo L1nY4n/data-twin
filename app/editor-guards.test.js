@@ -130,6 +130,10 @@ describe('editor guards', () => {
       join(process.cwd(), 'lib/digital-twin/editor-store.ts'),
       'utf8'
     )
+    const previewStore = readFileSync(
+      join(process.cwd(), 'lib/digital-twin/editor-preview-store.ts'),
+      'utf8'
+    )
     const floorPlanImport = readFileSync(
       join(process.cwd(), 'lib/digital-twin/floor-plan-import.ts'),
       'utf8'
@@ -155,6 +159,7 @@ describe('editor guards', () => {
     expect(gizmo.includes('confirmTransformDrag')).toBe(false)
     expect(gizmo.includes('if (!draftTarget || !targetRef.current || isTransformDragging) return')).toBe(true)
     expect(gizmo.includes('position={[draftTarget.position.x')).toBe(false)
+    expect(gizmo.includes("useEditorPreviewStore")).toBe(true)
     expect(gizmo.includes('setTransformPreview(nextSnapshot)')).toBe(true)
     expect(gizmo.includes('window.requestAnimationFrame(() => {')).toBe(false)
     expect(gizmo.includes("window.addEventListener('pointermove', updatePointer, { passive: true })")).toBe(true)
@@ -193,14 +198,20 @@ describe('editor guards', () => {
     expect(picking.includes('resolveEditorMarqueeTarget')).toBe(true)
     expect(picking.includes('CLICK_SUPPRESSION_DRAG_THRESHOLD = 1')).toBe(true)
     expect(picking.includes('if (event.buttons !== 0) {')).toBe(true)
-    expect(picking.includes('const transformPreview = useEditorUiStore((state) => state.transformPreview)')).toBe(true)
+    expect(picking.includes("const pointerWorkModeRef = useRef<'hover' | 'placement' | null>(null)")).toBe(true)
+    expect(picking.includes("queuePointerWork('placement')")).toBe(true)
+    expect(picking.includes("queuePointerWork('hover')")).toBe(true)
+    expect(picking.includes('cancelQueuedPointerWork()')).toBe(true)
     expect(picking.includes('useEditorSceneStore')).toBe(true)
     expect(picking.includes('useEditorViewerStore')).toBe(true)
     expect(picking.includes('useEditorUiStore')).toBe(true)
-    expect(entityLayer.includes('const transformPreview = useEditorUiStore((state) => state.transformPreview)')).toBe(true)
-    expect(entityLayer.includes('if (!isTransformDragging || !transformPreview) return draftEntity')).toBe(true)
-    expect(authoredStaticAssetLayer.includes('const transformPreview = useEditorUiStore((state) => state.transformPreview)')).toBe(true)
-    expect(authoredStaticAssetLayer.includes('const renderedDraftStaticAsset =')).toBe(true)
+    expect(entityLayer.includes('useEditorPreviewStore')).toBe(true)
+    expect(entityLayer.includes('buildRenderedEntities')).toBe(true)
+    expect(entityLayer.includes('previewEntity')).toBe(true)
+    expect(authoredStaticAssetLayer.includes('useEditorPreviewStore')).toBe(true)
+    expect(authoredStaticAssetLayer.includes('isPreviewingSelectedAsset')).toBe(true)
+    expect(authoredStaticAssetLayer.includes('previewAsset')).toBe(true)
+    expect(authoredStaticAssetLayer.includes('AuthoredStaticAssetMount')).toBe(true)
     expect(hook.includes('fetchEditorBootstrap')).toBe(true)
     expect(hook.includes('fetchAdminPublishStatus')).toBe(true)
     expect(hook.includes('triggerAdminPublish')).toBe(true)
@@ -246,6 +257,8 @@ describe('editor guards', () => {
     expect(store.includes('focusCameraDirection')).toBe(true)
     expect(store.includes('hydrateFromBootstrap')).toBe(true)
     expect(store.includes('if (!hasSnapshotChanged(currentSnapshot, snapshot)) {')).toBe(true)
+    expect(previewStore.includes('transformPreview')).toBe(true)
+    expect(previewStore.includes('setTransformPreview')).toBe(true)
     expect(store.includes('export type EditorSceneStoreSlice')).toBe(true)
     expect(store.includes('export type EditorViewerStoreSlice')).toBe(true)
     expect(store.includes('export type EditorUiStoreSlice')).toBe(true)
@@ -259,6 +272,10 @@ describe('editor guards', () => {
     expect(renderTransform.includes('resolveRenderablePosition')).toBe(true)
     expect(staticEnvironment.includes('if (staticChunkRegistry.length === 0) {')).toBe(true)
     expect(staticEnvironment.includes('setAssetManifest(null)')).toBe(true)
+    expect(staticEnvironment.includes('hasRuntimeStaticViewChanged')).toBe(true)
+    expect(staticEnvironment.includes('isRuntimeStaticChunkVisible')).toBe(true)
+    expect(staticEnvironment.includes('lastCameraPositionRef.current.set(Number.POSITIVE_INFINITY, 0, 0)')).toBe(true)
+    expect(staticEnvironment.includes('chunkRef={(node) => setChunkGroupRef(entry.id, node)}')).toBe(true)
   })
 
   test('editor sidebar should expose floor plan reference and import workflow', () => {

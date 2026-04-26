@@ -4,6 +4,7 @@ import { TransformControls } from '@react-three/drei'
 import { useCallback, useEffect, useLayoutEffect, useRef } from 'react'
 import type { TransformControls as TransformControlsImpl } from 'three-stdlib'
 import * as THREE from 'three'
+import { useEditorPreviewStore } from '@/lib/digital-twin/editor-preview-store'
 import { useEditorSceneStore, useEditorUiStore } from '@/lib/digital-twin/editor-store'
 import type { EntityType } from '@/lib/digital-twin/types'
 import {
@@ -142,13 +143,12 @@ export function EditorTransformGizmo({
   const rotateSnapDegrees = useEditorUiStore((state) => state.rotateSnapDegrees)
   const isTransformDragging = useEditorUiStore((state) => state.isTransformDragging)
   const beginTransformSession = useEditorSceneStore((state) => state.beginTransformSession)
-  const setTransformPreview = useEditorUiStore((state) => state.setTransformPreview)
+  const setTransformPreview = useEditorPreviewStore((state) => state.setTransformPreview)
   const updateDraftTransform = useEditorSceneStore((state) => state.updateDraftTransform)
   const commitTransformSession = useEditorSceneStore((state) => state.commitTransformSession)
   const setTransformDragging = useEditorUiStore((state) => state.setTransformDragging)
   const targetRef = useRef<THREE.Group>(null!)
   const transformControlsRef = useRef<TransformControlsImpl>(null)
-  const pendingPreviewRef = useRef<EditorTransformSnapshot | null>(null)
   const lastPointerRef = useRef<ScreenPointerSnapshot | null>(null)
   const dragStartPointerRef = useRef<ScreenPointerSnapshot | null>(null)
   const dragStartSnapshotRef = useRef<EditorTransformSnapshot | null>(null)
@@ -194,6 +194,14 @@ export function EditorTransformGizmo({
     )
     targetRef.current.updateMatrixWorld()
   }, [draftTarget, isTransformDragging])
+
+  useEffect(() => {
+    setTransformPreview(null)
+
+    return () => {
+      setTransformPreview(null)
+    }
+  }, [draftTarget?.id, setTransformPreview, transformMode])
 
   useEffect(() => {
     const updatePointer = (event: PointerEvent) => {
@@ -307,12 +315,6 @@ export function EditorTransformGizmo({
     }
   }, [draftTarget])
 
-  const flushTransformPreview = useCallback(() => {
-    if (!pendingPreviewRef.current) return
-    setTransformPreview(pendingPreviewRef.current)
-    pendingPreviewRef.current = null
-  }, [setTransformPreview])
-
   const restoreTargetRefSnapshot = useCallback(
     (snapshot: EditorTransformSnapshot) => {
       if (!targetRef.current) return
@@ -341,7 +343,6 @@ export function EditorTransformGizmo({
     const nextSnapshot = captureObjectSnapshot()
     if (!nextSnapshot) return
 
-    pendingPreviewRef.current = nextSnapshot
     setTransformPreview(nextSnapshot)
   }, [
     captureObjectSnapshot,
@@ -379,7 +380,6 @@ export function EditorTransformGizmo({
           dragStartSnapshotRef.current = startSnapshot
           dragStartPointerRef.current =
             pointerDownDebugRef.current.pointer ?? lastPointerRef.current
-          pendingPreviewRef.current = null
           setTransformPreview(null)
           if (startSnapshot) {
             restoreTargetRefSnapshot(startSnapshot)
@@ -389,11 +389,11 @@ export function EditorTransformGizmo({
         }}
         onObjectChange={scheduleTransformPreview}
         onMouseUp={() => {
-          flushTransformPreview()
           const finalSnapshot = captureObjectSnapshot()
           if (finalSnapshot) {
             updateDraftTransform(finalSnapshot)
           }
+          setTransformPreview(null)
           dragStartPointerRef.current = null
           dragStartSnapshotRef.current = null
           commitTransformSession()

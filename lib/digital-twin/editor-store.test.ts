@@ -196,7 +196,7 @@ describe('editor store', () => {
     expect(after).toBe(before)
   })
 
-  test('keeps drag preview ephemeral and clears it when dragging stops', () => {
+  test('tracks transform dragging without mutating draft state', () => {
     useEditorDigitalTwinStore.getState().reset()
     const entity = createEntity()
 
@@ -204,19 +204,16 @@ describe('editor store', () => {
       .getState()
       .hydrateFromBootstrap(createBootstrapPayload(entity), DEFAULT_PUBLISHED_SCENE_PACKAGE)
     useEditorDigitalTwinStore.getState().selectEntity(entity.id)
+    const before = useEditorDigitalTwinStore.getState().draftEntity
     useEditorDigitalTwinStore.getState().setTransformDragging(true)
-    useEditorDigitalTwinStore.getState().setTransformPreview({
-      position: { x: 14, y: 0, z: 24 },
-      rotation: { x: 0, y: 0.2, z: 0 },
-      scale: { x: 1, y: 1, z: 1 },
-    })
 
-    expect(useEditorDigitalTwinStore.getState().transformPreview?.position.x).toBe(14)
+    expect(useEditorDigitalTwinStore.getState().isTransformDragging).toBe(true)
     expect(useEditorDigitalTwinStore.getState().isDirty).toBe(false)
+    expect(useEditorDigitalTwinStore.getState().draftEntity).toBe(before)
 
     useEditorDigitalTwinStore.getState().setTransformDragging(false)
 
-    expect(useEditorDigitalTwinStore.getState().transformPreview).toBeNull()
+    expect(useEditorDigitalTwinStore.getState().isTransformDragging).toBe(false)
   })
 
   test('supports direct inspector property edits on selected entity drafts', () => {

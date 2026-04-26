@@ -471,6 +471,38 @@ describe('performance guards', () => {
     expect(batches.includes('mergeGeometries')).toBe(true)
   })
 
+  test('editor performance path should isolate drag preview state and cull published static chunks', () => {
+    const previewStore = readFileSync(
+      join(process.cwd(), 'lib/digital-twin/editor-preview-store.ts'),
+      'utf8'
+    )
+    const gizmo = readFileSync(
+      join(process.cwd(), 'components/editor/scene/EditorTransformGizmo.tsx'),
+      'utf8'
+    )
+    const entityLayer = readFileSync(
+      join(process.cwd(), 'components/editor/scene/EditorEntityLayer.tsx'),
+      'utf8'
+    )
+    const authoredStaticAssetLayer = readFileSync(
+      join(process.cwd(), 'components/editor/scene/EditorAuthoredStaticAssetLayer.tsx'),
+      'utf8'
+    )
+    const environment = readFileSync(
+      join(process.cwd(), 'components/editor/scene/EditorStaticEnvironment.tsx'),
+      'utf8'
+    )
+
+    expect(previewStore.includes('transformPreview')).toBe(true)
+    expect(previewStore.includes('setTransformPreview')).toBe(true)
+    expect(gizmo.includes('useEditorPreviewStore')).toBe(true)
+    expect(entityLayer.includes('previewEntity')).toBe(true)
+    expect(authoredStaticAssetLayer.includes('previewAsset')).toBe(true)
+    expect(environment.includes('hasRuntimeStaticViewChanged')).toBe(true)
+    expect(environment.includes('isRuntimeStaticChunkVisible')).toBe(true)
+    expect(environment.includes('chunkRef={(node) => setChunkGroupRef(entry.id, node)}')).toBe(true)
+  })
+
   test('projection benchmark script should target production-campus counts and include separation benchmarking', () => {
     const source = readFileSync(
       join(process.cwd(), 'scripts/bench-entity-projection.mjs'),

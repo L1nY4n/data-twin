@@ -13,6 +13,7 @@ import { createPublishedStaticPalette } from '@/components/digital-twin/scene/pa
 import { SpaceGrid } from '@/components/digital-twin/scene/SpaceGrid'
 import { SceneLoading } from '@/components/digital-twin/scene/SceneLoading'
 import { createPreferredRenderer } from '@/lib/digital-twin/renderer/createPreferredRenderer'
+import { useEditorPreviewStore } from '@/lib/digital-twin/editor-preview-store'
 import {
   type EditorTransformMode,
   getEditorViewerState,
@@ -368,6 +369,7 @@ const EditorSceneContent = memo(function EditorSceneContent({
 
     setEditorDragCheckStoreProvider(() => {
       const state = useEditorDigitalTwinStore.getState()
+      const previewState = useEditorPreviewStore.getState()
       return {
         selectedStaticAssetId: state.selectedStaticAssetId,
         draftStaticAssetId: state.draftStaticAsset?.id ?? null,
@@ -386,11 +388,11 @@ const EditorSceneContent = memo(function EditorSceneContent({
               z: state.savedStaticAsset.position.z,
             }
           : null,
-        transformPreviewPosition: state.transformPreview
+        transformPreviewPosition: previewState.transformPreview
           ? {
-              x: state.transformPreview.position.x,
-              y: state.transformPreview.position.y,
-              z: state.transformPreview.position.z,
+              x: previewState.transformPreview.position.x,
+              y: previewState.transformPreview.position.y,
+              z: previewState.transformPreview.position.z,
             }
           : null,
         isTransformDragging: state.isTransformDragging,

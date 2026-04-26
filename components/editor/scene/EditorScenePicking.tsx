@@ -640,31 +640,16 @@ export function resolveEditorMarqueeTarget(
 function buildVisibleStaticAssets(
   staticAssets: Map<string, StaticAssetInstance>,
   draftStaticAsset: StaticAssetInstance | null,
-  savedStaticAsset: StaticAssetInstance | null,
-  transformPreview: {
-    position: { x: number; y: number; z: number }
-    rotation: { x: number; y: number; z: number }
-    scale: { x: number; y: number; z: number }
-  } | null,
-  isTransformDragging: boolean
+  savedStaticAsset: StaticAssetInstance | null
 ) {
   const items = [...staticAssets.values()]
 
   if (draftStaticAsset) {
-    const renderedDraftStaticAsset =
-      isTransformDragging && transformPreview
-        ? {
-            ...draftStaticAsset,
-            position: transformPreview.position,
-            rotation: transformPreview.rotation,
-            scale: transformPreview.scale,
-          }
-        : draftStaticAsset
     const existingIndex = items.findIndex((asset) => asset.id === draftStaticAsset.id)
     if (existingIndex >= 0) {
-      items[existingIndex] = renderedDraftStaticAsset
+      items[existingIndex] = draftStaticAsset
     } else {
-      items.push(renderedDraftStaticAsset)
+      items.push(draftStaticAsset)
     }
   } else if (
     savedStaticAsset &&
@@ -678,26 +663,26 @@ function buildVisibleStaticAssets(
 
 function buildEntityTargets(
   entities: Map<string, Entity>,
-  draftEntity: Entity | null,
-  transformPreview: {
-    position: { x: number; y: number; z: number }
-    rotation: { x: number; y: number; z: number }
-    scale: { x: number; y: number; z: number }
-  } | null,
-  isTransformDragging: boolean
+  draftEntity: Entity | null
 ) {
-  return [...entities.values()]
-    .filter((entity) => entity.visible && isEditorEntityEditable(entity))
-    .map((entity) => ({
-      kind: 'entity' as const,
-      id: entity.id,
-      position:
-        draftEntity?.id === entity.id
-          ? isTransformDragging && transformPreview
-            ? transformPreview.position
-            : draftEntity.position
-          : entity.position,
-    }))
+  const items = [...entities.values()].filter(
+    (entity) => entity.visible && isEditorEntityEditable(entity)
+  )
+
+  if (draftEntity) {
+    const existingIndex = items.findIndex((entity) => entity.id === draftEntity.id)
+    if (existingIndex >= 0) {
+      items[existingIndex] = draftEntity
+    } else if (draftEntity.visible && isEditorEntityEditable(draftEntity)) {
+      items.push(draftEntity)
+    }
+  }
+
+  return items.map((entity) => ({
+    kind: 'entity' as const,
+    id: entity.id,
+    position: entity.position,
+  }))
 }
 
 export function EditorScenePicking({
@@ -711,7 +696,6 @@ export function EditorScenePicking({
   const draftEntity = useEditorSceneStore((state) => state.draftEntity)
   const draftStaticAsset = useEditorSceneStore((state) => state.draftStaticAsset)
   const savedStaticAsset = useEditorSceneStore((state) => state.savedStaticAsset)
-  const transformPreview = useEditorUiStore((state) => state.transformPreview)
   const selectedEntityId = useEditorViewerStore((state) => state.selectedEntityId)
   const selectedStaticAssetId = useEditorViewerStore((state) => state.selectedStaticAssetId)
   const placementCatalogId = useEditorUiStore((state) => state.placementCatalogId)
@@ -740,16 +724,10 @@ export function EditorScenePicking({
   const lastPointerRef = useRef<PointerSample | null>(null)
   const marqueeActiveRef = useRef(false)
   const rafRef = useRef<number | null>(null)
+  const pointerWorkModeRef = useRef<'hover' | 'placement' | null>(null)
   const visibleStaticAssets = useMemo(
-    () =>
-      buildVisibleStaticAssets(
-        staticAssets,
-        draftStaticAsset,
-        savedStaticAsset,
-        transformPreview,
-        isTransformDragging
-      ),
-    [draftStaticAsset, isTransformDragging, savedStaticAsset, staticAssets, transformPreview]
+    () => buildVisibleStaticAssets(staticAssets, draftStaticAsset, savedStaticAsset),
+    [draftStaticAsset, savedStaticAsset, staticAssets]
   )
   const visibleStaticAssetsById = useMemo(
     () => new Map(visibleStaticAssets.map((asset) => [asset.id, asset] as const)),
@@ -763,9 +741,9 @@ export function EditorScenePicking({
         id: asset.id,
         position: asset.position,
       })),
-      ...buildEntityTargets(entities, draftEntity, transformPreview, isTransformDragging),
+      ...buildEntityTargets(entities, draftEntity),
     ],
-    [draftEntity, entities, isTransformDragging, transformPreview, visibleStaticAssets]
+    [draftEntity, entities, visibleStaticAssets]
   )
 
   useEffect(() => {
@@ -833,6 +811,62 @@ export function EditorScenePicking({
       setSelectionMarquee(null)
     }
 
+    const cancelQueuedPointerWork = () => {
+      pointerWorkModeRef.current = null
+      if (rafRef.current === null) return
+      window.cancelAnimationFrame(rafRef.current)
+      rafRef.current = null
+    }
+
+    const queuePointerWork = (mode: 'hover' | 'placement') => {
+      pointerWorkModeRef.current = mode
+      if (rafRef.current !== null) return
+
+      rafRef.current = window.requestAnimationFrame(() => {
+        rafRef.current = null
+        const pointer = lastPointerRef.current
+        const queuedMode = pointerWorkModeRef.current
+        pointerWorkModeRef.current = null
+        if (!pointer || !queuedMode) return
+
+        if (queuedMode === 'placement') {
+          if (!placementCatalogIdRef.current) {
+            setPlacementPreview(null)
+            domElement.style.cursor = 'auto'
+            return
+          }
+          setPlacementPreview(resolvePlacementPoint(pointer))
+          setHoveredEntity(null)
+          setHoveredStaticAsset(null)
+          domElement.style.cursor = 'crosshair'
+          return
+        }
+
+        const target = resolvePickedTarget(
+          pointer,
+          domElement,
+          camera,
+          raycaster,
+          pickRootRef.current
+        )
+        if (!target) {
+          setHoveredEntity(null)
+          setHoveredStaticAsset(null)
+          domElement.style.cursor = 'auto'
+          return
+        }
+
+        if (target.kind === 'entity') {
+          setHoveredEntity(target.id)
+          setHoveredStaticAsset(null)
+        } else {
+          setHoveredStaticAsset(target.id)
+          setHoveredEntity(null)
+        }
+        domElement.style.cursor = 'pointer'
+      })
+    }
+
     const handlePointerDown = (event: PointerEvent) => {
       if (event.button !== 0 || draggingRef.current || placementCatalogIdRef.current) return
       const pointer = { offsetX: event.offsetX, offsetY: event.offsetY }
@@ -875,30 +909,26 @@ export function EditorScenePicking({
       }
 
       if (placementCatalogIdRef.current) {
-        const previewPoint = resolvePlacementPoint(currentPointer)
-        setPlacementPreview(previewPoint)
-        setHoveredEntity(null)
-        setHoveredStaticAsset(null)
-        domElement.style.cursor = 'crosshair'
+        queuePointerWork('placement')
         return
       }
 
       if (pointerDownRef.current && transformModeRef.current === 'select') {
         const rect = createSelectionRect(pointerDownRef.current, currentPointer)
         if (isRectValid(rect)) {
+          cancelQueuedPointerWork()
           marqueeActiveRef.current = true
           setMarqueeSelecting(true)
           setSelectionMarquee(rect)
+          setHoveredEntity(null)
+          setHoveredStaticAsset(null)
           domElement.style.cursor = 'crosshair'
           return
         }
       }
 
       if (event.buttons !== 0) {
-        if (rafRef.current !== null) {
-          window.cancelAnimationFrame(rafRef.current)
-          rafRef.current = null
-        }
+        cancelQueuedPointerWork()
         setHoveredEntity(null)
         setHoveredStaticAsset(null)
         domElement.style.cursor = 'auto'
@@ -909,30 +939,7 @@ export function EditorScenePicking({
         return
       }
 
-      if (rafRef.current !== null) return
-
-      rafRef.current = window.requestAnimationFrame(() => {
-        rafRef.current = null
-        const pointer = lastPointerRef.current
-        if (!pointer) return
-
-        const target = resolvePickedTarget(pointer, domElement, camera, raycaster, pickRootRef.current)
-        if (!target) {
-          setHoveredEntity(null)
-          setHoveredStaticAsset(null)
-          domElement.style.cursor = 'auto'
-          return
-        }
-
-        if (target.kind === 'entity') {
-          setHoveredEntity(target.id)
-          setHoveredStaticAsset(null)
-        } else {
-          setHoveredStaticAsset(target.id)
-          setHoveredEntity(null)
-        }
-        domElement.style.cursor = 'pointer'
-      })
+      queuePointerWork('hover')
     }
 
     const handlePointerUp = (event: PointerEvent) => {
@@ -964,10 +971,7 @@ export function EditorScenePicking({
     }
 
     const handlePointerLeave = () => {
-      if (rafRef.current !== null) {
-        window.cancelAnimationFrame(rafRef.current)
-        rafRef.current = null
-      }
+      cancelQueuedPointerWork()
       lastPointerRef.current = null
       clickSuppressionStartRef.current = null
       setHoveredEntity(null)
@@ -985,12 +989,15 @@ export function EditorScenePicking({
       if (draggingRef.current) return
 
       if (placementCatalogIdRef.current) {
+        cancelQueuedPointerWork()
         const placementPoint = resolvePlacementPoint({
           offsetX: event.offsetX,
           offsetY: event.offsetY,
         })
         if (placementPoint) {
           placeStaticAsset(placementPoint)
+        } else {
+          setPlacementPreview(null)
         }
         return
       }
@@ -1044,6 +1051,7 @@ export function EditorScenePicking({
         armStaticAssetPlacement(catalogId)
       }
 
+      cancelQueuedPointerWork()
       const placementPoint = resolvePlacementPoint({
         offsetX: event.offsetX,
         offsetY: event.offsetY,
@@ -1074,6 +1082,7 @@ export function EditorScenePicking({
     }
 
     const handleDragLeave = () => {
+      cancelQueuedPointerWork()
       setPlacementPreview(null)
       domElement.style.cursor = 'auto'
     }
@@ -1096,10 +1105,7 @@ export function EditorScenePicking({
       domElement.removeEventListener('dragover', handleDragOver)
       domElement.removeEventListener('dragleave', handleDragLeave)
       domElement.removeEventListener('drop', handleDrop)
-      if (rafRef.current !== null) {
-        window.cancelAnimationFrame(rafRef.current)
-        rafRef.current = null
-      }
+      cancelQueuedPointerWork()
       setPlacementPreview(null)
       clearMarquee()
       domElement.style.cursor = 'auto'
