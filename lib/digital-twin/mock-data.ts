@@ -20,6 +20,13 @@ import {
   type PlantMobilityType,
 } from './campus-layout'
 import { createPublishedCampusScenePackage, hydratePublishedScenePackage } from './publish'
+import {
+  MAX_DYNAMIC_FOOTPRINT_SEPARATION,
+  PERSON_FOOTPRINT_RADIUS,
+  VEHICLE_FOOTPRINT_CLEARANCE,
+  getVehicleFootprintRadius,
+  getVehicleSeparationDistance,
+} from './vehicle-footprint'
 
 // 生成唯一ID
 export function generateId(): string {
@@ -189,6 +196,7 @@ interface DynamicOccupant {
   id: string
   type: PlantMobilityType
   position: Vector3
+  vehicleType?: VehicleEntity['vehicleType']
 }
 
 interface DynamicOccupancyIndex {
@@ -201,7 +209,7 @@ const ROUTE_CELL_SIZE = 2
 const PERSON_SPEED = 0.42
 const PERSON_ARRIVE_TOLERANCE = 0.2
 const DYNAMIC_OCCUPANCY_CELL_SIZE = 4
-export const DYNAMIC_NEIGHBOR_QUERY_RADIUS = 3.2
+export const DYNAMIC_NEIGHBOR_QUERY_RADIUS = MAX_DYNAMIC_FOOTPRINT_SEPARATION
 
 function isPointInsideLane(point: Vector3, lane: LaneRect): boolean {
   return (
@@ -578,12 +586,20 @@ export function isPointOnPlantMobilityLane(type: PlantMobilityType, point: Vecto
 
 function getDynamicSeparationDistance(
   entityType: PlantMobilityType,
-  neighborType: PlantMobilityType
+  neighborType: PlantMobilityType,
+  entityVehicleType?: VehicleEntity['vehicleType'],
+  neighborVehicleType?: VehicleEntity['vehicleType']
 ): number {
-  if (entityType === 'vehicle' && neighborType === 'vehicle') return 2.6
-  if (entityType === 'vehicle' && neighborType === 'person') return 2.2
-  if (entityType === 'person' && neighborType === 'vehicle') return 1.8
-  return 0.95
+  if (entityType === 'vehicle' && neighborType === 'vehicle') {
+    return getVehicleSeparationDistance(entityVehicleType, neighborVehicleType)
+  }
+  if (entityType === 'vehicle' && neighborType === 'person') {
+    return getVehicleFootprintRadius(entityVehicleType) + PERSON_FOOTPRINT_RADIUS + VEHICLE_FOOTPRINT_CLEARANCE
+  }
+  if (entityType === 'person' && neighborType === 'vehicle') {
+    return PERSON_FOOTPRINT_RADIUS + getVehicleFootprintRadius(neighborVehicleType) + VEHICLE_FOOTPRINT_CLEARANCE
+  }
+  return PERSON_FOOTPRINT_RADIUS * 2 + 0.05
 }
 
 function bucketKey(position: Vector3, cellSize: number): string {
@@ -606,6 +622,7 @@ export function createDynamicOccupancyIndex(
       id: occupant.id,
       type: occupant.type,
       position: { ...occupant.position },
+      vehicleType: occupant.type === 'vehicle' ? occupant.vehicleType : undefined,
     }
     const bucket = index.buckets.get(key)
     if (bucket) {
@@ -682,12 +699,18 @@ export function applyDynamicSeparation(
   entityType: PlantMobilityType,
   currentPosition: Vector3,
   proposedPosition: Vector3,
-  neighbors: DynamicOccupant[]
+  neighbors: DynamicOccupant[],
+  entityVehicleType?: VehicleEntity['vehicleType']
 ): { position: Vector3; blocked: boolean } {
   const hasClearance = (position: Vector3) => {
     for (const neighbor of neighbors) {
       if (neighbor.id === entityId) continue
-      const minDistance = getDynamicSeparationDistance(entityType, neighbor.type)
+      const minDistance = getDynamicSeparationDistance(
+        entityType,
+        neighbor.type,
+        entityVehicleType,
+        neighbor.vehicleType
+      )
       const distance = Math.hypot(position.x - neighbor.position.x, position.z - neighbor.position.z)
       if (distance < minDistance) return false
     }

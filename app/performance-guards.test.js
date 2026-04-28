@@ -211,7 +211,8 @@ describe('performance guards', () => {
     expect(codec.includes('Float32Array(count * 3)')).toBe(true)
     expect(codec.includes('Uint16Array(count)')).toBe(true)
     expect(hook.includes("case 'pose_frame'")).toBe(true)
-    expect(hook.includes('runtimeVehiclePoseBuffer.upsert(entityId, samples)')).toBe(true)
+    expect(hook.includes('poseBufferUpdates.push({ entityId, samples })')).toBe(true)
+    expect(hook.includes('runtimeVehiclePoseBuffer.upsertMany(poseBufferUpdates)')).toBe(true)
     expect(hook.includes('POSE_FRAME_STORE_SYNC_INTERVAL_MS')).toBe(true)
     expect(backend.includes('Message::Binary(encode_runtime_pose_frame_events')).toBe(true)
     expect(backend.includes('runtime_batch_outbound_messages')).toBe(true)
@@ -236,8 +237,10 @@ describe('performance guards', () => {
     expect(registry.includes('appendSnapshotInPlace')).toBe(true)
     expect(registry.includes('appendVehicleSnapshot')).toBe(false)
     expect(poseBuffer.includes('count: idsByIndex.length')).toBe(true)
+    expect(poseBuffer.includes("type: 'upsert_many'")).toBe(true)
     expect(poseBuffer.includes('[...idsByIndex]')).toBe(false)
-    expect(worker.includes('idsByIndex[message.index] = message.entityId')).toBe(true)
+    expect(worker.includes('idsByIndex[index] = entityId')).toBe(true)
+    expect(worker.includes("case 'upsert_many'")).toBe(true)
     expect(worker.includes('for (let index = 0; index < count; index += 1)')).toBe(true)
   })
 
@@ -1021,6 +1024,10 @@ describe('performance guards', () => {
   })
 
   test('instanced entity picking should apply explicit interaction bounds', () => {
+    const pickIndex = readFileSync(
+      join(process.cwd(), 'lib/digital-twin/viewer-runtime/pick-index.ts'),
+      'utf8'
+    )
     const personInstances = readFileSync(
       join(process.cwd(), 'components/digital-twin/entities/PersonInstances.tsx'),
       'utf8'
@@ -1054,5 +1061,10 @@ describe('performance guards', () => {
     expect(vehicleInstances.includes('mesh.boundingSphere')).toBe(true)
     expect(equipmentInstances.includes('mesh.boundingSphere')).toBe(true)
     expect(dynamicInstances.includes('mesh.boundingSphere')).toBe(true)
+    expect(pickIndex.includes('class DigitalTwinRaySpherePickGrid')).toBe(true)
+    for (const source of [personInstances, vehicleInstances, equipmentInstances, dynamicInstances]) {
+      expect(source.includes('DigitalTwinRaySpherePickGrid')).toBe(true)
+      expect(source.includes('pickGrid.collect(raycaster)')).toBe(true)
+    }
   })
 })

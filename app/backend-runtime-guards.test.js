@@ -120,6 +120,8 @@ describe('backend runtime guards', () => {
     expect(adminLayout.includes('hasFrontendAccess')).toBe(true)
     expect(adminLayout.includes("redirect('/access?next=/admin/workspaces')")).toBe(true)
     expect(client.includes('x-admin-api-token')).toBe(false)
+    expect(client.includes("payload.includes('frontend access is required')")).toBe(true)
+    expect(client.includes("window.location.assign")).toBe(true)
   })
 
   test('dev stack should start the runtime simulator by default', () => {

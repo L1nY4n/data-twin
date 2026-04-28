@@ -42,6 +42,10 @@ type WorkerCommand =
       samples: readonly VehicleSnapshotSample[]
     }
   | {
+      type: 'upsert_many'
+      updates: readonly RuntimeVehiclePoseBufferUpsert[]
+    }
+  | {
       type: 'solve'
       count: number
       frameId: number
@@ -59,6 +63,12 @@ interface RuntimeVehiclePoseBufferOptions {
 }
 
 export type RuntimePosePopulateResult = 'changed' | 'unchanged' | 'missing'
+
+export interface RuntimeVehiclePoseBufferUpsert {
+  entityId: string
+  index?: number
+  samples: readonly VehicleSnapshotSample[]
+}
 
 const STATUS_TO_CODE: Record<VehicleStatus, number> = {
   active: 1,
@@ -189,14 +199,14 @@ export function createRuntimeVehiclePoseBuffer(options: RuntimeVehiclePoseBuffer
   function rehydrateWorker() {
     if (!worker) return
     worker.postMessage({ type: 'clear' })
-    idsByIndex.forEach((entityId, index) => {
-      worker?.postMessage({
-        type: 'upsert',
-        entityId,
-        index,
-        samples: snapshotsById.get(entityId) ?? [],
-      })
-    })
+    const updates = idsByIndex.map((entityId, index) => ({
+      entityId,
+      index,
+      samples: snapshotsById.get(entityId) ?? [],
+    }))
+    if (updates.length > 0) {
+      worker.postMessage({ type: 'upsert_many', updates })
+    }
   }
 
   if (worker) {
@@ -239,22 +249,48 @@ export function createRuntimeVehiclePoseBuffer(options: RuntimeVehiclePoseBuffer
     }
   }
 
+  function upsertLocal(entityId: string, samples: readonly VehicleSnapshotSample[]) {
+    let index = indexById.get(entityId)
+    if (index === undefined) {
+      ensureCapacity(idsByIndex.length + 1)
+      index = idsByIndex.length
+      idsByIndex.push(entityId)
+      indexById.set(entityId, index)
+    }
+
+    snapshotsById.set(entityId, samples)
+    statusBuffer[index] = 0
+    return index
+  }
+
   return {
     upsert(entityId: string, samples: readonly VehicleSnapshotSample[]) {
-      let index = indexById.get(entityId)
-      if (index === undefined) {
-        ensureCapacity(idsByIndex.length + 1)
-        index = idsByIndex.length
-        idsByIndex.push(entityId)
-        indexById.set(entityId, index)
-      }
-
-      snapshotsById.set(entityId, samples)
+      const index = upsertLocal(entityId, samples)
       if (worker) {
         worker.postMessage({ type: 'upsert', entityId, index, samples })
       }
-      statusBuffer[index] = 0
       return index
+    },
+
+    upsertMany(updates: readonly RuntimeVehiclePoseBufferUpsert[]) {
+      if (updates.length === 0) return
+
+      if (!worker) {
+        for (const update of updates) {
+          upsertLocal(update.entityId, update.samples)
+        }
+        return
+      }
+
+      const workerUpdates: RuntimeVehiclePoseBufferUpsert[] = []
+      for (const update of updates) {
+        workerUpdates.push({
+          entityId: update.entityId,
+          index: upsertLocal(update.entityId, update.samples),
+          samples: update.samples,
+        })
+      }
+      worker.postMessage({ type: 'upsert_many', updates: workerUpdates })
     },
 
     delete(entityId: string) {

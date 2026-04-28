@@ -1,6 +1,6 @@
 'use client'
 
-import { memo, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import {
@@ -31,6 +31,10 @@ import {
 import { runtimeVehiclePoseBuffer } from '@/lib/digital-twin/runtime-vehicle-pose-buffer'
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
 import type { PersonEntity } from '@/lib/digital-twin/types'
+import {
+  DigitalTwinRaySpherePickGrid,
+} from '@/lib/digital-twin/viewer-runtime/pick-index'
+import { usePickGroupRegistration } from '../scene/ViewerRuntimeBridge'
 
 interface PersonInstancesProps {
   entities: PersonEntity[]
@@ -139,6 +143,7 @@ export const PersonInstances = memo(function PersonInstances({ entities }: Perso
   const frameTickRef = useRef(0)
   const gpuMotionFramesRef = useRef(0)
   const colorRef = useRef(new THREE.Color())
+  const pickRefs = useMemo(() => [personRef], [])
   const rendererBackend = useDigitalTwinStore((state) => state.rendererBackend)
   const useWebGpuStorage = rendererBackend === 'webgpu'
   const personProxyGeometry = useMemo(() => createPersonProxyGeometry(), [])
@@ -173,6 +178,28 @@ export const PersonInstances = memo(function PersonInstances({ entities }: Perso
       ),
     [entities]
   )
+  const pickGrid = useMemo(() => {
+    const grid = new DigitalTwinRaySpherePickGrid({ cellSize: 5 })
+    for (const entity of entities) {
+      grid.upsertEntity(entity.id, entity.position.x, entity.position.y + 0.75, entity.position.z, 1.05)
+    }
+    return grid
+  }, [entities])
+  const collectPickCandidates = useCallback(
+    (raycaster: THREE.Raycaster) => pickGrid.collect(raycaster),
+    [pickGrid]
+  )
+
+  usePickGroupRegistration({
+    id: `person:${entityIdSignature}`,
+    refs: pickRefs,
+    bounds: interactionBounds.sphere,
+    priority: 'entity',
+    enabled: entities.length > 0,
+    dependencyKey: entityIdSignature,
+    pickCandidates: collectPickCandidates,
+    exactRaycast: false,
+  })
 
   useEffect(() => () => personProxyGeometry.dispose(), [personProxyGeometry])
   useEffect(() => () => personStoragePipeline?.dispose(), [personStoragePipeline])
@@ -314,6 +341,8 @@ export const PersonInstances = memo(function PersonInstances({ entities }: Perso
         state.targetYaw = targetYaw
         shouldSyncMatrix = true
       }
+
+      pickGrid.upsertEntity(entity.id, state.targetX, state.targetY + 0.75, state.targetZ, 1.05)
 
       if (!usingWebGpuStorage && !isSettled(state)) {
         stepRuntimeState(state, smoothing)

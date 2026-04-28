@@ -1,6 +1,7 @@
 'use client'
 
-import { memo } from 'react'
+import { memo, useMemo, useRef } from 'react'
+import * as THREE from 'three'
 import type { EquipmentEntity } from '@/lib/digital-twin/types'
 import {
   OVERLAY_RENDER_ORDER,
@@ -10,6 +11,7 @@ import {
 import { createStatusSpriteInfoBadge, SpriteInfoCard } from '@/components/digital-twin/scene/SpriteInfoCard'
 import { SpriteTextLabel } from '@/components/digital-twin/scene/SpriteTextLabel'
 import { resolveRenderablePosition, resolveRenderableRotation } from './render-transform'
+import { usePickGroupRegistration } from '../scene/ViewerRuntimeBridge'
 
 interface EquipmentMarkerProps {
   entity: EquipmentEntity
@@ -35,12 +37,31 @@ export const EquipmentMarker = memo(function EquipmentMarker({
   showStatusRing = true,
   fullTransform = false,
 }: EquipmentMarkerProps) {
+  const groupRef = useRef<THREE.Group>(null)
+  const pickRefs = useMemo(() => [groupRef], [])
+  const pickBounds = useMemo(
+    () =>
+      new THREE.Sphere(
+        new THREE.Vector3(entity.position.x, entity.position.y + 1.8, entity.position.z),
+        4.2
+      ),
+    [entity.position.x, entity.position.y, entity.position.z]
+  )
   const statusColor = STATUS_COLORS[entity.status]
   const labelMode = entity.labelMode ?? 'html'
   const showLabel = isSelected || isHovered || labelMode !== 'hidden'
 
+  usePickGroupRegistration({
+    id: `equipment-marker:${entity.id}`,
+    refs: pickRefs,
+    bounds: pickBounds,
+    priority: 'entity',
+    dependencyKey: `${entity.id}:${showModel}:${showStatusRing}:${fullTransform}`,
+  })
+
   return (
     <group
+      ref={groupRef}
       position={resolveRenderablePosition(entity.position, {
         fullTransform,
         clampYToGround: true,

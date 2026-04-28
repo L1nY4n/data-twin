@@ -32,7 +32,10 @@ import {
   resolveRuntimeIncident,
 } from '@/lib/digital-twin/runtime-ingest'
 import { runtimeVehicleSnapshotRegistry } from '@/lib/digital-twin/runtime-vehicle-snapshot-registry'
-import { runtimeVehiclePoseBuffer } from '@/lib/digital-twin/runtime-vehicle-pose-buffer'
+import {
+  runtimeVehiclePoseBuffer,
+  type RuntimeVehiclePoseBufferUpsert,
+} from '@/lib/digital-twin/runtime-vehicle-pose-buffer'
 import {
   decodeRuntimePoseStatus,
   RUNTIME_POSE_FRAME_RECORD_FLAGS,
@@ -226,6 +229,7 @@ export function useLiveDigitalTwin(workspaceId: string) {
       const entityUpdates = new Map<string, Partial<Entity>>()
       const entityDrafts = new Map<string, Entity | undefined>()
       const trajectoryUpdates: Array<{ entityId: string; point: { position: VehicleEntity['position']; timestamp: number } }> = []
+      const poseBufferUpdates: RuntimeVehiclePoseBufferUpsert[] = []
       const newAlarms: BootstrapPayload['alarms'] = []
       const incidents: RuntimeIncident[] = []
       let shouldRefresh = false
@@ -319,7 +323,7 @@ export function useLiveDigitalTwin(workspaceId: string) {
                 speed,
                 status,
               })
-              runtimeVehiclePoseBuffer.upsert(entityId, samples)
+              poseBufferUpdates.push({ entityId, samples })
 
               if (
                 shouldSyncPoseFrameEntityToStore(
@@ -413,7 +417,7 @@ export function useLiveDigitalTwin(workspaceId: string) {
                     : undefined),
                 status: currentEntity?.status ?? 'active',
               })
-              runtimeVehiclePoseBuffer.upsert(data.entityId, samples)
+              poseBufferUpdates.push({ entityId: data.entityId, samples })
             }
 
             mergeEntityPatch(data.entityId, runtimePatch)
@@ -486,6 +490,13 @@ export function useLiveDigitalTwin(workspaceId: string) {
             break
           }
         }
+      }
+
+      if (poseBufferUpdates.length === 1) {
+        const update = poseBufferUpdates[0]
+        runtimeVehiclePoseBuffer.upsert(update.entityId, update.samples)
+      } else if (poseBufferUpdates.length > 1) {
+        runtimeVehiclePoseBuffer.upsertMany(poseBufferUpdates)
       }
 
       if (

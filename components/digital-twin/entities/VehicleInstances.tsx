@@ -1,6 +1,6 @@
 'use client'
 
-import { memo, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import {
@@ -18,6 +18,7 @@ import {
 } from '@/lib/digital-twin/runtime-simulation-cadence'
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
 import type { VehicleEntity } from '@/lib/digital-twin/types'
+import { VEHICLE_PROXY_DIMENSIONS } from '@/lib/digital-twin/vehicle-footprint'
 import {
   normalizeVehicleRouteLike,
   normalizeVehicleTrackLike,
@@ -25,6 +26,9 @@ import {
 } from '@/lib/digital-twin/vehicle-route-motion'
 import { runtimeVehiclePoseBuffer } from '@/lib/digital-twin/runtime-vehicle-pose-buffer'
 import { createVehicleProxyShellGeometry } from '@/lib/digital-twin/renderer/vehicle-proxy-geometry'
+import {
+  DigitalTwinRaySpherePickGrid,
+} from '@/lib/digital-twin/viewer-runtime/pick-index'
 import {
   attachWebGpuStorageRaycast,
   createWebGpuStorageInstancePipeline,
@@ -40,6 +44,7 @@ import {
   reseedVehicleRuntimeState,
   type VehicleRuntimeState,
 } from './vehicle-instance-runtime'
+import { usePickGroupRegistration } from '../scene/ViewerRuntimeBridge'
 
 interface VehicleInstancesProps {
   entities: VehicleEntity[]
@@ -50,14 +55,6 @@ const CAMERA_PROJECTION_MATRIX = new THREE.Matrix4()
 const CAMERA_FRUSTUM = new THREE.Frustum()
 const CAMERA_DIRECTION = new THREE.Vector3()
 const GPU_MOTION_ACTIVE_FRAMES = 90
-
-const VEHICLE_SIZES: Record<VehicleEntity['vehicleType'], { width: number; height: number; depth: number }> = {
-  car: { width: 1.8, height: 1, depth: 3.8 },
-  truck: { width: 2.3, height: 1.9, depth: 6.9 },
-  forklift: { width: 1.3, height: 1.7, depth: 2.5 },
-  agv: { width: 1, height: 0.45, depth: 1.5 },
-  other: { width: 1.5, height: 0.9, depth: 2.8 },
-}
 
 function getBodyColor(type: VehicleEntity['vehicleType'], status: VehicleEntity['status']) {
   if (status === 'error') return '#ef4444'
@@ -136,6 +133,7 @@ export const VehicleInstances = memo(function VehicleInstances({
   const frameTickRef = useRef(0)
   const gpuMotionFramesRef = useRef(0)
   const colorRef = useRef(new THREE.Color())
+  const pickRefs = useMemo(() => [shellRef], [])
   const rendererBackend = useDigitalTwinStore((state) => state.rendererBackend)
   const useWebGpuStorage = rendererBackend === 'webgpu'
   const vehicleProxyGeometry = useMemo(() => createVehicleProxyShellGeometry(), [])
@@ -174,6 +172,37 @@ export const VehicleInstances = memo(function VehicleInstances({
       ),
     [entities]
   )
+  const pickGrid = useMemo(() => {
+    const grid = new DigitalTwinRaySpherePickGrid({ cellSize: 8 })
+    for (const entity of entities) {
+      if (suppressedEntityIds?.has(entity.id)) continue
+      const pose = resolveVehiclePoseFromEntity(entity)
+      const size = VEHICLE_PROXY_DIMENSIONS[entity.vehicleType]
+      grid.upsertEntity(
+        entity.id,
+        pose.x,
+        pose.y + size.height / 2,
+        pose.z,
+        Math.hypot(size.width, size.height, size.depth) / 2 + 0.45
+      )
+    }
+    return grid
+  }, [entities, suppressedEntityIds])
+  const collectPickCandidates = useCallback(
+    (raycaster: THREE.Raycaster) => pickGrid.collect(raycaster),
+    [pickGrid]
+  )
+
+  usePickGroupRegistration({
+    id: `vehicle:${entityIdSignature}`,
+    refs: pickRefs,
+    bounds: interactionBounds.sphere,
+    priority: 'entity',
+    enabled: entities.length > 0,
+    dependencyKey: `${entityIdSignature}:${suppressedEntityIdSignature}`,
+    pickCandidates: collectPickCandidates,
+    exactRaycast: false,
+  })
 
   useEffect(() => () => vehicleProxyGeometry.dispose(), [vehicleProxyGeometry])
   useEffect(() => () => vehicleStoragePipeline?.dispose(), [vehicleStoragePipeline])
@@ -276,7 +305,8 @@ export const VehicleInstances = memo(function VehicleInstances({
 
     for (let index = 0; index < entities.length; index += 1) {
       const entity = entities[index]
-      const size = VEHICLE_SIZES[entity.vehicleType]
+      const size = VEHICLE_PROXY_DIMENSIONS[entity.vehicleType]
+      const pickRadius = Math.hypot(size.width, size.height, size.depth) / 2 + 0.45
       const snapshot = getSnapshotById(entity.id)
       const targetStatus = (snapshot?.status as VehicleEntity['status'] | undefined) ?? entity.status
 
@@ -321,6 +351,7 @@ export const VehicleInstances = memo(function VehicleInstances({
       }
 
       if (suppressedEntityIds?.has(entity.id)) {
+        pickGrid.remove(entity.id)
         if (shouldSyncMatrix) {
           if (usingWebGpuStorage) {
             writeWebGpuStorageTargetTransform(
@@ -346,6 +377,8 @@ export const VehicleInstances = memo(function VehicleInstances({
         }
         continue
       }
+
+      pickGrid.upsertEntity(entity.id, state.x, state.y + size.height / 2, state.z, pickRadius)
 
       if (shouldSyncMatrix) {
         if (usingWebGpuStorage) {

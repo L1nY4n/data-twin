@@ -1,5 +1,4 @@
 import type { LayoutBlueprint } from './campus-layout'
-import { generateId } from './mock-data'
 import type {
   StaticAssetInstance,
   StaticAssetKind,
@@ -52,6 +51,10 @@ export const STATIC_ASSET_PLACEMENT_LABELS: Record<StaticAssetPlacementMode, str
   'wall-mounted': '壁挂设备',
   'ceiling-mounted': '顶装设备',
   'opening-hosted': '开口构件',
+}
+
+function generateStaticAssetIdSuffix(): string {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`
 }
 
 export const STATIC_ASSET_KIND_LABELS: Record<StaticAssetKind, string> = {
@@ -573,7 +576,7 @@ export function createStaticAssetTemplateFromCatalog(
   const position = normalizedPlacement.position
 
   return {
-    id: `static-asset-${generateId()}`,
+    id: `static-asset-${generateStaticAssetIdSuffix()}`,
     name: catalogItem.name,
     assetKind: catalogItem.assetKind,
     variant: catalogItem.variant,

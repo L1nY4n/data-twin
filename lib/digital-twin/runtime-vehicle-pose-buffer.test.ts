@@ -177,4 +177,66 @@ describe('runtime vehicle pose buffer', () => {
     expect(solveCommand?.count).toBe(1)
     expect(solveCommand?.entityIds).toBeUndefined()
   })
+
+  test('batches dense pose-frame worker upserts into one command', () => {
+    const commands: unknown[] = []
+    const worker = {
+      onmessage: null,
+      onerror: null,
+      postMessage(message: unknown) {
+        commands.push(message)
+      },
+      terminate() {},
+    }
+    const buffer = createRuntimeVehiclePoseBuffer({
+      capacity: 2,
+      workerFactory: () => worker,
+    })
+
+    buffer.upsertMany([
+      {
+        entityId: 'vehicle-1',
+        samples: [
+          {
+            timestamp: 1000,
+            position: { x: 1, y: 0, z: 2 },
+            yaw: 0,
+            speed: 0,
+            status: 'active',
+          },
+        ],
+      },
+      {
+        entityId: 'vehicle-2',
+        samples: [
+          {
+            timestamp: 1000,
+            position: { x: 2, y: 0, z: 3 },
+            yaw: 0.5,
+            speed: 0,
+            status: 'warning',
+          },
+        ],
+      },
+    ])
+
+    const upsertCommands = commands.filter(
+      (command) =>
+        typeof command === 'object' &&
+        command !== null &&
+        (command as { type?: string }).type?.startsWith('upsert')
+    )
+    const batched = upsertCommands[0] as {
+      type?: string
+      updates?: Array<{ entityId: string; index?: number }>
+    }
+
+    expect(upsertCommands).toHaveLength(1)
+    expect(batched.type).toBe('upsert_many')
+    expect(batched.updates?.map((update) => [update.entityId, update.index])).toEqual([
+      ['vehicle-1', 0],
+      ['vehicle-2', 1],
+    ])
+    expect(buffer.size()).toBe(2)
+  })
 })

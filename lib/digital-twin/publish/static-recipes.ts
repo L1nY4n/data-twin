@@ -1,8 +1,12 @@
 import {
+  CAMPUS_BOUNDS,
   CAMPUS_DISTRICTS,
+  CAMPUS_LAYOUT_BLUEPRINTS,
+  LOGISTICS_SOUTH_LAYOUT_BLUEPRINTS,
   LOGISTICS_BAY_OFFSETS,
   PROCESS_WEST_LAYOUT_BLUEPRINTS,
   TANK_EAST_LAYOUT_BLUEPRINTS,
+  UTILITIES_NORTH_LAYOUT_BLUEPRINTS,
   type CampusSector,
   type LayoutBlueprint,
 } from '../campus-layout'
@@ -41,12 +45,9 @@ interface MaterialOverrides {
 
 const PARKING_OFFSETS = [-82, -70, -58, 48, 60, 72, 84] as const
 const ROAD_LINE_OFFSETS = [-84, -56, -28, 0, 28, 56, 84] as const
-const COOLING_TOWER_OFFSETS = [-14, 0, 14] as const
-const SUBSTATION_FRAME_OFFSETS = [-7, 0, 7] as const
 const LOGISTICS_MAIN_ROAD_Z = 54
 const LOGISTICS_BUFFER_Z = 62
 const LOGISTICS_LOADING_APRON_Z = 69
-const LOGISTICS_BUILDING_Z = 76
 const SPHERE_SUPPORT_OFFSETS = [
   [-2.1, -2.1],
   [2.1, -2.1],
@@ -80,8 +81,69 @@ const TANK_SPHERE_BLUEPRINTS = TANK_EAST_LAYOUT_BLUEPRINTS.filter(
 )
 const TANK_MANIFOLD_BLUEPRINT =
   TANK_EAST_LAYOUT_BLUEPRINTS.find((item) => item.kind === 'pump-manifold') ?? null
+const TANK_SENSOR_BLUEPRINTS = TANK_EAST_LAYOUT_BLUEPRINTS.filter(
+  (item) => item.kind === 'smart-sensor'
+)
 const TANK_METERING_BLUEPRINT =
   TANK_EAST_LAYOUT_BLUEPRINTS.find((item) => item.kind === 'service-building') ?? null
+
+const LOGISTICS_WAREHOUSE_BLUEPRINTS = LOGISTICS_SOUTH_LAYOUT_BLUEPRINTS.filter(
+  (item) => item.kind === 'logistics-warehouse'
+)
+const LOGISTICS_ADMIN_BLUEPRINTS = LOGISTICS_SOUTH_LAYOUT_BLUEPRINTS.filter(
+  (item) => item.kind === 'admin-building'
+)
+const LOGISTICS_EMERGENCY_BLUEPRINTS = LOGISTICS_SOUTH_LAYOUT_BLUEPRINTS.filter(
+  (item) => item.kind === 'emergency-station'
+)
+const LOGISTICS_RAIL_BLUEPRINTS = LOGISTICS_SOUTH_LAYOUT_BLUEPRINTS.filter(
+  (item) => item.kind === 'rail-spur'
+)
+const LOGISTICS_LOADING_RACK_BLUEPRINTS = LOGISTICS_SOUTH_LAYOUT_BLUEPRINTS.filter(
+  (item) => item.kind === 'loading-rack'
+)
+const LOGISTICS_WEIGHBRIDGE_BLUEPRINTS = LOGISTICS_SOUTH_LAYOUT_BLUEPRINTS.filter(
+  (item) => item.kind === 'weighbridge'
+)
+const LOGISTICS_SOLAR_CANOPY_BLUEPRINTS = LOGISTICS_SOUTH_LAYOUT_BLUEPRINTS.filter(
+  (item) => item.kind === 'solar-canopy'
+)
+const LOGISTICS_TRUCK_PARKING_BLUEPRINTS = LOGISTICS_SOUTH_LAYOUT_BLUEPRINTS.filter(
+  (item) => item.kind === 'truck-parking'
+)
+const LOGISTICS_SERVICE_BLUEPRINTS = LOGISTICS_SOUTH_LAYOUT_BLUEPRINTS.filter(
+  (item) => item.kind === 'service-building'
+)
+const LOGISTICS_SMART_CONTROL_BLUEPRINTS = LOGISTICS_SOUTH_LAYOUT_BLUEPRINTS.filter(
+  (item) => item.kind === 'smart-control'
+)
+
+const UTILITIES_FIRE_WATER_BLUEPRINTS = UTILITIES_NORTH_LAYOUT_BLUEPRINTS.filter(
+  (item) => item.kind === 'fire-water'
+)
+const UTILITIES_COOLING_TOWER_BLUEPRINTS = UTILITIES_NORTH_LAYOUT_BLUEPRINTS.filter(
+  (item) => item.kind === 'cooling-tower'
+)
+const UTILITIES_SUBSTATION_BLUEPRINTS = UTILITIES_NORTH_LAYOUT_BLUEPRINTS.filter(
+  (item) => item.kind === 'substation-yard'
+)
+const UTILITIES_SERVICE_BLUEPRINTS = UTILITIES_NORTH_LAYOUT_BLUEPRINTS.filter(
+  (item) => item.kind === 'service-building'
+)
+const UTILITIES_FLARE_STACK_BLUEPRINTS = UTILITIES_NORTH_LAYOUT_BLUEPRINTS.filter(
+  (item) => item.kind === 'flare-stack'
+)
+const UTILITIES_EMERGENCY_BLUEPRINTS = UTILITIES_NORTH_LAYOUT_BLUEPRINTS.filter(
+  (item) => item.kind === 'emergency-station'
+)
+const UTILITIES_GATEHOUSE_BLUEPRINTS = UTILITIES_NORTH_LAYOUT_BLUEPRINTS.filter(
+  (item) => item.kind === 'gatehouse'
+)
+const UTILITIES_SECURITY_BLUEPRINTS = UTILITIES_NORTH_LAYOUT_BLUEPRINTS.filter(
+  (item) => item.kind === 'security-device'
+)
+const UTILITIES_PERIMETER_BLUEPRINT =
+  UTILITIES_NORTH_LAYOUT_BLUEPRINTS.find((item) => item.kind === 'perimeter-fence') ?? null
 
 function vec3(x: number, y: number, z: number): Vector3 {
   return { x, y, z }
@@ -202,7 +264,7 @@ function cylinderInstancesGeometry(args: CylinderArgs): PublishedStaticInstances
 function resolveProcessTowerHeights(blueprint: LayoutBlueprint): number[] {
   switch (blueprint.variant) {
     case 'fractionation':
-      return [blueprint.height, blueprint.height - 4, blueprint.height - 8]
+      return [blueprint.height - 0.5, blueprint.height - 4, blueprint.height - 8]
     case 'reactor':
       return [blueprint.height - 1, blueprint.height - 6]
     default:
@@ -364,9 +426,12 @@ function createPipeBridgeNode(
 }
 
 function createLinearPipeRackNode(id: string, blueprint: LayoutBlueprint) {
+  const supportHeight = Math.max(1, blueprint.height - 1.08)
+  const supportOffset = 0.55
+  const supportMargin = supportOffset + 0.17
   const supportCount = Math.max(2, Math.floor(blueprint.width / 12))
-  const step = blueprint.width / supportCount
-  const startX = -blueprint.width / 2
+  const step = (blueprint.width - supportMargin * 2) / supportCount
+  const startX = -blueprint.width / 2 + supportMargin
   const supportInstances: StaticInstanceSpec[] = Array.from(
     { length: supportCount + 1 },
     (_value, index) => {
@@ -374,11 +439,11 @@ function createLinearPipeRackNode(id: string, blueprint: LayoutBlueprint) {
       return [
         {
           key: `${id}:left-${index}`,
-          position: [localX - 0.8, blueprint.height / 2, 0] as VecTuple3,
+          position: [localX - supportOffset, supportHeight / 2, 0] as VecTuple3,
         },
         {
           key: `${id}:right-${index}`,
-          position: [localX + 0.8, blueprint.height / 2, 0] as VecTuple3,
+          position: [localX + supportOffset, supportHeight / 2, 0] as VecTuple3,
         },
       ]
     }
@@ -398,7 +463,7 @@ function createLinearPipeRackNode(id: string, blueprint: LayoutBlueprint) {
       ),
       instancesNode(
         `${id}:supports`,
-        boxInstancesGeometry([0.34, blueprint.height, 0.34]),
+        boxInstancesGeometry([0.34, supportHeight, 0.34]),
         material('steel', 0.68, 0.34),
         supportInstances
       ),
@@ -407,7 +472,7 @@ function createLinearPipeRackNode(id: string, blueprint: LayoutBlueprint) {
         boxGeometry([blueprint.width, 0.32, blueprint.depth]),
         material('steelDark', 0.66, 0.36),
         {
-          position: vec3(0, blueprint.height + 0.2, 0),
+          position: vec3(0, supportHeight + 0.2, 0),
         }
       ),
       ...[-0.62, 0, 0.62].map((offset) =>
@@ -421,7 +486,7 @@ function createLinearPipeRackNode(id: string, blueprint: LayoutBlueprint) {
           ]),
           material('pipe', 0.58, 0.36),
           {
-            position: vec3(0, blueprint.height + 0.76 + Math.abs(offset) * 0.18, offset),
+            position: vec3(0, supportHeight + 0.76 + Math.abs(offset) * 0.18, offset),
             rotation: vec3(0, 0, Math.PI / 2),
           }
         )
@@ -611,24 +676,722 @@ function createProcessFrontStripNode(id: string, blueprint: LayoutBlueprint) {
 }
 
 function createServiceBuildingNode(id: string, blueprint: LayoutBlueprint) {
+  const roofHeight = 0.32
+  const bodyHeight = Math.max(0.6, blueprint.height - roofHeight)
+
   return groupNode(
     id,
     [
       meshNode(
         `${id}:body`,
-        boxGeometry([blueprint.width, blueprint.height, blueprint.depth]),
+        boxGeometry([blueprint.width, bodyHeight, blueprint.depth]),
         material('building', 0.2, 0.68),
         {
-          position: vec3(0, blueprint.height / 2, 0),
+          position: vec3(0, bodyHeight / 2, 0),
         }
       ),
       meshNode(
         `${id}:roof`,
-        boxGeometry([blueprint.width + 0.6, 0.32, blueprint.depth + 0.6]),
+        boxGeometry([blueprint.width, roofHeight, blueprint.depth]),
         material('steelDark', 0.46, 0.42),
         {
-          position: vec3(0, blueprint.height + 0.24, 0),
+          position: vec3(0, bodyHeight + roofHeight / 2, 0),
         }
+      ),
+    ],
+    {
+      position: vec3(blueprint.center.x, 0, blueprint.center.z),
+    }
+  )
+}
+
+function createWarehouseNode(id: string, blueprint: LayoutBlueprint) {
+  const dockOffsets = [-12, -6, 0, 6, 12]
+  const ventOffsets = [-12, -4, 4, 12]
+  const roofHeight = 0.42
+  const ventHeight = 0.8
+  const bodyHeight = Math.max(2, blueprint.height - roofHeight - ventHeight)
+
+  return groupNode(
+    id,
+    [
+      meshNode(
+        `${id}:body`,
+        boxGeometry([blueprint.width, bodyHeight, blueprint.depth]),
+        material('building', 0.18, 0.68),
+        {
+          position: vec3(0, bodyHeight / 2, 0),
+        }
+      ),
+      meshNode(
+        `${id}:roof`,
+        boxGeometry([blueprint.width, roofHeight, blueprint.depth]),
+        material('steelDark', 0.56, 0.38),
+        {
+          position: vec3(0, bodyHeight + roofHeight / 2, 0),
+        }
+      ),
+      instancesNode(
+        `${id}:dock-doors`,
+        boxInstancesGeometry([3.2, 3.2, 0.18]),
+        material('steelDark', 0.34, 0.42),
+        dockOffsets.map((offset) => ({
+          key: `${id}:dock-${offset}`,
+          position: [offset, 1.8, -blueprint.depth / 2 + 0.09],
+        }))
+      ),
+      instancesNode(
+        `${id}:dock-bumpers`,
+        boxInstancesGeometry([3.7, 0.26, 0.22]),
+        material('warning', 0.22, 0.58),
+        dockOffsets.map((offset) => ({
+          key: `${id}:bumper-${offset}`,
+          position: [offset, 0.34, -blueprint.depth / 2 + 0.11],
+        }))
+      ),
+      instancesNode(
+        `${id}:roof-vents`,
+        cylinderInstancesGeometry([0.46, 0.56, 0.8, 14]),
+        material('vessel', 0.42, 0.38),
+        ventOffsets.map((offset) => ({
+          key: `${id}:vent-${offset}`,
+          position: [offset, bodyHeight + roofHeight + ventHeight / 2, 0],
+        }))
+      ),
+    ],
+    {
+      position: vec3(blueprint.center.x, 0, blueprint.center.z),
+    }
+  )
+}
+
+function createAdminBuildingNode(id: string, blueprint: LayoutBlueprint) {
+  const windowOffsets = [-12, -8, -4, 4, 8, 12]
+  const canopyDepth = Math.min(3.2, blueprint.depth * 0.45)
+
+  return groupNode(
+    id,
+    [
+      meshNode(
+        `${id}:podium`,
+        boxGeometry([blueprint.width, blueprint.height * 0.52, blueprint.depth]),
+        material('building', 0.18, 0.64),
+        {
+          position: vec3(0, blueprint.height * 0.26, 0),
+        }
+      ),
+      meshNode(
+        `${id}:upper-volume`,
+        boxGeometry([blueprint.width * 0.78, blueprint.height * 0.48, blueprint.depth * 0.76]),
+        material('steelDark', 0.34, 0.42),
+        {
+          position: vec3(0, blueprint.height * 0.76, -0.2),
+        }
+      ),
+      instancesNode(
+        `${id}:front-windows`,
+        boxInstancesGeometry([2.1, 0.8, 0.08]),
+        material('water', 0.08, 0.12),
+        windowOffsets.flatMap((offset) => [
+          {
+            key: `${id}:window-low-${offset}`,
+            position: [offset, blueprint.height * 0.36, -blueprint.depth / 2 + 0.04],
+          },
+          {
+            key: `${id}:window-high-${offset}`,
+            position: [offset, blueprint.height * 0.72, -blueprint.depth / 2 + 0.04],
+          },
+        ])
+      ),
+      meshNode(
+        `${id}:entrance-canopy`,
+        boxGeometry([9, 0.24, canopyDepth]),
+        material('canopy', 0.6, 0.34),
+        {
+          position: vec3(0, 3.4, -blueprint.depth / 2 + canopyDepth / 2),
+        }
+      ),
+    ],
+    {
+      position: vec3(blueprint.center.x, 0, blueprint.center.z),
+    }
+  )
+}
+
+function createEmergencyStationNode(id: string, blueprint: LayoutBlueprint) {
+  const bayOffsets = [-5, 0, 5]
+  const beaconRadius = 0.42
+  const bodyHeight = Math.max(2.2, blueprint.height * 0.68)
+  const towerHeight = Math.max(3, blueprint.height - beaconRadius * 2)
+
+  return groupNode(
+    id,
+    [
+      meshNode(
+        `${id}:body`,
+        boxGeometry([blueprint.width, bodyHeight, blueprint.depth]),
+        material('building', 0.18, 0.62),
+        {
+          position: vec3(0, bodyHeight / 2, 0),
+        }
+      ),
+      instancesNode(
+        `${id}:vehicle-bays`,
+        boxInstancesGeometry([4.2, 3.4, 0.2]),
+        material('warning', 0.18, 0.44),
+        bayOffsets.map((offset) => ({
+          key: `${id}:bay-${offset}`,
+          position: [offset, Math.min(1.85, bodyHeight - 1.7), -blueprint.depth / 2 + 0.1],
+        }))
+      ),
+      meshNode(
+        `${id}:watch-tower`,
+        boxGeometry([3.2, towerHeight, 3.2]),
+        material('steelDark', 0.44, 0.38),
+        {
+          position: vec3(blueprint.width / 2 - 2.6, towerHeight / 2, 0),
+        }
+      ),
+      meshNode(
+        `${id}:beacon`,
+        sphereGeometry([beaconRadius, 12, 8]),
+        material('warning', 0.02, 0.34),
+        {
+          position: vec3(blueprint.width / 2 - 2.6, blueprint.height - beaconRadius, 0),
+        }
+      ),
+    ],
+    {
+      position: vec3(blueprint.center.x, 0, blueprint.center.z),
+    }
+  )
+}
+
+function createRailSpurNode(id: string, blueprint: LayoutBlueprint) {
+  const tieCount = Math.max(8, Math.floor(blueprint.width / 3.2))
+  const tieWidth = 1.8
+  const tieStart = -blueprint.width / 2 + tieWidth / 2
+  const tieStep = (blueprint.width - tieWidth) / tieCount
+  const endStopHeight = Math.max(0.3, blueprint.height - 0.16)
+  const ties: StaticInstanceSpec[] = Array.from({ length: tieCount + 1 }, (_value, index) => ({
+    key: `${id}:tie-${index}`,
+    position: [tieStart + index * tieStep, 0.18, 0],
+  }))
+  const stopOffsets = [-blueprint.width / 2 + 8, blueprint.width / 2 - 8]
+
+  return groupNode(
+    id,
+    [
+      meshNode(
+        `${id}:ballast`,
+        boxGeometry([blueprint.width, 0.22, blueprint.depth]),
+        material('slabAlt', 0.04, 0.96),
+        {
+          position: vec3(0, 0.11, 0),
+          receiveShadow: true,
+        }
+      ),
+      instancesNode(
+        `${id}:ties`,
+        boxInstancesGeometry([tieWidth, 0.16, 2.6]),
+        material('curb', 0.08, 0.82),
+        ties
+      ),
+      ...[-0.78, 0.78].map((zOffset) =>
+        meshNode(
+          `${id}:rail-${zOffset}`,
+          boxGeometry([blueprint.width - 2, 0.18, 0.16]),
+          material('steelDark', 0.66, 0.32),
+          {
+            position: vec3(0, 0.42, zOffset),
+          }
+        )
+      ),
+      instancesNode(
+        `${id}:end-stops`,
+        boxInstancesGeometry([0.36, endStopHeight, 2.8]),
+        material('warning', 0.24, 0.56),
+        stopOffsets.map((offset) => ({
+          key: `${id}:stop-${offset}`,
+          position: [offset, 0.08 + endStopHeight / 2, 0],
+        }))
+      ),
+    ],
+    {
+      position: vec3(blueprint.center.x, 0, blueprint.center.z),
+    }
+  )
+}
+
+function createWeighbridgeNode(id: string, blueprint: LayoutBlueprint) {
+  const boothWidth = 3.4
+
+  return groupNode(
+    id,
+    [
+      meshNode(
+        `${id}:deck`,
+        boxGeometry([blueprint.width, 0.28, blueprint.depth]),
+        material('steelDark', 0.54, 0.4),
+        {
+          position: vec3(0, 0.14, 0),
+          receiveShadow: true,
+        }
+      ),
+      meshNode(
+        `${id}:booth`,
+        boxGeometry([3.4, 2.8, 2.6]),
+        material('building', 0.18, 0.62),
+        {
+          position: vec3(-blueprint.width / 2 + boothWidth / 2, 1.4, 0),
+        }
+      ),
+      meshNode(
+        `${id}:display`,
+        boxGeometry([1.4, 0.48, 0.12]),
+        material('power', 0.08, 0.16),
+        {
+          position: vec3(blueprint.width / 2 - 0.7, 2.4, -blueprint.depth / 2 + 0.06),
+        }
+      ),
+    ],
+    {
+      position: vec3(blueprint.center.x, 0, blueprint.center.z),
+    }
+  )
+}
+
+function createSolarCanopyNode(id: string, blueprint: LayoutBlueprint) {
+  const postOffsets = [-blueprint.width / 2 + 3, 0, blueprint.width / 2 - 3]
+  const panelOffsets = [-blueprint.width / 4, blueprint.width / 4]
+  const panelDepth = Math.max(0.5, blueprint.depth - 0.8)
+
+  return groupNode(
+    id,
+    [
+      instancesNode(
+        `${id}:posts`,
+        boxInstancesGeometry([0.34, blueprint.height, 0.34]),
+        material('steel', 0.68, 0.34),
+        postOffsets.flatMap((offset) => [
+          { key: `${id}:post-front-${offset}`, position: [offset, blueprint.height / 2, -blueprint.depth / 2 + 1] },
+          { key: `${id}:post-rear-${offset}`, position: [offset, blueprint.height / 2, blueprint.depth / 2 - 1] },
+        ])
+      ),
+      instancesNode(
+        `${id}:solar-panels`,
+        boxInstancesGeometry([blueprint.width / 2 - 1.2, 0.16, panelDepth]),
+        material('water', 0.16, 0.08),
+        panelOffsets.map((offset) => ({
+          key: `${id}:panel-${offset}`,
+          position: [offset, blueprint.height - 0.6, 0],
+          rotation: [0.08, 0, 0],
+        }))
+      ),
+      meshNode(
+        `${id}:inverter`,
+        boxGeometry([2.4, 1.6, 1.2]),
+        material('power', 0.48, 0.32),
+        {
+          position: vec3(-blueprint.width / 2 + 2.2, 0.8, blueprint.depth / 2 - 0.6),
+        }
+      ),
+    ],
+    {
+      position: vec3(blueprint.center.x, 0, blueprint.center.z),
+    }
+  )
+}
+
+function createTruckParkingNode(id: string, blueprint: LayoutBlueprint) {
+  const bayOffsets = [-20, -10, 0, 10, 20]
+
+  return groupNode(
+    id,
+    [
+      meshNode(
+        `${id}:surface`,
+        boxGeometry([blueprint.width, 0.12, blueprint.depth]),
+        material('road', 0.05, 0.9),
+        {
+          position: vec3(0, 0.06, 0),
+          receiveShadow: true,
+        }
+      ),
+      instancesNode(
+        `${id}:bay-lines`,
+        boxInstancesGeometry([0.24, 0.04, blueprint.depth - 1]),
+        material('stripe', 0.02, 0.92),
+        bayOffsets.map((offset) => ({
+          key: `${id}:bay-${offset}`,
+          position: [offset, 0.14, 0],
+        }))
+      ),
+      meshNode(
+        `${id}:hazmat-label`,
+        boxGeometry([12, 0.04, 0.36]),
+        material('warning', 0.12, 0.6),
+        {
+          position: vec3(0, 0.16, -blueprint.depth / 2 + 1),
+        }
+      ),
+    ],
+    {
+      position: vec3(blueprint.center.x, 0, blueprint.center.z),
+    }
+  )
+}
+
+function createWaterTreatmentNode(id: string, blueprint: LayoutBlueprint) {
+  const basinOffsets = [-blueprint.width / 4, blueprint.width / 4]
+  const basinHeight = Math.min(1.8, blueprint.height * 0.56)
+  const pipeY = blueprint.height - 0.18
+
+  return groupNode(
+    id,
+    [
+      instancesNode(
+        `${id}:basin-shells`,
+        boxInstancesGeometry([blueprint.width / 2 - 2, basinHeight, blueprint.depth - 2]),
+        material('curb', 0.04, 0.86),
+        basinOffsets.map((offset) => ({
+          key: `${id}:basin-${offset}`,
+          position: [offset, basinHeight / 2, 0],
+        }))
+      ),
+      instancesNode(
+        `${id}:water-surfaces`,
+        boxInstancesGeometry([blueprint.width / 2 - 3, 0.08, blueprint.depth - 3]),
+        material('water', 0.08, 0.18),
+        basinOffsets.map((offset) => ({
+          key: `${id}:water-${offset}`,
+          position: [offset, basinHeight + 0.05, 0],
+        }))
+      ),
+      meshNode(
+        `${id}:pipe-bridge`,
+        cylinderGeometry([0.18, 0.18, blueprint.width - 6, 14]),
+        material('pipe', 0.56, 0.36),
+        {
+          position: vec3(0, pipeY, 0),
+          rotation: vec3(0, 0, Math.PI / 2),
+        }
+      ),
+    ],
+    {
+      position: vec3(blueprint.center.x, 0, blueprint.center.z),
+    }
+  )
+}
+
+function createCoolingTowerNode(id: string, blueprint: LayoutBlueprint) {
+  const towerCount = Math.max(1, Math.round(blueprint.width / 14))
+  const towerSlotWidth = blueprint.width / towerCount
+  const bodyRadius = Math.min(towerSlotWidth * 0.24, blueprint.depth * 0.24)
+  const bodyHeight = blueprint.height * 0.72
+  const capHeight = Math.max(0.3, blueprint.height * 0.05)
+  const towerOffsets = Array.from({ length: towerCount }, (_value, index) =>
+    -blueprint.width / 2 + towerSlotWidth * (index + 0.5)
+  )
+
+  return groupNode(
+    id,
+    [
+      meshNode(
+        `${id}:basin`,
+        boxGeometry([blueprint.width, 0.8, blueprint.depth]),
+        material('curb', 0.04, 0.88),
+        {
+          position: vec3(0, 0.4, 0),
+          receiveShadow: true,
+        }
+      ),
+      meshNode(
+        `${id}:basin-water`,
+        boxGeometry([blueprint.width - 2, 0.08, blueprint.depth - 2]),
+        material('water', 0.08, 0.2),
+        {
+          position: vec3(0, 0.86, 0),
+        }
+      ),
+      instancesNode(
+        `${id}:tower-bodies`,
+        cylinderInstancesGeometry([bodyRadius, bodyRadius * 1.18, bodyHeight, 24]),
+        material('vessel', 0.36, 0.5),
+        towerOffsets.map((offset) => ({
+          key: `${id}:tower-body-${offset}`,
+          position: [offset, 0.8 + bodyHeight / 2, 0],
+        })),
+        { castShadow: true }
+      ),
+      instancesNode(
+        `${id}:tower-caps`,
+        cylinderInstancesGeometry([bodyRadius * 1.32, bodyRadius * 1.44, capHeight, 24]),
+        material('vessel', 0.42, 0.42),
+        towerOffsets.map((offset) => ({
+          key: `${id}:tower-cap-${offset}`,
+          position: [offset, blueprint.height - capHeight / 2, 0],
+        }))
+      ),
+      meshNode(
+        `${id}:header-pipe`,
+        cylinderGeometry([0.18, 0.18, blueprint.width - 3, 14]),
+        material('pipe', 0.58, 0.36),
+        {
+          position: vec3(0, blueprint.height * 0.58, -blueprint.depth / 2 + 1.6),
+          rotation: vec3(0, 0, Math.PI / 2),
+        }
+      ),
+    ],
+    {
+      position: vec3(blueprint.center.x, 0, blueprint.center.z),
+    }
+  )
+}
+
+function createSubstationYardNode(id: string, blueprint: LayoutBlueprint) {
+  const frameCount = Math.max(2, Math.round(blueprint.width / 9))
+  const frameSlotWidth = blueprint.width / frameCount
+  const frameOffsets = Array.from({ length: frameCount }, (_value, index) =>
+    -blueprint.width / 2 + frameSlotWidth * (index + 0.5)
+  )
+  const transformerOffsets = frameOffsets.slice(0, Math.max(1, frameCount - 1))
+
+  return groupNode(
+    id,
+    [
+      meshNode(
+        `${id}:base`,
+        boxGeometry([blueprint.width, 0.36, blueprint.depth]),
+        material('slab', 0.06, 0.92),
+        {
+          position: vec3(0, 0.18, 0),
+          receiveShadow: true,
+        }
+      ),
+      instancesNode(
+        `${id}:posts`,
+        boxInstancesGeometry([0.28, blueprint.height * 0.86, 0.28]),
+        material('power', 0.58, 0.3),
+        frameOffsets.flatMap((offset) => [
+          { key: `${id}:post-front-${offset}`, position: [offset, blueprint.height * 0.43, -blueprint.depth / 2 + 2] },
+          { key: `${id}:post-rear-${offset}`, position: [offset, blueprint.height * 0.43, blueprint.depth / 2 - 2] },
+        ])
+      ),
+      instancesNode(
+        `${id}:top-beams`,
+        boxInstancesGeometry([frameSlotWidth * 0.72, 0.22, 0.22]),
+        material('power', 0.58, 0.3),
+        frameOffsets.map((offset) => ({
+          key: `${id}:top-beam-${offset}`,
+          position: [offset, blueprint.height * 0.8, 0],
+        }))
+      ),
+      instancesNode(
+        `${id}:bus-bars`,
+        boxInstancesGeometry([0.2, 0.18, blueprint.depth - 4]),
+        material('power', 0.58, 0.3),
+        frameOffsets.map((offset) => ({
+          key: `${id}:bus-bar-${offset}`,
+          position: [offset, blueprint.height * 0.62, 0],
+        }))
+      ),
+      instancesNode(
+        `${id}:transformers`,
+        boxInstancesGeometry([frameSlotWidth * 0.46, blueprint.height * 0.26, blueprint.depth * 0.26]),
+        material('steelDark', 0.5, 0.42),
+        transformerOffsets.map((offset) => ({
+          key: `${id}:transformer-${offset}`,
+          position: [offset, blueprint.height * 0.13 + 0.28, blueprint.depth * 0.2],
+        }))
+      ),
+    ],
+    {
+      position: vec3(blueprint.center.x, 0, blueprint.center.z),
+    }
+  )
+}
+
+function createFlareStackNode(id: string, blueprint: LayoutBlueprint) {
+  const stackHeight = Math.max(4, blueprint.height - 1.2)
+  const radius = Math.min(0.68, Math.max(0.42, Math.min(blueprint.width, blueprint.depth) * 0.1))
+  const tipRadius = radius * 0.82
+
+  return groupNode(
+    id,
+    [
+      meshNode(
+        `${id}:base`,
+        boxGeometry([blueprint.width, 0.36, blueprint.depth]),
+        material('slab', 0.06, 0.92),
+        {
+          position: vec3(0, 0.18, 0),
+          receiveShadow: true,
+        }
+      ),
+      meshNode(
+        `${id}:stack`,
+        cylinderGeometry([radius * 0.82, radius, stackHeight, 14]),
+        material('vessel', 0.5, 0.28),
+        {
+          position: vec3(0, stackHeight / 2 + 0.8, 0),
+        }
+      ),
+      meshNode(
+        `${id}:tip`,
+        sphereGeometry([tipRadius, 12, 12]),
+        material('flare', 0, 1, {
+          emissiveToken: 'flare',
+          emissiveIntensity: 0.85,
+        }),
+        {
+          position: vec3(0, blueprint.height - tipRadius, 0),
+        }
+      ),
+    ],
+    {
+      position: vec3(blueprint.center.x, 0, blueprint.center.z),
+    }
+  )
+}
+
+function createGatehouseNode(id: string, blueprint: LayoutBlueprint) {
+  const barrierWidth = 7
+
+  return groupNode(
+    id,
+    [
+      meshNode(
+        `${id}:booth`,
+        boxGeometry([6, blueprint.height, blueprint.depth]),
+        material('building', 0.18, 0.62),
+        {
+          position: vec3(-blueprint.width / 2 + 3, blueprint.height / 2, 0),
+        }
+      ),
+      meshNode(
+        `${id}:portal`,
+        boxGeometry([blueprint.width, 0.5, 1]),
+        material('steelDark', 0.56, 0.36),
+        {
+          position: vec3(0, blueprint.height - 0.25, 0),
+        }
+      ),
+      instancesNode(
+        `${id}:barrier-arms`,
+        boxInstancesGeometry([7, 0.16, 0.18]),
+        material('warning', 0.18, 0.52),
+        [
+          {
+            key: `${id}:barrier-west`,
+            position: [-blueprint.width / 2 + barrierWidth / 2, 1.15, -blueprint.depth / 2 + 0.09],
+            rotation: [0, 0, 0.08],
+          },
+          {
+            key: `${id}:barrier-east`,
+            position: [blueprint.width / 2 - barrierWidth / 2, 1.15, blueprint.depth / 2 - 0.09],
+            rotation: [0, 0, -0.08],
+          },
+        ]
+      ),
+    ],
+    {
+      position: vec3(blueprint.center.x, 0, blueprint.center.z),
+    }
+  )
+}
+
+function createPerimeterFenceNode(id: string, blueprint: LayoutBlueprint) {
+  const halfWidth = blueprint.width / 2
+  const halfDepth = blueprint.depth / 2
+  const edgeInset = 0.1
+  const spacing = 12
+  const xCount = Math.floor(blueprint.width / spacing)
+  const zCount = Math.floor(blueprint.depth / spacing)
+  const fenceHeight = Math.min(3.4, blueprint.height * 0.48)
+  const lightPoleHeight = Math.max(1, blueprint.height - fenceHeight - 0.18)
+  const lightPoleY = fenceHeight + lightPoleHeight / 2
+  const lightHeadY = blueprint.height - 0.09
+  const posts: StaticInstanceSpec[] = [
+    ...Array.from({ length: xCount + 1 }, (_value, index) => {
+      const x = -halfWidth + edgeInset + index * ((blueprint.width - edgeInset * 2) / xCount)
+      return [
+        {
+          key: `${id}:post-n-${index}`,
+          position: [x, fenceHeight / 2, -halfDepth + edgeInset] as VecTuple3,
+        },
+        {
+          key: `${id}:post-s-${index}`,
+          position: [x, fenceHeight / 2, halfDepth - edgeInset] as VecTuple3,
+        },
+      ]
+    }).flat(),
+    ...Array.from({ length: zCount - 1 }, (_value, index) => {
+      const z = -halfDepth + edgeInset + (index + 1) * ((blueprint.depth - edgeInset * 2) / zCount)
+      return [
+        {
+          key: `${id}:post-w-${index}`,
+          position: [-halfWidth + edgeInset, fenceHeight / 2, z] as VecTuple3,
+        },
+        {
+          key: `${id}:post-e-${index}`,
+          position: [halfWidth - edgeInset, fenceHeight / 2, z] as VecTuple3,
+        },
+      ]
+    }).flat(),
+  ]
+  const lightPolePosts: StaticInstanceSpec[] = [-84, -42, 42, 84].flatMap((offset) => [
+    { key: `${id}:light-n-${offset}`, position: [offset, lightPoleY, -halfDepth + 3] },
+    { key: `${id}:light-s-${offset}`, position: [offset, lightPoleY, halfDepth - 3] },
+  ])
+
+  return groupNode(
+    id,
+    [
+      instancesNode(
+        `${id}:posts`,
+        boxInstancesGeometry([0.2, fenceHeight, 0.2]),
+        material('steelDark', 0.58, 0.38),
+        posts
+      ),
+      meshNode(
+        `${id}:rail-north`,
+        boxGeometry([blueprint.width - edgeInset * 2, 0.16, 0.16]),
+        material('steelDark', 0.58, 0.38),
+        { position: vec3(0, fenceHeight * 0.68, -halfDepth + edgeInset) }
+      ),
+      meshNode(
+        `${id}:rail-south`,
+        boxGeometry([blueprint.width - edgeInset * 2, 0.16, 0.16]),
+        material('steelDark', 0.58, 0.38),
+        { position: vec3(0, fenceHeight * 0.68, halfDepth - edgeInset) }
+      ),
+      meshNode(
+        `${id}:rail-west`,
+        boxGeometry([0.16, 0.16, blueprint.depth - edgeInset * 2]),
+        material('steelDark', 0.58, 0.38),
+        { position: vec3(-halfWidth + edgeInset, fenceHeight * 0.68, 0) }
+      ),
+      meshNode(
+        `${id}:rail-east`,
+        boxGeometry([0.16, 0.16, blueprint.depth - edgeInset * 2]),
+        material('steelDark', 0.58, 0.38),
+        { position: vec3(halfWidth - edgeInset, fenceHeight * 0.68, 0) }
+      ),
+      instancesNode(
+        `${id}:light-poles`,
+        cylinderInstancesGeometry([0.12, 0.16, lightPoleHeight, 10]),
+        material('steel', 0.64, 0.34),
+        lightPolePosts
+      ),
+      instancesNode(
+        `${id}:light-heads`,
+        boxInstancesGeometry([1.1, 0.18, 0.5]),
+        material('power', 0.18, 0.22),
+        lightPolePosts.map((post) => ({
+          key: `${post.key}:head`,
+          position: [post.position[0], lightHeadY, post.position[2]],
+        }))
       ),
     ],
     {
@@ -776,6 +1539,8 @@ function createWindowSystemNode(id: string, blueprint: LayoutBlueprint) {
 }
 
 function createSecurityDeviceNode(id: string, blueprint: LayoutBlueprint) {
+  const deviceRadius = Math.min(blueprint.width, blueprint.depth) / 2
+
   if (blueprint.variant === 'access-reader') {
     return groupNode(
       id,
@@ -808,7 +1573,7 @@ function createSecurityDeviceNode(id: string, blueprint: LayoutBlueprint) {
     [
       meshNode(
         `${id}:body`,
-        cylinderGeometry([blueprint.width / 2, blueprint.width / 1.8, blueprint.height, 20]),
+        cylinderGeometry([deviceRadius * 0.92, deviceRadius, blueprint.height, 20]),
         material('building', 0.24, 0.42),
         {
           position: vec3(0, blueprint.height / 2, 0),
@@ -830,13 +1595,15 @@ function createSecurityDeviceNode(id: string, blueprint: LayoutBlueprint) {
 }
 
 function createSmartSensorNode(id: string, blueprint: LayoutBlueprint) {
+  const sensorRadius = Math.min(blueprint.width, blueprint.depth) / 2
+
   if (blueprint.variant === 'occupancy-sensor') {
     return groupNode(
       id,
       [
         meshNode(
           `${id}:base`,
-          cylinderGeometry([blueprint.width / 2, blueprint.width / 1.7, blueprint.height, 20]),
+          cylinderGeometry([sensorRadius * 0.9, sensorRadius, blueprint.height, 20]),
           material('building', 0.12, 0.34),
           {
             position: vec3(0, blueprint.height / 2, 0),
@@ -1077,8 +1844,14 @@ function createVerticalTankCompoundNode(id: string, blueprint: LayoutBlueprint) 
 }
 
 function createSphereTankNode(id: string, blueprint: LayoutBlueprint) {
-  const radius = blueprint.width * 0.42
+  const radius = Math.min(
+    blueprint.width * 0.36,
+    blueprint.depth * 0.36,
+    blueprint.width / 2 - 0.7,
+    (blueprint.height - 2.8) / 2
+  )
   const sphereY = radius + 2.8
+  const serviceFrameX = Math.min(radius + 1.2, blueprint.width / 2 - 0.12)
   const legInstances: StaticInstanceSpec[] = SPHERE_SUPPORT_OFFSETS.map((offset, index) => ({
     key: `${id}:leg-${index}`,
     position: [offset[0], sphereY / 2, offset[1]],
@@ -1139,7 +1912,7 @@ function createSphereTankNode(id: string, blueprint: LayoutBlueprint) {
           ),
         ],
         {
-          position: vec3(radius + 1.2, 0, 0),
+          position: vec3(serviceFrameX, 0, 0),
         }
       ),
       meshNode(
@@ -1295,6 +2068,9 @@ function createTankDistrictNode(id: string) {
     TANK_MANIFOLD_BLUEPRINT
       ? createPumpManifoldNode(`${id}:${TANK_MANIFOLD_BLUEPRINT.id}`, TANK_MANIFOLD_BLUEPRINT)
       : null,
+    ...TANK_SENSOR_BLUEPRINTS.map((blueprint) =>
+      createSmartSensorNode(`${id}:${blueprint.id}`, blueprint)
+    ),
     TANK_METERING_BLUEPRINT
       ? createServiceBuildingNode(`${id}:${TANK_METERING_BLUEPRINT.id}`, TANK_METERING_BLUEPRINT)
       : null,
@@ -1327,123 +2103,133 @@ function createTankDistrictNode(id: string) {
   ])
 }
 
-function createLoadingBayRowNode(id: string) {
-  const apronInstances: StaticInstanceSpec[] = LOGISTICS_BAY_OFFSETS.map((offset) => ({
+function createLoadingRackNode(id: string, blueprint: LayoutBlueprint) {
+  const rackZ = LOGISTICS_LOADING_APRON_Z - blueprint.center.z
+  const bayOffsets = LOGISTICS_BAY_OFFSETS.map((offset) => offset - blueprint.center.x).filter(
+    (offset) => Math.abs(offset) <= blueprint.width / 2 - 7
+  )
+  const apronInstances: StaticInstanceSpec[] = bayOffsets.map((offset) => ({
     key: `${id}:apron-${offset}`,
-    position: [offset, 0.18, LOGISTICS_LOADING_APRON_Z],
+    position: [offset, 0.18, rackZ],
   }))
-  const frontStripeInstances: StaticInstanceSpec[] = LOGISTICS_BAY_OFFSETS.map((offset) => ({
+  const frontStripeInstances: StaticInstanceSpec[] = bayOffsets.map((offset) => ({
     key: `${id}:front-stripe-${offset}`,
-    position: [offset, 0.26, LOGISTICS_LOADING_APRON_Z - 3.4],
+    position: [offset, 0.26, rackZ - 3.4],
   }))
-  const curbInstances: StaticInstanceSpec[] = LOGISTICS_BAY_OFFSETS.flatMap((offset) => [
-    { key: `${id}:curb-left-${offset}`, position: [offset - 2.8, 0.26, LOGISTICS_LOADING_APRON_Z - 0.2] },
-    { key: `${id}:curb-right-${offset}`, position: [offset + 2.8, 0.26, LOGISTICS_LOADING_APRON_Z - 0.2] },
+  const curbInstances: StaticInstanceSpec[] = bayOffsets.flatMap((offset) => [
+    { key: `${id}:curb-left-${offset}`, position: [offset - 2.8, 0.26, rackZ - 0.2] },
+    { key: `${id}:curb-right-${offset}`, position: [offset + 2.8, 0.26, rackZ - 0.2] },
   ])
-  const canopyInstances: StaticInstanceSpec[] = LOGISTICS_BAY_OFFSETS.map((offset) => ({
+  const canopyInstances: StaticInstanceSpec[] = bayOffsets.map((offset) => ({
     key: `${id}:canopy-${offset}`,
-    position: [offset, 4.9, LOGISTICS_LOADING_APRON_Z + 0.15],
+    position: [offset, 4.9, rackZ + 0.15],
   }))
-  const postInstances: StaticInstanceSpec[] = LOGISTICS_BAY_OFFSETS.flatMap((offset) => [
-    { key: `${id}:front-left-${offset}`, position: [offset - 5.2, 2.4, LOGISTICS_LOADING_APRON_Z - 3.1] },
-    { key: `${id}:front-right-${offset}`, position: [offset + 5.2, 2.4, LOGISTICS_LOADING_APRON_Z - 3.1] },
-    { key: `${id}:rear-left-${offset}`, position: [offset - 5.2, 2.4, LOGISTICS_LOADING_APRON_Z + 3.1] },
-    { key: `${id}:rear-right-${offset}`, position: [offset + 5.2, 2.4, LOGISTICS_LOADING_APRON_Z + 3.1] },
+  const postInstances: StaticInstanceSpec[] = bayOffsets.flatMap((offset) => [
+    { key: `${id}:front-left-${offset}`, position: [offset - 5.2, 2.4, rackZ - 3.1] },
+    { key: `${id}:front-right-${offset}`, position: [offset + 5.2, 2.4, rackZ - 3.1] },
+    { key: `${id}:rear-left-${offset}`, position: [offset - 5.2, 2.4, rackZ + 3.1] },
+    { key: `${id}:rear-right-${offset}`, position: [offset + 5.2, 2.4, rackZ + 3.1] },
   ])
-  const headerInstances: StaticInstanceSpec[] = LOGISTICS_BAY_OFFSETS.map((offset) => ({
+  const headerInstances: StaticInstanceSpec[] = bayOffsets.map((offset) => ({
     key: `${id}:header-${offset}`,
-    position: [offset, 4.46, LOGISTICS_LOADING_APRON_Z + 1.5],
+    position: [offset, 4.46, rackZ + 1.5],
   }))
-  const armColumnInstances: StaticInstanceSpec[] = LOGISTICS_BAY_OFFSETS.flatMap((offset) =>
+  const armColumnInstances: StaticInstanceSpec[] = bayOffsets.flatMap((offset) =>
     [-2.7, 2.7].map((armOffset, index) => ({
       key: `${id}:arm-column-${offset}-${index}`,
-      position: [offset + armOffset, 2.1, LOGISTICS_LOADING_APRON_Z + 0.7],
+      position: [offset + armOffset, 2.1, rackZ + 0.7],
     }))
   )
-  const armHeaderInstances: StaticInstanceSpec[] = LOGISTICS_BAY_OFFSETS.flatMap((offset) =>
+  const armHeaderInstances: StaticInstanceSpec[] = bayOffsets.flatMap((offset) =>
     [-2.7, 2.7].map((armOffset, index) => ({
       key: `${id}:arm-header-${offset}-${index}`,
-      position: [offset + armOffset + 0.92, 3.96, LOGISTICS_LOADING_APRON_Z + 0.5],
+      position: [offset + armOffset + 0.92, 3.96, rackZ + 0.5],
       rotation: [0, 0, Math.PI / 2],
     }))
   )
-  const armNozzleInstances: StaticInstanceSpec[] = LOGISTICS_BAY_OFFSETS.flatMap((offset) =>
+  const armNozzleInstances: StaticInstanceSpec[] = bayOffsets.flatMap((offset) =>
     [-2.7, 2.7].map((armOffset, index) => ({
       key: `${id}:arm-nozzle-${offset}-${index}`,
-      position: [offset + armOffset + 1.82, 3.68, LOGISTICS_LOADING_APRON_Z + 0.48],
+      position: [offset + armOffset + 1.82, 3.68, rackZ + 0.48],
       rotation: [0, 0, -Math.PI / 5],
     }))
   )
-  const warningBoxInstances: StaticInstanceSpec[] = LOGISTICS_BAY_OFFSETS.flatMap((offset) =>
+  const warningBoxInstances: StaticInstanceSpec[] = bayOffsets.flatMap((offset) =>
     [-2.7, 2.7].map((armOffset, index) => ({
       key: `${id}:arm-warning-${offset}-${index}`,
-      position: [offset + armOffset - 0.12, 4.26, LOGISTICS_LOADING_APRON_Z + 0.78],
+      position: [offset + armOffset - 0.12, 4.26, rackZ + 0.78],
     }))
   )
 
-  return groupNode(id, [
-    instancesNode(
-      `${id}:aprons`,
-      boxInstancesGeometry([13.4, 0.36, 8.8]),
-      material('slabAlt', 0.05, 0.9),
-      apronInstances,
-      { receiveShadow: true }
-    ),
-    instancesNode(
-      `${id}:front-stripes`,
-      boxInstancesGeometry([11.2, 0.18, 0.28]),
-      material('stripe', 0.02, 0.92),
-      frontStripeInstances
-    ),
-    instancesNode(
-      `${id}:curbs`,
-      boxInstancesGeometry([0.18, 0.18, 6.4]),
-      material('curb', 0.04, 0.86),
-      curbInstances
-    ),
-    instancesNode(
-      `${id}:canopies`,
-      boxInstancesGeometry([14, 0.24, 9.6]),
-      material('canopy', 0.6, 0.34),
-      canopyInstances
-    ),
-    instancesNode(
-      `${id}:posts`,
-      boxInstancesGeometry([0.34, 4.8, 0.34]),
-      material('canopy', 0.62, 0.34),
-      postInstances
-    ),
-    instancesNode(
-      `${id}:headers`,
-      boxInstancesGeometry([11.4, 0.18, 0.28]),
-      material('steelDark', 0.66, 0.34),
-      headerInstances
-    ),
-    instancesNode(
-      `${id}:arm-columns`,
-      cylinderInstancesGeometry([0.18, 0.22, 4.2, 12]),
-      material('steelDark', 0.62, 0.32),
-      armColumnInstances
-    ),
-    instancesNode(
-      `${id}:arm-headers`,
-      cylinderInstancesGeometry([0.14, 0.14, 2.2, 12]),
-      material('pipe', 0.58, 0.34),
-      armHeaderInstances
-    ),
-    instancesNode(
-      `${id}:arm-nozzles`,
-      cylinderInstancesGeometry([0.1, 0.1, 1.7, 10]),
-      material('pipe', 0.58, 0.34),
-      armNozzleInstances
-    ),
-    instancesNode(
-      `${id}:warning-boxes`,
-      boxInstancesGeometry([0.42, 0.18, 0.36]),
-      material('warning', 0.28, 0.56),
-      warningBoxInstances
-    ),
-  ])
+  return groupNode(
+    id,
+    [
+      instancesNode(
+        `${id}:aprons`,
+        boxInstancesGeometry([13.4, 0.36, 8.8]),
+        material('slabAlt', 0.05, 0.9),
+        apronInstances,
+        { receiveShadow: true }
+      ),
+      instancesNode(
+        `${id}:front-stripes`,
+        boxInstancesGeometry([11.2, 0.18, 0.28]),
+        material('stripe', 0.02, 0.92),
+        frontStripeInstances
+      ),
+      instancesNode(
+        `${id}:curbs`,
+        boxInstancesGeometry([0.18, 0.18, 6.4]),
+        material('curb', 0.04, 0.86),
+        curbInstances
+      ),
+      instancesNode(
+        `${id}:canopies`,
+        boxInstancesGeometry([14, 0.24, 9.6]),
+        material('canopy', 0.6, 0.34),
+        canopyInstances
+      ),
+      instancesNode(
+        `${id}:posts`,
+        boxInstancesGeometry([0.34, 4.8, 0.34]),
+        material('canopy', 0.62, 0.34),
+        postInstances
+      ),
+      instancesNode(
+        `${id}:headers`,
+        boxInstancesGeometry([11.4, 0.18, 0.28]),
+        material('steelDark', 0.66, 0.34),
+        headerInstances
+      ),
+      instancesNode(
+        `${id}:arm-columns`,
+        cylinderInstancesGeometry([0.18, 0.22, 4.2, 12]),
+        material('steelDark', 0.62, 0.32),
+        armColumnInstances
+      ),
+      instancesNode(
+        `${id}:arm-headers`,
+        cylinderInstancesGeometry([0.14, 0.14, 2.2, 12]),
+        material('pipe', 0.58, 0.34),
+        armHeaderInstances
+      ),
+      instancesNode(
+        `${id}:arm-nozzles`,
+        cylinderInstancesGeometry([0.1, 0.1, 1.7, 10]),
+        material('pipe', 0.58, 0.34),
+        armNozzleInstances
+      ),
+      instancesNode(
+        `${id}:warning-boxes`,
+        boxInstancesGeometry([0.42, 0.18, 0.36]),
+        material('warning', 0.28, 0.56),
+        warningBoxInstances
+      ),
+    ],
+    {
+      position: vec3(blueprint.center.x, 0, blueprint.center.z),
+    }
+  )
 }
 
 function createLogisticsDistrictNode(id: string) {
@@ -1504,7 +2290,9 @@ function createLogisticsDistrictNode(id: string) {
       material('stripe', 0.02, 0.92),
       stopLineInstances
     ),
-    createLoadingBayRowNode(`${id}:loading-bays`),
+    ...LOGISTICS_LOADING_RACK_BLUEPRINTS.map((blueprint) =>
+      createLoadingRackNode(`${id}:${blueprint.id}`, blueprint)
+    ),
     meshNode(
       `${id}:header-deck`,
       boxGeometry([158, 0.4, 3.2]),
@@ -1530,70 +2318,44 @@ function createLogisticsDistrictNode(id: string) {
       material('steel', 0.68, 0.34),
       headerSupportInstances
     ),
-    meshNode(
-      `${id}:building-west`,
-      boxGeometry([34, 5.6, 12]),
-      material('building', 0.18, 0.72),
-      {
-        position: vec3(-70, 2.8, LOGISTICS_BUILDING_Z),
-      }
-    ),
-    meshNode(
-      `${id}:building-east`,
-      boxGeometry([30, 6.4, 12]),
-      material('building', 0.2, 0.7),
-      {
-        position: vec3(68, 3.2, LOGISTICS_BUILDING_Z),
-      }
-    ),
-    meshNode(
-      `${id}:center-block`,
-      boxGeometry([20, 3.6, 10]),
-      material('slabAlt', 0.1, 0.78),
-      {
-        position: vec3(0, 1.8, 78),
-      }
-    ),
     instancesNode(
       `${id}:parking-markers`,
       boxInstancesGeometry([1.4, 0.04, 6]),
       material('stripe', 0.02, 0.92),
       parkingInstances
     ),
+    ...LOGISTICS_TRUCK_PARKING_BLUEPRINTS.map((blueprint) =>
+      createTruckParkingNode(`${id}:${blueprint.id}`, blueprint)
+    ),
+    ...LOGISTICS_WAREHOUSE_BLUEPRINTS.map((blueprint) =>
+      createWarehouseNode(`${id}:${blueprint.id}`, blueprint)
+    ),
+    ...LOGISTICS_ADMIN_BLUEPRINTS.map((blueprint) =>
+      createAdminBuildingNode(`${id}:${blueprint.id}`, blueprint)
+    ),
+    ...LOGISTICS_EMERGENCY_BLUEPRINTS.map((blueprint) =>
+      createEmergencyStationNode(`${id}:${blueprint.id}`, blueprint)
+    ),
+    ...LOGISTICS_RAIL_BLUEPRINTS.map((blueprint) =>
+      createRailSpurNode(`${id}:${blueprint.id}`, blueprint)
+    ),
+    ...LOGISTICS_WEIGHBRIDGE_BLUEPRINTS.map((blueprint) =>
+      createWeighbridgeNode(`${id}:${blueprint.id}`, blueprint)
+    ),
+    ...LOGISTICS_SMART_CONTROL_BLUEPRINTS.map((blueprint) =>
+      createSmartControlNode(`${id}:${blueprint.id}`, blueprint)
+    ),
+    ...LOGISTICS_SOLAR_CANOPY_BLUEPRINTS.map((blueprint) =>
+      createSolarCanopyNode(`${id}:${blueprint.id}`, blueprint)
+    ),
+    ...LOGISTICS_SERVICE_BLUEPRINTS.map((blueprint) =>
+      createServiceBuildingNode(`${id}:${blueprint.id}`, blueprint)
+    ),
   ])
 }
 
 function createUtilitiesDistrictNode(id: string) {
   if (!UTILITIES_DISTRICT) return null
-
-  const coolingTowerBodyInstances: StaticInstanceSpec[] = COOLING_TOWER_OFFSETS.map((offset) => ({
-    key: `${id}:cooling-body-${offset}`,
-    position: [-52 + offset, 4.5, -72],
-  }))
-  const coolingTowerCapInstances: StaticInstanceSpec[] = COOLING_TOWER_OFFSETS.map((offset) => ({
-    key: `${id}:cooling-cap-${offset}`,
-    position: [-52 + offset, 9.1, -72],
-  }))
-  const basinShellInstances: StaticInstanceSpec[] = [
-    { key: `${id}:basin-west`, position: [12, 0.8, -72] },
-    { key: `${id}:basin-east`, position: [30, 0.8, -72] },
-  ]
-  const basinWaterInstances: StaticInstanceSpec[] = [
-    { key: `${id}:basin-west-water`, position: [12, 1.66, -72] },
-    { key: `${id}:basin-east-water`, position: [30, 1.66, -72] },
-  ]
-  const substationPostInstances: StaticInstanceSpec[] = SUBSTATION_FRAME_OFFSETS.map((offset) => ({
-    key: `${id}:substation-post-${offset}`,
-    position: [74 + offset, 4.1, -72],
-  }))
-  const substationTopBeamInstances: StaticInstanceSpec[] = SUBSTATION_FRAME_OFFSETS.map((offset) => ({
-    key: `${id}:substation-top-${offset}`,
-    position: [74 + offset, 7.2, -72],
-  }))
-  const substationMidBeamInstances: StaticInstanceSpec[] = SUBSTATION_FRAME_OFFSETS.map((offset) => ({
-    key: `${id}:substation-mid-${offset}`,
-    position: [74 + offset, 5.2, -69.8],
-  }))
 
   return groupNode(id, [
     createDistrictSlabNode(
@@ -1602,84 +2364,33 @@ function createUtilitiesDistrictNode(id: string) {
       [UTILITIES_DISTRICT.size.width, 0.28, UTILITIES_DISTRICT.size.depth],
       'slabAlt'
     ),
-    instancesNode(
-      `${id}:cooling-bodies`,
-      cylinderInstancesGeometry([3.2, 4.8, 9, 24]),
-      material('vessel', 0.36, 0.5),
-      coolingTowerBodyInstances,
-      { castShadow: true }
+    ...UTILITIES_COOLING_TOWER_BLUEPRINTS.map((blueprint) =>
+      createCoolingTowerNode(`${id}:${blueprint.id}`, blueprint)
     ),
-    instancesNode(
-      `${id}:cooling-caps`,
-      cylinderInstancesGeometry([4.2, 3.4, 0.3, 24]),
-      material('vessel', 0.42, 0.42),
-      coolingTowerCapInstances
+    ...UTILITIES_SUBSTATION_BLUEPRINTS.map((blueprint) =>
+      createSubstationYardNode(`${id}:${blueprint.id}`, blueprint)
     ),
-    instancesNode(
-      `${id}:basin-shells`,
-      boxInstancesGeometry([14, 1.6, 12]),
-      material('curb', 0.04, 0.88),
-      basinShellInstances
+    ...UTILITIES_FIRE_WATER_BLUEPRINTS.map((blueprint) =>
+      createWaterTreatmentNode(`${id}:${blueprint.id}`, blueprint)
     ),
-    instancesNode(
-      `${id}:basin-water`,
-      boxInstancesGeometry([13, 0.08, 11]),
-      material('water', 0.08, 0.2),
-      basinWaterInstances
+    ...UTILITIES_EMERGENCY_BLUEPRINTS.map((blueprint) =>
+      createEmergencyStationNode(`${id}:${blueprint.id}`, blueprint)
     ),
-    meshNode(
-      `${id}:utility-building`,
-      boxGeometry([14, 2.4, 8]),
-      material('building', 0.24, 0.66),
-      {
-        position: vec3(-6, 1.2, -72),
-      }
+    ...UTILITIES_GATEHOUSE_BLUEPRINTS.map((blueprint) =>
+      createGatehouseNode(`${id}:${blueprint.id}`, blueprint)
     ),
-    meshNode(
-      `${id}:substation-base`,
-      boxGeometry([22, 0.36, 14]),
-      material('slab', 0.06, 0.92),
-      {
-        position: vec3(74, 0.18, -72),
-      }
+    ...UTILITIES_SECURITY_BLUEPRINTS.map((blueprint) =>
+      createSecurityDeviceNode(`${id}:${blueprint.id}`, blueprint)
     ),
-    instancesNode(
-      `${id}:substation-posts`,
-      boxInstancesGeometry([0.28, 8.2, 0.28]),
-      material('power', 0.58, 0.3),
-      substationPostInstances
+    ...UTILITIES_SERVICE_BLUEPRINTS.map((blueprint) =>
+      createServiceBuildingNode(`${id}:${blueprint.id}`, blueprint)
     ),
-    instancesNode(
-      `${id}:substation-top-beams`,
-      boxInstancesGeometry([5.6, 0.22, 0.22]),
-      material('power', 0.58, 0.3),
-      substationTopBeamInstances
+    ...UTILITIES_FLARE_STACK_BLUEPRINTS.map((blueprint) =>
+      createFlareStackNode(`${id}:${blueprint.id}`, blueprint)
     ),
-    instancesNode(
-      `${id}:substation-mid-beams`,
-      boxInstancesGeometry([5.6, 0.18, 0.18]),
-      material('power', 0.58, 0.3),
-      substationMidBeamInstances
-    ),
-    meshNode(
-      `${id}:flare-stack`,
-      cylinderGeometry([0.54, 0.68, 18, 14]),
-      material('vessel', 0.5, 0.28),
-      {
-        position: vec3(92, 10.2, -50),
-      }
-    ),
-    meshNode(
-      `${id}:flare-tip`,
-      sphereGeometry([0.52, 12, 12]),
-      material('flare', 0, 1, {
-        emissiveToken: 'flare',
-        emissiveIntensity: 0.85,
-      }),
-      {
-        position: vec3(92, 19.8, -50),
-      }
-    ),
+    UTILITIES_PERIMETER_BLUEPRINT
+      ? createPerimeterFenceNode(`${id}:${UTILITIES_PERIMETER_BLUEPRINT.id}`, UTILITIES_PERIMETER_BLUEPRINT)
+      : null,
   ])
 }
 
@@ -1756,6 +2467,61 @@ function createSectorDetailedRoot(id: string) {
   ])
 }
 
+function resolveProxyMaterialToken(blueprint: LayoutBlueprint): PublishedStaticMaterialToken {
+  switch (blueprint.kind) {
+    case 'admin-building':
+    case 'emergency-station':
+    case 'gatehouse':
+    case 'logistics-warehouse':
+    case 'service-building':
+      return 'building'
+    case 'flare-stack':
+      return 'flare'
+    case 'cooling-tower':
+    case 'sphere-tank':
+    case 'vertical-tank':
+      return 'vessel'
+    case 'fire-water':
+      return 'water'
+    case 'perimeter-fence':
+    case 'rail-spur':
+    case 'substation-yard':
+      return 'steelDark'
+    case 'pipe-rack':
+    case 'process-strip':
+      return 'pipe'
+    case 'loading-rack':
+    case 'solar-canopy':
+      return 'canopy'
+    case 'security-device':
+    case 'smart-sensor':
+    case 'smart-control':
+      return 'power'
+    case 'truck-parking':
+    case 'weighbridge':
+      return 'road'
+    case 'bund':
+      return 'curb'
+    default:
+      return 'slab'
+  }
+}
+
+function createBlueprintProxyNode(id: string, blueprint: LayoutBlueprint) {
+  const proxyHeight = Math.max(blueprint.height, 0.24)
+  const materialToken = resolveProxyMaterialToken(blueprint)
+  const transparent = blueprint.kind === 'perimeter-fence'
+
+  return meshNode(
+    id,
+    boxGeometry([blueprint.width, proxyHeight, blueprint.depth]),
+    material(materialToken, 0.14, 0.82, transparent ? { opacity: 0.26, transparent: true } : {}),
+    {
+      position: vec3(blueprint.center.x, proxyHeight / 2, blueprint.center.z),
+    }
+  )
+}
+
 function createSectorProxyRoot(id: string) {
   return groupNode(id, [
     meshNode(
@@ -1766,61 +2532,54 @@ function createSectorProxyRoot(id: string) {
         position: vec3(0, -0.12, 0),
       }
     ),
-    meshNode(
-      `${id}:process-volume`,
-      cylinderGeometry([11, 11, 16, 16]),
-      material('steelDark', 0.42, 0.44),
-      {
-        position: vec3(-56, 8.2, -28),
-      }
-    ),
-    meshNode(
-      `${id}:tank-volume`,
-      boxGeometry([72, 11.2, 48]),
-      material('vessel', 0.32, 0.5),
-      {
-        position: vec3(58, 5.6, -24),
-      }
-    ),
-    meshNode(
-      `${id}:logistics-volume`,
-      boxGeometry([196, 0.36, 38]),
-      material('road', 0.04, 0.9),
-      {
-        position: vec3(0, 0.18, 60),
-      }
-    ),
-    meshNode(
-      `${id}:utilities-volume`,
-      boxGeometry([160, 0.36, 34]),
-      material('slab', 0.04, 0.92),
-      {
-        position: vec3(0, 0.18, -72),
-      }
-    ),
-    meshNode(
-      `${id}:flare`,
-      cylinderGeometry([0.6, 0.72, 22, 12]),
-      material('vessel', 0.46, 0.34),
-      {
-        position: vec3(92, 14, -50),
-      }
+    ...CAMPUS_LAYOUT_BLUEPRINTS.map((blueprint) =>
+      createBlueprintProxyNode(`${id}:feature:${blueprint.id}`, blueprint)
     ),
   ])
 }
 
 function createInterSectorRecipeDetailedNodes(id: string) {
-  const roadStripeXInstances: StaticInstanceSpec[] = [
-    -352, -288, -224, -160, -96, -32, 32, 96, 160, 224, 288, 352,
-  ].map((offset) => ({
+  const createRoadStripeOffsets = (min: number, max: number) => {
+    const spacing = 64
+    const inset = 36
+    const offsets: number[] = []
+
+    for (let offset = min + inset; offset <= max - inset; offset += spacing) {
+      offsets.push(offset)
+    }
+
+    return offsets
+  }
+  const corridorCenterX = (CAMPUS_BOUNDS.min.x + CAMPUS_BOUNDS.max.x) / 2
+  const corridorCenterZ = (CAMPUS_BOUNDS.min.z + CAMPUS_BOUNDS.max.z) / 2
+  const corridorWidth = CAMPUS_BOUNDS.max.x - CAMPUS_BOUNDS.min.x
+  const corridorDepth = CAMPUS_BOUNDS.max.z - CAMPUS_BOUNDS.min.z
+  const bridgeInset = 28
+  const southeastConnectorStartX = -8
+  const southeastConnectorEndX = CAMPUS_BOUNDS.max.x
+  const southeastConnectorCenterX = (southeastConnectorStartX + southeastConnectorEndX) / 2
+  const southeastConnectorWidth = southeastConnectorEndX - southeastConnectorStartX
+  const southeastConnectorZ = 260
+  const roadStripeXInstances: StaticInstanceSpec[] = createRoadStripeOffsets(
+    CAMPUS_BOUNDS.min.x,
+    CAMPUS_BOUNDS.max.x
+  ).map((offset) => ({
     key: `${id}:road-x-${offset}`,
     position: [offset, 0.14, 0],
   }))
-  const roadStripeZInstances: StaticInstanceSpec[] = [
-    -96, -32, 32, 96, 160, 224, 288, 352,
-  ].map((offset) => ({
+  const southeastRoadStripeInstances: StaticInstanceSpec[] = createRoadStripeOffsets(
+    southeastConnectorStartX,
+    southeastConnectorEndX
+  ).map((offset) => ({
+    key: `${id}:road-southeast-${offset}`,
+    position: [offset, 0.14, southeastConnectorZ],
+  }))
+  const roadStripeZInstances: StaticInstanceSpec[] = createRoadStripeOffsets(
+    CAMPUS_BOUNDS.min.z,
+    CAMPUS_BOUNDS.max.z
+  ).map((offset) => ({
     key: `${id}:road-z-${offset}`,
-    position: [0, 0.14, offset + 4],
+    position: [0, 0.14, offset],
   }))
   const towerInstances: StaticInstanceSpec[] = [
     [-10, -10],
@@ -1835,19 +2594,46 @@ function createInterSectorRecipeDetailedNodes(id: string) {
   return [
     meshNode(
       `${id}:corridor-x`,
-      boxGeometry([780, 0.12, 18]),
+      boxGeometry([corridorWidth, 0.12, 18]),
       material('road', 0.05, 0.9),
       {
-        position: vec3(0, 0.06, 0),
+        position: vec3(corridorCenterX, 0.06, 0),
         receiveShadow: true,
       }
     ),
     meshNode(
       `${id}:corridor-z`,
-      boxGeometry([18, 0.12, 500]),
+      boxGeometry([18, 0.12, corridorDepth]),
       material('road', 0.05, 0.9),
       {
-        position: vec3(0, 0.06, 130),
+        position: vec3(0, 0.06, corridorCenterZ),
+        receiveShadow: true,
+      }
+    ),
+    meshNode(
+      `${id}:corridor-southeast`,
+      boxGeometry([southeastConnectorWidth, 0.12, 18]),
+      material('road', 0.05, 0.9),
+      {
+        position: vec3(southeastConnectorCenterX, 0.06, southeastConnectorZ),
+        receiveShadow: true,
+      }
+    ),
+    meshNode(
+      `${id}:walkway-southeast-north`,
+      boxGeometry([southeastConnectorWidth, 0.08, 4]),
+      material('curb', 0.06, 0.86),
+      {
+        position: vec3(southeastConnectorCenterX, 0.08, 246),
+        receiveShadow: true,
+      }
+    ),
+    meshNode(
+      `${id}:walkway-southeast-south`,
+      boxGeometry([southeastConnectorWidth, 0.08, 4]),
+      material('curb', 0.06, 0.86),
+      {
+        position: vec3(southeastConnectorCenterX, 0.08, 274),
         receiveShadow: true,
       }
     ),
@@ -1863,8 +2649,30 @@ function createInterSectorRecipeDetailedNodes(id: string) {
       material('stripe', 0.02, 0.9),
       roadStripeZInstances
     ),
-    createPipeBridgeNode(`${id}:bridge-east-west`, [-372, 0, 0], [372, 0, 0], 9.2),
-    createPipeBridgeNode(`${id}:bridge-south-north`, [0, 0, -112], [0, 0, 372], 9.6),
+    instancesNode(
+      `${id}:road-southeast-markers`,
+      boxInstancesGeometry([4.2, 0.04, 0.32]),
+      material('stripe', 0.02, 0.9),
+      southeastRoadStripeInstances
+    ),
+    createPipeBridgeNode(
+      `${id}:bridge-east-west`,
+      [CAMPUS_BOUNDS.min.x + bridgeInset, 0, 0],
+      [CAMPUS_BOUNDS.max.x - bridgeInset, 0, 0],
+      9.2
+    ),
+    createPipeBridgeNode(
+      `${id}:bridge-south-north`,
+      [0, 0, CAMPUS_BOUNDS.min.z + bridgeInset],
+      [0, 0, CAMPUS_BOUNDS.max.z - bridgeInset],
+      9.6
+    ),
+    createPipeBridgeNode(
+      `${id}:bridge-southeast`,
+      [southeastConnectorStartX, 0, southeastConnectorZ],
+      [southeastConnectorEndX, 0, southeastConnectorZ],
+      9.8
+    ),
     createPipeBridgeNode(`${id}:bridge-west-diagonal`, [-260, 0, 0], [0, 0, 260], 10.4),
     createPipeBridgeNode(`${id}:bridge-east-diagonal`, [260, 0, 0], [0, 0, 260], 10.2),
     groupNode(`${id}:hub`, [

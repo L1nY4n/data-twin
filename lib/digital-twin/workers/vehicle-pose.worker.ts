@@ -15,6 +15,14 @@ type WorkerCommand =
       samples: readonly VehicleSnapshotSample[]
     }
   | {
+      type: 'upsert_many'
+      updates: readonly {
+        entityId: string
+        index?: number
+        samples: readonly VehicleSnapshotSample[]
+      }[]
+    }
+  | {
       type: 'solve'
       count: number
       frameId: number
@@ -35,6 +43,17 @@ const STATUS_TO_CODE: Record<VehicleStatus, number> = {
 const snapshotsById = new Map<string, readonly VehicleSnapshotSample[]>()
 const idsByIndex: string[] = []
 
+function upsertSamples(
+  entityId: string,
+  index: number | undefined,
+  samples: readonly VehicleSnapshotSample[]
+) {
+  snapshotsById.set(entityId, samples)
+  if (typeof index === 'number') {
+    idsByIndex[index] = entityId
+  }
+}
+
 self.onmessage = (event: MessageEvent<WorkerCommand>) => {
   const message = event.data
 
@@ -51,8 +70,12 @@ self.onmessage = (event: MessageEvent<WorkerCommand>) => {
       }
       return
     case 'upsert':
-      snapshotsById.set(message.entityId, message.samples)
-      idsByIndex[message.index] = message.entityId
+      upsertSamples(message.entityId, message.index, message.samples)
+      return
+    case 'upsert_many':
+      for (const update of message.updates) {
+        upsertSamples(update.entityId, update.index, update.samples)
+      }
       return
     case 'solve': {
       const count = Math.min(message.count, idsByIndex.length)

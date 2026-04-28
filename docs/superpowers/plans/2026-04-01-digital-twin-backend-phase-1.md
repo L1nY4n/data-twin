@@ -1,5 +1,7 @@
 # Digital Twin Backend Phase 1 Implementation Plan
 
+> Historical plan note: this document describes the superseded TypeScript/NestJS `backend-core` plan. The repository now uses the Rust service in `backend-core-rs`, so this file should be read as archive context rather than current execution guidance.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build a standalone `backend-core` service that serves a deterministic digital twin bootstrap payload and native WebSocket realtime events, then switch the main Next.js page from local simulation to backend bootstrap plus live updates.

@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  CAMPUS_BOUNDS,
   CAMPUS_CAMERA_PRESETS,
+  CAMPUS_DISTRICTS,
   CAMPUS_LAYOUT_BLUEPRINTS,
   CAMPUS_SECTORS,
   DEFAULT_SCENE_COUNTS,
@@ -13,6 +15,16 @@ import {
   buildPublishedScenePackageFromSnapshot,
 } from './compiler'
 import { PUBLISHED_STATIC_ASSET_MANIFEST_URL } from './static-assets'
+import type { PublishedSceneBounds } from './types'
+
+function boundsContainXZ(outer: PublishedSceneBounds, inner: PublishedSceneBounds) {
+  return (
+    inner.min.x >= outer.min.x &&
+    inner.max.x <= outer.max.x &&
+    inner.min.z >= outer.min.z &&
+    inner.max.z <= outer.max.z
+  )
+}
 
 describe('buildPublishedScenePackage', () => {
   test('produces deterministic output for a fixed timestamp', () => {
@@ -44,17 +56,59 @@ describe('buildPublishedScenePackage', () => {
       generatedAt: '2026-04-03T06:26:12.000Z',
     })
 
+    expect(CAMPUS_SECTORS.length).toBeGreaterThanOrEqual(6)
     expect(
       published.staticChunks
         .filter((chunk) => chunk.kind === 'sector')
         .every((chunk) => chunk.featureCount === CAMPUS_LAYOUT_BLUEPRINTS.length)
     ).toBe(true)
+    expect(CAMPUS_LAYOUT_BLUEPRINTS.length).toBeGreaterThanOrEqual(24)
     expect(published.cameraPresets.map((preset) => preset.id)).toEqual(
       CAMPUS_CAMERA_PRESETS.map((preset) => preset.id)
     )
+    expect(published.cameraPresets.map((preset) => preset.id)).toEqual(
+      expect.arrayContaining(['energy-north', 'rail-logistics', 'southeast-rd'])
+    )
+    const topPreset = published.cameraPresets.find((preset) => preset.id === 'top')
+    const campusExtent = Math.max(
+      CAMPUS_BOUNDS.max.x - CAMPUS_BOUNDS.min.x,
+      CAMPUS_BOUNDS.max.z - CAMPUS_BOUNDS.min.z
+    )
+    expect(topPreset?.position.y).toBeGreaterThanOrEqual(campusExtent * 0.85)
+    expect(topPreset?.target).toEqual({
+      x: (CAMPUS_BOUNDS.min.x + CAMPUS_BOUNDS.max.x) / 2,
+      y: 0,
+      z: (CAMPUS_BOUNDS.min.z + CAMPUS_BOUNDS.max.z) / 2,
+    })
     expect(published.staticAssetManifestUrl).toBe(PUBLISHED_STATIC_ASSET_MANIFEST_URL)
     expect(published.entityCounts.default).toEqual(DEFAULT_SCENE_COUNTS)
     expect(published.entityCounts.production).toEqual(PRODUCTION_SCENE_COUNTS)
+  })
+
+  test('publishes campus bounds that cover every sector and the inter-sector chunk', () => {
+    const published = buildPublishedScenePackage({
+      generatedAt: '2026-04-03T06:26:12.000Z',
+    })
+    const interSectorChunk = published.staticChunks.find((chunk) => chunk.kind === 'inter-sector')
+
+    expect(published.bounds.min.x).toBe(CAMPUS_BOUNDS.min.x)
+    expect(published.bounds.min.z).toBe(CAMPUS_BOUNDS.min.z)
+    expect(published.bounds.max.x).toBe(CAMPUS_BOUNDS.max.x)
+    expect(published.bounds.max.z).toBe(CAMPUS_BOUNDS.max.z)
+    for (const sector of published.sectors) {
+      expect(boundsContainXZ(published.bounds, sector.bounds)).toBe(true)
+    }
+
+    if (!interSectorChunk) throw new Error('inter-sector chunk missing')
+    expect(boundsContainXZ(published.bounds, interSectorChunk.bounds)).toBe(true)
+    expect(interSectorChunk.features[0]?.center.y).toBe(0)
+    expect(interSectorChunk.features[0]?.districtName).toBe('园区互联')
+    expect(interSectorChunk.features[0]?.width).toBe(
+      CAMPUS_BOUNDS.max.x - CAMPUS_BOUNDS.min.x
+    )
+    expect(interSectorChunk.features[0]?.depth).toBe(
+      CAMPUS_BOUNDS.max.z - CAMPUS_BOUNDS.min.z
+    )
   })
 
   test('allows the publish contract to point at a versioned static asset manifest', () => {
@@ -111,6 +165,10 @@ describe('buildPublishedScenePackage', () => {
     expect(
       published.staticChunks.find((chunk) => chunk.kind === 'inter-sector')?.renderRecipe.proxy
     ).toBeUndefined()
+
+    const districtNameById = new Map(CAMPUS_DISTRICTS.map((district) => [district.id, district.name]))
+    const sectorFeature = published.staticChunks.find((chunk) => chunk.kind === 'sector')?.features[0]
+    expect(sectorFeature?.districtName).toBe(districtNameById.get(sectorFeature?.districtId ?? ''))
   })
 
   test('can compile a published package directly from a backend working snapshot', () => {

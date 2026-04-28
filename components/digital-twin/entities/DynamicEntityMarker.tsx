@@ -24,6 +24,7 @@ import {
 import { SpriteTextLabel } from '@/components/digital-twin/scene/SpriteTextLabel'
 import { runtimeVehiclePoseBuffer } from '@/lib/digital-twin/runtime-vehicle-pose-buffer'
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
+import { usePickGroupRegistration } from '../scene/ViewerRuntimeBridge'
 
 const STATUS_COLORS = {
   active: '#22c55e',
@@ -107,6 +108,7 @@ export const DynamicEntityMarker = memo(function DynamicEntityMarker({
   showStatusRing?: boolean
 }) {
   const groupRef = useRef<THREE.Group>(null)
+  const pickRefs = useMemo(() => [groupRef], [])
   const statusColor = STATUS_COLORS[entity.status]
   const accentColor = presentation.accentColor
   const labelMode = entity.labelMode ?? 'html'
@@ -120,6 +122,13 @@ export const DynamicEntityMarker = memo(function DynamicEntityMarker({
     .slice(0, 3)
     .map(([key, value]) => `${key}: ${String(value)}`)
   const shouldTrackLivePose = isSelected || isHovered || showModel
+
+  usePickGroupRegistration({
+    id: `dynamic-marker:${entity.id}`,
+    refs: pickRefs,
+    priority: 'entity',
+    dependencyKey: `${entity.id}:${showModel}:${showBaseProxy}:${showStatusRing}`,
+  })
 
   useFrame(() => {
     if (!groupRef.current || !shouldTrackLivePose) return

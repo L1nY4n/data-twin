@@ -8,6 +8,7 @@ import {
   resolvePickTargetFromIntersection,
   type ScenePickTarget,
 } from '@/lib/digital-twin/renderer/interaction'
+import { useDigitalTwinPickIndex } from './ViewerRuntimeBridge'
 
 const POINTER = new THREE.Vector2()
 const HOVER_PICK_MIN_INTERVAL_MS = 50
@@ -52,6 +53,7 @@ interface ScenePickingProps {
 
 export function ScenePicking({ pickRootRef }: ScenePickingProps) {
   const { camera, raycaster, gl } = useThree()
+  const pickIndex = useDigitalTwinPickIndex()
   const selectedEntityId = useDigitalTwinStore((state) => state.selectedEntityId)
   const selectedStaticFeatureId = useDigitalTwinStore((state) => state.selectedStaticFeatureId)
   const measurementMode = useDigitalTwinStore((state) => state.measurementMode)
@@ -83,7 +85,9 @@ export function ScenePicking({ pickRootRef }: ScenePickingProps) {
     const domElement = gl.domElement
 
     const resolve = (pointer: PointerSample) =>
-      pickTarget(pointer, domElement, camera, raycaster, pickRootRef.current)
+      pickIndex && pickIndex.size > 0
+        ? pickIndex.pick({ pointer, domElement, camera, raycaster })
+        : pickTarget(pointer, domElement, camera, raycaster, pickRootRef.current)
 
     const cancelScheduledHoverPick = () => {
       if (rafRef.current !== null) {
@@ -149,13 +153,7 @@ export function ScenePicking({ pickRootRef }: ScenePickingProps) {
 
     const handleClick = (event: MouseEvent) => {
       if (measurementModeRef.current !== 'none') return
-      const target = pickTarget(
-        { offsetX: event.offsetX, offsetY: event.offsetY },
-        domElement,
-        camera,
-        raycaster,
-        pickRootRef.current
-      )
+      const target = resolve({ offsetX: event.offsetX, offsetY: event.offsetY })
       if (!target) {
         setSelectedEntity(null)
         setSelectedStaticFeature(null)
@@ -188,6 +186,7 @@ export function ScenePicking({ pickRootRef }: ScenePickingProps) {
     camera,
     gl.domElement,
     pickRootRef,
+    pickIndex,
     raycaster,
     setHoveredEntity,
     setHoveredStaticFeature,

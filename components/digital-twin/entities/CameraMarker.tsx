@@ -1,6 +1,7 @@
 'use client'
 
-import { memo } from 'react'
+import { memo, useMemo, useRef } from 'react'
+import * as THREE from 'three'
 import type { CameraEntity } from '@/lib/digital-twin/types'
 import {
   OVERLAY_RENDER_ORDER,
@@ -14,6 +15,7 @@ import {
 } from '@/components/digital-twin/scene/SpriteInfoCard'
 import { SpriteTextLabel } from '@/components/digital-twin/scene/SpriteTextLabel'
 import { resolveRenderablePosition, resolveRenderableRotation } from './render-transform'
+import { usePickGroupRegistration } from '../scene/ViewerRuntimeBridge'
 
 interface CameraMarkerProps {
   entity: CameraEntity
@@ -49,14 +51,33 @@ export const CameraMarker = memo(function CameraMarker({
   isHovered,
   fullTransform = false,
 }: CameraMarkerProps) {
+  const groupRef = useRef<THREE.Group>(null)
+  const pickRefs = useMemo(() => [groupRef], [])
   const statusColor = STATUS_COLORS[entity.status]
   const bodyColor = CAMERA_COLORS[entity.cameraType]
   const labelMode = entity.labelMode ?? 'html'
   const showLabel = isSelected || isHovered || labelMode !== 'hidden'
   const range = entity.range ?? 18
+  const pickBounds = useMemo(
+    () =>
+      new THREE.Sphere(
+        new THREE.Vector3(entity.position.x, entity.position.y + 1.2, entity.position.z),
+        Math.max(3, range * 0.4)
+      ),
+    [entity.position.x, entity.position.y, entity.position.z, range]
+  )
+
+  usePickGroupRegistration({
+    id: `camera-marker:${entity.id}`,
+    refs: pickRefs,
+    bounds: pickBounds,
+    priority: 'entity',
+    dependencyKey: `${entity.id}:${fullTransform}:${range}`,
+  })
 
   return (
     <group
+      ref={groupRef}
       position={resolveRenderablePosition(entity.position, { fullTransform })}
       userData={{ pickable: true, entityId: entity.id }}
     >

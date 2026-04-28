@@ -1,9 +1,11 @@
 import {
   CAMPUS_BOUNDS,
   CAMPUS_CAMERA_PRESETS,
+  CAMPUS_DISTRICTS,
   CAMPUS_EQUIPMENT_PLACEMENTS,
   CAMPUS_LAYOUT_BLUEPRINTS,
   CAMPUS_SCENE_CONFIG,
+  CAMPUS_SECTOR_HALF_EXTENT,
   CAMPUS_SECTORS,
   CAMPUS_ZONE_BLUEPRINTS,
   DEFAULT_SCENE_COUNTS,
@@ -55,12 +57,15 @@ import type {
 } from './types'
 
 const SCHEMA_VERSION = 1 as const
-const SECTOR_HALF_EXTENT = 118
+const SECTOR_HALF_EXTENT = CAMPUS_SECTOR_HALF_EXTENT
 const SECTOR_BOTTOM_PADDING = 4
 const SECTOR_TOP_PADDING = 28
 const SECTOR_PROXY_LOD_DISTANCE = 420
 const CORRIDOR_PROXY_LOD_DISTANCE = 560
 const DEFAULT_EQUIPMENT_SPREAD = { x: 1.2, z: 1.2 } as const
+const CAMPUS_DISTRICT_NAME_BY_ID = new Map(
+  CAMPUS_DISTRICTS.map((district) => [district.id, district.name])
+)
 
 interface BuildPublishedScenePackageOptions {
   generatedAt?: string
@@ -249,6 +254,10 @@ function withSectorLabel(label: string, sector: CampusSector) {
   return `${sector.name} · ${label}`
 }
 
+function getDistrictName(districtId: string) {
+  return CAMPUS_DISTRICT_NAME_BY_ID.get(districtId) ?? districtId
+}
+
 function expandBlueprintFeature(
   blueprint: LayoutBlueprint,
   sector: CampusSector
@@ -257,6 +266,7 @@ function expandBlueprintFeature(
     id: `${sector.id}:${blueprint.id}`,
     sectorId: sector.id,
     districtId: blueprint.districtId,
+    districtName: getDistrictName(blueprint.districtId),
     label: withSectorLabel(blueprint.label, sector),
     kind: blueprint.kind,
     center: offsetPoint(blueprint.center, sector.offset),
@@ -381,6 +391,9 @@ function buildRoutingLayers(bounds: PublishedSceneBounds): PublishedRoutingLayer
 }
 
 function buildInterSectorChunk(): PublishedStaticChunk {
+  const corridorWidth = CAMPUS_BOUNDS.max.x - CAMPUS_BOUNDS.min.x
+  const corridorDepth = CAMPUS_BOUNDS.max.z - CAMPUS_BOUNDS.min.z
+
   return {
     id: 'chunk:campus:inter-sector',
     label: '园区互联静态块',
@@ -413,15 +426,16 @@ function buildInterSectorChunk(): PublishedStaticChunk {
         id: 'campus:inter-sector-corridor',
         sectorId: 'campus',
         districtId: 'inter-sector',
+        districtName: '园区互联',
         label: '园区互联走廊',
         kind: 'pipe-rack',
         center: {
-          x: CAMPUS_SCENE_CONFIG.cameraTarget.x,
-          y: CAMPUS_SCENE_CONFIG.cameraTarget.y,
-          z: CAMPUS_SCENE_CONFIG.cameraTarget.z + 104,
+          x: (CAMPUS_BOUNDS.min.x + CAMPUS_BOUNDS.max.x) / 2,
+          y: 0,
+          z: (CAMPUS_BOUNDS.min.z + CAMPUS_BOUNDS.max.z) / 2,
         },
-        width: 780,
-        depth: 500,
+        width: corridorWidth,
+        depth: corridorDepth,
         height: 12,
         major: true,
         blocksVehicle: false,
@@ -612,6 +626,37 @@ function createSnapshotCameraPresets(
       fov: 45,
     },
   ]
+}
+
+function createCampusCameraPresets(bounds: PublishedSceneBounds): CameraPreset[] {
+  const center = {
+    x: (bounds.min.x + bounds.max.x) / 2,
+    y: 0,
+    z: (bounds.min.z + bounds.max.z) / 2,
+  }
+  const extent = Math.max(bounds.max.x - bounds.min.x, bounds.max.z - bounds.min.z, 36)
+  const topHeight = Math.max(bounds.max.y + extent * 0.85, center.y + 28)
+
+  return CAMPUS_CAMERA_PRESETS.map((preset) => {
+    if (preset.id !== 'top') {
+      return {
+        ...preset,
+        position: { ...preset.position },
+        target: { ...preset.target },
+      }
+    }
+
+    return {
+      ...preset,
+      position: {
+        x: center.x,
+        y: topHeight,
+        z: center.z,
+      },
+      target: center,
+      fov: 45,
+    }
+  })
 }
 
 function buildSnapshotPersonLayer(
@@ -890,11 +935,7 @@ export function buildPublishedScenePackage(
       buildEquipmentLayer(sector, equipmentCounts[index] ?? 0),
     ]),
     routingLayers: buildRoutingLayers(bounds),
-    cameraPresets: CAMPUS_CAMERA_PRESETS.map((preset) => ({
-      ...preset,
-      position: { ...preset.position },
-      target: { ...preset.target },
-    })),
+    cameraPresets: createCampusCameraPresets(bounds),
     entityCounts: buildEntityCounts(DEFAULT_SCENE_COUNTS, PRODUCTION_SCENE_COUNTS),
   }
 }

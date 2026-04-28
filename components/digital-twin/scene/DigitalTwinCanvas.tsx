@@ -32,6 +32,11 @@ import { IncidentEffects } from '../overlays/IncidentEffects'
 import { SceneLoading } from './SceneLoading'
 import { ScenePicking } from './ScenePicking'
 import { PublishedStaticFeaturePickingLayer } from './PublishedStaticFeaturePickingLayer'
+import {
+  useDigitalTwinRuntimePlugin,
+  useDigitalTwinViewerRuntime,
+  ViewerRuntimeBridge,
+} from './ViewerRuntimeBridge'
 
 interface DigitalTwinCanvasProps {
   showStats?: boolean
@@ -222,6 +227,7 @@ const SceneContent = memo(function SceneContent({ backgroundColor }: SceneConten
   const measurementMode = useDigitalTwinStore((state) => state.measurementMode)
   const advanceRuntime = useDigitalTwinStore((state) => state.advanceRuntime)
   const qualityProfile = useDigitalTwinStore((state) => state.qualityProfile)
+  const viewerRuntime = useDigitalTwinViewerRuntime()
   const focusAnimationRef = useRef<{
     position: { x: number; y: number; z: number }
     target: { x: number; y: number; z: number }
@@ -242,6 +248,34 @@ const SceneContent = memo(function SceneContent({ backgroundColor }: SceneConten
   )
   const hasModelBackedRuntimeSurface =
     hasPublishedStaticGeometry || authoredStaticAssetCount > 0
+  const runtimeStoreBridgePlugin = useMemo(
+    () => ({
+      id: 'store-runtime-bridge',
+      order: 20,
+      onFixedUpdatePre: (tick: { nowMs: number }) => {
+        runtimeVehiclePoseBuffer.solve(tick.nowMs)
+      },
+      onRender: (frame: {
+        nowMs: number
+        deltaMs: number
+        cameraPosition?: { x: number; y: number; z: number }
+        cameraTarget?: { x: number; y: number; z: number } | null
+        drawCalls?: number
+      }) => {
+        if (!frame.cameraPosition) return
+        advanceRuntime(
+          frame.nowMs,
+          frame.deltaMs,
+          frame.cameraPosition,
+          frame.drawCalls ?? 0,
+          frame.cameraTarget ?? undefined
+        )
+      },
+    }),
+    [advanceRuntime]
+  )
+
+  useDigitalTwinRuntimePlugin(runtimeStoreBridgePlugin, 'store-runtime-bridge')
 
   useEffect(() => {
     setSceneReady(true)
@@ -343,9 +377,8 @@ const SceneContent = memo(function SceneContent({ backgroundColor }: SceneConten
     }
   }, [cameraFocusRequest, viewMode])
 
-  useFrame(({ clock, camera }, delta) => {
+  useFrame(({ camera }, delta) => {
     const nowMs = Date.now()
-    runtimeVehiclePoseBuffer.solve(nowMs)
     const controls = controlsRef.current
     const selectedEntity = selectedEntityId
       ? useDigitalTwinStore.getState().getEntityById(selectedEntityId) ?? null
@@ -395,13 +428,26 @@ const SceneContent = memo(function SceneContent({ backgroundColor }: SceneConten
         }
       : sceneConfig.cameraTarget
 
-    advanceRuntime(
-      clock.elapsedTime * 1000,
-      delta * 1000,
-      { x: camera.position.x, y: camera.position.y, z: camera.position.z },
-      sampledDrawCallsRef.current,
-      runtimeCameraTarget
-    )
+    const runtimeFrame = {
+      nowMs,
+      deltaMs: delta * 1000,
+      cameraPosition: { x: camera.position.x, y: camera.position.y, z: camera.position.z },
+      drawCalls: sampledDrawCallsRef.current,
+      cameraTarget: runtimeCameraTarget,
+    }
+
+    if (viewerRuntime) {
+      viewerRuntime.advance(runtimeFrame)
+    } else {
+      runtimeVehiclePoseBuffer.solve(nowMs)
+      advanceRuntime(
+        runtimeFrame.nowMs,
+        runtimeFrame.deltaMs,
+        runtimeFrame.cameraPosition,
+        runtimeFrame.drawCalls,
+        runtimeFrame.cameraTarget
+      )
+    }
   })
 
   return (
@@ -675,8 +721,10 @@ export function DigitalTwinCanvas({ showStats = false }: DigitalTwinCanvasProps)
         }}
       >
         <Suspense fallback={<SceneLoading />}>
-          <SceneContent backgroundColor={canvasBackground} />
-          <RendererReadySignal onReady={finishRendererTransition} />
+          <ViewerRuntimeBridge>
+            <SceneContent backgroundColor={canvasBackground} />
+            <RendererReadySignal onReady={finishRendererTransition} />
+          </ViewerRuntimeBridge>
         </Suspense>
         {showStats && <Stats />}
       </Canvas>

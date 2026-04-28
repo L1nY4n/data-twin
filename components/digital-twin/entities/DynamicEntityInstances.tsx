@@ -1,6 +1,6 @@
 'use client'
 
-import { memo, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import {
@@ -41,6 +41,10 @@ import { useDigitalTwinStore } from '@/lib/digital-twin/store'
 import { runtimeVehiclePoseBuffer } from '@/lib/digital-twin/runtime-vehicle-pose-buffer'
 import type { DynamicEntity } from '@/lib/digital-twin/types'
 import type { DynamicEntityPresentation } from '@/lib/digital-twin/entity-schema-registry'
+import {
+  DigitalTwinRaySpherePickGrid,
+} from '@/lib/digital-twin/viewer-runtime/pick-index'
+import { usePickGroupRegistration } from '../scene/ViewerRuntimeBridge'
 
 export interface DynamicEntityRenderItem {
   entity: DynamicEntity
@@ -177,6 +181,7 @@ export const DynamicEntityInstances = memo(function DynamicEntityInstances({
     status: new THREE.Color(),
     ring: new THREE.Color(),
   })
+  const pickRefs = useMemo(() => [bodyRef, statusRef, ringRef], [])
   const rendererBackend = useDigitalTwinStore((state) => state.rendererBackend)
   const useWebGpuStorage = rendererBackend === 'webgpu'
   const sharedMovingPipeline = useMemo(
@@ -248,6 +253,36 @@ export const DynamicEntityInstances = memo(function DynamicEntityInstances({
       ),
     [items]
   )
+  const pickGrid = useMemo(() => {
+    const grid = new DigitalTwinRaySpherePickGrid({ cellSize: 6 })
+    for (const { entity } of items) {
+      if (suppressedEntityIds?.has(entity.id)) continue
+      grid.upsertEntity(
+        entity.id,
+        entity.position.x,
+        entity.position.y + Math.max(0.7, entity.scale.y * 0.9),
+        entity.position.z,
+        Math.max(0.75, Math.max(entity.scale.x, entity.scale.y, entity.scale.z) * 1.25)
+      )
+    }
+    return grid
+  }, [items, suppressedEntityIds])
+  const collectPickCandidates = useCallback(
+    (raycaster: THREE.Raycaster) => pickGrid.collect(raycaster),
+    [pickGrid]
+  )
+
+  usePickGroupRegistration({
+    id: `dynamic:${entityIdSignature}`,
+    refs: pickRefs,
+    bounds: interactionBounds.sphere,
+    priority: 'entity',
+    enabled: items.length > 0,
+    dependencyKey: `${entityIdSignature}:${suppressedEntityIdSignature}`,
+    pickCandidates: collectPickCandidates,
+    exactRaycast: false,
+  })
+
   useEffect(() => {
     const nextIds = new Set(entityIdSignature ? entityIdSignature.split('|') : [])
     runtimeRef.current.forEach((_state, id) => {
@@ -456,6 +491,7 @@ export const DynamicEntityInstances = memo(function DynamicEntityInstances({
       }
 
       if (suppressedEntityIds?.has(entity.id)) {
+        pickGrid.remove(entity.id)
         if (shouldSyncMatrix) {
           const renderX = usingWebGpuStorage ? runtime.targetX : runtime.x
           const renderY = usingWebGpuStorage ? runtime.targetY : runtime.y
@@ -483,6 +519,14 @@ export const DynamicEntityInstances = memo(function DynamicEntityInstances({
         }
         continue
       }
+
+      pickGrid.upsertEntity(
+        entity.id,
+        runtime.targetX,
+        runtime.targetY + Math.max(0.7, runtime.scaleY * 0.9),
+        runtime.targetZ,
+        Math.max(0.75, Math.max(runtime.scaleX, runtime.scaleY, runtime.scaleZ) * 1.25)
+      )
 
       if (shouldSyncMatrix) {
         const renderX = usingWebGpuStorage ? runtime.targetX : runtime.x

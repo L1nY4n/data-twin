@@ -1867,6 +1867,7 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
             id: snapshot.id,
             type: snapshot.type,
             position: snapshot.position,
+            vehicleType: snapshot.type === 'vehicle' ? snapshot.vehicleType : undefined,
           }))
         )
 
@@ -1905,7 +1906,8 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
               movement.position,
               DYNAMIC_NEIGHBOR_QUERY_RADIUS,
               snapshot.id
-            )
+            ),
+            snapshot.type === 'vehicle' ? snapshot.vehicleType : undefined
           )
           const nextPosition = separation.position
 

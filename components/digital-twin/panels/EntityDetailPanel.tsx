@@ -64,12 +64,26 @@ const STATUS_CONFIG = {
 }
 
 const STATIC_FEATURE_KIND_LABELS: Record<RuntimePublishedStaticFeature['feature']['kind'], string> = {
+  'admin-building': '行政 / 调度建筑',
+  'cooling-tower': '冷却塔',
+  'emergency-station': '消防应急站',
+  'flare-stack': '火炬排放塔',
+  'fire-water': '消防 / 水处理',
+  'gatehouse': '门岗',
+  'loading-rack': '装车栈台',
+  'logistics-warehouse': '立体仓储',
+  'perimeter-fence': '围界照明',
   'process-train': '工艺列',
   'process-strip': '工艺带',
+  'rail-spur': '铁路支线',
   'service-building': '服务建筑',
+  'solar-canopy': '光伏停车棚',
   'pipe-rack': '管廊',
   'sphere-tank': '球罐',
+  'substation-yard': '变电站场',
+  'truck-parking': '车辆待装区',
   'vertical-tank': '立式储罐',
+  weighbridge: '地磅',
   'pump-manifold': '泵组',
   'wall-system': '墙体 / 隔断',
   'door-system': '门体',
@@ -315,7 +329,7 @@ function StaticFeatureDetailPanel({
           <ViewerAdminSection icon={Map} title="归属信息">
             <ViewerAdminInfoList>
               <ViewerAdminInfoRow label="Sector" value={sector?.name ?? '全局静态层'} />
-              <ViewerAdminInfoRow label="District" value={feature.districtId} />
+              <ViewerAdminInfoRow label="District" value={feature.districtName} />
               <ViewerAdminInfoRow label="Chunk" value={chunk.label} />
               {feature.variant ? (
                 <ViewerAdminInfoRow label="Variant" value={feature.variant} />

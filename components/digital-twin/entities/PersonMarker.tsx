@@ -1,6 +1,6 @@
 'use client'
 
-import { memo, useRef } from 'react'
+import { memo, useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import type * as THREE from 'three'
 import type { PersonEntity } from '@/lib/digital-twin/types'
@@ -17,6 +17,7 @@ import { SpriteTextLabel } from '@/components/digital-twin/scene/SpriteTextLabel
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
 import { runtimeVehiclePoseBuffer } from '@/lib/digital-twin/runtime-vehicle-pose-buffer'
 import { resolveRenderablePosition, resolveRenderableRotation } from './render-transform'
+import { usePickGroupRegistration } from '../scene/ViewerRuntimeBridge'
 
 interface PersonMarkerProps {
   entity: PersonEntity
@@ -41,9 +42,17 @@ export const PersonMarker = memo(function PersonMarker({
   fullTransform = false,
 }: PersonMarkerProps) {
   const groupRef = useRef<THREE.Group>(null)
+  const pickRefs = useMemo(() => [groupRef], [])
   const statusColor = STATUS_COLORS[entity.status]
   const labelMode = entity.labelMode ?? 'html'
   const showLabel = isSelected || isHovered || labelMode !== 'hidden'
+
+  usePickGroupRegistration({
+    id: `person-marker:${entity.id}`,
+    refs: pickRefs,
+    priority: 'entity',
+    dependencyKey: `${entity.id}:${showModel}:${fullTransform}`,
+  })
 
   useFrame(() => {
     if (fullTransform) return

@@ -1,8 +1,8 @@
 'use client'
 
-import { memo, useEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useFrame } from '@react-three/fiber'
-import type * as THREE from 'three'
+import * as THREE from 'three'
 import type { VehicleEntity } from '@/lib/digital-twin/types'
 import {
   OVERLAY_RENDER_ORDER,
@@ -18,12 +18,18 @@ import { TruckRuntimeModel } from './TruckRuntimeModel'
 import { ForkliftRuntimeModel } from './ForkliftRuntimeModel'
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
 import { runtimeVehiclePoseBuffer } from '@/lib/digital-twin/runtime-vehicle-pose-buffer'
+import { VEHICLE_DETAIL_DIMENSIONS } from '@/lib/digital-twin/vehicle-footprint'
 import {
   normalizeVehicleRouteLike,
   normalizeVehicleTrackLike,
   resolveVehicleRoutePose,
 } from '@/lib/digital-twin/vehicle-route-motion'
 import { resolveRenderablePosition, resolveRenderableRotation } from './render-transform'
+import {
+  resolveRaySpherePickHit,
+  type DigitalTwinPickCandidateHit,
+} from '@/lib/digital-twin/viewer-runtime/pick-index'
+import { usePickGroupRegistration } from '../scene/ViewerRuntimeBridge'
 
 interface VehicleMarkerProps {
   entity: VehicleEntity
@@ -40,14 +46,6 @@ const STATUS_COLORS = {
   error: '#ef4444',
 }
 
-const VEHICLE_SIZES = {
-  car: { width: 1.8, height: 1.2, depth: 4 },
-  truck: { width: 2.4, height: 2.5, depth: 8 },
-  forklift: { width: 1.1, height: 2, depth: 3.5 },
-  agv: { width: 1, height: 0.4, depth: 1.5 },
-  other: { width: 1.5, height: 1, depth: 3 },
-}
-
 const VEHICLE_COLORS = {
   car: '#3b82f6',
   truck: '#f59e0b',
@@ -55,6 +53,8 @@ const VEHICLE_COLORS = {
   agv: '#8b5cf6',
   other: '#6b7280',
 }
+
+const VEHICLE_PICK_WORLD_POSITION = new THREE.Vector3()
 
 function normalizeDegrees(value: number) {
   return ((value % 360) + 360) % 360
@@ -97,6 +97,7 @@ export const VehicleMarker = memo(function VehicleMarker({
 }: VehicleMarkerProps) {
   const groupRef = useRef<THREE.Group>(null)
   const meshRef = useRef<THREE.Group>(null)
+  const pickRefs = useMemo(() => [groupRef], [])
   const initialPose = resolveVehiclePoseFromEntity(entity)
   const telemetrySampleRef = useRef<{
     x: number
@@ -112,13 +113,43 @@ export const VehicleMarker = memo(function VehicleMarker({
 
   const statusColor = STATUS_COLORS[entity.status]
   const vehicleColor = VEHICLE_COLORS[entity.vehicleType]
-  const size = VEHICLE_SIZES[entity.vehicleType]
+  const size = VEHICLE_DETAIL_DIMENSIONS[entity.vehicleType]
+  const pickRadius = Math.hypot(size.width, size.height, size.depth) / 2 + 0.65
   const labelMode = entity.labelMode ?? 'html'
   const showLabel = isSelected || isHovered || labelMode !== 'hidden'
   const shouldRenderTelemetryCard = showLabel && labelMode === 'html'
   const usesDetailedVehicleModel =
     showModel && (entity.vehicleType === 'truck' || entity.vehicleType === 'forklift')
-  const shouldTrackLivePose = !fullTransform && (isSelected || isHovered || usesDetailedVehicleModel)
+  const shouldTrackLivePose = !fullTransform && (isSelected || isHovered || usesDetailedVehicleModel || showLabel)
+  const collectPickCandidates = useCallback(
+    (raycaster: THREE.Raycaster) => {
+      const group = groupRef.current
+      if (!group) return []
+
+      group.getWorldPosition(VEHICLE_PICK_WORLD_POSITION)
+      VEHICLE_PICK_WORLD_POSITION.y += size.height / 2
+
+      const hit = resolveRaySpherePickHit(
+        raycaster,
+        VEHICLE_PICK_WORLD_POSITION,
+        pickRadius,
+        { kind: 'entity', id: entity.id }
+      )
+
+      const hits: DigitalTwinPickCandidateHit[] = hit ? [hit] : []
+      return hits
+    },
+    [entity.id, pickRadius, size.height]
+  )
+
+  usePickGroupRegistration({
+    id: `vehicle-marker:${entity.id}`,
+    refs: pickRefs,
+    priority: 'entity',
+    dependencyKey: `${entity.id}:${showModel}:${fullTransform}`,
+    pickCandidates: collectPickCandidates,
+    exactRaycast: false,
+  })
 
   useEffect(() => {
     if (shouldTrackLivePose) return

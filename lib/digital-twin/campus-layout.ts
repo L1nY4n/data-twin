@@ -45,12 +45,26 @@ export interface SceneEntityCounts {
 }
 
 export type LayoutBlueprintKind =
+  | 'admin-building'
+  | 'cooling-tower'
+  | 'emergency-station'
+  | 'flare-stack'
+  | 'fire-water'
+  | 'gatehouse'
+  | 'loading-rack'
+  | 'logistics-warehouse'
+  | 'perimeter-fence'
   | 'process-train'
   | 'process-strip'
+  | 'rail-spur'
   | 'service-building'
+  | 'solar-canopy'
   | 'pipe-rack'
   | 'sphere-tank'
+  | 'substation-yard'
+  | 'truck-parking'
   | 'vertical-tank'
+  | 'weighbridge'
   | 'pump-manifold'
   | 'wall-system'
   | 'door-system'
@@ -91,8 +105,12 @@ export const CAMPUS_SECTORS: CampusSector[] = [
   { id: 'sector-core', name: '核心炼化园', offset: point(0, 0) },
   { id: 'sector-east', name: '东部新材料园', offset: point(260, 0) },
   { id: 'sector-west', name: '西部储运园', offset: point(-260, 0) },
+  { id: 'sector-north', name: '北部能源环保园', offset: point(0, -260) },
   { id: 'sector-south', name: '南部公辅园', offset: point(0, 260) },
+  { id: 'sector-southeast', name: '东南研发仓储园', offset: point(260, 260) },
 ]
+
+export const CAMPUS_SECTOR_HALF_EXTENT = 118
 
 function offsetPoint(value: Vector3, offset: Vector3): Vector3 {
   return {
@@ -116,11 +134,6 @@ function withSectorName(name: string, sector: CampusSector): string {
   return `${sector.name} · ${name}`
 }
 
-export const CAMPUS_BOUNDS = {
-  min: point(-400, -180),
-  max: point(400, 400),
-} as const
-
 export const CAMPUS_GRID_SIZE = 860
 export const CAMPUS_GRID_DIVISIONS = 430
 export const CAMPUS_INTERACTION_RADIUS = 520
@@ -128,8 +141,8 @@ export const CAMPUS_INTERACTION_HEIGHT = 28
 export const CAMPUS_SCENE_CONFIG = {
   gridSize: CAMPUS_GRID_SIZE,
   gridDivisions: CAMPUS_GRID_DIVISIONS,
-  cameraPosition: point(318, 250, 314),
-  cameraTarget: point(0, 0, 0),
+  cameraPosition: point(460, 430, 420),
+  cameraTarget: point(20, 72, 0),
 } as const
 
 export const CAMPUS_DISTRICTS: CampusDistrict[] = [
@@ -148,14 +161,26 @@ export const CAMPUS_DISTRICTS: CampusDistrict[] = [
   {
     id: 'logistics-south',
     name: '南区装车发运',
-    center: point(0, 60),
-    size: { width: 196, depth: 38 },
+    center: point(7, 75.5),
+    size: { width: 210, depth: 69 },
   },
   {
     id: 'utilities-north',
     name: '北区公辅处理',
-    center: point(0, -72),
-    size: { width: 160, depth: 34 },
+    center: point(4, -85.5),
+    size: { width: 168, depth: 61 },
+  },
+  {
+    id: 'sector-perimeter',
+    name: '分区围界',
+    center: point(0, 0),
+    size: { width: 230, depth: 230 },
+  },
+  {
+    id: 'utilities-flare',
+    name: '火炬安全区',
+    center: point(92, -50),
+    size: { width: 18, depth: 18 },
   },
 ]
 
@@ -184,7 +209,7 @@ export const PROCESS_WEST_LAYOUT_BLUEPRINTS: LayoutBlueprint[] = [
     center: point(-58, -30),
     width: 16,
     depth: 20,
-    height: 22,
+    height: 22.5,
     major: true,
     blocksVehicle: true,
     blocksPerson: true,
@@ -238,9 +263,9 @@ export const PROCESS_WEST_LAYOUT_BLUEPRINTS: LayoutBlueprint[] = [
     label: '西区高架总管廊',
     kind: 'pipe-rack',
     center: point(-54, -22),
-    width: 58,
+    width: 60,
     depth: 4,
-    height: 8,
+    height: 9.1,
     major: false,
     blocksVehicle: false,
     blocksPerson: false,
@@ -348,6 +373,20 @@ export const TANK_EAST_LAYOUT_BLUEPRINTS: LayoutBlueprint[] = [
     variant: 'manifold',
   },
   {
+    id: 'east-gas-detector-array',
+    districtId: 'tank-east',
+    label: '东区可燃气体检测阵列',
+    kind: 'smart-sensor',
+    center: point(87, -28),
+    width: 1.8,
+    depth: 1.8,
+    height: 3.4,
+    major: false,
+    blocksVehicle: false,
+    blocksPerson: false,
+    variant: 'occupancy-sensor',
+  },
+  {
     id: 'east-metering-house',
     districtId: 'tank-east',
     label: '东区计量机柜间',
@@ -391,9 +430,339 @@ export const TANK_EAST_LAYOUT_BLUEPRINTS: LayoutBlueprint[] = [
   },
 ]
 
+export const LOGISTICS_SOUTH_LAYOUT_BLUEPRINTS: LayoutBlueprint[] = [
+  {
+    id: 'logistics-warehouse-west',
+    districtId: 'logistics-south',
+    label: '西侧立体仓库',
+    kind: 'logistics-warehouse',
+    center: point(-72, 90),
+    width: 36,
+    depth: 16,
+    height: 11,
+    major: true,
+    blocksVehicle: true,
+    blocksPerson: true,
+    variant: 'high-bay',
+  },
+  {
+    id: 'logistics-dispatch-center',
+    districtId: 'logistics-south',
+    label: '发运调度中心',
+    kind: 'admin-building',
+    center: point(68, 91),
+    width: 34,
+    depth: 16,
+    height: 10,
+    major: true,
+    blocksVehicle: true,
+    blocksPerson: true,
+    variant: 'dispatch',
+  },
+  {
+    id: 'logistics-fire-station',
+    districtId: 'logistics-south',
+    label: '消防应急站',
+    kind: 'emergency-station',
+    center: point(-20, 91),
+    width: 24,
+    depth: 14,
+    height: 8,
+    major: false,
+    blocksVehicle: true,
+    blocksPerson: true,
+    variant: 'fire-house',
+  },
+  {
+    id: 'logistics-rail-spur',
+    districtId: 'logistics-south',
+    label: '铁路装卸支线',
+    kind: 'rail-spur',
+    center: point(0, 106),
+    width: 188,
+    depth: 8,
+    height: 1.4,
+    major: true,
+    blocksVehicle: false,
+    blocksPerson: false,
+    variant: 'siding',
+  },
+  {
+    id: 'logistics-loading-rack',
+    districtId: 'logistics-south',
+    label: '五车位装车栈台',
+    kind: 'loading-rack',
+    center: point(0, 69),
+    width: 112,
+    depth: 10,
+    height: 6.8,
+    major: true,
+    blocksVehicle: false,
+    blocksPerson: false,
+    variant: 'five-bay-top-loading',
+  },
+  {
+    id: 'logistics-weighbridge',
+    districtId: 'logistics-south',
+    label: '无人值守地磅',
+    kind: 'weighbridge',
+    center: point(104, 86),
+    width: 16,
+    depth: 5,
+    height: 2.8,
+    major: false,
+    blocksVehicle: false,
+    blocksPerson: false,
+    variant: 'truck-scale',
+  },
+  {
+    id: 'logistics-esd-panel',
+    districtId: 'logistics-south',
+    label: '装车 ESD 联锁面板',
+    kind: 'smart-control',
+    center: point(57, 68),
+    width: 2.2,
+    depth: 0.8,
+    height: 2.8,
+    major: false,
+    blocksVehicle: false,
+    blocksPerson: false,
+    variant: 'esd-panel',
+  },
+  {
+    id: 'logistics-solar-parking',
+    districtId: 'logistics-south',
+    label: '光伏停车棚',
+    kind: 'solar-canopy',
+    center: point(22, 91),
+    width: 30,
+    depth: 13,
+    height: 5.2,
+    major: false,
+    blocksVehicle: false,
+    blocksPerson: false,
+    variant: 'solar-parking',
+  },
+  {
+    id: 'logistics-yard-parking',
+    districtId: 'logistics-south',
+    label: '危化车待装区',
+    kind: 'truck-parking',
+    center: point(0, 84),
+    width: 56,
+    depth: 10,
+    height: 0.2,
+    major: false,
+    blocksVehicle: false,
+    blocksPerson: false,
+    variant: 'hazmat-staging',
+  },
+  {
+    id: 'logistics-yard-service-west',
+    districtId: 'logistics-south',
+    label: '西侧仓储服务楼',
+    kind: 'service-building',
+    center: point(-70, 76),
+    width: 34,
+    depth: 12,
+    height: 5.6,
+    major: false,
+    blocksVehicle: true,
+    blocksPerson: true,
+    variant: 'yard-service-west',
+  },
+  {
+    id: 'logistics-yard-service-east',
+    districtId: 'logistics-south',
+    label: '东侧发运服务楼',
+    kind: 'service-building',
+    center: point(68, 76),
+    width: 30,
+    depth: 12,
+    height: 6.4,
+    major: false,
+    blocksVehicle: true,
+    blocksPerson: true,
+    variant: 'yard-service-east',
+  },
+  {
+    id: 'logistics-yard-center-block',
+    districtId: 'logistics-south',
+    label: '装卸中控模块',
+    kind: 'service-building',
+    center: point(0, 78),
+    width: 20,
+    depth: 10,
+    height: 3.6,
+    major: false,
+    blocksVehicle: true,
+    blocksPerson: true,
+    variant: 'yard-control-block',
+  },
+]
+
+export const UTILITIES_NORTH_LAYOUT_BLUEPRINTS: LayoutBlueprint[] = [
+  {
+    id: 'utilities-cooling-tower-bank',
+    districtId: 'utilities-north',
+    label: '循环水冷却塔组',
+    kind: 'cooling-tower',
+    center: point(-52, -72),
+    width: 42,
+    depth: 18,
+    height: 11,
+    major: true,
+    blocksVehicle: true,
+    blocksPerson: true,
+    variant: 'cooling-bank',
+  },
+  {
+    id: 'utilities-water-treatment',
+    districtId: 'utilities-north',
+    label: '污水处理池组',
+    kind: 'fire-water',
+    center: point(28, -72),
+    width: 46,
+    depth: 18,
+    height: 3.2,
+    major: true,
+    blocksVehicle: true,
+    blocksPerson: false,
+    variant: 'water-treatment',
+  },
+  {
+    id: 'utilities-substation-yard',
+    districtId: 'utilities-north',
+    label: '高压变电站场',
+    kind: 'substation-yard',
+    center: point(74, -72),
+    width: 28,
+    depth: 18,
+    height: 9,
+    major: true,
+    blocksVehicle: true,
+    blocksPerson: true,
+    variant: 'switchyard',
+  },
+  {
+    id: 'utilities-firewater-station',
+    districtId: 'utilities-north',
+    label: '消防水泵站',
+    kind: 'emergency-station',
+    center: point(-8, -94),
+    width: 28,
+    depth: 12,
+    height: 5.5,
+    major: false,
+    blocksVehicle: true,
+    blocksPerson: true,
+    variant: 'firewater-pump',
+  },
+  {
+    id: 'utilities-main-gate',
+    districtId: 'utilities-north',
+    label: '园区北门岗亭',
+    kind: 'gatehouse',
+    center: point(0, -112),
+    width: 18,
+    depth: 8,
+    height: 4.2,
+    major: false,
+    blocksVehicle: false,
+    blocksPerson: true,
+    variant: 'north-gate',
+  },
+  {
+    id: 'utilities-perimeter',
+    districtId: 'sector-perimeter',
+    label: '分区围界与照明',
+    kind: 'perimeter-fence',
+    center: point(0, 0),
+    width: 230,
+    depth: 230,
+    height: 7.8,
+    major: false,
+    blocksVehicle: false,
+    blocksPerson: false,
+    variant: 'sector-fence',
+  },
+  {
+    id: 'utilities-perimeter-camera-nw',
+    districtId: 'sector-perimeter',
+    label: '西北周界 AI 摄像塔',
+    kind: 'security-device',
+    center: point(-104, -104),
+    width: 3.4,
+    depth: 3.4,
+    height: 7.2,
+    major: false,
+    blocksVehicle: false,
+    blocksPerson: false,
+    variant: 'dome-camera',
+  },
+  {
+    id: 'utilities-perimeter-camera-ne',
+    districtId: 'sector-perimeter',
+    label: '东北周界 AI 摄像塔',
+    kind: 'security-device',
+    center: point(104, -104),
+    width: 3.4,
+    depth: 3.4,
+    height: 7.2,
+    major: false,
+    blocksVehicle: false,
+    blocksPerson: false,
+    variant: 'dome-camera',
+  },
+  {
+    id: 'utilities-gate-lpr-camera',
+    districtId: 'sector-perimeter',
+    label: '北门车牌识别摄像塔',
+    kind: 'security-device',
+    center: point(12, -108),
+    width: 3.2,
+    depth: 3.2,
+    height: 6.8,
+    major: false,
+    blocksVehicle: false,
+    blocksPerson: false,
+    variant: 'dome-camera',
+  },
+  {
+    id: 'utilities-service-building',
+    districtId: 'utilities-north',
+    label: '公辅值守服务楼',
+    kind: 'service-building',
+    center: point(-6, -72),
+    width: 14,
+    depth: 8,
+    height: 2.4,
+    major: false,
+    blocksVehicle: true,
+    blocksPerson: true,
+    variant: 'utility-service',
+  },
+  {
+    id: 'utilities-flare-stack',
+    districtId: 'utilities-flare',
+    label: '火炬排放塔',
+    kind: 'flare-stack',
+    center: point(92, -50),
+    width: 6,
+    depth: 6,
+    height: 20.4,
+    major: true,
+    blocksVehicle: true,
+    blocksPerson: true,
+    variant: 'flare-stack',
+  },
+]
+
 export const CAMPUS_LAYOUT_BLUEPRINTS: LayoutBlueprint[] = [
   ...PROCESS_WEST_LAYOUT_BLUEPRINTS,
   ...TANK_EAST_LAYOUT_BLUEPRINTS,
+  ...LOGISTICS_SOUTH_LAYOUT_BLUEPRINTS,
+  ...UTILITIES_NORTH_LAYOUT_BLUEPRINTS,
 ]
 
 export const CAMPUS_CAMERA_PRESETS: CameraPreset[] = [
@@ -407,9 +776,9 @@ export const CAMPUS_CAMERA_PRESETS: CameraPreset[] = [
   {
     id: 'top',
     name: '全域俯视',
-    position: { x: 0, y: 360, z: 0 },
+    position: { x: 0, y: 660, z: 0 },
     target: { x: 0, y: 0, z: 0 },
-    fov: 50,
+    fov: 45,
   },
   {
     id: 'process',
@@ -438,6 +807,27 @@ export const CAMPUS_CAMERA_PRESETS: CameraPreset[] = [
     position: { x: 48, y: 24, z: -132 },
     target: { x: 0, y: 6, z: -72 },
     fov: 50,
+  },
+  {
+    id: 'rail-logistics',
+    name: '铁路与发运',
+    position: { x: 152, y: 64, z: 146 },
+    target: { x: 4, y: 3, z: 88 },
+    fov: 48,
+  },
+  {
+    id: 'energy-north',
+    name: '北部能源环保园',
+    position: { x: 118, y: 78, z: -334 },
+    target: { x: 0, y: 7, z: -260 },
+    fov: 48,
+  },
+  {
+    id: 'southeast-rd',
+    name: '东南研发仓储园',
+    position: { x: 358, y: 88, z: 348 },
+    target: { x: 260, y: 6, z: 260 },
+    fov: 48,
   },
 ]
 
@@ -526,18 +916,49 @@ export const CAMPUS_ZONE_BLUEPRINTS: ZoneBlueprint[] = [
     zoneType: 'danger',
     color: '#ef4444',
   },
+  {
+    center: point(-20, 91),
+    size: { width: 28, depth: 18 },
+    name: '消防应急响应站',
+    zoneType: 'restricted',
+    color: '#f97316',
+  },
+  {
+    center: point(0, 106),
+    size: { width: 188, depth: 12 },
+    name: '铁路装卸支线',
+    zoneType: 'passage',
+    color: '#64748b',
+  },
+  {
+    center: point(22, 91),
+    size: { width: 34, depth: 15 },
+    name: '光储充停车棚',
+    zoneType: 'work',
+    color: '#84cc16',
+  },
+  {
+    center: point(-8, -94),
+    size: { width: 32, depth: 16 },
+    name: '消防水泵站',
+    zoneType: 'restricted',
+    color: '#ef4444',
+  },
 ]
 
 const INTER_SECTOR_VEHICLE_LANE_RECTS: LaneRect[] = [
   { minX: -388, maxX: 388, minZ: -8, maxZ: 8 },
-  { minX: -8, maxX: 8, minZ: -118, maxZ: 388 },
+  { minX: -8, maxX: 8, minZ: -388, maxZ: 388 },
+  { minX: -8, maxX: 388, minZ: 252, maxZ: 268 },
 ]
 
 const INTER_SECTOR_PERSON_LANE_RECTS: LaneRect[] = [
   { minX: -388, maxX: 388, minZ: -16, maxZ: -12 },
   { minX: -388, maxX: 388, minZ: 12, maxZ: 16 },
-  { minX: -16, maxX: -12, minZ: -118, maxZ: 388 },
-  { minX: 12, maxX: 16, minZ: -118, maxZ: 388 },
+  { minX: -16, maxX: -12, minZ: -388, maxZ: 388 },
+  { minX: 12, maxX: 16, minZ: -388, maxZ: 388 },
+  { minX: -8, maxX: 388, minZ: 244, maxZ: 248 },
+  { minX: -8, maxX: 388, minZ: 272, maxZ: 276 },
 ]
 
 const INTER_SECTOR_VEHICLE_ROUTE_GOALS: Vector3[] = [
@@ -549,9 +970,14 @@ const INTER_SECTOR_VEHICLE_ROUTE_GOALS: Vector3[] = [
   point(260, 0),
   point(356, 0),
   point(0, -112),
+  point(0, -260),
+  point(0, -356),
   point(0, 130),
   point(0, 260),
   point(0, 356),
+  point(130, 260),
+  point(260, 260),
+  point(356, 260),
 ]
 
 const INTER_SECTOR_PERSON_ROUTE_GOALS: Vector3[] = [
@@ -570,15 +996,25 @@ const INTER_SECTOR_PERSON_ROUTE_GOALS: Vector3[] = [
   point(260, 14),
   point(356, 14),
   point(-14, -112),
+  point(-14, -260),
+  point(-14, -356),
   point(-14, 0),
   point(-14, 130),
   point(-14, 260),
   point(-14, 356),
   point(14, -112),
+  point(14, -260),
+  point(14, -356),
   point(14, 0),
   point(14, 130),
   point(14, 260),
   point(14, 356),
+  point(130, 246),
+  point(260, 246),
+  point(356, 246),
+  point(130, 274),
+  point(260, 274),
+  point(356, 274),
 ]
 
 const BASE_CAMPUS_EQUIPMENT_PLACEMENTS: EquipmentPlacement[] = [
@@ -639,6 +1075,19 @@ const BASE_CAMPUS_EQUIPMENT_PLACEMENTS: EquipmentPlacement[] = [
   { name: '变电站 SS-101', position: point(72, -72) },
   { name: '火炬分液罐 FL-101', position: point(92, -50) },
   { name: '氮气站 UT-401', position: point(-6, -72) },
+  { name: '消防泡沫站 FS-201', position: point(-20, 91), repeatable: false },
+  { name: '消防水泵 FP-101', position: point(-8, -94), repeatable: false },
+  { name: '无人地磅 WB-101', position: point(104, 86), repeatable: false },
+  { name: '铁路道岔 RS-101', position: point(-84, 106), repeatable: false },
+  { name: '铁路道岔 RS-102', position: point(84, 106), repeatable: false },
+  { name: '装车 ESD 面板 ESD-501', position: point(57, 68), repeatable: false },
+  { name: '可燃气体检测器 GD-301', position: point(87, -28), repeatable: false },
+  { name: '西北 AI 摄像塔 CAM-101', position: point(-104, -104), repeatable: false },
+  { name: '东北 AI 摄像塔 CAM-102', position: point(104, -104), repeatable: false },
+  { name: '北门车牌识别 CAM-201', position: point(12, -108), repeatable: false },
+  { name: '光伏逆变柜 PV-101', position: point(22, 91), repeatable: false },
+  { name: '危化仓储货架 WH-301', position: point(-72, 90), repeatable: false },
+  { name: '车辆闸机 GT-101', position: point(0, -112), repeatable: false },
 ]
 
 const BASE_PERSON_ANCHORS: Vector3[] = [
@@ -647,15 +1096,21 @@ const BASE_PERSON_ANCHORS: Vector3[] = [
   point(-50, -14),
   point(-30, -14),
   point(-22, -8),
-  point(34, -18),
+  point(34, -10),
   point(54, -14),
-  point(78, -14),
+  point(78, -10),
   point(-60, 56),
   point(-12, 56),
   point(36, 56),
-  point(-48, -72),
+  point(-48, -82),
   point(22, -72),
-  point(72, -72),
+  point(72, -82),
+  point(-20, 66),
+  point(22, 91),
+  point(88, 82),
+  point(0, 106),
+  point(-8, -82),
+  point(-12, -112),
 ]
 
 export const VEHICLE_TYPES: Array<VehicleEntity['vehicleType']> = ['car', 'truck', 'forklift', 'agv']
@@ -675,18 +1130,21 @@ const BASE_VEHICLE_ANCHORS: Record<VehicleEntity['vehicleType'], Vector3[]> = {
     point(LOGISTICS_BAY_OFFSETS[2], 54),
     point(LOGISTICS_BAY_OFFSETS[3], 54),
     point(LOGISTICS_BAY_OFFSETS[4], 54),
+    point(104, 86),
+    point(-84, 106),
+    point(84, 106),
   ],
   forklift: [
-    point(-72, 72),
-    point(66, 72),
+    point(-72, 66),
+    point(66, 66),
     point(58, -6),
     point(-58, -6),
   ],
   agv: [
     point(-32, -4),
     point(30, -4),
-    point(-8, -72),
-    point(16, -72),
+    point(-28, -72),
+    point(56, -72),
   ],
   other: [point(0, 54)],
 }
@@ -920,6 +1378,52 @@ export const VEHICLE_ROUTE_LOOPS: Vector3[][] = [
     )
   ),
 ]
+
+function expandCampusBoundsForPoint(
+  bounds: { min: Vector3; max: Vector3 },
+  position: Vector3,
+  margin = 0
+) {
+  bounds.min.x = Math.min(bounds.min.x, position.x - margin)
+  bounds.min.z = Math.min(bounds.min.z, position.z - margin)
+  bounds.max.x = Math.max(bounds.max.x, position.x + margin)
+  bounds.max.z = Math.max(bounds.max.z, position.z + margin)
+}
+
+function expandCampusBoundsForLane(bounds: { min: Vector3; max: Vector3 }, lane: LaneRect) {
+  expandCampusBoundsForPoint(bounds, point(lane.minX, lane.minZ))
+  expandCampusBoundsForPoint(bounds, point(lane.maxX, lane.maxZ))
+}
+
+function createCampusBounds() {
+  const bounds = {
+    min: point(Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY),
+    max: point(Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY),
+  }
+
+  for (const sector of CAMPUS_SECTORS) {
+    expandCampusBoundsForPoint(bounds, sector.offset, CAMPUS_SECTOR_HALF_EXTENT)
+  }
+
+  for (const lane of [...VEHICLE_LANE_RECTS, ...PERSON_LANE_RECTS]) {
+    expandCampusBoundsForLane(bounds, lane)
+  }
+
+  for (const point of [
+    ...VEHICLE_ROUTE_GOALS,
+    ...PERSON_ROUTE_GOALS,
+    ...VEHICLE_ROUTE_LOOPS.flat(),
+    ...PERSON_ANCHORS,
+    ...Object.values(VEHICLE_ANCHORS).flat(),
+    ...EQUIPMENT_ANCHORS.map((placement) => placement.position),
+  ]) {
+    expandCampusBoundsForPoint(bounds, point)
+  }
+
+  return bounds
+}
+
+export const CAMPUS_BOUNDS = createCampusBounds()
 
 export const DEFAULT_SCENE_COUNTS: SceneEntityCounts = {
   persons: 24 * CAMPUS_SECTORS.length,
