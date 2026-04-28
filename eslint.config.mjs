@@ -31,7 +31,6 @@ const eslintConfig = defineConfig([
     'out/**',
     'build/**',
     'next-env.d.ts',
-    'backend-core/**',
     'backend-core-rs/**',
     '_research/**',
   ]),

@@ -220,7 +220,12 @@ pub async fn publish_working_snapshot(
     let publish_config = config.clone();
     let snapshot_for_export = snapshot.clone();
     let build = task::spawn_blocking(move || {
-        run_publish_export(&publish_config, &snapshot_for_export, &version_slug, "global")
+        run_publish_export(
+            &publish_config,
+            &snapshot_for_export,
+            &version_slug,
+            "global",
+        )
     })
     .await
     .map_err(|error| PublishError::Join(error.to_string()))??;
@@ -243,7 +248,12 @@ pub async fn publish_working_snapshot_for_workspace(
     let snapshot_for_export = snapshot.clone();
     let workspace_slug = workspace_slug.to_string();
     let build = task::spawn_blocking(move || {
-        run_publish_export(&publish_config, &snapshot_for_export, &version_slug, &workspace_slug)
+        run_publish_export(
+            &publish_config,
+            &snapshot_for_export,
+            &version_slug,
+            &workspace_slug,
+        )
     })
     .await
     .map_err(|error| PublishError::Join(error.to_string()))??;
@@ -310,7 +320,11 @@ fn run_publish_export(
         .arg("--base-url")
         .arg(&public_base_url)
         .arg("--scope")
-        .arg(if is_global_alias { "campus" } else { "workspace" })
+        .arg(if is_global_alias {
+            "campus"
+        } else {
+            "workspace"
+        })
         .arg("--snapshot")
         .arg(&temp_snapshot_path)
         .current_dir(repo_root)

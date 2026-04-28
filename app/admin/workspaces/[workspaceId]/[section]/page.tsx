@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation'
 import { AdminConsole } from '@/components/admin/AdminConsole'
-import { ADMIN_SECTIONS, type AdminSection } from '@/lib/digital-twin/admin'
+import type { AdminSection } from '@/lib/digital-twin/admin'
+import { hasAdminPageRegistration } from '@/components/admin/admin-meta'
 import { fetchWorkspaceById } from '@/lib/digital-twin/bootstrap-client'
 
 export default async function AdminWorkspaceSectionPage({
@@ -10,7 +11,7 @@ export default async function AdminWorkspaceSectionPage({
 }) {
   const { workspaceId, section } = await params
 
-  if (!ADMIN_SECTIONS.includes(section as AdminSection) || section === 'workspaces') {
+  if ((!hasAdminPageRegistration(section) && !section.startsWith('module:')) || section === 'workspaces') {
     notFound()
   }
 

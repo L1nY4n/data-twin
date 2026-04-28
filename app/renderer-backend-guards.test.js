@@ -22,6 +22,20 @@ describe('renderer backend guards', () => {
     expect(source.includes('rendererMode')).toBe(true)
   })
 
+  test('canvas should not key renderer remounts directly by renderer mode', () => {
+    const source = readFileSync(
+      join(process.cwd(), 'components/digital-twin/scene/DigitalTwinCanvas.tsx'),
+      'utf8'
+    )
+
+    expect(source.includes('key={`renderer-${rendererMode}`}')).toBe(false)
+    expect(source.includes('shouldRecreateRendererForMode')).toBe(true)
+    expect(source.includes('rendererRevision')).toBe(true)
+    expect(source.includes('RendererReadySignal')).toBe(true)
+    expect(source.includes('rendererTransitioning')).toBe(true)
+    expect(source.includes('data-renderer-transition="active"')).toBe(true)
+  })
+
   test('scene should use unified canvas picking controller', () => {
     const source = readFileSync(
       join(process.cwd(), 'components/digital-twin/scene/DigitalTwinCanvas.tsx'),
@@ -98,12 +112,13 @@ describe('renderer backend guards', () => {
     expect(source.includes('vehicleBatches.map')).toBe(true)
     expect(source.includes('equipmentBatches.map')).toBe(true)
     expect(source.includes('<EquipmentInstances')).toBe(true)
+    expect(source.includes('suppressedEntityIds={suppressedVehicleDetailIds}')).toBe(true)
     expect(source.includes('selectedEntityId={selectedEntityId}')).toBe(true)
     expect(source.includes('hoveredEntityId={hoveredEntityId}')).toBe(true)
     expect(source.includes('showModel={false}')).toBe(true)
   })
 
-  test('truck and forklift vehicles should use dedicated runtime model paths while other vehicles stay instanced', () => {
+  test('truck and forklift vehicles should keep detailed runtime models by default', () => {
     const markers = readFileSync(
       join(process.cwd(), 'components/digital-twin/entities/EntityMarkers.tsx'),
       'utf8'
@@ -129,8 +144,15 @@ describe('renderer backend guards', () => {
       'utf8'
     )
 
-    expect(markers.includes("filteredModelVehicles")).toBe(true)
-    expect(markers.includes("filteredInstancedVehicles")).toBe(true)
+    expect(markers.includes("filteredModelVehicles")).toBe(false)
+    expect(markers.includes("filteredInstancedVehicles")).toBe(false)
+    expect(markers.includes('filteredVehicles')).toBe(true)
+    expect(markers.includes('createVehicleEntityBatches(filteredVehicles, publishedSectors)')).toBe(true)
+    expect(markers.includes('shouldRenderDetailedVehicleModel')).toBe(true)
+    expect(markers.includes('return isDetailedVehicleModelType(entity)')).toBe(true)
+    expect(markers.includes('isFocusedEntity')).toBe(false)
+    expect(markers.includes('detailedModelVehicles.map')).toBe(true)
+    expect(markers.includes('suppressedVehicleDetailIds')).toBe(true)
     expect(markers.includes("entity.vehicleType === 'truck'")).toBe(true)
     expect(markers.includes("entity.vehicleType === 'forklift'")).toBe(true)
     expect(vehicleMarker.includes('TruckRuntimeModel')).toBe(true)
@@ -160,12 +182,24 @@ describe('renderer backend guards', () => {
       join(process.cwd(), 'components/digital-twin/entities/DynamicEntityMarker.tsx'),
       'utf8'
     )
+    const dynamicInstances = readFileSync(
+      join(process.cwd(), 'components/digital-twin/entities/DynamicEntityInstances.tsx'),
+      'utf8'
+    )
 
     expect(markers.includes('entityBuckets.dynamic')).toBe(true)
+    expect(markers.includes('DynamicEntityInstances')).toBe(true)
     expect(markers.includes('DynamicEntityMarker')).toBe(true)
-    expect(markers.includes('entityArchetypes.get(entity.archetypeId)')).toBe(true)
-    expect(markers.includes('entityCategories.get(entity.categoryKey)')).toBe(true)
+    expect(markers.includes('getDynamicEntityPresentation')).toBe(true)
+    expect(markers.includes('state.getDynamicEntityPresentation')).toBe(true)
+    expect(markers.includes('suppressedDynamicModelIds')).toBe(true)
+    expect(markers.includes('showBaseProxy={false}')).toBe(true)
+    expect(dynamicInstances.includes('instancedMesh')).toBe(true)
+    expect(dynamicInstances.includes('userData={{ pickable: true, entityIds }}')).toBe(true)
+    expect(dynamicInstances.includes('createInstancedInteractionBounds')).toBe(true)
     expect(dynamicMarker.includes('userData={{ pickable: true, entityId: entity.id }}')).toBe(true)
+    expect(dynamicMarker.includes('showModel = true')).toBe(true)
+    expect(dynamicMarker.includes('showBaseProxy = true')).toBe(true)
     expect(dynamicMarker.includes('asset.fileType === \'fbx\'')).toBe(true)
     expect(dynamicMarker.includes('asset.assetUrl')).toBe(true)
     expect(dynamicMarker.includes('displayAttributes')).toBe(true)
@@ -181,7 +215,7 @@ describe('renderer backend guards', () => {
     expect(equipmentInstances.includes('onClick=')).toBe(false)
   })
 
-  test('entity detail overlays should avoid meshBasicMaterial on webgpu-sensitive paths', () => {
+  test('entity detail overlays should keep pbr materials while zone fills use non-indexed basic overlays', () => {
     const personMarker = readFileSync(
       join(process.cwd(), 'components/digital-twin/entities/PersonMarker.tsx'),
       'utf8'
@@ -202,7 +236,8 @@ describe('renderer backend guards', () => {
     expect(personMarker.includes('meshBasicMaterial')).toBe(false)
     expect(vehicleMarker.includes('meshBasicMaterial')).toBe(false)
     expect(equipmentMarker.includes('meshBasicMaterial')).toBe(false)
-    expect(zoneAreas.includes('meshBasicMaterial')).toBe(false)
+    expect(zoneAreas.includes('meshBasicMaterial')).toBe(true)
+    expect(zoneAreas.includes('toNonIndexed()')).toBe(true)
   })
 
   test('selected zone feedback should avoid the unstable translucent fill path on webgpu', () => {
@@ -211,7 +246,7 @@ describe('renderer backend guards', () => {
       'utf8'
     )
 
-    expect(zoneAreas.includes('{!isSelected && (')).toBe(true)
+    expect(zoneAreas.includes('{!isSelected && fillGeometry && (')).toBe(true)
     expect(zoneAreas.includes('boundary/label overlays')).toBe(true)
   })
 
@@ -285,6 +320,13 @@ describe('renderer backend guards', () => {
     expect(source.includes('vehicle')).toBe(true)
     expect(source.includes('equipment')).toBe(true)
     expect(source.includes('zone')).toBe(true)
+    expect(source.includes('DATA_T_ACCESS_TOKEN')).toBe(true)
+    expect(source.includes('unlockFrontendAccess')).toBe(true)
+    expect(source.includes('viewer-admin-entity-row-main')).toBe(true)
+    expect(source.includes('[data-performance-hud="runtime"]')).toBe(true)
+    expect(source.includes('skipped: true')).toBe(true)
+    expect(source.includes('DATA_T_SCREENSHOTS')).toBe(true)
+    expect(source.includes('DATA_T_SCREENSHOT_TIMEOUT_MS')).toBe(true)
   })
 
   test('canvas should mount the chemical plant environment layer', () => {
@@ -294,5 +336,6 @@ describe('renderer backend guards', () => {
     )
 
     expect(source.includes('ChemicalPlantEnvironment')).toBe(true)
+    expect(source.includes('data-performance-hud="runtime"')).toBe(true)
   })
 })

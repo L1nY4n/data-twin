@@ -2,10 +2,11 @@
 
 import { useMemo } from 'react'
 import { useThree } from '@react-three/fiber'
-import { Html } from '@react-three/drei'
 import * as THREE from 'three'
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
 import { SceneLine } from '@/components/digital-twin/scene/SceneLine'
+import { SpriteInfoCard } from '@/components/digital-twin/scene/SpriteInfoCard'
+import { SpriteTextLabel } from '@/components/digital-twin/scene/SpriteTextLabel'
 import { 
   calculateDistance, 
   formatDistance,
@@ -144,11 +145,14 @@ export function MeasurementTool() {
             <sphereGeometry args={[0.3, 16, 16]} />
             <meshStandardMaterial color="#f59e0b" emissive="#f59e0b" emissiveIntensity={0.5} />
           </mesh>
-          <Html center position={[0, 1, 0]} style={{ pointerEvents: 'none' }}>
-            <div className="rounded bg-background/90 px-1.5 py-0.5 text-xs font-medium text-foreground">
-              P{index + 1}
-            </div>
-          </Html>
+          <SpriteTextLabel
+            position={[0, 1, 0]}
+            text={`P${index + 1}`}
+            color="#fef3c7"
+            outlineColor="#0f172a"
+            fontSize={34}
+            scale={0.62}
+          />
         </group>
       ))}
 
@@ -168,16 +172,17 @@ export function MeasurementTool() {
           ) : null}
           {distanceMeasurement &&
             distanceMeasurement.distances.map((seg, i) => (
-              <Html
+              <SpriteInfoCard
                 key={i}
                 position={[seg.midpoint.x, seg.midpoint.y, seg.midpoint.z]}
-                center
-                style={{ pointerEvents: 'none' }}
-              >
-                <div className="rounded-lg border bg-background/95 px-2 py-1 text-xs font-medium text-foreground shadow-lg">
-                  {formatDistance(seg.distance)}
-                </div>
-              </Html>
+                title={formatDistance(seg.distance)}
+                lines={[`P${seg.from + 1} - P${seg.to + 1}`]}
+                scale={0.62}
+                minWidth={170}
+                borderColor="rgba(245, 158, 11, 0.72)"
+                titleColor="#fef3c7"
+                textColor="#fde68a"
+              />
             ))}
         </>
       )}
@@ -196,33 +201,35 @@ export function MeasurementTool() {
               toneMapped={STABLE_TRANSPARENT_OVERLAY.toneMapped}
             />
           ) : null}
-          <Html
+          <SpriteInfoCard
             position={[angleMeasurement.vertex.x, 1, angleMeasurement.vertex.z]}
-            center
-            style={{ pointerEvents: 'none' }}
-          >
-            <div className="rounded-lg border bg-background/95 px-2 py-1 text-xs font-medium text-foreground shadow-lg">
-              {formatAngle(angleMeasurement.angle)}
-            </div>
-          </Html>
+            title={formatAngle(angleMeasurement.angle)}
+            lines={['角度']}
+            scale={0.68}
+            minWidth={160}
+            borderColor="rgba(245, 158, 11, 0.72)"
+            titleColor="#fef3c7"
+            textColor="#fde68a"
+          />
         </>
       )}
 
       {/* 总距离显示 */}
       {distanceMeasurement && lastMeasurementPoint && distanceMeasurement.total > 0 && (
-        <Html
+        <SpriteInfoCard
           position={[
             lastMeasurementPoint.x,
             2,
             lastMeasurementPoint.z,
           ]}
-          center
-          style={{ pointerEvents: 'none' }}
-        >
-          <div className="rounded-lg border-2 border-amber-500 bg-background/95 px-3 py-1.5 font-medium text-foreground shadow-lg">
-            总距离: {formatDistance(distanceMeasurement.total)}
-          </div>
-        </Html>
+          title="总距离"
+          lines={[formatDistance(distanceMeasurement.total)]}
+          scale={0.82}
+          minWidth={210}
+          borderColor="rgba(245, 158, 11, 0.9)"
+          titleColor="#fef3c7"
+          textColor="#fde68a"
+        />
       )}
     </group>
   )

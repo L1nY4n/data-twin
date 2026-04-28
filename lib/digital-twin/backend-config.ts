@@ -1,11 +1,15 @@
 const DEFAULT_HTTP = 'http://localhost:4000'
+const DEFAULT_INTERNAL_HTTP = 'http://127.0.0.1:4000'
+const BACKEND_PROXY_PREFIX = '/api/backend'
 
 function trimTrailingSlash(url: string): string {
   return url.replace(/\/$/, '')
 }
 
 export function getBackendHttpBaseUrl(): string {
-  const raw = process.env.NEXT_PUBLIC_BACKEND_HTTP_URL || DEFAULT_HTTP
+  const publicUrl = process.env.NEXT_PUBLIC_BACKEND_HTTP_URL || DEFAULT_HTTP
+  const internalUrl = process.env.BACKEND_HTTP_URL_INTERNAL || DEFAULT_INTERNAL_HTTP
+  const raw = typeof window === 'undefined' ? internalUrl : publicUrl
   return trimTrailingSlash(raw)
 }
 
@@ -27,9 +31,22 @@ export function getRealtimeWsUrl(workspaceId: string): string {
 }
 
 export function getAdminApiBaseUrl(): string {
+  if (typeof window !== 'undefined') {
+    return `${BACKEND_PROXY_PREFIX}/api/v1/admin`
+  }
   return `${getBackendHttpBaseUrl()}/api/v1/admin`
 }
 
 export function getWorkspaceApiBaseUrl(workspaceId: string): string {
+  if (typeof window !== 'undefined') {
+    return `${BACKEND_PROXY_PREFIX}/api/v1/workspaces/${encodeURIComponent(workspaceId)}`
+  }
   return `${getBackendHttpBaseUrl()}/api/v1/workspaces/${encodeURIComponent(workspaceId)}`
+}
+
+export function getWorkspaceModuleApiBaseUrl(
+  workspaceId: string,
+  moduleKey: string
+): string {
+  return `${getWorkspaceApiBaseUrl(workspaceId)}/modules/${encodeURIComponent(moduleKey)}`
 }

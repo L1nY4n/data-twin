@@ -30,8 +30,8 @@ interface StaticChunkAssetBoundaryProps {
 interface StaticChunkAssetBoundaryState {
   hasError: boolean
 }
-const STATIC_CHUNK_POSITION_EPSILON = 0.0001
-const STATIC_CHUNK_ROTATION_EPSILON = 0.000001
+const STATIC_CHUNK_POSITION_EPSILON = 0.25
+const STATIC_CHUNK_ROTATION_EPSILON = 0.00005
 
 class StaticChunkAssetBoundary extends Component<
   StaticChunkAssetBoundaryProps,
@@ -106,6 +106,12 @@ export const ChemicalPlantEnvironment = memo(function ChemicalPlantEnvironment({
     }
   }, [publishedScenePackage.staticAssetManifestUrl])
 
+  useEffect(() => {
+    lastCameraPositionRef.current.set(Number.POSITIVE_INFINITY, 0, 0)
+    lastCameraQuaternionRef.current.identity()
+    lastProjectionMatrixRef.current.identity()
+  }, [assetManifest, staticChunkRegistry.length])
+
   useLayoutEffect(() => {
     const root = rootRef.current
     if (!root) return
@@ -118,9 +124,11 @@ export const ChemicalPlantEnvironment = memo(function ChemicalPlantEnvironment({
       object.updateMatrix()
     })
     root.updateMatrixWorld(true)
-  }, [])
+  }, [assetManifest, authoredStaticAssets, staticChunkRegistry.length])
 
   useFrame(({ camera }) => {
+    if (staticChunkRegistry.length === 0) return
+
     const lastCameraPosition = lastCameraPositionRef.current
     const lastCameraQuaternion = lastCameraQuaternionRef.current
     const lastProjectionMatrix = lastProjectionMatrixRef.current

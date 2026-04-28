@@ -1,9 +1,14 @@
 'use client'
 
 import { memo, useMemo } from 'react'
-import { createAuthoredStaticAssetRenderRecipe } from '@/lib/digital-twin/publish'
+import {
+  createAuthoredStaticAssetRenderRecipe,
+  type PublishedStaticChunkRenderRecipe,
+  type PublishedStaticMaterialRef,
+  type PublishedStaticRenderNode,
+} from '@/lib/digital-twin/publish'
 import { resolveStaticAssetCatalogItem } from '@/lib/digital-twin/static-asset-catalog'
-import type { StaticAssetInstance } from '@/lib/digital-twin/types'
+import type { StaticAssetInstance, Vector3 } from '@/lib/digital-twin/types'
 import {
   PublishedStaticRecipeMount,
   type PublishedStaticPalette,
@@ -14,6 +19,7 @@ const WALL_BASE_HEIGHT = 0.08
 const WALL_TOP_CAP_HEIGHT = 0.12
 const WALL_OPENING_MARGIN = 0.04
 const WALL_SEGMENT_EPSILON = 0.01
+const ZERO_ROTATION: Vector3 = { x: 0, y: 0, z: 0 }
 
 export interface AuthoredWallOpening {
   assetId: string
@@ -48,6 +54,58 @@ function isOpeningAsset(
 
 function rotateLocalXAxis(rotationY: number) {
   return { x: Math.cos(rotationY), z: -Math.sin(rotationY) }
+}
+
+function material(
+  token: PublishedStaticMaterialRef['token'],
+  metalness: number,
+  roughness: number,
+  options: Pick<PublishedStaticMaterialRef, 'opacity' | 'transparent'> = {}
+): PublishedStaticMaterialRef {
+  return {
+    token,
+    metalness,
+    roughness,
+    ...(typeof options.opacity === 'number' ? { opacity: options.opacity } : {}),
+    ...(typeof options.transparent === 'boolean' ? { transparent: options.transparent } : {}),
+  }
+}
+
+function boxNode(
+  id: string,
+  args: [number, number, number],
+  nodeMaterial: PublishedStaticMaterialRef,
+  position: Vector3,
+  options: { castShadow?: boolean; receiveShadow?: boolean } = {}
+): PublishedStaticRenderNode {
+  return {
+    id,
+    kind: 'mesh',
+    geometry: { kind: 'box', args },
+    material: nodeMaterial,
+    position,
+    ...(options.castShadow ? { castShadow: true } : {}),
+    ...(options.receiveShadow ? { receiveShadow: true } : {}),
+  }
+}
+
+function groupNode(
+  id: string,
+  children: PublishedStaticRenderNode[],
+  transform: {
+    position?: Vector3
+    rotation?: Vector3
+    scale?: Vector3
+  } = {}
+): PublishedStaticRenderNode {
+  return {
+    id,
+    kind: 'group',
+    children,
+    ...(transform.position ? { position: transform.position } : {}),
+    ...(transform.rotation ? { rotation: transform.rotation } : {}),
+    ...(transform.scale ? { scale: transform.scale } : {}),
+  }
 }
 
 export function resolveWallHostedOpenings(
@@ -230,6 +288,101 @@ export function resolveWallBaseSegments(
   return segments
 }
 
+function createBatchedWallSystemNode(
+  asset: StaticAssetInstance,
+  assets: StaticAssetInstance[]
+): PublishedStaticRenderNode {
+  const catalogItem = resolveStaticAssetCatalogItem(asset.assetKind, asset.variant)
+  const openings = resolveWallHostedOpenings(asset, assets)
+  const wallWidth = catalogItem.dimensions.width
+  const wallHeight = catalogItem.dimensions.height
+  const wallDepth = catalogItem.dimensions.depth
+  const baseSegments = resolveWallBaseSegments(wallWidth, openings)
+  const bodySegments = resolveWallSurfaceSegments(
+    wallWidth,
+    wallHeight,
+    openings,
+    WALL_BASE_HEIGHT
+  )
+  const isGlassPartition = asset.variant === 'glass-partition'
+  const children: PublishedStaticRenderNode[] = [
+    ...baseSegments.map((segment, index) =>
+      boxNode(
+        `${asset.id}:base:${index}`,
+        [segment.width, segment.height, wallDepth + 0.08],
+        material('curb', 0.06, 0.88),
+        { x: segment.centerX, y: segment.centerY, z: 0 },
+        { castShadow: true, receiveShadow: true }
+      )
+    ),
+    ...bodySegments.map((segment, index) =>
+      boxNode(
+        `${asset.id}:body:${index}`,
+        [segment.width, segment.height, wallDepth],
+        isGlassPartition
+          ? material('water', 0.12, 0.08, { opacity: 0.42, transparent: true })
+          : material('building', 0.18, 0.74),
+        { x: segment.centerX, y: segment.centerY, z: 0 },
+        { castShadow: true, receiveShadow: true }
+      )
+    ),
+    boxNode(
+      `${asset.id}:top-cap`,
+      [wallWidth + 0.08, WALL_TOP_CAP_HEIGHT, wallDepth + 0.08],
+      material('steelDark', 0.4, 0.42),
+      { x: 0, y: wallHeight + WALL_TOP_CAP_HEIGHT / 2, z: 0 },
+      { castShadow: true, receiveShadow: true }
+    ),
+  ]
+
+  return groupNode(`authored-static-asset:${asset.id}`, children, {
+    position: asset.position,
+    rotation: asset.rotation,
+    scale: asset.scale,
+  })
+}
+
+function createBatchedAuthoredStaticAssetNode(
+  asset: StaticAssetInstance,
+  assets: StaticAssetInstance[]
+): PublishedStaticRenderNode {
+  if (asset.assetKind === 'wall-system') {
+    return createBatchedWallSystemNode(asset, assets)
+  }
+
+  const recipe = createAuthoredStaticAssetRenderRecipe({
+    assetKind: asset.assetKind,
+    id: asset.id,
+    name: asset.name,
+    variant: asset.variant,
+  })
+
+  return groupNode(`authored-static-asset:${asset.id}`, recipe.detailed, {
+    position: asset.position,
+    rotation: asset.rotation ?? ZERO_ROTATION,
+    scale: asset.scale,
+  })
+}
+
+const BatchedAuthoredStaticAssets = memo(function BatchedAuthoredStaticAssets({
+  assets,
+  palette,
+}: {
+  assets: StaticAssetInstance[]
+  palette: PublishedStaticPalette
+}) {
+  const recipe = useMemo<PublishedStaticChunkRenderRecipe>(
+    () => ({
+      detailed: assets
+        .filter((asset) => asset.visible)
+        .map((asset) => createBatchedAuthoredStaticAssetNode(asset, assets)),
+    }),
+    [assets]
+  )
+
+  return <PublishedStaticRecipeMount recipe={recipe} palette={palette} />
+})
+
 function AssetHighlight({
   asset,
   selected,
@@ -255,12 +408,8 @@ function AssetHighlight({
           catalogItem.dimensions.depth + HIGHLIGHT_PADDING,
         ]}
       />
-      <meshStandardMaterial
+      <meshBasicMaterial
         color={selected ? '#60a5fa' : '#93c5fd'}
-        emissive={selected ? '#60a5fa' : '#93c5fd'}
-        emissiveIntensity={selected ? 0.2 : 0.08}
-        metalness={0}
-        roughness={0.94}
         transparent
         opacity={selected ? 0.18 : 0.08}
         depthWrite={false}
@@ -417,6 +566,14 @@ export const AuthoredStaticAssetLayer = memo(function AuthoredStaticAssetLayer({
   selectedAssetId?: string | null
   hoveredAssetId?: string | null
 }) {
+  if (!interactive && !selectedAssetId && !hoveredAssetId) {
+    return (
+      <group name="authored-static-assets">
+        <BatchedAuthoredStaticAssets assets={assets} palette={palette} />
+      </group>
+    )
+  }
+
   return (
     <group name="authored-static-assets">
       {assets.map((asset) => (

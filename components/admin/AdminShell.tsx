@@ -5,12 +5,13 @@ import { usePathname, useSearchParams } from 'next/navigation'
 import {
   ChevronRight,
 } from 'lucide-react'
-import { ADMIN_SECTIONS, type AdminSection } from '@/lib/digital-twin/admin'
+import { type AdminSection } from '@/lib/digital-twin/admin'
 import {
-  ADMIN_SECTION_META,
   ADMIN_NAV_GROUPS,
   buildAdminHref,
+  getAdminSectionMeta,
   getAdminNavGroupDisplayTitle,
+  hasAdminPageRegistration,
 } from '@/components/admin/admin-meta'
 import { AdminAppSidebar } from '@/components/admin/AdminAppSidebar'
 import { Badge } from '@/components/ui/badge'
@@ -39,10 +40,10 @@ function resolveAdminPath(pathname: string, selectedWorkspaceId?: string | null)
 } {
   const workspaceMatch = pathname.match(/^\/admin\/workspaces\/([^/]+)\/([^/]+)$/)
   if (workspaceMatch) {
-    const section = workspaceMatch[2] as AdminSection
-    if (ADMIN_SECTIONS.includes(section)) {
+    const section = decodeURIComponent(workspaceMatch[2])
+    if (hasAdminPageRegistration(section) || section.startsWith('module:')) {
       return {
-        activeSection: section,
+        activeSection: section as AdminSection,
         workspaceId: decodeURIComponent(workspaceMatch[1]),
       }
     }
@@ -55,9 +56,9 @@ function resolveAdminPath(pathname: string, selectedWorkspaceId?: string | null)
     }
   }
 
-  const section = pathname.replace('/admin/', '') as AdminSection
-  if (ADMIN_SECTIONS.includes(section)) {
-    return { activeSection: section }
+  const section = pathname.replace('/admin/', '')
+  if (hasAdminPageRegistration(section) || section.startsWith('module:')) {
+    return { activeSection: section as AdminSection }
   }
 
   return { activeSection: 'overview' }
@@ -83,7 +84,11 @@ function AdminInsetHeader({
   workspaceId?: string
 }) {
   const activeItem = flattenItems().find((item) => item.section === activeSection)
-  const activeMeta = ADMIN_SECTION_META[activeSection]
+  const activeMeta = getAdminSectionMeta(activeSection) ?? {
+    title: '未知模块',
+    shortTitle: 'Unknown',
+    icon: ChevronRight,
+  }
   const groupTitle = findActiveGroupTitle(activeSection)
   const shouldShowGroup = groupTitle != null && groupTitle !== (activeItem?.title ?? activeMeta.title)
 

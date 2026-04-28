@@ -32,6 +32,8 @@ function createTextTexture(
 ): SpriteTextureResult {
   const safeText = text || ' '
   const padding = Math.ceil(fontSize * 0.5)
+  const pixelRatio =
+    typeof window === 'undefined' ? 2 : Math.min(window.devicePixelRatio || 1, 2)
   const measureCanvas = document.createElement('canvas')
   const measureContext = measureCanvas.getContext('2d')
   const font = `${fontSize}px sans-serif`
@@ -47,8 +49,8 @@ function createTextTexture(
   const height = Math.max(32, Math.ceil(fontSize * 1.7))
 
   const canvas = document.createElement('canvas')
-  canvas.width = width
-  canvas.height = height
+  canvas.width = Math.max(1, Math.round(width * pixelRatio))
+  canvas.height = Math.max(1, Math.round(height * pixelRatio))
   const ctx = canvas.getContext('2d')
   if (!ctx) {
     const fallback = new THREE.CanvasTexture(canvas)
@@ -56,6 +58,7 @@ function createTextTexture(
     return { texture: fallback, aspect: width / height }
   }
 
+  ctx.scale(pixelRatio, pixelRatio)
   ctx.font = font
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'

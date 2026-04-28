@@ -15,6 +15,7 @@ import {
 } from '@/components/digital-twin/scene/SpriteInfoCard'
 import { SpriteTextLabel } from '@/components/digital-twin/scene/SpriteTextLabel'
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
+import { runtimeVehiclePoseBuffer } from '@/lib/digital-twin/runtime-vehicle-pose-buffer'
 import { resolveRenderablePosition, resolveRenderableRotation } from './render-transform'
 
 interface PersonMarkerProps {
@@ -47,8 +48,11 @@ export const PersonMarker = memo(function PersonMarker({
   useFrame(() => {
     if (fullTransform) return
     if (!groupRef.current || (!isSelected && !isHovered)) return
+    const pose = runtimeVehiclePoseBuffer.get(entity.id)
     const snapshot = useDigitalTwinStore.getState().getEcsSnapshotById(entity.id)
-    const position = snapshot?.position ?? entity.position
+    const position = pose
+      ? { x: pose.x, y: pose.y, z: pose.z }
+      : snapshot?.position ?? entity.position
     groupRef.current.position.set(position.x, position.y, position.z)
   })
 

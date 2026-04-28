@@ -7,6 +7,27 @@ import {
   createInstancedInteractionBounds,
   type InstancedInteractionBounds,
 } from '@/lib/digital-twin/renderer/instanced-bounds'
+import {
+  markInstancedMatrixRange,
+  writeYawScaleMatrix,
+} from '@/lib/digital-twin/renderer/instance-matrix-writer'
+import { ensureInstancedColorBuffer } from '@/lib/digital-twin/renderer/instance-color-buffer'
+import { createPersonProxyGeometry } from '@/lib/digital-twin/renderer/person-proxy-geometry'
+import {
+  attachWebGpuStorageRaycast,
+  createWebGpuStorageInstancePipeline,
+  detachWebGpuStorageRaycast,
+  dispatchWebGpuStorageCompute,
+  markWebGpuStorageColorRange,
+  markWebGpuStorageTransformRange,
+  writeWebGpuStorageColor,
+  writeWebGpuStorageTransform,
+} from '@/lib/digital-twin/renderer/webgpu-storage-instances'
+import {
+  resolveEntitySimulationCadence,
+  shouldSimulateEntityThisTick,
+} from '@/lib/digital-twin/runtime-simulation-cadence'
+import { runtimeVehiclePoseBuffer } from '@/lib/digital-twin/runtime-vehicle-pose-buffer'
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
 import type { PersonEntity } from '@/lib/digital-twin/types'
 
@@ -14,10 +35,9 @@ interface PersonInstancesProps {
   entities: PersonEntity[]
 }
 
-const BODY_TEMP = new THREE.Object3D()
-const HEAD_TEMP = new THREE.Object3D()
 const CAMERA_PROJECTION_MATRIX = new THREE.Matrix4()
 const CAMERA_FRUSTUM = new THREE.Frustum()
+const CAMERA_DIRECTION = new THREE.Vector3()
 
 interface PersonRuntimeState {
   x: number
@@ -28,6 +48,7 @@ interface PersonRuntimeState {
   targetY: number
   targetZ: number
   targetYaw: number
+  status: PersonEntity['status']
 }
 
 const POSITION_EPSILON = 0.001
@@ -107,19 +128,35 @@ function isInteractionBoundsVisible(camera: THREE.Camera, sphere: THREE.Sphere) 
 }
 
 export const PersonInstances = memo(function PersonInstances({ entities }: PersonInstancesProps) {
-  const bodyRef = useRef<THREE.InstancedMesh>(null)
-  const headRef = useRef<THREE.InstancedMesh>(null)
+  const personRef = useRef<THREE.InstancedMesh>(null)
   const runtimeRef = useRef<Map<string, PersonRuntimeState>>(new Map())
   const statusRef = useRef<Map<string, PersonEntity['status']>>(new Map())
   const forceMatrixSyncRef = useRef(true)
   const forceColorSyncRef = useRef(true)
   const batchVisibleRef = useRef(true)
-  const colorRef = useRef({
-    body: new THREE.Color(),
-    head: new THREE.Color(),
-  })
+  const frameTickRef = useRef(0)
+  const colorRef = useRef(new THREE.Color())
+  const rendererBackend = useDigitalTwinStore((state) => state.rendererBackend)
+  const useWebGpuStorage = rendererBackend === 'webgpu'
+  const personProxyGeometry = useMemo(() => createPersonProxyGeometry(), [])
+  const personStoragePipeline = useMemo(
+    () =>
+      useWebGpuStorage
+        ? createWebGpuStorageInstancePipeline({
+            count: entities.length,
+            transformKind: 'yaw',
+            material: {
+              vertexColors: true,
+              metalness: 0.2,
+              roughness: 0.68,
+            },
+          })
+        : null,
+    [entities.length, useWebGpuStorage]
+  )
   const entityIds = useMemo(() => entities.map((entity) => entity.id), [entities])
   const entityIdSignature = useMemo(() => entityIds.join('|'), [entityIds])
+  const entityIdSet = useMemo(() => new Set(entityIds), [entityIds])
   const interactionBounds = useMemo(
     () =>
       createInstancedInteractionBounds(
@@ -132,6 +169,9 @@ export const PersonInstances = memo(function PersonInstances({ entities }: Perso
       ),
     [entities]
   )
+
+  useEffect(() => () => personProxyGeometry.dispose(), [personProxyGeometry])
+  useEffect(() => () => personStoragePipeline?.dispose(), [personStoragePipeline])
 
   useEffect(() => {
     const nextIds = new Set(entityIdSignature ? entityIdSignature.split('|') : [])
@@ -149,20 +189,23 @@ export const PersonInstances = memo(function PersonInstances({ entities }: Perso
   }, [entityIdSignature])
 
   useLayoutEffect(() => {
-    if (bodyRef.current) {
-      bodyRef.current.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
-      bodyRef.current.instanceColor?.setUsage(THREE.DynamicDrawUsage)
-      applyInteractionBounds(bodyRef.current, interactionBounds)
+    if (personRef.current) {
+      if (personStoragePipeline) {
+        personRef.current.instanceColor = null
+        personRef.current.instanceMatrix.setUsage(THREE.StaticDrawUsage)
+        attachWebGpuStorageRaycast(personRef.current, personStoragePipeline)
+      } else {
+        detachWebGpuStorageRaycast(personRef.current)
+        ensureInstancedColorBuffer(personRef.current)
+        personRef.current.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
+        personRef.current.instanceColor?.setUsage(THREE.DynamicDrawUsage)
+      }
+      applyInteractionBounds(personRef.current, interactionBounds)
     }
-    if (headRef.current) {
-      headRef.current.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
-      headRef.current.instanceColor?.setUsage(THREE.DynamicDrawUsage)
-      applyInteractionBounds(headRef.current, interactionBounds)
-    }
-  }, [interactionBounds])
+  }, [interactionBounds, personStoragePipeline])
 
-  useFrame(({ camera }, delta) => {
-    if (!bodyRef.current || !headRef.current || entities.length === 0) return
+  useFrame(({ camera, gl }, delta) => {
+    if (!personRef.current || entities.length === 0) return
     if (!isInteractionBoundsVisible(camera, interactionBounds.sphere)) {
       batchVisibleRef.current = false
       return
@@ -179,21 +222,49 @@ export const PersonInstances = memo(function PersonInstances({ entities }: Perso
       forceColorSyncRef.current = true
       batchVisibleRef.current = true
     }
-    const bodyColor = colorRef.current.body
-    const headColor = colorRef.current.head
+    const personColor = colorRef.current
     const dt = Math.min(delta, 0.05)
     const smoothing = 1 - Math.exp(-14 * dt)
     const forceMatrixSync = forceMatrixSyncRef.current
     const forceColorSync = forceColorSyncRef.current
-    let matrixDirty = false
+    const selectedEntityId = store.selectedEntityId
+    const hoveredEntityId = store.hoveredEntityId
+    const batchHasFocusedEntity =
+      (!!selectedEntityId && entityIdSet.has(selectedEntityId)) ||
+      (!!hoveredEntityId && entityIdSet.has(hoveredEntityId))
+    frameTickRef.current += 1
+
+    if (!forceMatrixSync && !forceColorSync && !batchHasFocusedEntity) {
+      camera.getWorldDirection(CAMERA_DIRECTION)
+      const cadence = resolveEntitySimulationCadence({
+        entityPosition: interactionBounds.sphere.center,
+        cameraPosition: camera.position,
+        cameraTarget: {
+          x: camera.position.x + CAMERA_DIRECTION.x * 12,
+          y: camera.position.y + CAMERA_DIRECTION.y * 12,
+          z: camera.position.z + CAMERA_DIRECTION.z * 12,
+        },
+      })
+
+      if (!shouldSimulateEntityThisTick(frameTickRef.current, cadence)) {
+        return
+      }
+    }
+
+    let firstDirtyIndex = Number.POSITIVE_INFINITY
+    let lastDirtyIndex = -1
+    let firstDirtyColorIndex = Number.POSITIVE_INFINITY
+    let lastDirtyColorIndex = -1
     let colorDirty = false
+    const usingWebGpuStorage = personStoragePipeline !== null
+    const personMatrixArray = usingWebGpuStorage ? null : personRef.current.instanceMatrix.array
 
     for (let index = 0; index < entities.length; index += 1) {
       const entity = entities[index]
       const snapshot = getSnapshotById(entity.id)
       const targetPosition = snapshot?.position ?? entity.position
       const targetYaw = snapshot?.rotation.y ?? entity.rotation.y
-      const targetStatus = (snapshot?.status as PersonEntity['status'] | undefined) ?? entity.status
+      let targetStatus = (snapshot?.status as PersonEntity['status'] | undefined) ?? entity.status
 
       let state = runtimeStates.get(entity.id)
       let shouldSyncMatrix = forceMatrixSync
@@ -207,17 +278,30 @@ export const PersonInstances = memo(function PersonInstances({ entities }: Perso
           targetY: targetPosition.y,
           targetZ: targetPosition.z,
           targetYaw,
+          status: targetStatus,
         }
         runtimeStates.set(entity.id, state)
         shouldSyncMatrix = true
-      } else {
-        if (hasTargetChanged(state, targetPosition, targetYaw)) {
-          state.targetX = targetPosition.x
-          state.targetY = targetPosition.y
-          state.targetZ = targetPosition.z
-          state.targetYaw = targetYaw
+      }
+
+      const poseResult = runtimeVehiclePoseBuffer.populate(entity.id, state)
+      if (poseResult !== 'missing') {
+        if (poseResult === 'changed') {
+          state.targetX = state.x
+          state.targetY = state.y
+          state.targetZ = state.z
+          state.targetYaw = state.yaw
+          targetStatus = state.status
           shouldSyncMatrix = true
+        } else {
+          state.status = targetStatus
         }
+      } else if (hasTargetChanged(state, targetPosition, targetYaw)) {
+        state.targetX = targetPosition.x
+        state.targetY = targetPosition.y
+        state.targetZ = targetPosition.z
+        state.targetYaw = targetYaw
+        shouldSyncMatrix = true
       }
 
       if (!isSettled(state)) {
@@ -226,80 +310,71 @@ export const PersonInstances = memo(function PersonInstances({ entities }: Perso
       }
 
       if (shouldSyncMatrix) {
-        BODY_TEMP.position.set(state.x, state.y + 0.55, state.z)
-        BODY_TEMP.rotation.set(0, state.yaw, 0)
-        BODY_TEMP.scale.set(1, 1, 1)
-        BODY_TEMP.updateMatrix()
-        bodyRef.current.setMatrixAt(index, BODY_TEMP.matrix)
-
-        HEAD_TEMP.position.set(state.x, state.y + 1.24, state.z)
-        HEAD_TEMP.rotation.set(0, state.yaw, 0)
-        HEAD_TEMP.scale.set(1, 1, 1)
-        HEAD_TEMP.updateMatrix()
-        headRef.current.setMatrixAt(index, HEAD_TEMP.matrix)
-        matrixDirty = true
+        if (usingWebGpuStorage) {
+          writeWebGpuStorageTransform(personStoragePipeline, index, state.x, state.y, state.z, state.yaw, 1, 1, 1)
+        } else {
+          writeYawScaleMatrix(personMatrixArray!, index, state.x, state.y, state.z, state.yaw, 1, 1, 1)
+        }
+        firstDirtyIndex = Math.min(firstDirtyIndex, index)
+        lastDirtyIndex = Math.max(lastDirtyIndex, index)
       }
 
       const prevStatus = statusStates.get(entity.id)
       if (forceColorSync || prevStatus !== targetStatus) {
         statusStates.set(entity.id, targetStatus)
-        bodyColor.set(getStatusColor(targetStatus))
-        bodyRef.current.setColorAt(index, bodyColor)
-        headColor.copy(bodyColor).offsetHSL(0, 0, 0.08)
-        headRef.current.setColorAt(index, headColor)
+        personColor.set(getStatusColor(targetStatus))
+        if (usingWebGpuStorage) {
+          writeWebGpuStorageColor(personStoragePipeline, index, personColor)
+        } else {
+          personRef.current.setColorAt(index, personColor)
+        }
+        firstDirtyColorIndex = Math.min(firstDirtyColorIndex, index)
+        lastDirtyColorIndex = Math.max(lastDirtyColorIndex, index)
         colorDirty = true
       }
     }
 
-    if (matrixDirty) {
-      bodyRef.current.instanceMatrix.needsUpdate = true
-      headRef.current.instanceMatrix.needsUpdate = true
+    if (firstDirtyIndex <= lastDirtyIndex) {
+      if (usingWebGpuStorage) {
+        markWebGpuStorageTransformRange(personStoragePipeline, firstDirtyIndex, lastDirtyIndex)
+        dispatchWebGpuStorageCompute(gl, personStoragePipeline)
+      } else {
+        markInstancedMatrixRange(personRef.current, firstDirtyIndex, lastDirtyIndex)
+      }
     }
-    if (colorDirty && bodyRef.current.instanceColor) bodyRef.current.instanceColor.needsUpdate = true
-    if (colorDirty && headRef.current.instanceColor) headRef.current.instanceColor.needsUpdate = true
+    if (colorDirty) {
+      if (usingWebGpuStorage) {
+        markWebGpuStorageColorRange(personStoragePipeline, firstDirtyColorIndex, lastDirtyColorIndex)
+      } else if (personRef.current.instanceColor) {
+        personRef.current.instanceColor.needsUpdate = true
+      }
+    }
     if (forceMatrixSync) forceMatrixSyncRef.current = false
     if (forceColorSync) forceColorSyncRef.current = false
   })
 
-  const bodyMaterial = useMemo(
+  const cpuPersonMaterial = useMemo(
     () =>
       new THREE.MeshStandardMaterial({
         vertexColors: true,
         metalness: 0.2,
-        roughness: 0.7,
+        roughness: 0.68,
       }),
     []
   )
-  const headMaterial = useMemo(
-    () =>
-      new THREE.MeshStandardMaterial({
-        vertexColors: true,
-        metalness: 0.15,
-        roughness: 0.62,
-      }),
-    []
-  )
+  const personMaterial = personStoragePipeline?.material ?? cpuPersonMaterial
 
   if (entities.length === 0) return null
 
   return (
     <group>
       <instancedMesh
-        ref={bodyRef}
+        ref={personRef}
         args={[undefined, undefined, entities.length]}
         userData={{ pickable: true, entityIds }}
       >
-        <capsuleGeometry args={[0.23, 0.72, 4, 10]} />
-        <primitive object={bodyMaterial} attach="material" />
-      </instancedMesh>
-
-      <instancedMesh
-        ref={headRef}
-        args={[undefined, undefined, entities.length]}
-        userData={{ pickable: true, entityIds }}
-      >
-        <sphereGeometry args={[0.22, 12, 12]} />
-        <primitive object={headMaterial} attach="material" />
+        <primitive object={personProxyGeometry} attach="geometry" />
+        <primitive object={personMaterial} attach="material" />
       </instancedMesh>
     </group>
   )

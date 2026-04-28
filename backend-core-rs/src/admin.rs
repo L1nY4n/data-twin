@@ -14,12 +14,13 @@ use crate::{
     app::AppState,
     contracts::{
         AdminOverviewResponse, Alarm, ArchetypeModelAsset, ArchetypeModelCalibration,
-        AuditEventRecord, BootstrapResponse, ConfigChangedScope, DataConnector,
-        EditorSaveRequest, EditorSaveResponse, Entity, EntityArchetype, EntityBinding,
-        EntityCategory, ModelAssetFileType, PublishStatusResponse, RuleConfig,
+        AuditEventRecord, BootstrapResponse, ConfigChangedScope, DataConnector, EditorSaveRequest,
+        EditorSaveResponse, Entity, EntityArchetype, EntityBinding, EntityCategory,
+        ModelAssetFileType, PlatformModuleManifest, PublishStatusResponse, RuleConfig,
         RuleValidationResponse, SceneConfig, SceneResponse, StaticAssetInstance, Vector3,
         WorkspaceRecord,
     },
+    module_registry::built_in_platform_module_manifests,
     publish_service,
     store::StoreError,
 };
@@ -108,8 +109,7 @@ pub struct ReplaceBindingsRequest {
 }
 
 fn model_asset_public_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../public/assets/entity-archetypes")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../public/assets/entity-archetypes")
 }
 
 fn detect_model_file_type(file_name: &str) -> Result<ModelAssetFileType, ApiError> {
@@ -128,9 +128,21 @@ fn detect_model_file_type(file_name: &str) -> Result<ModelAssetFileType, ApiErro
 
 fn default_model_calibration() -> ArchetypeModelCalibration {
     ArchetypeModelCalibration {
-        scale: Vector3 { x: 1.0, y: 1.0, z: 1.0 },
-        rotation: Vector3 { x: 0.0, y: 0.0, z: 0.0 },
-        translation: Vector3 { x: 0.0, y: 0.0, z: 0.0 },
+        scale: Vector3 {
+            x: 1.0,
+            y: 1.0,
+            z: 1.0,
+        },
+        rotation: Vector3 {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+        },
+        translation: Vector3 {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+        },
         floor_offset: 0.0,
         bounds: None,
         thumbnail_url: None,
@@ -310,9 +322,29 @@ pub async fn get_workspace_overview(
         rule_count: rules.len() as u64,
         connector_count: connectors.len() as u64,
         binding_count,
-        unacknowledged_alarm_count: alarms.iter().filter(|alarm| !alarm.acknowledged).count() as u64,
+        unacknowledged_alarm_count: alarms.iter().filter(|alarm| !alarm.acknowledged).count()
+            as u64,
         recent_change_at,
     }))
+}
+
+pub async fn list_workspace_modules(
+    Path(workspace_id): Path<String>,
+    State(state): State<AppState>,
+) -> ApiResult<Vec<PlatformModuleManifest>> {
+    let workspace = state
+        .store
+        .get_workspace(&workspace_id)
+        .await
+        .map_err(ApiError::from_store)?;
+    if workspace.is_none() {
+        return Err(ApiError::simple(
+            StatusCode::NOT_FOUND,
+            format!("workspace {workspace_id} not found"),
+        ));
+    }
+
+    Ok(Json(built_in_platform_module_manifests()))
 }
 
 pub async fn post_publish(State(state): State<AppState>) -> ApiResult<PublishStatusResponse> {
@@ -418,7 +450,10 @@ pub async fn post_workspace_publish(
         .await
         .map_err(ApiError::from_store)?
         .ok_or_else(|| {
-            ApiError::simple(StatusCode::NOT_FOUND, format!("workspace {workspace_id} not found"))
+            ApiError::simple(
+                StatusCode::NOT_FOUND,
+                format!("workspace {workspace_id} not found"),
+            )
         })?;
     let snapshot = state
         .store
@@ -694,7 +729,13 @@ pub async fn create_workspace_entity(
         .workspace_scene_version(&workspace_id)
         .await
         .map_err(ApiError::from_store)?;
-    emit_workspace_config_changed(&state, &workspace_id, scene_version, ConfigChangedScope::Entity).await?;
+    emit_workspace_config_changed(
+        &state,
+        &workspace_id,
+        scene_version,
+        ConfigChangedScope::Entity,
+    )
+    .await?;
     Ok(Json(entity))
 }
 
@@ -733,7 +774,13 @@ pub async fn update_workspace_entity(
         .workspace_scene_version(&workspace_id)
         .await
         .map_err(ApiError::from_store)?;
-    emit_workspace_config_changed(&state, &workspace_id, scene_version, ConfigChangedScope::Entity).await?;
+    emit_workspace_config_changed(
+        &state,
+        &workspace_id,
+        scene_version,
+        ConfigChangedScope::Entity,
+    )
+    .await?;
     Ok(Json(entity))
 }
 
@@ -785,7 +832,13 @@ pub async fn delete_workspace_entity(
         .workspace_scene_version(&workspace_id)
         .await
         .map_err(ApiError::from_store)?;
-    emit_workspace_config_changed(&state, &workspace_id, scene_version, ConfigChangedScope::Entity).await?;
+    emit_workspace_config_changed(
+        &state,
+        &workspace_id,
+        scene_version,
+        ConfigChangedScope::Entity,
+    )
+    .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -828,7 +881,9 @@ pub async fn get_workspace(
         .get_workspace(&id)
         .await
         .map_err(ApiError::from_store)?
-        .ok_or_else(|| ApiError::simple(StatusCode::NOT_FOUND, format!("workspace {id} not found")))?;
+        .ok_or_else(|| {
+            ApiError::simple(StatusCode::NOT_FOUND, format!("workspace {id} not found"))
+        })?;
     Ok(Json(workspace))
 }
 
@@ -855,7 +910,10 @@ pub async fn delete_workspace(
         .await
         .map_err(ApiError::from_store)?;
     if !deleted {
-        return Err(ApiError::simple(StatusCode::NOT_FOUND, format!("workspace {id} not found")));
+        return Err(ApiError::simple(
+            StatusCode::NOT_FOUND,
+            format!("workspace {id} not found"),
+        ));
     }
     Ok(StatusCode::NO_CONTENT)
 }
@@ -899,7 +957,10 @@ pub async fn get_entity_category(
         .await
         .map_err(ApiError::from_store)?
         .ok_or_else(|| {
-            ApiError::simple(StatusCode::NOT_FOUND, format!("entity category {id} not found"))
+            ApiError::simple(
+                StatusCode::NOT_FOUND,
+                format!("entity category {id} not found"),
+            )
         })?;
     Ok(Json(category))
 }
@@ -986,7 +1047,10 @@ pub async fn get_entity_archetype(
         .await
         .map_err(ApiError::from_store)?
         .ok_or_else(|| {
-            ApiError::simple(StatusCode::NOT_FOUND, format!("entity archetype {id} not found"))
+            ApiError::simple(
+                StatusCode::NOT_FOUND,
+                format!("entity archetype {id} not found"),
+            )
         })?;
     Ok(Json(archetype))
 }
@@ -1034,9 +1098,7 @@ pub async fn delete_entity_archetype(
     Ok(StatusCode::NO_CONTENT)
 }
 
-pub async fn upload_model_asset(
-    mut multipart: Multipart,
-) -> ApiResult<ArchetypeModelAsset> {
+pub async fn upload_model_asset(mut multipart: Multipart) -> ApiResult<ArchetypeModelAsset> {
     let mut file_name: Option<String> = None;
     let mut content_type: Option<String> = None;
     let mut payload = Vec::new();
@@ -1210,7 +1272,13 @@ pub async fn create_workspace_static_asset(
         .workspace_scene_version(&workspace_id)
         .await
         .map_err(ApiError::from_store)?;
-    emit_workspace_config_changed(&state, &workspace_id, scene_version, ConfigChangedScope::StaticAsset).await?;
+    emit_workspace_config_changed(
+        &state,
+        &workspace_id,
+        scene_version,
+        ConfigChangedScope::StaticAsset,
+    )
+    .await?;
     Ok(Json(static_asset))
 }
 
@@ -1249,7 +1317,13 @@ pub async fn update_workspace_static_asset(
         .workspace_scene_version(&workspace_id)
         .await
         .map_err(ApiError::from_store)?;
-    emit_workspace_config_changed(&state, &workspace_id, scene_version, ConfigChangedScope::StaticAsset).await?;
+    emit_workspace_config_changed(
+        &state,
+        &workspace_id,
+        scene_version,
+        ConfigChangedScope::StaticAsset,
+    )
+    .await?;
     Ok(Json(static_asset))
 }
 
@@ -1302,7 +1376,13 @@ pub async fn delete_workspace_static_asset(
         .workspace_scene_version(&workspace_id)
         .await
         .map_err(ApiError::from_store)?;
-    emit_workspace_config_changed(&state, &workspace_id, scene_version, ConfigChangedScope::StaticAsset).await?;
+    emit_workspace_config_changed(
+        &state,
+        &workspace_id,
+        scene_version,
+        ConfigChangedScope::StaticAsset,
+    )
+    .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -1406,7 +1486,13 @@ pub async fn create_workspace_data_source(
         .workspace_scene_version(&workspace_id)
         .await
         .map_err(ApiError::from_store)?;
-    emit_workspace_config_changed(&state, &workspace_id, scene_version, ConfigChangedScope::Binding).await?;
+    emit_workspace_config_changed(
+        &state,
+        &workspace_id,
+        scene_version,
+        ConfigChangedScope::Binding,
+    )
+    .await?;
     Ok(Json(source))
 }
 
@@ -1445,7 +1531,13 @@ pub async fn update_workspace_data_source(
         .workspace_scene_version(&workspace_id)
         .await
         .map_err(ApiError::from_store)?;
-    emit_workspace_config_changed(&state, &workspace_id, scene_version, ConfigChangedScope::Binding).await?;
+    emit_workspace_config_changed(
+        &state,
+        &workspace_id,
+        scene_version,
+        ConfigChangedScope::Binding,
+    )
+    .await?;
     Ok(Json(source))
 }
 
@@ -1498,7 +1590,13 @@ pub async fn delete_workspace_data_source(
         .workspace_scene_version(&workspace_id)
         .await
         .map_err(ApiError::from_store)?;
-    emit_workspace_config_changed(&state, &workspace_id, scene_version, ConfigChangedScope::Binding).await?;
+    emit_workspace_config_changed(
+        &state,
+        &workspace_id,
+        scene_version,
+        ConfigChangedScope::Binding,
+    )
+    .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -1564,7 +1662,13 @@ pub async fn replace_workspace_entity_bindings(
         .workspace_scene_version(&workspace_id)
         .await
         .map_err(ApiError::from_store)?;
-    emit_workspace_config_changed(&state, &workspace_id, scene_version, ConfigChangedScope::Binding).await?;
+    emit_workspace_config_changed(
+        &state,
+        &workspace_id,
+        scene_version,
+        ConfigChangedScope::Binding,
+    )
+    .await?;
     Ok(Json(bindings))
 }
 
@@ -1629,7 +1733,13 @@ pub async fn create_workspace_rule(
         .workspace_scene_version(&workspace_id)
         .await
         .map_err(ApiError::from_store)?;
-    emit_workspace_config_changed(&state, &workspace_id, scene_version, ConfigChangedScope::Rule).await?;
+    emit_workspace_config_changed(
+        &state,
+        &workspace_id,
+        scene_version,
+        ConfigChangedScope::Rule,
+    )
+    .await?;
 
     Ok(Json(rule))
 }
@@ -1701,7 +1811,13 @@ pub async fn update_workspace_rule(
         .workspace_scene_version(&workspace_id)
         .await
         .map_err(ApiError::from_store)?;
-    emit_workspace_config_changed(&state, &workspace_id, scene_version, ConfigChangedScope::Rule).await?;
+    emit_workspace_config_changed(
+        &state,
+        &workspace_id,
+        scene_version,
+        ConfigChangedScope::Rule,
+    )
+    .await?;
 
     Ok(Json(rule))
 }
@@ -1756,7 +1872,13 @@ pub async fn delete_workspace_rule(
         .workspace_scene_version(&workspace_id)
         .await
         .map_err(ApiError::from_store)?;
-    emit_workspace_config_changed(&state, &workspace_id, scene_version, ConfigChangedScope::Rule).await?;
+    emit_workspace_config_changed(
+        &state,
+        &workspace_id,
+        scene_version,
+        ConfigChangedScope::Rule,
+    )
+    .await?;
 
     Ok(StatusCode::NO_CONTENT)
 }

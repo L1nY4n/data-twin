@@ -1,4 +1,4 @@
-import type { Vector3, VehicleEntity } from './types'
+import type { EntityStatus, Vector3, VehicleEntity } from './types'
 import {
   advanceVehicleRouteContract,
   normalizeVehicleRouteLike,
@@ -15,7 +15,7 @@ export interface VehicleSnapshotSample {
   speed: number
   routeTrack?: VehicleEntity['routeTrack']
   trackPosition?: VehicleEntity['trackPosition']
-  status: VehicleEntity['status']
+  status: EntityStatus
 }
 
 export interface VehicleInterpolatedPose {
@@ -23,7 +23,7 @@ export interface VehicleInterpolatedPose {
   y: number
   z: number
   yaw: number
-  status: VehicleEntity['status']
+  status: EntityStatus
 }
 
 function normalizeRadians(value: number): number {

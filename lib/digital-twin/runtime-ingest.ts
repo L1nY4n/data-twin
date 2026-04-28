@@ -8,6 +8,7 @@ import type {
   VehicleTrackContract,
   Vector3,
 } from './types'
+import { resolveRuntimeEventType } from './module-registry'
 import { degreesToRadians } from './spatial-utils'
 import { resolveVehicleRoutePose } from './vehicle-route-motion'
 
@@ -242,14 +243,16 @@ export function buildRuntimePositionEntityPatch(
       z: baseRotation.z,
     }
   } else {
-    const normalizedMessageRotation = normalizeRotationVector(message.rotation)
-    if (normalizedMessageRotation) {
-      patch.rotation = normalizedMessageRotation
-    } else if (heading !== null) {
+    if (heading !== null) {
       patch.rotation = {
         x: baseRotation.x,
         y: degreesToRadians(heading),
         z: baseRotation.z,
+      }
+    } else {
+      const normalizedMessageRotation = normalizeRotationVector(message.rotation)
+      if (normalizedMessageRotation) {
+        patch.rotation = normalizedMessageRotation
       }
     }
   }
@@ -423,7 +426,10 @@ export function resolveRuntimeIncident(
   if (!incident) return null
 
   const id = asString(incident.id)
-  const kind = asString(incident.kind)
+  const eventType = resolveRuntimeEventType({
+    eventType: asString(incident.eventType),
+    kind: asString(incident.kind),
+  })
   const severity = asString(incident.severity)
   const title = asString(incident.title)
   const summary = asString(incident.summary)
@@ -436,8 +442,7 @@ export function resolveRuntimeIncident(
 
   if (
     !id ||
-    !kind ||
-    !['near_miss', 'zone_intrusion', 'overspeed'].includes(kind) ||
+    !eventType ||
     !severity ||
     !['info', 'warning', 'error', 'critical'].includes(severity) ||
     !title ||
@@ -459,7 +464,9 @@ export function resolveRuntimeIncident(
 
   return {
     id,
-    kind: kind as RuntimeIncident['kind'],
+    kind: eventType,
+    eventType,
+    ...(asString(incident.moduleKey) ? { moduleKey: asString(incident.moduleKey) as string } : {}),
     severity: severity as RuntimeIncident['severity'],
     title,
     summary,

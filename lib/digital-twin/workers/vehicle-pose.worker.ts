@@ -8,10 +8,15 @@ import {
 type WorkerCommand =
   | { type: 'clear' }
   | { type: 'delete'; entityId: string }
-  | { type: 'upsert'; entityId: string; samples: readonly VehicleSnapshotSample[] }
+  | {
+      type: 'upsert'
+      entityId: string
+      index: number
+      samples: readonly VehicleSnapshotSample[]
+    }
   | {
       type: 'solve'
-      entityIds: string[]
+      count: number
       frameId: number
       nowMs: number
       interpolationDelayMs: number
@@ -28,6 +33,7 @@ const STATUS_TO_CODE: Record<VehicleStatus, number> = {
 }
 
 const snapshotsById = new Map<string, readonly VehicleSnapshotSample[]>()
+const idsByIndex: string[] = []
 
 self.onmessage = (event: MessageEvent<WorkerCommand>) => {
   const message = event.data
@@ -35,22 +41,30 @@ self.onmessage = (event: MessageEvent<WorkerCommand>) => {
   switch (message.type) {
     case 'clear':
       snapshotsById.clear()
+      idsByIndex.length = 0
       return
     case 'delete':
       snapshotsById.delete(message.entityId)
+      {
+        const index = idsByIndex.indexOf(message.entityId)
+        if (index !== -1) idsByIndex.splice(index, 1)
+      }
       return
     case 'upsert':
       snapshotsById.set(message.entityId, message.samples)
+      idsByIndex[message.index] = message.entityId
       return
     case 'solve': {
-      const xBuffer = new Float32Array(message.entityIds.length)
-      const yBuffer = new Float32Array(message.entityIds.length)
-      const zBuffer = new Float32Array(message.entityIds.length)
-      const yawBuffer = new Float32Array(message.entityIds.length)
-      const statusBuffer = new Uint8Array(message.entityIds.length)
+      const count = Math.min(message.count, idsByIndex.length)
+      const xBuffer = new Float32Array(count)
+      const yBuffer = new Float32Array(count)
+      const zBuffer = new Float32Array(count)
+      const yawBuffer = new Float32Array(count)
+      const statusBuffer = new Uint8Array(count)
 
-      for (let index = 0; index < message.entityIds.length; index += 1) {
-        const entityId = message.entityIds[index]
+      for (let index = 0; index < count; index += 1) {
+        const entityId = idsByIndex[index]
+        if (!entityId) continue
         const pose = resolveVehiclePoseFromSnapshots(
           snapshotsById.get(entityId) ?? [],
           message.nowMs,

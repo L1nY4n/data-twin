@@ -12,6 +12,8 @@ use std::{
 };
 use tower::ServiceExt;
 
+const ADMIN_API_TOKEN: &str = "test-admin-api-token";
+
 #[tokio::test]
 async fn bootstrap_endpoint_returns_seeded_site_payload() {
     let response = backend_core_rs::app::build_app_with_database_url(
@@ -21,7 +23,7 @@ async fn bootstrap_endpoint_returns_seeded_site_payload() {
     .await
     .expect("valid allowed origin should build the app")
     .oneshot(
-        Request::builder()
+        admin_request_builder()
             .uri("/api/v1/site/bootstrap")
             .body(Body::empty())
             .unwrap(),
@@ -54,7 +56,10 @@ async fn bootstrap_endpoint_returns_seeded_site_payload() {
         &fs::read_to_string(&stable_alias_path).expect("stable alias package should exist"),
     )
     .expect("stable alias package should parse");
-    assert_eq!(stable_alias_body["sceneId"], body["publishedScene"]["sceneId"]);
+    assert_eq!(
+        stable_alias_body["sceneId"],
+        body["publishedScene"]["sceneId"]
+    );
     assert!(
         stable_alias_body["sectors"].as_array().unwrap().len() > 1,
         "stable alias should point at the large campus package"
@@ -69,6 +74,18 @@ async fn bootstrap_endpoint_returns_seeded_site_payload() {
     assert_eq!(body["staticAssets"], serde_json::json!([]));
     assert_eq!(body["entityCategories"], serde_json::json!([]));
     assert_eq!(body["entityArchetypes"], serde_json::json!([]));
+    assert!(body["moduleManifests"].as_array().unwrap().len() >= 4);
+    assert!(body["eventTypeRegistry"].as_array().unwrap().len() >= 3);
+    assert!(body["moduleManifests"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|module| module["key"] == serde_json::json!("workspace-admin")));
+    assert!(body["eventTypeRegistry"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|registration| registration["eventType"] == serde_json::json!("near_miss")));
 
     let entity_ids = entities
         .iter()
@@ -193,7 +210,7 @@ async fn bootstrap_endpoint_recovers_when_published_state_row_is_missing() {
 
     let response = app
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .uri("/api/v1/site/bootstrap")
                 .body(Body::empty())
                 .unwrap(),
@@ -222,6 +239,7 @@ async fn bootstrap_endpoint_recovers_when_published_state_row_is_missing() {
 
 #[tokio::test]
 async fn workspace_scoped_bootstrap_and_scene_updates_are_isolated() {
+    std::env::set_var("BACKEND_ADMIN_API_TOKEN", ADMIN_API_TOKEN);
     let app = backend_core_rs::app::build_app_with_database_url(
         "http://localhost:3000",
         "sqlite::memory:",
@@ -232,7 +250,7 @@ async fn workspace_scoped_bootstrap_and_scene_updates_are_isolated() {
     let create_workspace_response = app
         .clone()
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method("POST")
                 .uri("/api/v1/admin/workspaces")
                 .header("content-type", "application/json")
@@ -257,7 +275,7 @@ async fn workspace_scoped_bootstrap_and_scene_updates_are_isolated() {
     let slug_response = app
         .clone()
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .uri("/api/v1/workspaces/by-slug/workspace-b")
                 .body(Body::empty())
                 .unwrap(),
@@ -265,7 +283,12 @@ async fn workspace_scoped_bootstrap_and_scene_updates_are_isolated() {
         .await
         .unwrap();
     assert_eq!(slug_response.status(), StatusCode::OK);
-    let slug_body = slug_response.into_body().collect().await.unwrap().to_bytes();
+    let slug_body = slug_response
+        .into_body()
+        .collect()
+        .await
+        .unwrap()
+        .to_bytes();
     let slug_body = serde_json::from_slice::<serde_json::Value>(&slug_body).unwrap();
     assert_eq!(slug_body["id"], "workspace-b");
     assert_eq!(slug_body["slug"], "workspace-b");
@@ -273,7 +296,7 @@ async fn workspace_scoped_bootstrap_and_scene_updates_are_isolated() {
     let workspace_bootstrap_response = app
         .clone()
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .uri("/api/v1/workspaces/workspace-b/editor/bootstrap")
                 .body(Body::empty())
                 .unwrap(),
@@ -292,7 +315,10 @@ async fn workspace_scoped_bootstrap_and_scene_updates_are_isolated() {
     assert_eq!(workspace_bootstrap_body["workspaceId"], "workspace-b");
     assert_eq!(workspace_bootstrap_body["workspaceSlug"], "workspace-b");
     assert_eq!(workspace_bootstrap_body["sceneConfig"]["id"], "workspace-b");
-    assert_eq!(workspace_bootstrap_body["sceneConfig"]["name"], "Workspace B");
+    assert_eq!(
+        workspace_bootstrap_body["sceneConfig"]["name"],
+        "Workspace B"
+    );
 
     let mut next_scene = workspace_bootstrap_body["sceneConfig"].clone();
     next_scene["backgroundColor"] = serde_json::json!("#123456");
@@ -301,7 +327,7 @@ async fn workspace_scoped_bootstrap_and_scene_updates_are_isolated() {
     let update_scene_response = app
         .clone()
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method("PUT")
                 .uri("/api/v1/workspaces/workspace-b/scene")
                 .header("content-type", "application/json")
@@ -315,7 +341,7 @@ async fn workspace_scoped_bootstrap_and_scene_updates_are_isolated() {
     let workspace_after_update = app
         .clone()
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .uri("/api/v1/workspaces/workspace-b/editor/bootstrap")
                 .body(Body::empty())
                 .unwrap(),
@@ -330,13 +356,19 @@ async fn workspace_scoped_bootstrap_and_scene_updates_are_isolated() {
         .to_bytes();
     let workspace_after_update_body =
         serde_json::from_slice::<serde_json::Value>(&workspace_after_update_body).unwrap();
-    assert_eq!(workspace_after_update_body["sceneConfig"]["backgroundColor"], "#123456");
-    assert_eq!(workspace_after_update_body["sceneConfig"]["name"], "Workspace B Scene");
+    assert_eq!(
+        workspace_after_update_body["sceneConfig"]["backgroundColor"],
+        "#123456"
+    );
+    assert_eq!(
+        workspace_after_update_body["sceneConfig"]["name"],
+        "Workspace B Scene"
+    );
     assert_eq!(workspace_after_update_body["sceneVersion"], 2);
 
     let default_workspace_response = app
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .uri("/api/v1/workspaces/factory-demo-scene/editor/bootstrap")
                 .body(Body::empty())
                 .unwrap(),
@@ -352,8 +384,18 @@ async fn workspace_scoped_bootstrap_and_scene_updates_are_isolated() {
     let default_workspace_body =
         serde_json::from_slice::<serde_json::Value>(&default_workspace_body).unwrap();
     assert_eq!(default_workspace_body["workspaceId"], "factory-demo-scene");
-    assert_eq!(default_workspace_body["sceneConfig"]["name"], "工厂演示场景");
-    assert_eq!(default_workspace_body["sceneConfig"]["backgroundColor"], "#0a0a0f");
+    assert_eq!(
+        default_workspace_body["sceneConfig"]["name"],
+        "工厂演示场景"
+    );
+    assert_eq!(
+        default_workspace_body["sceneConfig"]["backgroundColor"],
+        "#0a0a0f"
+    );
+}
+
+fn admin_request_builder() -> axum::http::request::Builder {
+    Request::builder().header("x-admin-api-token", ADMIN_API_TOKEN)
 }
 
 fn init_file_test_database_url(label: &str) -> (String, PathBuf) {

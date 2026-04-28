@@ -58,12 +58,15 @@ describe('backend runtime guards', () => {
 
     expect(source.includes('fetchBootstrap')).toBe(true)
     expect(source.includes('setEntityRegistry')).toBe(true)
+    expect(source.includes('setPlatformRegistry')).toBe(true)
     expect(source.includes('loadPublishedScenePackage')).toBe(true)
     expect(source.includes('withVersionedPublishedScenePackage')).toBe(true)
     expect(source.includes('payload.publishedScene')).toBe(true)
     expect(source.includes('configChanged.publishedScene')).toBe(true)
     expect(source.includes("configChanged.scope === 'entity'")).toBe(true)
     expect(source.includes('getRealtimeWsUrl')).toBe(true)
+    expect(source.includes('fetchRealtimeAccessTicket')).toBe(true)
+    expect(source.includes('/api/realtime-ticket')).toBe(true)
     expect(source.includes('realtimeConnectionHub')).toBe(true)
     expect(source.includes('createRuntimeMessageBatcher')).toBe(true)
     expect(source.includes('applySimulationTick')).toBe(true)
@@ -78,10 +81,45 @@ describe('backend runtime guards', () => {
 
   test('backend config helper should expose bootstrap and admin API base urls', () => {
     const source = readFileSync(join(process.cwd(), 'lib/digital-twin/backend-config.ts'), 'utf8')
+    const proxyRoute = readFileSync(
+      join(process.cwd(), 'app/api/backend/[...path]/route.ts'),
+      'utf8'
+    )
+    const realtimeTicketRoute = readFileSync(
+      join(process.cwd(), 'app/api/realtime-ticket/route.ts'),
+      'utf8'
+    )
+    const accessPage = readFileSync(join(process.cwd(), 'app/access/page.tsx'), 'utf8')
+    const adminLayout = readFileSync(join(process.cwd(), 'app/admin/layout.tsx'), 'utf8')
+    const client = readFileSync(join(process.cwd(), 'lib/digital-twin/bootstrap-client.ts'), 'utf8')
 
     expect(source.includes('getBootstrapUrl')).toBe(true)
     expect(source.includes('getAdminApiBaseUrl')).toBe(true)
+    expect(source.includes('getWorkspaceModuleApiBaseUrl')).toBe(true)
     expect(source.includes('NEXT_PUBLIC_BACKEND_HTTP_URL')).toBe(true)
+    expect(source.includes('NEXT_PUBLIC_BACKEND_ADMIN_API_TOKEN')).toBe(false)
+    expect(source.includes('NEXT_PUBLIC_BACKEND_REALTIME_ACCESS_TOKEN')).toBe(false)
+    expect(source.includes("'/api/backend'")).toBe(true)
+    expect(proxyRoute.includes("process.env.BACKEND_ADMIN_API_TOKEN")).toBe(true)
+    expect(proxyRoute.includes('hasFrontendAccess')).toBe(true)
+    expect(proxyRoute.includes('hasUnsafePathSegment')).toBe(true)
+    expect(proxyRoute.includes('WORKSPACE_ADMIN_PROXY_ALLOWLIST')).toBe(true)
+    expect(proxyRoute.includes("pathname.startsWith('/api/v1/workspaces/')")).toBe(false)
+    expect(proxyRoute.includes("segment.includes('/')")).toBe(true)
+    expect(proxyRoute.includes('targetUrl.pathname')).toBe(true)
+    expect(proxyRoute.includes("headers.set('x-admin-api-token', adminToken)")).toBe(true)
+    expect(realtimeTicketRoute.includes("process.env.BACKEND_REALTIME_ACCESS_TOKEN")).toBe(true)
+    expect(realtimeTicketRoute.includes('hasFrontendAccess')).toBe(false)
+    expect(realtimeTicketRoute.includes('resolvePublicRuntimeTicketScope')).toBe(true)
+    expect(realtimeTicketRoute.includes("x-forwarded-for")).toBe(true)
+    expect(realtimeTicketRoute.includes('/api/v1/realtime/ticket')).toBe(true)
+    expect(accessPage.includes('verifyFrontendAccessToken')).toBe(true)
+    expect(accessPage.includes('createFrontendAccessSession')).toBe(true)
+    expect(accessPage.includes('query.token !==')).toBe(false)
+    expect(accessPage.includes('httpOnly: true')).toBe(true)
+    expect(adminLayout.includes('hasFrontendAccess')).toBe(true)
+    expect(adminLayout.includes("redirect('/access?next=/admin/workspaces')")).toBe(true)
+    expect(client.includes('x-admin-api-token')).toBe(false)
   })
 
   test('dev stack should start the runtime simulator by default', () => {
@@ -91,6 +129,12 @@ describe('backend runtime guards', () => {
     expect(source.includes('STACK_RUNTIME_SIMULATOR')).toBe(true)
     expect(source.includes('SIMULATOR_INTERVAL')).toBe(true)
     expect(source.includes('RUNTIME_INGEST_TOKEN')).toBe(true)
+    expect(source.includes('FRONTEND_ACCESS_TOKEN')).toBe(true)
+    expect(source.includes('/access?token=')).toBe(false)
+    expect(source.includes('/access?next=/admin/workspaces')).toBe(true)
+    expect(source.includes('NEXT_PUBLIC_BACKEND_ADMIN_API_TOKEN')).toBe(false)
+    expect(source.includes('NEXT_PUBLIC_BACKEND_REALTIME_ACCESS_TOKEN')).toBe(false)
+    expect(source.includes('BACKEND_HTTP_URL_INTERNAL')).toBe(true)
     expect(source.includes('scripts/simulate_runtime_ingest.py')).toBe(true)
     expect(source.includes('/health/ready')).toBe(true)
     expect(simulator.includes('vehicle-truck-01')).toBe(true)

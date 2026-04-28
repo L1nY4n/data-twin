@@ -407,36 +407,36 @@ export const CAMPUS_CAMERA_PRESETS: CameraPreset[] = [
   {
     id: 'top',
     name: '全域俯视',
-    position: point(0, 360, 0),
-    target: point(0, 0, 0),
+    position: { x: 0, y: 360, z: 0 },
+    target: { x: 0, y: 0, z: 0 },
     fov: 50,
   },
   {
     id: 'process',
     name: '西区工艺',
-    position: point(-4, 34, 66),
-    target: point(-56, 8, -26),
+    position: { x: -4, y: 66, z: 34 },
+    target: { x: -56, y: 8, z: -26 },
     fov: 50,
   },
   {
     id: 'tank',
     name: '东区罐区',
-    position: point(128, 30, 18),
-    target: point(58, 8, -24),
+    position: { x: 128, y: 18, z: 30 },
+    target: { x: 58, y: 8, z: -24 },
     fov: 50,
   },
   {
     id: 'logistics',
     name: '南区装卸',
-    position: point(0, 28, 130),
-    target: point(0, 6, 60),
+    position: { x: 0, y: 130, z: 28 },
+    target: { x: 0, y: 60, z: 6 },
     fov: 50,
   },
   {
     id: 'utilities',
     name: '北区公用工程',
-    position: point(48, 24, -132),
-    target: point(0, 6, -72),
+    position: { x: 48, y: 24, z: -132 },
+    target: { x: 0, y: 6, z: -72 },
     fov: 50,
   },
 ]
@@ -928,7 +928,7 @@ export const DEFAULT_SCENE_COUNTS: SceneEntityCounts = {
 }
 
 export const PRODUCTION_SCENE_COUNTS: SceneEntityCounts = {
-  persons: 48 * CAMPUS_SECTORS.length,
-  vehicles: 22 * CAMPUS_SECTORS.length,
+  persons: 80 * CAMPUS_SECTORS.length,
+  vehicles: 45 * CAMPUS_SECTORS.length,
   equipment: EQUIPMENT_ANCHORS.length * 2,
 }

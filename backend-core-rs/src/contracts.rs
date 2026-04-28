@@ -20,9 +20,58 @@ pub struct BootstrapResponse {
     pub entity_archetypes: Vec<EntityArchetype>,
     pub rules: Vec<RuleConfig>,
     pub alarms: Vec<Alarm>,
+    #[serde(default)]
+    pub module_manifests: Vec<PlatformModuleManifest>,
+    #[serde(default)]
+    pub event_type_registry: Vec<EventTypeRegistration>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub published_scene: Option<PublishedSceneDescriptor>,
     pub issued_at: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PlatformModuleKind {
+    Presentational,
+    Domain,
+    Infrastructure,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlatformModuleManifest {
+    pub key: String,
+    pub name: String,
+    pub version: String,
+    pub kind: PlatformModuleKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<String>,
+    #[serde(default)]
+    pub dependencies: Vec<String>,
+    #[serde(default)]
+    pub schema_registrations: Vec<String>,
+    #[serde(default)]
+    pub event_types: Vec<String>,
+    #[serde(default)]
+    pub routes: Vec<String>,
+    #[serde(default)]
+    pub permissions: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EventTypeRegistration {
+    pub event_type: String,
+    pub module_key: String,
+    pub display_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_severity: Option<AlarmLevel>,
+    #[serde(default)]
+    pub supports_video: bool,
+    #[serde(default)]
+    pub supports_timeline: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -783,6 +832,10 @@ pub struct AuditEventRecord {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum RealtimeEvent {
+    Batch {
+        timestamp: u64,
+        payload: RealtimeBatchPayload,
+    },
     PositionUpdate {
         timestamp: u64,
         payload: PositionUpdatePayload,
@@ -803,6 +856,12 @@ pub enum RealtimeEvent {
         timestamp: u64,
         payload: ConfigChangedPayload,
     },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RealtimeBatchPayload {
+    pub events: Vec<RealtimeEvent>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

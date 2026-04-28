@@ -74,7 +74,7 @@ export function AdminAppSidebar({
 
                   return (
                     <SidebarMenuItem key={item.href}>
-                      <SidebarMenuButton
+                    <SidebarMenuButton
                         asChild
                         isActive={isActive}
                         tooltip={item.title}

@@ -392,6 +392,7 @@ function createRouteMetadata(
   moveTarget: Vector3
 ): Record<string, unknown> {
   return {
+    routeDirect: false,
     routePoints: routePoints.map((point) => ({ x: point.x, y: point.y, z: point.z })),
     routeIndex,
     routeGoal: { x: routeGoal.x, y: routeGoal.y, z: routeGoal.z },
@@ -404,6 +405,7 @@ function createDirectTargetMetadata(
   extras?: Record<string, unknown>
 ): Record<string, unknown> {
   return {
+    routeDirect: true,
     routePoints: undefined,
     routeIndex: undefined,
     routeGoal: { x: moveTarget.x, y: moveTarget.y, z: moveTarget.z },
@@ -486,6 +488,10 @@ function readRouteLoopIndex(metadata: Record<string, unknown> | undefined, loopL
   if (typeof raw !== 'number' || !Number.isInteger(raw)) return 0
   if (raw < 0 || raw >= loopLength) return 0
   return raw
+}
+
+function isDirectRoute(metadata: Record<string, unknown> | undefined): boolean {
+  return metadata?.routeDirect === true
 }
 
 function findClosestWaypointIndex(points: Vector3[], position: Vector3): number {
@@ -814,6 +820,14 @@ function resolvePlannedTarget(
   const forceRandomGoal = metadata?.forceRandomGoal === true
   let routeComplete = false
 
+  if (routeGoal && isDirectRoute(metadata)) {
+    const tolerance = type === 'vehicle' ? VEHICLE_ARRIVE_TOLERANCE : PERSON_ARRIVE_TOLERANCE
+    if (!pointsClose2D(position, routeGoal, tolerance)) {
+      return { target: routeGoal }
+    }
+    routeComplete = true
+  }
+
   if (routePoints) {
     let routeIndex = readRouteIndex(metadata, routePoints.length)
     let target = routePoints[routeIndex] ?? routePoints[routePoints.length - 1]
@@ -883,7 +897,13 @@ const VEHICLE_ARRIVE_TOLERANCE = 0.15
 const VEHICLE_MAX_TURN_PER_TICK = Math.PI / 18
 const DEFAULT_VEHICLE_CRUISE_SPEED = 6
 const VEHICLE_ROUTE_RECOVERY_TICKS = 12
-const VEHICLE_ROUTE_METADATA_KEYS = ['moveTarget', 'routePoints', 'routeIndex', 'routeGoal'] as const
+const VEHICLE_ROUTE_METADATA_KEYS = [
+  'moveTarget',
+  'routeDirect',
+  'routePoints',
+  'routeIndex',
+  'routeGoal',
+] as const
 
 function getVehicleCruiseSpeedRange(vehicleType: VehicleEntity['vehicleType']) {
   switch (vehicleType) {

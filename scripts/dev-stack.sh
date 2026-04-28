@@ -9,6 +9,9 @@ POSTGRES_PORT="${POSTGRES_PORT:-5432}"
 STACK_RUNTIME_SIMULATOR="${STACK_RUNTIME_SIMULATOR:-1}"
 SIMULATOR_INTERVAL="${SIMULATOR_INTERVAL:-0.2}"
 RUNTIME_INGEST_TOKEN="${RUNTIME_INGEST_TOKEN:-dev-runtime-ingest-token}"
+FRONTEND_ACCESS_TOKEN="${FRONTEND_ACCESS_TOKEN:-dev-frontend-access-token}"
+BACKEND_ADMIN_API_TOKEN="${BACKEND_ADMIN_API_TOKEN:-dev-admin-api-token}"
+BACKEND_REALTIME_ACCESS_TOKEN="${BACKEND_REALTIME_ACCESS_TOKEN:-dev-realtime-access-token}"
 
 ensure_command() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -79,11 +82,15 @@ else
   echo "[stack] using default SQLite storage (./backend-core-rs/data/digital-twin.db)"
 fi
 
-export HOST="${HOST:-0.0.0.0}"
+export HOST="${HOST:-127.0.0.1}"
 export PORT="${PORT:-${BACKEND_PORT}}"
 export BACKEND_ALLOWED_ORIGIN="${BACKEND_ALLOWED_ORIGIN:-http://localhost:${FRONTEND_PORT},http://127.0.0.1:${FRONTEND_PORT}}"
 export NEXT_PUBLIC_BACKEND_HTTP_URL="${NEXT_PUBLIC_BACKEND_HTTP_URL:-http://localhost:${BACKEND_PORT}}"
 export NEXT_PUBLIC_BACKEND_WS_URL="${NEXT_PUBLIC_BACKEND_WS_URL:-ws://localhost:${BACKEND_PORT}}"
+export BACKEND_HTTP_URL_INTERNAL="${BACKEND_HTTP_URL_INTERNAL:-http://127.0.0.1:${BACKEND_PORT}}"
+export FRONTEND_ACCESS_TOKEN
+export BACKEND_ADMIN_API_TOKEN
+export BACKEND_REALTIME_ACCESS_TOKEN
 export RUNTIME_INGEST_TOKEN
 
 echo "[stack] starting backend-core-rs on :${BACKEND_PORT} ..."
@@ -109,6 +116,7 @@ if [[ "${STACK_RUNTIME_SIMULATOR}" == "1" ]]; then
       cd "${ROOT_DIR}"
       python3 scripts/simulate_runtime_ingest.py \
         --base-url "http://127.0.0.1:${BACKEND_PORT}" \
+        --token "${RUNTIME_INGEST_TOKEN}" \
         --interval "${SIMULATOR_INTERVAL}"
     ) &
   else
@@ -117,6 +125,7 @@ if [[ "${STACK_RUNTIME_SIMULATOR}" == "1" ]]; then
 fi
 
 echo "[stack] starting Next.js on :${FRONTEND_PORT} ..."
+echo "[stack] unlock local admin/realtime proxy at http://127.0.0.1:${FRONTEND_PORT}/access?next=/admin/workspaces"
 (
   cd "${ROOT_DIR}"
   bun run dev --port "${FRONTEND_PORT}"

@@ -1,17 +1,17 @@
 'use client'
 
-import { memo, useMemo } from 'react'
-import { useLoader } from '@react-three/fiber'
+import { memo, useMemo, useRef } from 'react'
+import { useFrame, useLoader } from '@react-three/fiber'
 import { useGLTF } from '@react-three/drei'
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
 import { Group, Mesh } from 'three'
+import type * as THREE from 'three'
 import type {
   ArchetypeModelAsset,
   ArchetypeModelCalibration,
   DynamicEntity,
-  EntityArchetype,
-  EntityCategory,
 } from '@/lib/digital-twin/types'
+import type { DynamicEntityPresentation } from '@/lib/digital-twin/entity-schema-registry'
 import {
   OVERLAY_RENDER_ORDER,
   STABLE_DOUBLE_SIDED_OVERLAY,
@@ -22,6 +22,8 @@ import {
   createStatusSpriteInfoBadge,
 } from '@/components/digital-twin/scene/SpriteInfoCard'
 import { SpriteTextLabel } from '@/components/digital-twin/scene/SpriteTextLabel'
+import { runtimeVehiclePoseBuffer } from '@/lib/digital-twin/runtime-vehicle-pose-buffer'
+import { useDigitalTwinStore } from '@/lib/digital-twin/store'
 
 const STATUS_COLORS = {
   active: '#22c55e',
@@ -89,19 +91,24 @@ function FbxDynamicModel({ asset }: { asset: ArchetypeModelAsset }) {
 
 export const DynamicEntityMarker = memo(function DynamicEntityMarker({
   entity,
-  archetype,
-  category,
+  presentation,
   isSelected,
   isHovered,
+  showModel = true,
+  showBaseProxy = true,
+  showStatusRing = true,
 }: {
   entity: DynamicEntity
-  archetype?: EntityArchetype
-  category?: EntityCategory
+  presentation: DynamicEntityPresentation
   isSelected: boolean
   isHovered: boolean
+  showModel?: boolean
+  showBaseProxy?: boolean
+  showStatusRing?: boolean
 }) {
+  const groupRef = useRef<THREE.Group>(null)
   const statusColor = STATUS_COLORS[entity.status]
-  const accentColor = category?.color ?? '#38bdf8'
+  const accentColor = presentation.accentColor
   const labelMode = entity.labelMode ?? 'html'
   const showLabel = isSelected || isHovered || labelMode !== 'hidden'
   const detailLines = [
@@ -112,19 +119,34 @@ export const DynamicEntityMarker = memo(function DynamicEntityMarker({
   ]
     .slice(0, 3)
     .map(([key, value]) => `${key}: ${String(value)}`)
+  const shouldTrackLivePose = isSelected || isHovered || showModel
+
+  useFrame(() => {
+    if (!groupRef.current || !shouldTrackLivePose) return
+    const pose = runtimeVehiclePoseBuffer.get(entity.id)
+    const snapshot = useDigitalTwinStore.getState().getEcsSnapshotById(entity.id)
+    const position = pose
+      ? { x: pose.x, y: pose.y, z: pose.z }
+      : snapshot?.position ?? entity.position
+    const yaw = pose?.yaw ?? snapshot?.rotation.y ?? entity.rotation.y
+
+    groupRef.current.position.set(position.x, position.y, position.z)
+    groupRef.current.rotation.set(entity.rotation.x, yaw, entity.rotation.z)
+  })
 
   return (
     <group
+      ref={groupRef}
       position={[entity.position.x, entity.position.y, entity.position.z]}
       rotation={[entity.rotation.x, entity.rotation.y, entity.rotation.z]}
       scale={[entity.scale.x, entity.scale.y, entity.scale.z]}
       userData={{ pickable: true, entityId: entity.id }}
     >
-      {archetype?.model ? (
+      {showModel && presentation.modelAsset ? (
         <group>
-          <DynamicModel asset={archetype.model} />
+          <DynamicModel asset={presentation.modelAsset} />
         </group>
-      ) : (
+      ) : showBaseProxy ? (
         <group>
           <mesh position={[0, 0.9, 0]} castShadow>
             <capsuleGeometry args={[0.45, 1.4, 8, 16]} />
@@ -145,24 +167,26 @@ export const DynamicEntityMarker = memo(function DynamicEntityMarker({
             />
           </mesh>
         </group>
-      )}
+      ) : null}
 
-      <mesh
-        position={[0, 0.03, 0]}
-        rotation={[-Math.PI / 2, 0, 0]}
-        renderOrder={OVERLAY_RENDER_ORDER.entityRing}
-      >
-        <ringGeometry args={[1.05, 1.16, 32]} />
-        <meshStandardMaterial
-          color={accentColor}
-          emissive={accentColor}
-          emissiveIntensity={0.14}
-          opacity={isSelected ? 0.55 : 0.26}
-          {...STABLE_DOUBLE_SIDED_OVERLAY}
-        />
-      </mesh>
+      {showStatusRing ? (
+        <mesh
+          position={[0, 0.03, 0]}
+          rotation={[-Math.PI / 2, 0, 0]}
+          renderOrder={OVERLAY_RENDER_ORDER.entityRing}
+        >
+          <ringGeometry args={[1.05, 1.16, 32]} />
+          <meshStandardMaterial
+            color={accentColor}
+            emissive={accentColor}
+            emissiveIntensity={0.14}
+            opacity={isSelected ? 0.55 : 0.26}
+            {...STABLE_DOUBLE_SIDED_OVERLAY}
+          />
+        </mesh>
+      ) : null}
 
-      {isSelected ? (
+      {showStatusRing && isSelected ? (
         <mesh
           position={[0, 0.04, 0]}
           rotation={[-Math.PI / 2, 0, 0]}
@@ -184,14 +208,8 @@ export const DynamicEntityMarker = memo(function DynamicEntityMarker({
           position={[0, 2.8, 0]}
           title={entity.name}
           badges={[
-            createStatusSpriteInfoBadge(
-              category?.displayName ?? entity.categoryKey,
-              accentColor
-            ),
-            createStatusSpriteInfoBadge(
-              archetype?.displayName ?? 'Dynamic',
-              statusColor
-            ),
+            createStatusSpriteInfoBadge(presentation.categoryLabel, accentColor),
+            createStatusSpriteInfoBadge(presentation.archetypeLabel, statusColor),
           ]}
           lines={detailLines}
           scale={0.95}

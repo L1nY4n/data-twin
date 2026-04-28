@@ -144,12 +144,8 @@ function StaticFeatureSelectionOverlay() {
                 entry.feature.depth + 0.8,
               ]}
             />
-            <meshStandardMaterial
+            <meshBasicMaterial
               color={isSelected ? '#60a5fa' : '#93c5fd'}
-              emissive={isSelected ? '#60a5fa' : '#93c5fd'}
-              emissiveIntensity={isSelected ? 0.2 : 0.08}
-              metalness={0}
-              roughness={0.9}
               transparent
               opacity={isSelected ? 0.2 : 0.08}
               depthWrite={false}

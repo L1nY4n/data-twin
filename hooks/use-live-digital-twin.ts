@@ -11,10 +11,14 @@ import {
 } from '@/lib/digital-twin/publish'
 import type {
   ConfigChangedMessage,
+  DynamicEntity,
   Entity,
+  EntityStatus,
   IncidentMessage,
+  PersonEntity,
   PublishedSceneRuntimeDescriptor,
   PositionUpdateMessage,
+  RuntimeBatchMessage,
   RuntimeIncident,
   StatusUpdateMessage,
   VehicleEntity,
@@ -29,7 +33,14 @@ import {
 } from '@/lib/digital-twin/runtime-ingest'
 import { runtimeVehicleSnapshotRegistry } from '@/lib/digital-twin/runtime-vehicle-snapshot-registry'
 import { runtimeVehiclePoseBuffer } from '@/lib/digital-twin/runtime-vehicle-pose-buffer'
+import {
+  decodeRuntimePoseStatus,
+  RUNTIME_POSE_FRAME_RECORD_FLAGS,
+  type RuntimePoseFramePayload,
+} from '@/lib/digital-twin/runtime-pose-frame'
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
+
+const POSE_FRAME_STORE_SYNC_INTERVAL_MS = 500
 
 function hydrateBootstrapState(
   workspaceId: string,
@@ -37,9 +48,14 @@ function hydrateBootstrapState(
   publishedScenePackage: PublishedScenePackage
 ) {
   const store = useDigitalTwinStore.getState()
+  const wasConnected = store.isConnected
   store.reset()
   store.setPublishedScenePackage(publishedScenePackage)
   store.setSceneConfig(payload.sceneConfig)
+  store.setPlatformRegistry({
+    modules: payload.moduleManifests,
+    eventTypes: payload.eventTypeRegistry,
+  })
   store.setEntityRegistry({
     categories: payload.entityCategories,
     archetypes: payload.entityArchetypes,
@@ -58,11 +74,30 @@ function hydrateBootstrapState(
 
   store.setRuntimeRunning(false)
   store.setRuntimeDataSource('live')
-  store.setConnectionStatus(true, getRealtimeWsUrl(workspaceId))
+  store.setConnectionStatus(wasConnected, getRealtimeWsUrl(workspaceId))
 }
 
 function describeLoadError(error: unknown) {
   return error instanceof Error ? error.message : '加载后端数据失败'
+}
+
+async function fetchRealtimeAccessTicket(): Promise<string> {
+  const response = await fetch('/api/realtime-ticket', {
+    method: 'POST',
+    cache: 'no-store',
+  })
+
+  if (!response.ok) {
+    const payload = await response.text()
+    throw new Error(payload.trim() || `realtime ticket request failed ${response.status}`)
+  }
+
+  const body = (await response.json()) as { token?: unknown }
+  if (typeof body.token !== 'string' || body.token.length === 0) {
+    throw new Error('realtime ticket response did not include a token')
+  }
+
+  return body.token
 }
 
 async function resolvePublishedScenePackage(
@@ -84,6 +119,63 @@ async function resolvePublishedScenePackage(
   )
 }
 
+function isRealtimeMessage(value: unknown): value is WSMessage {
+  return Boolean(
+    value &&
+      typeof value === 'object' &&
+      'type' in value &&
+      typeof (value as { type?: unknown }).type === 'string' &&
+      'timestamp' in value &&
+      typeof (value as { timestamp?: unknown }).timestamp === 'number'
+  )
+}
+
+function flattenRealtimeMessage(message: WSMessage): WSMessage[] {
+  if (message.type !== 'batch') {
+    return [message]
+  }
+
+  const payload = message.payload as Partial<RuntimeBatchMessage> | null | undefined
+  if (!payload || !Array.isArray(payload.events)) {
+    return []
+  }
+
+  return payload.events.filter(
+    (event): event is WSMessage => isRealtimeMessage(event) && event.type !== 'batch'
+  )
+}
+
+type MovingRuntimeEntity = VehicleEntity | PersonEntity | DynamicEntity
+
+function isMovingRuntimeEntity(entity: Entity | undefined): entity is MovingRuntimeEntity {
+  return entity?.type === 'vehicle' || entity?.type === 'person' || entity?.type === 'dynamic'
+}
+
+function headingToYaw(heading: number) {
+  return (heading * Math.PI) / 180
+}
+
+function resolvePoseFrameStatus(
+  statusCode: number,
+  entity: MovingRuntimeEntity | undefined
+): EntityStatus {
+  return decodeRuntimePoseStatus(statusCode) ?? entity?.status ?? 'active'
+}
+
+function shouldSyncPoseFrameEntityToStore(
+  entity: MovingRuntimeEntity,
+  selectedEntityId: string | null,
+  hoveredEntityId: string | null,
+  forceStoreSync: boolean
+) {
+  return (
+    forceStoreSync ||
+    entity.id === selectedEntityId ||
+    entity.id === hoveredEntityId ||
+    entity.labelMode === 'html'
+  )
+}
+
 export function useLiveDigitalTwin(workspaceId: string) {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -93,6 +185,8 @@ export function useLiveDigitalTwin(workspaceId: string) {
   const isRefreshingRef = useRef(false)
   const suppressDisconnectFallbackRef = useRef(false)
   const needsBootstrapResyncRef = useRef(false)
+  const connectionGenerationRef = useRef(0)
+  const poseFrameStoreSyncAtRef = useRef(0)
 
   const applySimulationTick = useDigitalTwinStore((state) => state.applySimulationTick)
   const batchUpsertIncidents = useDigitalTwinStore((state) => state.batchUpsertIncidents)
@@ -135,6 +229,8 @@ export function useLiveDigitalTwin(workspaceId: string) {
       const newAlarms: BootstrapPayload['alarms'] = []
       const incidents: RuntimeIncident[] = []
       let shouldRefresh = false
+      const liveState = useDigitalTwinStore.getState()
+      const trajectoryEntityId = liveState.isPlayingTrajectory ? liveState.selectedEntityId : null
 
       const readEntity = (entityId: string) => {
         if (entityDrafts.has(entityId)) {
@@ -164,15 +260,120 @@ export function useLiveDigitalTwin(workspaceId: string) {
 
       for (const message of messages) {
         switch (message.type) {
+          case 'pose_frame': {
+            const frame = message.payload as RuntimePoseFramePayload
+            const receivedAt = Date.now()
+            const forceStoreSync =
+              receivedAt - poseFrameStoreSyncAtRef.current >= POSE_FRAME_STORE_SYNC_INTERVAL_MS
+            let syncedStoreFromFrame = false
+
+            for (let index = 0; index < frame.count; index += 1) {
+              const entityId = frame.entityIds[index]
+              if (!entityId) continue
+
+              const currentEntity = readEntity(entityId)
+              if (!isMovingRuntimeEntity(currentEntity)) continue
+              if (currentEntity.type === 'dynamic') {
+                const presentation = useDigitalTwinStore
+                  .getState()
+                  .getDynamicEntityPresentation(currentEntity)
+                if (!presentation.movable) continue
+              }
+
+              const positionOffset = index * 3
+              const position = {
+                x: frame.positions[positionOffset] ?? currentEntity.position.x,
+                y: frame.positions[positionOffset + 1] ?? currentEntity.position.y,
+                z: frame.positions[positionOffset + 2] ?? currentEntity.position.z,
+              }
+              const flags = frame.recordFlags[index] ?? 0
+              const heading =
+                (flags & RUNTIME_POSE_FRAME_RECORD_FLAGS.heading) !== 0
+                  ? (frame.headings[index] ?? 0)
+                  : currentEntity.type === 'vehicle'
+                    ? currentEntity.heading
+                    : undefined
+              const yaw =
+                (flags & RUNTIME_POSE_FRAME_RECORD_FLAGS.yaw) !== 0
+                  ? (frame.yaws[index] ?? currentEntity.rotation.y)
+                  : typeof heading === 'number'
+                    ? headingToYaw(heading)
+                    : currentEntity.rotation.y
+              const speed =
+                (flags & RUNTIME_POSE_FRAME_RECORD_FLAGS.speed) !== 0
+                  ? (frame.speeds[index] ?? 0)
+                  : currentEntity.type === 'vehicle'
+                    ? currentEntity.speed
+                    : 0
+              const sourceTimestamp = frame.timestamps[index] || message.timestamp
+              const status = resolvePoseFrameStatus(frame.statuses[index] ?? 0, currentEntity)
+              const samples = runtimeVehicleSnapshotRegistry.append(entityId, {
+                timestamp: runtimeVehicleSnapshotRegistry.projectTimestamp(
+                  sourceTimestamp,
+                  receivedAt
+                ),
+                sourceTimestamp,
+                receivedAt,
+                position,
+                yaw,
+                speed,
+                status,
+              })
+              runtimeVehiclePoseBuffer.upsert(entityId, samples)
+
+              if (
+                shouldSyncPoseFrameEntityToStore(
+                  currentEntity,
+                  liveState.selectedEntityId,
+                  liveState.hoveredEntityId,
+                  forceStoreSync
+                )
+              ) {
+                const patch: Record<string, unknown> = {
+                  position,
+                  rotation: {
+                    x: currentEntity.rotation.x,
+                    y: yaw,
+                    z: currentEntity.rotation.z,
+                  },
+                  updatedAt: sourceTimestamp,
+                }
+                if ((frame.statuses[index] ?? 0) > 0) {
+                  patch.status = status
+                }
+                if (currentEntity.type === 'vehicle') {
+                  patch.speed = speed
+                  if (typeof heading === 'number') patch.heading = heading
+                }
+                mergeEntityPatch(entityId, patch as Partial<Entity>)
+                syncedStoreFromFrame = true
+              }
+
+              if (trajectoryEntityId === entityId) {
+                trajectoryUpdates.push({
+                  entityId,
+                  point: {
+                    position,
+                    timestamp: sourceTimestamp,
+                  },
+                })
+              }
+            }
+
+            if (syncedStoreFromFrame && forceStoreSync) {
+              poseFrameStoreSyncAtRef.current = receivedAt
+            }
+            break
+          }
           case 'position_update': {
             const data = message.payload as PositionUpdateMessage
             const receivedAt = Date.now()
             const currentEntity = readEntity(data.entityId)
             if (currentEntity?.type === 'dynamic') {
-              const archetype = useDigitalTwinStore
+              const presentation = useDigitalTwinStore
                 .getState()
-                .getEntityArchetypeById(currentEntity.archetypeId)
-              if (archetype && !archetype.capabilities.movable) {
+                .getDynamicEntityPresentation(currentEntity)
+              if (!presentation.movable) {
                 break
               }
             }
@@ -184,7 +385,7 @@ export function useLiveDigitalTwin(workspaceId: string) {
             const vehiclePatch = runtimePatch as Partial<VehicleEntity>
 
             if (
-              currentEntity?.type === 'vehicle' ||
+              isMovingRuntimeEntity(currentEntity) ||
               vehiclePatch.routeTrack !== undefined ||
               vehiclePatch.trackPosition !== undefined
             ) {
@@ -210,22 +411,21 @@ export function useLiveDigitalTwin(workspaceId: string) {
                   (currentEntity?.type === 'vehicle'
                     ? currentEntity.trackPosition
                     : undefined),
-                status:
-                  currentEntity?.type === 'vehicle'
-                    ? currentEntity.status
-                    : 'active',
+                status: currentEntity?.status ?? 'active',
               })
               runtimeVehiclePoseBuffer.upsert(data.entityId, samples)
             }
 
             mergeEntityPatch(data.entityId, runtimePatch)
-            trajectoryUpdates.push({
-              entityId: data.entityId,
-              point: {
-                position: nextPosition,
-                timestamp: message.timestamp,
-              },
-            })
+            if (trajectoryEntityId === data.entityId) {
+              trajectoryUpdates.push({
+                entityId: data.entityId,
+                point: {
+                  position: nextPosition,
+                  timestamp: message.timestamp,
+                },
+              })
+            }
             break
           }
           case 'status_update': {
@@ -336,7 +536,10 @@ export function useLiveDigitalTwin(workspaceId: string) {
     [setConnectionStatus]
   )
 
-  const connectWs = useCallback(() => {
+  const connectWs = useCallback(async () => {
+    const connectionGeneration = connectionGenerationRef.current + 1
+    connectionGenerationRef.current = connectionGeneration
+
     if (unsubscribeRef.current) {
       suppressDisconnectFallbackRef.current = true
       unsubscribeRef.current()
@@ -344,39 +547,52 @@ export function useLiveDigitalTwin(workspaceId: string) {
     }
 
     const wsUrl = getRealtimeWsUrl(workspaceId)
-    unsubscribeRef.current = realtimeConnectionHub.subscribe(wsUrl, {
-      onConnect: () => {
-        suppressDisconnectFallbackRef.current = false
-        setConnectionStatus(true, wsUrl)
-        if (needsBootstrapResyncRef.current) {
-          void refreshBootstrap()
-        }
-      },
-      onDisconnect: () => {
-        if (suppressDisconnectFallbackRef.current) {
+    if (connectionGenerationRef.current !== connectionGeneration) {
+      return
+    }
+
+    unsubscribeRef.current = realtimeConnectionHub.subscribe(
+      wsUrl,
+      {
+        onConnect: () => {
           suppressDisconnectFallbackRef.current = false
-          return
-        }
-        markRealtimeConnectionIssue('实时连接已断开')
+          setConnectionStatus(true, wsUrl)
+          if (needsBootstrapResyncRef.current) {
+            void refreshBootstrap()
+          }
+        },
+        onDisconnect: () => {
+          if (suppressDisconnectFallbackRef.current) {
+            suppressDisconnectFallbackRef.current = false
+            return
+          }
+          markRealtimeConnectionIssue('实时连接已断开')
+        },
+        onError: () => {
+          markRealtimeConnectionIssue('实时连接异常')
+        },
+        onMessage: (message: WSMessage) => {
+          let shouldFlushNow = false
+          for (const runtimeMessage of flattenRealtimeMessage(message)) {
+            batcherRef.current.push(runtimeMessage)
+            shouldFlushNow = shouldFlushNow || runtimeMessage.type === 'config_changed'
+          }
+          if (shouldFlushNow) {
+            batcherRef.current.flushNow()
+          }
+        },
       },
-      onError: () => {
-        markRealtimeConnectionIssue('实时连接异常')
-      },
-      onMessage: (message: WSMessage) => {
-        batcherRef.current.push(message)
-        if (message.type === 'config_changed') {
-          batcherRef.current.flushNow()
-        }
-      },
-    })
+      fetchRealtimeAccessTicket
+    )
   }, [markRealtimeConnectionIssue, refreshBootstrap, setConnectionStatus, workspaceId])
 
   useEffect(() => {
     void refreshBootstrap()
-    connectWs()
+    void connectWs()
     const batcher = batcherRef.current
 
     return () => {
+      connectionGenerationRef.current += 1
       batcher.cancel()
       suppressDisconnectFallbackRef.current = true
       unsubscribeRef.current?.()

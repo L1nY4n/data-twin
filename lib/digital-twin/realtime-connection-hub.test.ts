@@ -4,15 +4,19 @@ import { createRealtimeConnectionHub } from './realtime-connection-hub'
 import type { WSMessage } from './types'
 
 describe('realtime connection hub', () => {
-  test('shares a single underlying client per url and broadcasts messages', () => {
+  test('shares a single underlying client per url and broadcasts messages', async () => {
     let connectCount = 0
     let disconnectCount = 0
+    let tokenReadCount = 0
     const messageHandlers = new Set<(message: WSMessage) => void>()
 
     const hub = createRealtimeConnectionHub({
-      createClient: (_url, lifecycle) => ({
+      createClient: (_url, getToken, lifecycle) => ({
         connect() {
           connectCount += 1
+          void getToken().then(() => {
+            tokenReadCount += 1
+          })
           lifecycle.onConnect?.()
         },
         disconnect() {
@@ -32,12 +36,17 @@ describe('realtime connection hub', () => {
 
     const receivedA: string[] = []
     const receivedB: string[] = []
-    const unsubscribeA = hub.subscribe('ws://runtime/demo', {
-      onMessage: (message) => receivedA.push(message.type),
-    })
+    const unsubscribeA = hub.subscribe(
+      'ws://runtime/demo',
+      {
+        onMessage: (message) => receivedA.push(message.type),
+      },
+      async () => 'ticket-a'
+    )
     const unsubscribeB = hub.subscribe('ws://runtime/demo', {
       onMessage: (message) => receivedB.push(message.type),
     })
+    await Promise.resolve()
 
     expect(connectCount).toBe(1)
     expect(hub.connectionCount()).toBe(1)
@@ -59,5 +68,6 @@ describe('realtime connection hub', () => {
     unsubscribeB()
     expect(disconnectCount).toBe(1)
     expect(hub.connectionCount()).toBe(0)
+    expect(tokenReadCount).toBe(1)
   })
 })

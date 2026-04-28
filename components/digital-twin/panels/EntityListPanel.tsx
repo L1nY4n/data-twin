@@ -29,6 +29,7 @@ import {
   ViewerAdminSoftCard,
 } from '@/components/viewer-admin/primitives'
 import { cn } from '@/lib/utils'
+import type { EntityDirectoryEntry } from '@/lib/digital-twin/store'
 
 const ENTITY_TYPE_CONFIG: Record<EntityType, { icon: typeof User; label: string; color: string }> = {
   person: { icon: User, label: '人员', color: '#3b82f6' },
@@ -47,18 +48,8 @@ const STATUS_CONFIG: Record<EntityStatus, { icon: typeof Circle; label: string; 
   error: { icon: XCircle, label: '故障', color: '#ef4444' },
 }
 
-type EntityListEntry = {
-  id: string
-  name: string
-  status: EntityStatus
-  type: EntityType
-  visible: boolean
-  categoryKey?: string
-}
-
 export function EntityListPanel() {
   const entityDirectory = useDigitalTwinStore((state) => state.entityDirectory)
-  const entityCategories = useDigitalTwinStore((state) => state.entityCategories)
   const entityFilters = useDigitalTwinStore((state) => state.entityFilters)
   const setEntityFilters = useDigitalTwinStore((state) => state.setEntityFilters)
   const selectedEntityId = useDigitalTwinStore((state) => state.selectedEntityId)
@@ -78,7 +69,7 @@ export function EntityListPanel() {
 
   // 按类型分组实体
   const groupedEntities = useMemo(() => {
-    const groups: Record<EntityType, EntityListEntry[]> = {
+    const groups: Record<EntityType, EntityDirectoryEntry[]> = {
       person: [],
       vehicle: [],
       equipment: [],
@@ -153,7 +144,7 @@ export function EntityListPanel() {
       label: string
       icon: typeof User
       color: string
-      entities: EntityListEntry[]
+      entities: EntityDirectoryEntry[]
       warningCount: number
       errorCount: number
     }> = []
@@ -174,7 +165,7 @@ export function EntityListPanel() {
         return
       }
 
-      const dynamicByCategory = new Map<string, EntityListEntry[]>()
+      const dynamicByCategory = new Map<string, EntityDirectoryEntry[]>()
       groupedEntities.dynamic.forEach((entity) => {
         const categoryKey = entity.categoryKey || 'uncategorized'
         const existing = dynamicByCategory.get(categoryKey)
@@ -201,9 +192,10 @@ export function EntityListPanel() {
       }
 
       const sortedCategoryKeys = [...dynamicByCategory.keys()].sort((left, right) =>
-        (entityCategories.get(left)?.sortOrder ?? 0) - (entityCategories.get(right)?.sortOrder ?? 0) ||
-        (entityCategories.get(left)?.displayName ?? left).localeCompare(
-          entityCategories.get(right)?.displayName ?? right,
+        ((dynamicByCategory.get(left)?.[0]?.categorySortOrder ?? 0) -
+          (dynamicByCategory.get(right)?.[0]?.categorySortOrder ?? 0)) ||
+        (dynamicByCategory.get(left)?.[0]?.categoryLabel ?? left).localeCompare(
+          dynamicByCategory.get(right)?.[0]?.categoryLabel ?? right,
           'zh-CN'
         )
       )
@@ -211,12 +203,13 @@ export function EntityListPanel() {
       sortedCategoryKeys.forEach((categoryKey) => {
         const config = ENTITY_TYPE_CONFIG.dynamic
         const entries = dynamicByCategory.get(categoryKey) ?? []
+        const categoryEntry = entries[0]
         sections.push({
           key: `dynamic:${categoryKey}`,
           type: 'dynamic',
-          label: entityCategories.get(categoryKey)?.displayName ?? categoryKey,
+          label: categoryEntry?.categoryLabel ?? categoryKey,
           icon: config.icon,
-          color: entityCategories.get(categoryKey)?.color ?? config.color,
+          color: categoryEntry?.categoryColor ?? config.color,
           entities: entries,
           warningCount: entries.filter((entity) => entity.status === 'warning').length,
           errorCount: entries.filter((entity) => entity.status === 'error').length,
@@ -225,7 +218,7 @@ export function EntityListPanel() {
     })
 
     return sections
-  }, [counts, entityCategories, groupedEntities])
+  }, [counts, groupedEntities])
 
   return (
     <ViewerAdminSidePanelBody>
@@ -364,7 +357,7 @@ export function EntityListPanel() {
 }
 
 interface EntityListItemProps {
-  entity: EntityListEntry
+  entity: EntityDirectoryEntry
   isSelected: boolean
   onSelect: () => void
   onFocus: () => void
@@ -396,8 +389,8 @@ function EntityListItem({ entity, isSelected, onSelect, onFocus }: EntityListIte
         />
         <div className="min-w-0 flex-1">
           <div className="truncate">{entity.name}</div>
-          {entity.type === 'dynamic' && entity.categoryKey ? (
-            <div className="truncate text-[10px] text-muted-foreground">{entity.categoryKey}</div>
+          {entity.type === 'dynamic' && entity.secondaryLabel ? (
+            <div className="truncate text-[10px] text-muted-foreground">{entity.secondaryLabel}</div>
           ) : null}
         </div>
       </button>

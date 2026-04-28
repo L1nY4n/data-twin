@@ -10,10 +10,18 @@ interface SpaceGridProps {
   divisions: number
   showAxes: boolean
   showGrid: boolean
+  showGround?: boolean
   isDark: boolean
 }
 
-export function SpaceGrid({ size, divisions, showAxes, showGrid, isDark }: SpaceGridProps) {
+export function SpaceGrid({
+  size,
+  divisions,
+  showAxes,
+  showGrid,
+  showGround = true,
+  isDark,
+}: SpaceGridProps) {
   const groundExtent = Math.max(size * 4, 320)
   const gridCellColor = isDark ? '#1e3a5f' : '#b9c9de'
   const gridSectionColor = isDark ? '#2d5a87' : '#8aa3c0'
@@ -22,6 +30,8 @@ export function SpaceGrid({ size, divisions, showAxes, showGrid, isDark }: Space
   const originColor = isDark ? '#ffffff' : '#1f2937'
 
   const gridHelper = useMemo(() => {
+    if (!showGrid) return null
+
     const helper = new THREE.GridHelper(
       groundExtent,
       Math.max(2, divisions),
@@ -41,10 +51,11 @@ export function SpaceGrid({ size, divisions, showAxes, showGrid, isDark }: Space
       typed.needsUpdate = true
     })
     return helper
-  }, [divisions, gridCellColor, gridSectionColor, groundExtent, isDark])
+  }, [divisions, gridCellColor, gridSectionColor, groundExtent, isDark, showGrid])
 
   useEffect(
     () => () => {
+      if (!gridHelper) return
       gridHelper.geometry.dispose()
       const materials = Array.isArray(gridHelper.material)
         ? gridHelper.material
@@ -66,7 +77,7 @@ export function SpaceGrid({ size, divisions, showAxes, showGrid, isDark }: Space
   return (
     <group>
       {/* 地面网格 */}
-      {showGrid && <primitive object={gridHelper} />}
+      {gridHelper && <primitive object={gridHelper} />}
 
       {/* 坐标轴 */}
       {showAxes && (
@@ -135,14 +146,12 @@ export function SpaceGrid({ size, divisions, showAxes, showGrid, isDark }: Space
       )}
 
       {/* 地面 */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.01, 0]} receiveShadow>
-        <planeGeometry args={[groundExtent, groundExtent]} />
-        <meshStandardMaterial
-          color={groundColor}
-          metalness={0.05}
-          roughness={0.95}
-        />
-      </mesh>
+      {showGround && (
+        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.04, 0]} renderOrder={-20}>
+          <planeGeometry args={[groundExtent, groundExtent]} />
+          <meshBasicMaterial color={groundColor} depthWrite={false} />
+        </mesh>
+      )}
     </group>
   )
 }

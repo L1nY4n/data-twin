@@ -5,7 +5,7 @@ interface PoolLike {
 }
 
 export function getFrameDrawCallSample(
-  previousRawDrawCalls: number,
+  _previousRawDrawCalls: number,
   rawDrawCalls: number,
   directDrawCalls?: number
 ) {
@@ -17,7 +17,7 @@ export function getFrameDrawCallSample(
   }
 
   return {
-    drawCalls: rawDrawCalls >= previousRawDrawCalls ? rawDrawCalls - previousRawDrawCalls : rawDrawCalls,
+    drawCalls: rawDrawCalls,
     previousRawDrawCalls: rawDrawCalls,
   }
 }

@@ -7,6 +7,15 @@ import {
   createInstancedInteractionBounds,
   type InstancedInteractionBounds,
 } from '@/lib/digital-twin/renderer/instanced-bounds'
+import {
+  markInstancedMatrixRange,
+  writeYawScaleMatrix,
+} from '@/lib/digital-twin/renderer/instance-matrix-writer'
+import { ensureInstancedColorBuffer } from '@/lib/digital-twin/renderer/instance-color-buffer'
+import {
+  resolveEntitySimulationCadence,
+  shouldSimulateEntityThisTick,
+} from '@/lib/digital-twin/runtime-simulation-cadence'
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
 import type { VehicleEntity } from '@/lib/digital-twin/types'
 import {
@@ -15,6 +24,17 @@ import {
   resolveVehicleRoutePose,
 } from '@/lib/digital-twin/vehicle-route-motion'
 import { runtimeVehiclePoseBuffer } from '@/lib/digital-twin/runtime-vehicle-pose-buffer'
+import { createVehicleProxyShellGeometry } from '@/lib/digital-twin/renderer/vehicle-proxy-geometry'
+import {
+  attachWebGpuStorageRaycast,
+  createWebGpuStorageInstancePipeline,
+  detachWebGpuStorageRaycast,
+  dispatchWebGpuStorageCompute,
+  markWebGpuStorageColorRange,
+  markWebGpuStorageTransformRange,
+  writeWebGpuStorageColor,
+  writeWebGpuStorageTransform,
+} from '@/lib/digital-twin/renderer/webgpu-storage-instances'
 import {
   reseedVehicleRuntimeState,
   type VehicleRuntimeState,
@@ -22,14 +42,12 @@ import {
 
 interface VehicleInstancesProps {
   entities: VehicleEntity[]
+  suppressedEntityIds?: ReadonlySet<string>
 }
 
-const BODY_TEMP = new THREE.Object3D()
-const CABIN_TEMP = new THREE.Object3D()
-const ARROW_TEMP = new THREE.Object3D()
-const WHEEL_TEMP = new THREE.Object3D()
 const CAMERA_PROJECTION_MATRIX = new THREE.Matrix4()
 const CAMERA_FRUSTUM = new THREE.Frustum()
+const CAMERA_DIRECTION = new THREE.Vector3()
 
 const VEHICLE_SIZES: Record<VehicleEntity['vehicleType'], { width: number; height: number; depth: number }> = {
   car: { width: 1.8, height: 1, depth: 3.8 },
@@ -56,19 +74,6 @@ function getBodyColor(type: VehicleEntity['vehicleType'], status: VehicleEntity[
   }
 }
 
-function getStatusColor(status: VehicleEntity['status']) {
-  switch (status) {
-    case 'active':
-      return '#22c55e'
-    case 'warning':
-      return '#f59e0b'
-    case 'error':
-      return '#ef4444'
-    default:
-      return '#6b7280'
-  }
-}
-
 function applyInteractionBounds(
   mesh: THREE.InstancedMesh | null,
   interactionBounds: InstancedInteractionBounds
@@ -85,26 +90,13 @@ function isInteractionBoundsVisible(camera: THREE.Camera, sphere: THREE.Sphere) 
   return CAMERA_FRUSTUM.intersectsSphere(sphere)
 }
 
-function setWheelMatrix(
-  mesh: THREE.InstancedMesh,
+function setSuppressedInstanceMatrices(
+  shellMatrixArray: THREE.InstancedMesh['instanceMatrix']['array'],
   state: VehicleRuntimeState,
-  cosYaw: number,
-  sinYaw: number,
-  localX: number,
-  localZ: number,
-  wheelY: number,
-  wheelRadius: number,
-  wheelThickness: number,
-  wheelScale: number,
-  instanceIndex: number
+  index: number
 ) {
-  const worldX = state.x + localX * cosYaw + localZ * sinYaw
-  const worldZ = state.z - localX * sinYaw + localZ * cosYaw
-  WHEEL_TEMP.position.set(worldX, wheelY, worldZ)
-  WHEEL_TEMP.rotation.set(0, state.yaw, Math.PI / 2)
-  WHEEL_TEMP.scale.set(wheelRadius * wheelScale, wheelThickness * wheelScale, wheelRadius * wheelScale)
-  WHEEL_TEMP.updateMatrix()
-  mesh.setMatrixAt(instanceIndex, WHEEL_TEMP.matrix)
+  const hiddenY = state.y - 10000
+  writeYawScaleMatrix(shellMatrixArray, index, state.x, hiddenY, state.z, state.yaw, 0.001, 0.001, 0.001)
 }
 
 function resolveVehiclePoseFromEntity(entity: VehicleEntity) {
@@ -129,27 +121,42 @@ function resolveVehiclePoseFromEntity(entity: VehicleEntity) {
   }
 }
 
-export const VehicleInstances = memo(function VehicleInstances({ entities }: VehicleInstancesProps) {
-  const bodyRef = useRef<THREE.InstancedMesh>(null)
-  const cabinRef = useRef<THREE.InstancedMesh>(null)
-  const arrowRef = useRef<THREE.InstancedMesh>(null)
-  const wheelRef = useRef<THREE.InstancedMesh>(null)
+export const VehicleInstances = memo(function VehicleInstances({
+  entities,
+  suppressedEntityIds,
+}: VehicleInstancesProps) {
+  const shellRef = useRef<THREE.InstancedMesh>(null)
   const runtimeRef = useRef<Map<string, VehicleRuntimeState>>(new Map())
   const statusRef = useRef<Map<string, VehicleEntity['status']>>(new Map())
   const forceMatrixSyncRef = useRef(true)
   const forceColorSyncRef = useRef(true)
   const batchVisibleRef = useRef(true)
-  const colorRef = useRef({
-    body: new THREE.Color(),
-    cabin: new THREE.Color(),
-    status: new THREE.Color(),
-    wheel: new THREE.Color('#111827'),
-  })
+  const frameTickRef = useRef(0)
+  const colorRef = useRef(new THREE.Color())
+  const rendererBackend = useDigitalTwinStore((state) => state.rendererBackend)
+  const useWebGpuStorage = rendererBackend === 'webgpu'
+  const vehicleProxyGeometry = useMemo(() => createVehicleProxyShellGeometry(), [])
+  const vehicleStoragePipeline = useMemo(
+    () =>
+      useWebGpuStorage
+        ? createWebGpuStorageInstancePipeline({
+            count: entities.length,
+            transformKind: 'yaw',
+            material: {
+              vertexColors: true,
+              metalness: 0.42,
+              roughness: 0.52,
+            },
+          })
+        : null,
+    [entities.length, useWebGpuStorage]
+  )
   const entityIds = useMemo(() => entities.map((entity) => entity.id), [entities])
   const entityIdSignature = useMemo(() => entityIds.join('|'), [entityIds])
-  const wheelEntityIds = useMemo(
-    () => entities.flatMap((entity) => [entity.id, entity.id, entity.id, entity.id]),
-    [entities]
+  const entityIdSet = useMemo(() => new Set(entityIds), [entityIds])
+  const suppressedEntityIdSignature = useMemo(
+    () => (suppressedEntityIds ? [...suppressedEntityIds].sort().join('|') : ''),
+    [suppressedEntityIds]
   )
   const interactionBounds = useMemo(
     () =>
@@ -164,6 +171,9 @@ export const VehicleInstances = memo(function VehicleInstances({ entities }: Veh
     [entities]
   )
 
+  useEffect(() => () => vehicleProxyGeometry.dispose(), [vehicleProxyGeometry])
+  useEffect(() => () => vehicleStoragePipeline?.dispose(), [vehicleStoragePipeline])
+
   useEffect(() => {
     const nextIds = new Set(entityIdSignature ? entityIdSignature.split('|') : [])
     runtimeRef.current.forEach((_state, id) => {
@@ -177,41 +187,26 @@ export const VehicleInstances = memo(function VehicleInstances({ entities }: Veh
   useEffect(() => {
     forceMatrixSyncRef.current = true
     forceColorSyncRef.current = true
-  }, [entityIdSignature])
+  }, [entityIdSignature, suppressedEntityIdSignature])
 
   useLayoutEffect(() => {
-    if (bodyRef.current) {
-      bodyRef.current.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
-      bodyRef.current.instanceColor?.setUsage(THREE.DynamicDrawUsage)
-      applyInteractionBounds(bodyRef.current, interactionBounds)
+    if (shellRef.current) {
+      if (vehicleStoragePipeline) {
+        shellRef.current.instanceColor = null
+        shellRef.current.instanceMatrix.setUsage(THREE.StaticDrawUsage)
+        attachWebGpuStorageRaycast(shellRef.current, vehicleStoragePipeline)
+      } else {
+        detachWebGpuStorageRaycast(shellRef.current)
+        ensureInstancedColorBuffer(shellRef.current)
+        shellRef.current.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
+        shellRef.current.instanceColor?.setUsage(THREE.DynamicDrawUsage)
+      }
+      applyInteractionBounds(shellRef.current, interactionBounds)
     }
-    if (cabinRef.current) {
-      cabinRef.current.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
-      cabinRef.current.instanceColor?.setUsage(THREE.DynamicDrawUsage)
-      applyInteractionBounds(cabinRef.current, interactionBounds)
-    }
-    if (arrowRef.current) {
-      arrowRef.current.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
-      arrowRef.current.instanceColor?.setUsage(THREE.DynamicDrawUsage)
-      applyInteractionBounds(arrowRef.current, interactionBounds)
-    }
-    if (wheelRef.current) {
-      wheelRef.current.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
-      wheelRef.current.instanceColor?.setUsage(THREE.DynamicDrawUsage)
-      applyInteractionBounds(wheelRef.current, interactionBounds)
-    }
-  }, [interactionBounds])
+  }, [interactionBounds, vehicleStoragePipeline])
 
-  useFrame(({ camera }) => {
-    if (
-      !bodyRef.current ||
-      !cabinRef.current ||
-      !arrowRef.current ||
-      !wheelRef.current ||
-      entities.length === 0
-    ) {
-      return
-    }
+  useFrame(({ camera, gl }) => {
+    if (!shellRef.current || entities.length === 0) return
     if (!isInteractionBoundsVisible(camera, interactionBounds.sphere)) {
       batchVisibleRef.current = false
       return
@@ -228,13 +223,40 @@ export const VehicleInstances = memo(function VehicleInstances({ entities }: Veh
       forceColorSyncRef.current = true
       batchVisibleRef.current = true
     }
-    const bodyColor = colorRef.current.body
-    const cabinColor = colorRef.current.cabin
-    const statusColor = colorRef.current.status
+    const shellColor = colorRef.current
     const forceMatrixSync = forceMatrixSyncRef.current
     const forceColorSync = forceColorSyncRef.current
-    let matrixDirty = false
+    const selectedEntityId = store.selectedEntityId
+    const hoveredEntityId = store.hoveredEntityId
+    const batchHasFocusedEntity =
+      (!!selectedEntityId && entityIdSet.has(selectedEntityId)) ||
+      (!!hoveredEntityId && entityIdSet.has(hoveredEntityId))
+    frameTickRef.current += 1
+
+    if (!forceMatrixSync && !forceColorSync && !batchHasFocusedEntity) {
+      camera.getWorldDirection(CAMERA_DIRECTION)
+      const cadence = resolveEntitySimulationCadence({
+        entityPosition: interactionBounds.sphere.center,
+        cameraPosition: camera.position,
+        cameraTarget: {
+          x: camera.position.x + CAMERA_DIRECTION.x * 12,
+          y: camera.position.y + CAMERA_DIRECTION.y * 12,
+          z: camera.position.z + CAMERA_DIRECTION.z * 12,
+        },
+      })
+
+      if (!shouldSimulateEntityThisTick(frameTickRef.current, cadence)) {
+        return
+      }
+    }
+
+    let firstDirtyIndex = Number.POSITIVE_INFINITY
+    let lastDirtyIndex = -1
+    let firstDirtyColorIndex = Number.POSITIVE_INFINITY
+    let lastDirtyColorIndex = -1
     let colorDirty = false
+    const usingWebGpuStorage = vehicleStoragePipeline !== null
+    const shellMatrixArray = usingWebGpuStorage ? null : shellRef.current.instanceMatrix.array
 
     for (let index = 0; index < entities.length; index += 1) {
       const entity = entities[index]
@@ -257,8 +279,11 @@ export const VehicleInstances = memo(function VehicleInstances({ entities }: Veh
         shouldSyncMatrix = true
       }
 
-      if (runtimeVehiclePoseBuffer.populate(entity.id, state)) {
-        shouldSyncMatrix = true
+      const poseResult = runtimeVehiclePoseBuffer.populate(entity.id, state)
+      if (poseResult !== 'missing') {
+        if (poseResult === 'changed') {
+          shouldSyncMatrix = true
+        }
       } else {
         shouldSyncMatrix =
           reseedVehicleRuntimeState(state, entity, snapshot) || shouldSyncMatrix
@@ -270,209 +295,118 @@ export const VehicleInstances = memo(function VehicleInstances({ entities }: Veh
       const statusChanged = forceColorSync || prevStatus !== renderStatus
       if (statusChanged) {
         statusStates.set(entity.id, renderStatus)
-        bodyColor.set(getBodyColor(entity.vehicleType, renderStatus))
-        statusColor.set(getStatusColor(renderStatus))
+        shellColor.set(getBodyColor(entity.vehicleType, renderStatus))
+        if (usingWebGpuStorage) {
+          writeWebGpuStorageColor(vehicleStoragePipeline, index, shellColor)
+        }
+        firstDirtyColorIndex = Math.min(firstDirtyColorIndex, index)
+        lastDirtyColorIndex = Math.max(lastDirtyColorIndex, index)
         colorDirty = true
       }
 
+      if (suppressedEntityIds?.has(entity.id)) {
+        if (shouldSyncMatrix) {
+          if (usingWebGpuStorage) {
+            writeWebGpuStorageTransform(
+              vehicleStoragePipeline,
+              index,
+              state.x,
+              state.y - 10000,
+              state.z,
+              state.yaw,
+              0.001,
+              0.001,
+              0.001
+            )
+          } else {
+            setSuppressedInstanceMatrices(
+              shellMatrixArray!,
+              state,
+              index
+            )
+          }
+          firstDirtyIndex = Math.min(firstDirtyIndex, index)
+          lastDirtyIndex = Math.max(lastDirtyIndex, index)
+        }
+        continue
+      }
+
       if (shouldSyncMatrix) {
-        BODY_TEMP.position.set(state.x, state.y + size.height * 0.5, state.z)
-        BODY_TEMP.rotation.set(0, state.yaw, 0)
-        BODY_TEMP.scale.set(size.width, size.height, size.depth)
-        BODY_TEMP.updateMatrix()
-        bodyRef.current.setMatrixAt(index, BODY_TEMP.matrix)
-
-        CABIN_TEMP.position.set(state.x, state.y + size.height * 0.92, state.z - size.depth * 0.12)
-        CABIN_TEMP.rotation.set(0, state.yaw, 0)
-        CABIN_TEMP.scale.set(size.width * 0.58, size.height * 0.5, size.depth * 0.45)
-        CABIN_TEMP.updateMatrix()
-        cabinRef.current.setMatrixAt(index, CABIN_TEMP.matrix)
-
-        ARROW_TEMP.position.set(state.x, state.y + size.height * 0.68, state.z + size.depth * 0.52)
-        ARROW_TEMP.rotation.set(0, state.yaw, 0)
-        ARROW_TEMP.scale.set(0.22, 0.22, 0.38)
-        ARROW_TEMP.updateMatrix()
-        arrowRef.current.setMatrixAt(index, ARROW_TEMP.matrix)
-
-        const wheelRadius =
-          entity.vehicleType === 'truck'
-            ? 0.28
-            : entity.vehicleType === 'forklift'
-              ? 0.24
-              : entity.vehicleType === 'agv'
-                ? 0.001
-                : 0.22
-        const wheelThickness = entity.vehicleType === 'truck' ? 0.2 : 0.16
-        const wheelY = state.y + Math.max(0.24, size.height * 0.24)
-        const sideX = size.width * 0.56
-        const frontZ = size.depth * 0.34
-        const rearZ = -size.depth * 0.34
-        const cosYaw = Math.cos(state.yaw)
-        const sinYaw = Math.sin(state.yaw)
-        const wheelScale = entity.vehicleType === 'agv' ? 0.001 : 1
-
-        const wheelBaseIndex = index * 4
-        setWheelMatrix(
-          wheelRef.current,
-          state,
-          cosYaw,
-          sinYaw,
-          -sideX,
-          frontZ,
-          wheelY,
-          wheelRadius,
-          wheelThickness,
-          wheelScale,
-          wheelBaseIndex
-        )
-        setWheelMatrix(
-          wheelRef.current,
-          state,
-          cosYaw,
-          sinYaw,
-          sideX,
-          frontZ,
-          wheelY,
-          wheelRadius,
-          wheelThickness,
-          wheelScale,
-          wheelBaseIndex + 1
-        )
-        setWheelMatrix(
-          wheelRef.current,
-          state,
-          cosYaw,
-          sinYaw,
-          -sideX,
-          rearZ,
-          wheelY,
-          wheelRadius,
-          wheelThickness,
-          wheelScale,
-          wheelBaseIndex + 2
-        )
-        setWheelMatrix(
-          wheelRef.current,
-          state,
-          cosYaw,
-          sinYaw,
-          sideX,
-          rearZ,
-          wheelY,
-          wheelRadius,
-          wheelThickness,
-          wheelScale,
-          wheelBaseIndex + 3
-        )
-        matrixDirty = true
+        if (usingWebGpuStorage) {
+          writeWebGpuStorageTransform(
+            vehicleStoragePipeline,
+            index,
+            state.x,
+            state.y,
+            state.z,
+            state.yaw,
+            size.width,
+            size.height,
+            size.depth
+          )
+        } else {
+          writeYawScaleMatrix(
+            shellMatrixArray!,
+            index,
+            state.x,
+            state.y,
+            state.z,
+            state.yaw,
+            size.width,
+            size.height,
+            size.depth
+          )
+        }
+        firstDirtyIndex = Math.min(firstDirtyIndex, index)
+        lastDirtyIndex = Math.max(lastDirtyIndex, index)
       }
 
-      if (statusChanged) {
-        bodyRef.current.setColorAt(index, bodyColor)
-        cabinColor.copy(bodyColor).offsetHSL(0, -0.02, 0.12)
-        cabinRef.current.setColorAt(index, cabinColor)
-        arrowRef.current.setColorAt(index, statusColor)
+      if (statusChanged && !usingWebGpuStorage) {
+        shellRef.current.setColorAt(index, shellColor)
       }
     }
 
-    if (matrixDirty) {
-      bodyRef.current.instanceMatrix.needsUpdate = true
-      cabinRef.current.instanceMatrix.needsUpdate = true
-      arrowRef.current.instanceMatrix.needsUpdate = true
-      wheelRef.current.instanceMatrix.needsUpdate = true
+    if (firstDirtyIndex <= lastDirtyIndex) {
+      if (usingWebGpuStorage) {
+        markWebGpuStorageTransformRange(vehicleStoragePipeline, firstDirtyIndex, lastDirtyIndex)
+        dispatchWebGpuStorageCompute(gl, vehicleStoragePipeline)
+      } else {
+        markInstancedMatrixRange(shellRef.current, firstDirtyIndex, lastDirtyIndex)
+      }
     }
-    if (colorDirty && bodyRef.current.instanceColor) bodyRef.current.instanceColor.needsUpdate = true
-    if (colorDirty && cabinRef.current.instanceColor) cabinRef.current.instanceColor.needsUpdate = true
-    if (colorDirty && arrowRef.current.instanceColor) arrowRef.current.instanceColor.needsUpdate = true
+    if (colorDirty) {
+      if (usingWebGpuStorage) {
+        markWebGpuStorageColorRange(vehicleStoragePipeline, firstDirtyColorIndex, lastDirtyColorIndex)
+      } else if (shellRef.current.instanceColor) {
+        shellRef.current.instanceColor.needsUpdate = true
+      }
+    }
     if (forceMatrixSync) forceMatrixSyncRef.current = false
     if (forceColorSync) forceColorSyncRef.current = false
   })
 
-  useEffect(() => {
-    if (!wheelRef.current || !wheelRef.current.instanceColor) return
-    const wheelColor = colorRef.current.wheel
-    for (let index = 0; index < entities.length * 4; index += 1) {
-      wheelRef.current.setColorAt(index, wheelColor)
-    }
-    wheelRef.current.instanceColor.needsUpdate = true
-  }, [entityIdSignature, entities.length])
-
-  const bodyMaterial = useMemo(
+  const cpuShellMaterial = useMemo(
     () =>
       new THREE.MeshStandardMaterial({
         vertexColors: true,
-        metalness: 0.45,
-        roughness: 0.5,
+        metalness: 0.42,
+        roughness: 0.52,
       }),
     []
   )
-  const cabinMaterial = useMemo(
-    () =>
-      new THREE.MeshStandardMaterial({
-        vertexColors: true,
-        metalness: 0.35,
-        roughness: 0.55,
-      }),
-    []
-  )
-  const arrowMaterial = useMemo(
-    () =>
-      new THREE.MeshStandardMaterial({
-        vertexColors: true,
-        emissive: '#1f2937',
-        emissiveIntensity: 0.35,
-        roughness: 0.4,
-      }),
-    []
-  )
-  const wheelMaterial = useMemo(
-    () =>
-      new THREE.MeshStandardMaterial({
-        vertexColors: true,
-        metalness: 0.2,
-        roughness: 0.82,
-      }),
-    []
-  )
+  const shellMaterial = vehicleStoragePipeline?.material ?? cpuShellMaterial
 
   if (entities.length === 0) return null
 
   return (
     <group>
       <instancedMesh
-        ref={bodyRef}
+        ref={shellRef}
         args={[undefined, undefined, entities.length]}
         userData={{ pickable: true, entityIds }}
       >
-        <boxGeometry args={[1, 1, 1]} />
-        <primitive object={bodyMaterial} attach="material" />
-      </instancedMesh>
-
-      <instancedMesh
-        ref={cabinRef}
-        args={[undefined, undefined, entities.length]}
-        userData={{ pickable: true, entityIds }}
-      >
-        <boxGeometry args={[1, 1, 1]} />
-        <primitive object={cabinMaterial} attach="material" />
-      </instancedMesh>
-
-      <instancedMesh
-        ref={arrowRef}
-        args={[undefined, undefined, entities.length]}
-        userData={{ pickable: true, entityIds }}
-      >
-        <coneGeometry args={[0.45, 1, 8]} />
-        <primitive object={arrowMaterial} attach="material" />
-      </instancedMesh>
-
-      <instancedMesh
-        ref={wheelRef}
-        args={[undefined, undefined, entities.length * 4]}
-        userData={{ pickable: true, entityIds: wheelEntityIds }}
-      >
-        <cylinderGeometry args={[1, 1, 1, 14]} />
-        <primitive object={wheelMaterial} attach="material" />
+        <primitive object={vehicleProxyGeometry} attach="geometry" />
+        <primitive object={shellMaterial} attach="material" />
       </instancedMesh>
     </group>
   )

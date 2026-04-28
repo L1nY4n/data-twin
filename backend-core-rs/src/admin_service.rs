@@ -1,5 +1,5 @@
 use crate::{
-    contracts::{AdminOverviewResponse, Alarm, AuditEventRecord},
+    contracts::AdminOverviewResponse,
     store::{Store, StoreError},
 };
 
@@ -28,15 +28,4 @@ pub async fn load_admin_overview(store: &Store) -> Result<AdminOverviewResponse,
             as u64,
         recent_change_at,
     })
-}
-
-pub async fn load_admin_alarms(store: &Store) -> Result<Vec<Alarm>, StoreError> {
-    store.list_alarms().await
-}
-
-pub async fn load_audit_events(
-    store: &Store,
-    limit: usize,
-) -> Result<Vec<AuditEventRecord>, StoreError> {
-    store.list_audit_events(limit).await
 }

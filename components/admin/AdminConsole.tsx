@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
+import { Suspense, type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import type { Edge, Node } from '@xyflow/react'
 import {
@@ -43,12 +43,15 @@ import type {
   AdminOverview,
   AdminSection,
   AuditEventRecord,
+  BuiltInAdminSection,
 } from '@/lib/digital-twin/admin'
 import {
   ADMIN_NAV_GROUPS,
   buildAdminHref,
+  getAdminPageRegistration,
   getAdminNavGroupDisplayTitle,
 } from '@/components/admin/admin-meta'
+import { ModulePageHost } from '@/components/admin/module-page-host'
 import {
   AdminButton,
   AdminInsetBlock,
@@ -1036,43 +1039,59 @@ export function AdminConsole({
   workspaceId?: string
   workspaceSlug?: string
 }) {
-  switch (section) {
-    case 'overview':
-      return <OverviewSection workspaceId={workspaceId} />
-    case 'workspaces':
-      return (
-        <Suspense fallback={null}>
-          <WorkspacesSection />
-        </Suspense>
-      )
-    case 'scene':
-      return <SceneSection workspaceId={workspaceId} workspaceSlug={workspaceSlug} />
-    case 'entities':
-      return <EntitiesSection workspaceId={workspaceId} />
-    case 'archetypes':
-      return <ArchetypesSection />
-    case 'connectors':
-      return <ConnectorsSection workspaceId={workspaceId} />
-    case 'bindings':
-      return <BindingsSection workspaceId={workspaceId} />
-    case 'rules':
-      return <RulesSection workspaceId={workspaceId} />
-    case 'alarms':
-      return <AlarmsSection workspaceId={workspaceId} />
-    case 'audit':
-      return <AuditSection workspaceId={workspaceId} />
-    default:
-      return (
-        <Card>
-          <CardHeader>
-            <CardTitle>未知后台模块</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-muted-foreground">
-              请返回<Link href="/admin/overview" className="text-primary underline">总览</Link>。
-            </p>
-          </CardContent>
-        </Card>
-      )
+  type BuiltInRendererProps = {
+    workspaceId?: string
+    workspaceSlug?: string
   }
+
+  const builtInRenderers: Record<
+    BuiltInAdminSection,
+    (props: BuiltInRendererProps) => ReactNode
+  > = {
+    overview: ({ workspaceId }) => <OverviewSection workspaceId={workspaceId} />,
+    workspaces: () => (
+      <Suspense fallback={null}>
+        <WorkspacesSection />
+      </Suspense>
+    ),
+    scene: ({ workspaceId, workspaceSlug }) => (
+      <SceneSection workspaceId={workspaceId} workspaceSlug={workspaceSlug} />
+    ),
+    entities: ({ workspaceId }) => <EntitiesSection workspaceId={workspaceId} />,
+    archetypes: () => <ArchetypesSection />,
+    connectors: ({ workspaceId }) => <ConnectorsSection workspaceId={workspaceId} />,
+    bindings: ({ workspaceId }) => <BindingsSection workspaceId={workspaceId} />,
+    rules: ({ workspaceId }) => <RulesSection workspaceId={workspaceId} />,
+    alarms: ({ workspaceId }) => <AlarmsSection workspaceId={workspaceId} />,
+    audit: ({ workspaceId }) => <AuditSection workspaceId={workspaceId} />,
+  }
+
+  const registration = getAdminPageRegistration(section)
+  if (registration) {
+    const renderer = builtInRenderers[registration.section]
+    return renderer({ workspaceId, workspaceSlug })
+  }
+
+  if (section.startsWith('module:')) {
+    return (
+      <ModulePageHost
+        section={section}
+        workspaceId={workspaceId}
+        workspaceSlug={workspaceSlug}
+      />
+    )
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>未知后台模块</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <p className="text-sm text-muted-foreground">
+          请返回<Link href="/admin/overview" className="text-primary underline">总览</Link>。
+        </p>
+      </CardContent>
+    </Card>
+  )
 }

@@ -24,8 +24,8 @@ import {
   isRuntimeStaticChunkVisible,
 } from '@/lib/digital-twin/runtime/static/visibility'
 
-const STATIC_CHUNK_POSITION_EPSILON = 0.0001
-const STATIC_CHUNK_ROTATION_EPSILON = 0.000001
+const STATIC_CHUNK_POSITION_EPSILON = 0.25
+const STATIC_CHUNK_ROTATION_EPSILON = 0.00005
 
 export const EditorStaticEnvironment = memo(function EditorStaticEnvironment({
   isDark,

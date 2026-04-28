@@ -64,6 +64,53 @@ function distanceToClosestPosition(position: Vector3, existingPositions: Vector3
   )
 }
 
+function clampToBounds(position: Vector3, bounds: PublishedSceneBounds): Vector3 {
+  return {
+    x: Math.max(bounds.min.x, Math.min(bounds.max.x, position.x)),
+    y: position.y,
+    z: Math.max(bounds.min.z, Math.min(bounds.max.z, position.z)),
+  }
+}
+
+function resolveSeparatedPosition(
+  position: Vector3,
+  existingPositions: Vector3[],
+  minDistance: number,
+  bounds: PublishedSceneBounds
+): Vector3 | null {
+  let next = clampToBounds(position, bounds)
+
+  for (let pass = 0; pass < 32; pass += 1) {
+    let moved = false
+
+    for (const existing of existingPositions) {
+      const dx = next.x - existing.x
+      const dz = next.z - existing.z
+      const distance = Math.hypot(dx, dz)
+      if (distance >= minDistance) continue
+
+      const angle = distance > 1e-4 ? Math.atan2(dz, dx) : pass * 2.399963229728653
+      const push = minDistance - distance + 0.08
+      next = clampToBounds(
+        {
+          x: next.x + Math.cos(angle) * push,
+          y: next.y,
+          z: next.z + Math.sin(angle) * push,
+        },
+        bounds
+      )
+      moved = true
+    }
+
+    if (respectsMinimumDistance(next, existingPositions, minDistance)) {
+      return next
+    }
+    if (!moved) break
+  }
+
+  return null
+}
+
 function distributeCounts(total: number, weights: number[]) {
   const weightSum = weights.reduce((sum, weight) => sum + weight, 0)
   if (weightSum <= 0) return weights.map(() => 0)
@@ -179,7 +226,7 @@ function hydrateVehicles(layer: PublishedVehicleLayer, count: number): VehicleEn
       continue
     }
 
-    for (let attempt = 0; attempt < 24; attempt += 1) {
+    for (let attempt = 0; attempt < 160; attempt += 1) {
       const candidate = attempt === 0 ? bestCandidate : createVehicleCandidate(layer)
       if (respectsMinimumDistance(candidate.position, existingPositions, layer.minimumSeparation)) {
         bestCandidate = candidate
@@ -190,6 +237,21 @@ function hydrateVehicles(layer: PublishedVehicleLayer, count: number): VehicleEn
       if (candidateDistance > bestDistance) {
         bestCandidate = candidate
         bestDistance = candidateDistance
+      }
+    }
+
+    if (!respectsMinimumDistance(bestCandidate.position, existingPositions, layer.minimumSeparation)) {
+      const separatedPosition = resolveSeparatedPosition(
+        bestCandidate.position,
+        existingPositions,
+        layer.minimumSeparation,
+        layer.bounds
+      )
+      if (separatedPosition) {
+        bestCandidate = generateVehicle({
+          vehicleType: bestCandidate.vehicleType,
+          position: separatedPosition,
+        })
       }
     }
 

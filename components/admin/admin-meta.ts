@@ -9,7 +9,17 @@ import {
   RadioTower,
   ScanSearch,
 } from 'lucide-react'
-import type { AdminNavGroup, AdminNavItem, AdminSection } from '@/lib/digital-twin/admin'
+import type {
+  AdminNavGroup,
+  AdminNavItem,
+  AdminSection,
+  BuiltInAdminSection,
+} from '@/lib/digital-twin/admin'
+import {
+  BUILT_IN_ADMIN_PAGE_REGISTRATIONS,
+  type AdminPageRegistration,
+  type PlatformIconKey,
+} from '@/lib/digital-twin/module-registry'
 
 export type AdminSectionMeta = {
   title: string
@@ -19,6 +29,25 @@ export type AdminSectionMeta = {
 
 export type NavConfigItem = AdminNavItem & { icon: LucideIcon }
 export type NavConfigGroup = Omit<AdminNavGroup, 'items'> & { items: NavConfigItem[] }
+
+const ADMIN_ICON_REGISTRY: Record<PlatformIconKey, LucideIcon> = {
+  'layout-dashboard': LayoutDashboard,
+  boxes: Boxes,
+  'scan-search': ScanSearch,
+  'radio-tower': RadioTower,
+  'clipboard-list': ClipboardList,
+  'git-branch': GitBranch,
+  bell: Bell,
+  'alert-triangle': AlertTriangle,
+}
+
+type AdminPageMetaRegistration = AdminPageRegistration & { icon: LucideIcon }
+
+export const ADMIN_PAGE_REGISTRATIONS: AdminPageMetaRegistration[] =
+  BUILT_IN_ADMIN_PAGE_REGISTRATIONS.map((registration) => ({
+    ...registration,
+    icon: ADMIN_ICON_REGISTRY[registration.iconKey],
+  }))
 
 export function buildAdminHref(
   section: AdminSection,
@@ -43,132 +72,57 @@ export function getAdminNavGroupDisplayTitle(title: string) {
   return title
 }
 
-export const ADMIN_SECTION_META: Record<AdminSection, AdminSectionMeta> = {
-  overview: {
-    title: '总览',
-    shortTitle: 'Overview',
-    icon: LayoutDashboard,
-  },
-  workspaces: {
-    title: '工作区',
-    shortTitle: 'Workspaces',
-    icon: LayoutDashboard,
-  },
-  scene: {
-    title: '3D 场景编辑',
-    shortTitle: 'Scene',
-    icon: Boxes,
-  },
-  entities: {
-    title: '实体管理',
-    shortTitle: 'Entities',
-    icon: ScanSearch,
-  },
-  archetypes: {
-    title: '原型管理',
-    shortTitle: 'Archetypes',
-    icon: Boxes,
-  },
-  connectors: {
-    title: '数据源连接器',
-    shortTitle: 'Connectors',
-    icon: RadioTower,
-  },
-  bindings: {
-    title: '实体绑定',
-    shortTitle: 'Bindings',
-    icon: ClipboardList,
-  },
-  rules: {
-    title: '规则引擎',
-    shortTitle: 'Rules',
-    icon: GitBranch,
-  },
-  alarms: {
-    title: '告警中心',
-    shortTitle: 'Alarms',
-    icon: Bell,
-  },
-  audit: {
-    title: '审计日志',
-    shortTitle: 'Audit',
-    icon: AlertTriangle,
-  },
+export const ADMIN_SECTION_META = Object.fromEntries(
+  ADMIN_PAGE_REGISTRATIONS.map((registration) => [
+    registration.section,
+    {
+      title: registration.title,
+      shortTitle: registration.shortTitle,
+      icon: registration.icon,
+    },
+  ])
+) as Record<BuiltInAdminSection, AdminSectionMeta>
+
+export function getAdminPageRegistration(section: string) {
+  return ADMIN_PAGE_REGISTRATIONS.find((registration) => registration.section === section) ?? null
 }
 
-export const ADMIN_NAV_GROUPS: NavConfigGroup[] = [
-  {
-    title: '总览',
-    items: [
-      {
-        title: '总览',
-        href: '/admin/overview',
-        section: 'overview',
-        icon: ADMIN_SECTION_META.overview.icon,
-      },
-      {
-        title: '工作区',
-        href: '/admin/workspaces',
-        section: 'workspaces',
-        icon: ADMIN_SECTION_META.workspaces.icon,
-      },
-    ],
-  },
-  {
-    title: '配置建模',
-    items: [
-      {
-        title: '实体管理',
-        href: '/admin/entities',
-        section: 'entities',
-        icon: ADMIN_SECTION_META.entities.icon,
-      },
-      {
-        title: '原型管理',
-        href: '/admin/archetypes',
-        section: 'archetypes',
-        icon: ADMIN_SECTION_META.archetypes.icon,
-      },
-    ],
-  },
-  {
-    title: '接入与自动化',
-    items: [
-      {
-        title: '数据源连接器',
-        href: '/admin/connectors',
-        section: 'connectors',
-        icon: ADMIN_SECTION_META.connectors.icon,
-      },
-      {
-        title: '实体绑定',
-        href: '/admin/bindings',
-        section: 'bindings',
-        icon: ADMIN_SECTION_META.bindings.icon,
-      },
-      {
-        title: '规则引擎',
-        href: '/admin/rules',
-        section: 'rules',
-        icon: ADMIN_SECTION_META.rules.icon,
-      },
-    ],
-  },
-  {
-    title: '治理',
-    items: [
-      {
-        title: '告警中心',
-        href: '/admin/alarms',
-        section: 'alarms',
-        icon: ADMIN_SECTION_META.alarms.icon,
-      },
-      {
-        title: '审计日志',
-        href: '/admin/audit',
-        section: 'audit',
-        icon: ADMIN_SECTION_META.audit.icon,
-      },
-    ],
-  },
-]
+export function hasAdminPageRegistration(section: string): section is AdminSection {
+  return getAdminPageRegistration(section) != null
+}
+
+export function getAdminSectionMeta(section: AdminSection): AdminSectionMeta | null {
+  const registration = getAdminPageRegistration(section)
+  if (!registration) return null
+
+  return {
+    title: registration.title,
+    shortTitle: registration.shortTitle,
+    icon: registration.icon,
+  }
+}
+
+function buildAdminNavGroups(registrations: AdminPageMetaRegistration[]): NavConfigGroup[] {
+  const grouped = new Map<string, NavConfigGroup>()
+
+  for (const registration of registrations) {
+    if (registration.showInNav === false) {
+      continue
+    }
+    const group = grouped.get(registration.navGroup) ?? {
+      title: registration.navGroup,
+      items: [],
+    }
+    group.items.push({
+      title: registration.title,
+      href: registration.href,
+      section: registration.section,
+      icon: registration.icon,
+    })
+    grouped.set(registration.navGroup, group)
+  }
+
+  return [...grouped.values()]
+}
+
+export const ADMIN_NAV_GROUPS: NavConfigGroup[] = buildAdminNavGroups(ADMIN_PAGE_REGISTRATIONS)

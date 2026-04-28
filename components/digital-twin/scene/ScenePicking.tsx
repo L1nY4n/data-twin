@@ -10,6 +10,7 @@ import {
 } from '@/lib/digital-twin/renderer/interaction'
 
 const POINTER = new THREE.Vector2()
+const HOVER_PICK_MIN_INTERVAL_MS = 50
 
 interface PointerSample {
   offsetX: number
@@ -63,6 +64,8 @@ export function ScenePicking({ pickRootRef }: ScenePickingProps) {
   const selectedEntityIdRef = useRef<string | null>(selectedEntityId)
   const selectedStaticFeatureIdRef = useRef<string | null>(selectedStaticFeatureId)
   const measurementModeRef = useRef(measurementMode)
+  const hoverPickTimeoutRef = useRef<number | null>(null)
+  const lastHoverPickAtRef = useRef(0)
 
   useEffect(() => {
     selectedEntityIdRef.current = selectedEntityId
@@ -82,35 +85,62 @@ export function ScenePicking({ pickRootRef }: ScenePickingProps) {
     const resolve = (pointer: PointerSample) =>
       pickTarget(pointer, domElement, camera, raycaster, pickRootRef.current)
 
-    const handlePointerMove = (event: PointerEvent) => {
-      if (measurementModeRef.current !== 'none') return
-      lastPointerRef.current = { offsetX: event.offsetX, offsetY: event.offsetY }
-      if (rafRef.current !== null) return
-
-      rafRef.current = window.requestAnimationFrame(() => {
-        rafRef.current = null
-        const currentPointer = lastPointerRef.current
-        if (!currentPointer) return
-        const target = resolve(currentPointer)
-        if (target?.kind === 'entity') {
-          setHoveredEntity(target.id)
-          setHoveredStaticFeature(null)
-        } else if (target?.kind === 'static-feature') {
-          setHoveredStaticFeature(target.id)
-          setHoveredEntity(null)
-        } else {
-          setHoveredEntity(null)
-          setHoveredStaticFeature(null)
-        }
-        domElement.style.cursor = target ? 'pointer' : 'auto'
-      })
-    }
-
-    const handlePointerLeave = () => {
+    const cancelScheduledHoverPick = () => {
       if (rafRef.current !== null) {
         window.cancelAnimationFrame(rafRef.current)
         rafRef.current = null
       }
+      if (hoverPickTimeoutRef.current !== null) {
+        window.clearTimeout(hoverPickTimeoutRef.current)
+        hoverPickTimeoutRef.current = null
+      }
+    }
+
+    const resolveHoverPick = () => {
+      rafRef.current = null
+      if (measurementModeRef.current !== 'none') return
+
+      const currentPointer = lastPointerRef.current
+      if (!currentPointer) return
+      lastHoverPickAtRef.current = performance.now()
+      const target = resolve(currentPointer)
+      if (target?.kind === 'entity') {
+        setHoveredEntity(target.id)
+        setHoveredStaticFeature(null)
+      } else if (target?.kind === 'static-feature') {
+        setHoveredStaticFeature(target.id)
+        setHoveredEntity(null)
+      } else {
+        setHoveredEntity(null)
+        setHoveredStaticFeature(null)
+      }
+      domElement.style.cursor = target ? 'pointer' : 'auto'
+    }
+
+    const scheduleHoverPick = () => {
+      if (rafRef.current !== null || hoverPickTimeoutRef.current !== null) return
+
+      const elapsed = performance.now() - lastHoverPickAtRef.current
+      const delay = Math.max(0, HOVER_PICK_MIN_INTERVAL_MS - elapsed)
+      if (delay > 0) {
+        hoverPickTimeoutRef.current = window.setTimeout(() => {
+          hoverPickTimeoutRef.current = null
+          rafRef.current = window.requestAnimationFrame(resolveHoverPick)
+        }, delay)
+        return
+      }
+
+      rafRef.current = window.requestAnimationFrame(resolveHoverPick)
+    }
+
+    const handlePointerMove = (event: PointerEvent) => {
+      if (measurementModeRef.current !== 'none') return
+      lastPointerRef.current = { offsetX: event.offsetX, offsetY: event.offsetY }
+      scheduleHoverPick()
+    }
+
+    const handlePointerLeave = () => {
+      cancelScheduledHoverPick()
       lastPointerRef.current = null
       setHoveredEntity(null)
       setHoveredStaticFeature(null)
@@ -151,10 +181,7 @@ export function ScenePicking({ pickRootRef }: ScenePickingProps) {
       domElement.removeEventListener('pointermove', handlePointerMove)
       domElement.removeEventListener('pointerleave', handlePointerLeave)
       domElement.removeEventListener('click', handleClick)
-      if (rafRef.current !== null) {
-        window.cancelAnimationFrame(rafRef.current)
-        rafRef.current = null
-      }
+      cancelScheduledHoverPick()
       domElement.style.cursor = 'auto'
     }
   }, [

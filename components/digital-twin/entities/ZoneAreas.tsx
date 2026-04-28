@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import * as THREE from 'three'
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
 import type { ZoneEntity } from '@/lib/digital-twin/types'
@@ -69,6 +69,17 @@ function ZoneArea({ zone }: ZoneAreaProps) {
     s.closePath()
     return s
   }, [zone.boundary])
+  const fillGeometry = useMemo(() => {
+    if (!shape) return null
+    const geometry = new THREE.ShapeGeometry(shape)
+    if (!geometry.index) return geometry
+
+    const nonIndexedGeometry = geometry.toNonIndexed()
+    geometry.dispose()
+    return nonIndexedGeometry
+  }, [shape])
+
+  useEffect(() => () => fillGeometry?.dispose(), [fillGeometry])
 
   // 区域中心点
   const center = useMemo(() => calculatePolygonCenter(zone.boundary), [zone.boundary])
@@ -97,24 +108,15 @@ function ZoneArea({ zone }: ZoneAreaProps) {
       {/* 区域填充 */}
       {/* Selected zones rely on boundary/label overlays because WebGPU is unstable with
           the translucent shape fill on this interaction path. */}
-      {!isSelected && (
+      {!isSelected && fillGeometry && (
         <mesh 
           rotation={[-Math.PI / 2, 0, 0]} 
           position={[0, 0.05, 0]}
           renderOrder={OVERLAY_RENDER_ORDER.zoneFill}
         >
-          <shapeGeometry
-            args={[shape]}
-            onUpdate={(geometry) => {
-              if (geometry.index) geometry.setDrawRange(0, geometry.index.count)
-            }}
-          />
-          <meshStandardMaterial
+          <primitive object={fillGeometry} attach="geometry" />
+          <meshBasicMaterial
             color={zone.color}
-            emissive={zone.color}
-            emissiveIntensity={0.05}
-            metalness={0.02}
-            roughness={0.96}
             opacity={0.18}
             {...STABLE_DOUBLE_SIDED_OVERLAY}
           />

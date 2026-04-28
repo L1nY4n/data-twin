@@ -12,6 +12,7 @@ import type {
   StaticAssetInstance,
   WorkspaceRecord,
 } from './types'
+import type { EventTypeRegistration, PlatformModuleManifest } from './module-registry'
 import {
   getAdminApiBaseUrl,
   getBackendHttpBaseUrl,
@@ -33,6 +34,8 @@ export interface BootstrapPayload {
   entityArchetypes: EntityArchetype[]
   rules: RuleConfig[]
   alarms: Alarm[]
+  moduleManifests?: PlatformModuleManifest[]
+  eventTypeRegistry?: EventTypeRegistration[]
   publishedScene?: PublishedSceneRuntimeDescriptor | null
   issuedAt: number
 }

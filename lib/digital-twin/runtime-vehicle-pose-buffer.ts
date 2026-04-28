@@ -1,11 +1,11 @@
-import type { VehicleEntity } from './types'
+import type { EntityStatus } from './types'
 import {
   resolveVehiclePoseFromSnapshots,
   type VehicleInterpolatedPose,
   type VehicleSnapshotSample,
 } from './vehicle-snapshot-interpolation'
 
-type VehicleStatus = VehicleEntity['status']
+type VehicleStatus = EntityStatus
 
 interface MutableVehicleRuntimePose {
   x: number
@@ -35,10 +35,15 @@ interface WorkerSolveResult {
 type WorkerCommand =
   | { type: 'clear' }
   | { type: 'delete'; entityId: string }
-  | { type: 'upsert'; entityId: string; samples: readonly VehicleSnapshotSample[] }
+  | {
+      type: 'upsert'
+      entityId: string
+      index: number
+      samples: readonly VehicleSnapshotSample[]
+    }
   | {
       type: 'solve'
-      entityIds: string[]
+      count: number
       frameId: number
       nowMs: number
       interpolationDelayMs: number
@@ -52,6 +57,8 @@ interface RuntimeVehiclePoseBufferOptions {
   useWorker?: boolean
   workerFactory?: () => WorkerLike | null
 }
+
+export type RuntimePosePopulateResult = 'changed' | 'unchanged' | 'missing'
 
 const STATUS_TO_CODE: Record<VehicleStatus, number> = {
   active: 1,
@@ -67,6 +74,9 @@ const CODE_TO_STATUS: Record<number, VehicleStatus> = {
   4: 'error',
 }
 
+const POSITION_EPSILON = 0.0005
+const YAW_EPSILON = 0.0005
+
 function decodeStatus(code: number): VehicleStatus {
   return CODE_TO_STATUS[code] ?? 'active'
 }
@@ -81,6 +91,23 @@ function clonePoseIntoTarget(target: MutableVehicleRuntimePose, pose: VehicleInt
   target.z = pose.z
   target.yaw = pose.yaw
   target.status = pose.status
+}
+
+function hasSolvedPoseChanged(
+  target: MutableVehicleRuntimePose,
+  x: number,
+  y: number,
+  z: number,
+  yaw: number,
+  status: VehicleStatus
+) {
+  return (
+    Math.abs(target.x - x) > POSITION_EPSILON ||
+    Math.abs(target.y - y) > POSITION_EPSILON ||
+    Math.abs(target.z - z) > POSITION_EPSILON ||
+    Math.abs(target.yaw - yaw) > YAW_EPSILON ||
+    target.status !== status
+  )
 }
 
 function createDefaultWorkerFactory(): (() => WorkerLike | null) | undefined {
@@ -162,10 +189,11 @@ export function createRuntimeVehiclePoseBuffer(options: RuntimeVehiclePoseBuffer
   function rehydrateWorker() {
     if (!worker) return
     worker.postMessage({ type: 'clear' })
-    idsByIndex.forEach((entityId) => {
+    idsByIndex.forEach((entityId, index) => {
       worker?.postMessage({
         type: 'upsert',
         entityId,
+        index,
         samples: snapshotsById.get(entityId) ?? [],
       })
     })
@@ -223,7 +251,7 @@ export function createRuntimeVehiclePoseBuffer(options: RuntimeVehiclePoseBuffer
 
       snapshotsById.set(entityId, samples)
       if (worker) {
-        worker.postMessage({ type: 'upsert', entityId, samples })
+        worker.postMessage({ type: 'upsert', entityId, index, samples })
       }
       statusBuffer[index] = 0
       return index
@@ -254,6 +282,8 @@ export function createRuntimeVehiclePoseBuffer(options: RuntimeVehiclePoseBuffer
     },
 
     solve(nowMs: number) {
+      if (idsByIndex.length === 0) return
+
       if (!worker) {
         solveSync(nowMs)
         return
@@ -263,7 +293,7 @@ export function createRuntimeVehiclePoseBuffer(options: RuntimeVehiclePoseBuffer
         pendingFrameId += 1
         worker.postMessage({
           type: 'solve',
-          entityIds: [...idsByIndex],
+          count: idsByIndex.length,
           frameId: pendingFrameId,
           nowMs,
           interpolationDelayMs,
@@ -277,15 +307,27 @@ export function createRuntimeVehiclePoseBuffer(options: RuntimeVehiclePoseBuffer
 
     populate(entityId: string, target: MutableVehicleRuntimePose) {
       const index = indexById.get(entityId)
-      if (index === undefined) return false
-      if ((statusBuffer[index] ?? 0) === 0) return false
+      if (index === undefined) return 'missing'
+      if ((statusBuffer[index] ?? 0) === 0) return 'missing'
 
-      target.x = xBuffer[index] ?? 0
-      target.y = yBuffer[index] ?? 0
-      target.z = zBuffer[index] ?? 0
-      target.yaw = yawBuffer[index] ?? 0
-      target.status = decodeStatus(statusBuffer[index] ?? 0)
-      return true
+      const x = xBuffer[index] ?? 0
+      const y = yBuffer[index] ?? 0
+      const z = zBuffer[index] ?? 0
+      const yaw = yawBuffer[index] ?? 0
+      const status = decodeStatus(statusBuffer[index] ?? 0)
+      if (!hasSolvedPoseChanged(target, x, y, z, yaw, status)) return 'unchanged'
+
+      target.x = x
+      target.y = y
+      target.z = z
+      target.yaw = yaw
+      target.status = status
+      return 'changed'
+    },
+
+    hasSolvedPose(entityId: string) {
+      const index = indexById.get(entityId)
+      return index !== undefined && (statusBuffer[index] ?? 0) !== 0
     },
 
     get(entityId: string): MutableVehicleRuntimePose | null {

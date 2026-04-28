@@ -16,6 +16,8 @@ use tower::ServiceExt;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
+const ADMIN_API_TOKEN: &str = "test-admin-api-token";
+
 #[tokio::test]
 async fn scene_update_increments_scene_version_but_site_bootstrap_stays_on_published_snapshot() {
     init_test_database_url();
@@ -26,7 +28,7 @@ async fn scene_update_increments_scene_version_but_site_bootstrap_stays_on_publi
     let scene_response = app
         .clone()
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::GET)
                 .uri("/api/v1/admin/scene")
                 .body(Body::empty())
@@ -65,7 +67,7 @@ async fn scene_update_increments_scene_version_but_site_bootstrap_stays_on_publi
     let editor_bootstrap_response = app
         .clone()
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::GET)
                 .uri("/api/v1/admin/bootstrap")
                 .body(Body::empty())
@@ -86,7 +88,7 @@ async fn scene_update_increments_scene_version_but_site_bootstrap_stays_on_publi
 
     let bootstrap_response = app
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::GET)
                 .uri("/api/v1/site/bootstrap")
                 .body(Body::empty())
@@ -116,7 +118,7 @@ async fn editor_save_commits_scene_and_static_asset_with_one_version_bump() {
     let initial_scene = app
         .clone()
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::GET)
                 .uri("/api/v1/admin/scene")
                 .body(Body::empty())
@@ -178,7 +180,7 @@ async fn editor_save_commits_scene_and_static_asset_with_one_version_bump() {
 
     let editor_bootstrap = app
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::GET)
                 .uri("/api/v1/admin/bootstrap")
                 .body(Body::empty())
@@ -239,7 +241,7 @@ async fn editor_save_rolls_back_scene_when_selection_create_fails() {
     let before_scene = app
         .clone()
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::GET)
                 .uri("/api/v1/admin/scene")
                 .body(Body::empty())
@@ -304,7 +306,7 @@ async fn editor_save_rolls_back_scene_when_selection_create_fails() {
     let after_scene = app
         .clone()
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::GET)
                 .uri("/api/v1/admin/scene")
                 .body(Body::empty())
@@ -328,7 +330,7 @@ async fn editor_save_rejects_stale_scene_versions_without_writing_changes() {
     let initial_scene = app
         .clone()
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::GET)
                 .uri("/api/v1/admin/scene")
                 .body(Body::empty())
@@ -427,7 +429,7 @@ async fn editor_save_rejects_stale_scene_versions_without_writing_changes() {
     let final_scene = app
         .clone()
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::GET)
                 .uri("/api/v1/admin/scene")
                 .body(Body::empty())
@@ -445,7 +447,7 @@ async fn editor_save_rejects_stale_scene_versions_without_writing_changes() {
 
     let entities_response = app
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::GET)
                 .uri("/api/v1/admin/entities")
                 .body(Body::empty())
@@ -472,7 +474,7 @@ async fn overview_alarm_and_audit_endpoints_reflect_admin_state() {
     let initial_overview = app
         .clone()
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::GET)
                 .uri("/api/v1/admin/overview")
                 .body(Body::empty())
@@ -538,7 +540,7 @@ async fn overview_alarm_and_audit_endpoints_reflect_admin_state() {
     let overview_response = app
         .clone()
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::GET)
                 .uri("/api/v1/admin/overview")
                 .body(Body::empty())
@@ -555,7 +557,7 @@ async fn overview_alarm_and_audit_endpoints_reflect_admin_state() {
     let alarms_response = app
         .clone()
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::GET)
                 .uri("/api/v1/admin/alarms")
                 .body(Body::empty())
@@ -569,7 +571,7 @@ async fn overview_alarm_and_audit_endpoints_reflect_admin_state() {
 
     let audit_response = app
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::GET)
                 .uri("/api/v1/admin/audit")
                 .body(Body::empty())
@@ -628,7 +630,7 @@ async fn entity_crud_and_binding_flow_works() {
     let get_entity_response = app
         .clone()
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::GET)
                 .uri("/api/v1/admin/entities/person-test-01")
                 .body(Body::empty())
@@ -691,7 +693,7 @@ async fn entity_crud_and_binding_flow_works() {
 
     let delete_entity_response = app
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::DELETE)
                 .uri("/api/v1/admin/entities/person-test-01")
                 .body(Body::empty())
@@ -740,7 +742,7 @@ async fn static_asset_crud_and_bootstrap_flow_works() {
     let list_response = app
         .clone()
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::GET)
                 .uri("/api/v1/admin/static-assets")
                 .body(Body::empty())
@@ -783,7 +785,7 @@ async fn static_asset_crud_and_bootstrap_flow_works() {
     let editor_bootstrap_response = app
         .clone()
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::GET)
                 .uri("/api/v1/admin/bootstrap")
                 .body(Body::empty())
@@ -800,7 +802,7 @@ async fn static_asset_crud_and_bootstrap_flow_works() {
     let bootstrap_response = app
         .clone()
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::GET)
                 .uri("/api/v1/site/bootstrap")
                 .body(Body::empty())
@@ -815,7 +817,7 @@ async fn static_asset_crud_and_bootstrap_flow_works() {
 
     let delete_response = app
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::DELETE)
                 .uri("/api/v1/admin/static-assets/static-asset-tank-01")
                 .body(Body::empty())
@@ -897,7 +899,7 @@ async fn building_shell_and_smart_assets_round_trip_through_admin_bootstrap() {
     let editor_bootstrap_response = app
         .clone()
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::GET)
                 .uri("/api/v1/admin/bootstrap")
                 .body(Body::empty())
@@ -927,7 +929,7 @@ async fn editor_save_batches_scene_and_entity_create_with_single_version_bump() 
     let initial_scene = app
         .clone()
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::GET)
                 .uri("/api/v1/admin/scene")
                 .body(Body::empty())
@@ -992,7 +994,7 @@ async fn editor_save_batches_scene_and_entity_create_with_single_version_bump() 
 
     let editor_bootstrap = app
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::GET)
                 .uri("/api/v1/admin/bootstrap")
                 .body(Body::empty())
@@ -1027,7 +1029,7 @@ async fn editor_save_rolls_back_scene_changes_when_selection_write_fails() {
     let initial_scene = app
         .clone()
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::GET)
                 .uri("/api/v1/admin/scene")
                 .body(Body::empty())
@@ -1085,7 +1087,7 @@ async fn editor_save_rolls_back_scene_changes_when_selection_write_fails() {
     let scene_after_failure = app
         .clone()
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::GET)
                 .uri("/api/v1/admin/scene")
                 .body(Body::empty())
@@ -1144,7 +1146,7 @@ async fn editor_save_updates_static_asset_and_publish_works_afterwards() {
     let scene_before_save = app
         .clone()
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::GET)
                 .uri("/api/v1/admin/scene")
                 .body(Body::empty())
@@ -1205,7 +1207,7 @@ async fn editor_save_updates_static_asset_and_publish_works_afterwards() {
     let publish_response = app
         .clone()
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::POST)
                 .uri("/api/v1/admin/publish")
                 .body(Body::empty())
@@ -1217,7 +1219,7 @@ async fn editor_save_updates_static_asset_and_publish_works_afterwards() {
 
     let site_bootstrap = app
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::GET)
                 .uri("/api/v1/site/bootstrap")
                 .body(Body::empty())
@@ -1302,7 +1304,7 @@ async fn publish_promotes_working_changes_into_site_bootstrap_and_status() {
     let unpublished_status = app
         .clone()
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::GET)
                 .uri("/api/v1/admin/publish")
                 .body(Body::empty())
@@ -1324,7 +1326,7 @@ async fn publish_promotes_working_changes_into_site_bootstrap_and_status() {
     let publish_response = app
         .clone()
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::POST)
                 .uri("/api/v1/admin/publish")
                 .body(Body::empty())
@@ -1346,7 +1348,7 @@ async fn publish_promotes_working_changes_into_site_bootstrap_and_status() {
 
     let site_bootstrap = app
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::GET)
                 .uri("/api/v1/site/bootstrap")
                 .body(Body::empty())
@@ -1481,7 +1483,7 @@ async fn expanded_editor_static_asset_kinds_round_trip_through_admin_and_publish
     let publish_response = app
         .clone()
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::POST)
                 .uri("/api/v1/admin/publish")
                 .body(Body::empty())
@@ -1493,7 +1495,7 @@ async fn expanded_editor_static_asset_kinds_round_trip_through_admin_and_publish
 
     let site_bootstrap = app
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::GET)
                 .uri("/api/v1/site/bootstrap")
                 .body(Body::empty())
@@ -1556,7 +1558,7 @@ async fn concurrent_publish_requests_return_conflict_while_publish_is_in_progres
         let app = app.clone();
         async move {
             app.oneshot(
-                Request::builder()
+                admin_request_builder()
                     .method(Method::POST)
                     .uri("/api/v1/admin/publish")
                     .body(Body::empty())
@@ -1572,7 +1574,7 @@ async fn concurrent_publish_requests_return_conflict_while_publish_is_in_progres
     let in_progress_status = app
         .clone()
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::GET)
                 .uri("/api/v1/admin/publish")
                 .body(Body::empty())
@@ -1599,7 +1601,7 @@ async fn concurrent_publish_requests_return_conflict_while_publish_is_in_progres
     let second_publish = app
         .clone()
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::POST)
                 .uri("/api/v1/admin/publish")
                 .body(Body::empty())
@@ -1613,7 +1615,7 @@ async fn concurrent_publish_requests_return_conflict_while_publish_is_in_progres
 
     let final_status = app
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::GET)
                 .uri("/api/v1/admin/publish")
                 .body(Body::empty())
@@ -1665,7 +1667,7 @@ async fn publish_updates_stable_package_alias_for_fallback_bootstrap_loading() {
     let publish_response = app
         .clone()
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::POST)
                 .uri("/api/v1/admin/publish")
                 .body(Body::empty())
@@ -1737,7 +1739,7 @@ async fn failed_publish_keeps_previous_published_snapshot_and_reports_failure() 
     let initial_publish = app
         .clone()
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::POST)
                 .uri("/api/v1/admin/publish")
                 .body(Body::empty())
@@ -1786,7 +1788,7 @@ async fn failed_publish_keeps_previous_published_snapshot_and_reports_failure() 
     let failed_publish = app
         .clone()
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::POST)
                 .uri("/api/v1/admin/publish")
                 .body(Body::empty())
@@ -1804,7 +1806,7 @@ async fn failed_publish_keeps_previous_published_snapshot_and_reports_failure() 
     let publish_status = app
         .clone()
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::GET)
                 .uri("/api/v1/admin/publish")
                 .body(Body::empty())
@@ -1835,7 +1837,7 @@ async fn failed_publish_keeps_previous_published_snapshot_and_reports_failure() 
 
     let site_bootstrap = app
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::GET)
                 .uri("/api/v1/site/bootstrap")
                 .body(Body::empty())
@@ -1980,7 +1982,7 @@ async fn entity_category_and_archetype_crud_flow_is_exposed_via_bootstrap() {
     let bootstrap_response = app
         .clone()
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::GET)
                 .uri("/api/v1/admin/bootstrap")
                 .body(Body::empty())
@@ -2004,7 +2006,7 @@ async fn entity_category_and_archetype_crud_flow_is_exposed_via_bootstrap() {
     let delete_category_while_in_use = app
         .clone()
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::DELETE)
                 .uri("/api/v1/admin/entity-categories/category-robotics")
                 .body(Body::empty())
@@ -2017,7 +2019,7 @@ async fn entity_category_and_archetype_crud_flow_is_exposed_via_bootstrap() {
     let delete_archetype = app
         .clone()
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::DELETE)
                 .uri("/api/v1/admin/entity-archetypes/archetype-inspection-robot-v1")
                 .body(Body::empty())
@@ -2029,7 +2031,7 @@ async fn entity_category_and_archetype_crud_flow_is_exposed_via_bootstrap() {
 
     let delete_category = app
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::DELETE)
                 .uri("/api/v1/admin/entity-categories/category-robotics")
                 .body(Body::empty())
@@ -2057,7 +2059,7 @@ async fn model_asset_upload_returns_persisted_asset_metadata() {
 
     let response = app
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::POST)
                 .uri("/api/v1/admin/model-assets/upload")
                 .header(CONTENT_TYPE, "multipart/form-data; boundary=boundary")
@@ -2071,7 +2073,10 @@ async fn model_asset_upload_returns_persisted_asset_metadata() {
     assert_eq!(response_body["fileType"], json!("fbx"));
     assert_eq!(response_body["fileName"], json!("robot.fbx"));
     assert_eq!(response_body["fileSizeBytes"], json!(27));
-    assert!(response_body["assetUrl"].as_str().unwrap().ends_with(".fbx"));
+    assert!(response_body["assetUrl"]
+        .as_str()
+        .unwrap()
+        .ends_with(".fbx"));
     assert_eq!(response_body["calibration"]["scale"]["x"], json!(1.0));
 }
 
@@ -2276,7 +2281,7 @@ async fn dynamic_entity_crud_is_reflected_in_site_bootstrap_without_publish() {
     let initial_bootstrap = app
         .clone()
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::GET)
                 .uri("/api/v1/site/bootstrap")
                 .body(Body::empty())
@@ -2364,7 +2369,7 @@ async fn dynamic_entity_crud_is_reflected_in_site_bootstrap_without_publish() {
 
     let site_bootstrap = app
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::GET)
                 .uri("/api/v1/site/bootstrap")
                 .body(Body::empty())
@@ -2503,7 +2508,7 @@ async fn archetype_recategorization_rewrites_existing_dynamic_entity_category_ke
 
     let entities_response = app
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::GET)
                 .uri("/api/v1/admin/entities")
                 .body(Body::empty())
@@ -2520,7 +2525,10 @@ async fn archetype_recategorization_rewrites_existing_dynamic_entity_category_ke
         .find(|entity| entity["id"] == json!("dynamic-robot-01"))
         .unwrap();
     assert_eq!(dynamic_entity["categoryKey"], json!("autonomy"));
-    assert_eq!(dynamic_entity["displayAttributes"]["category"], json!("autonomy"));
+    assert_eq!(
+        dynamic_entity["displayAttributes"]["category"],
+        json!("autonomy")
+    );
 }
 
 #[tokio::test]
@@ -2605,7 +2613,7 @@ async fn deleting_referenced_archetype_returns_conflict() {
 
     let delete_response = app
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::DELETE)
                 .uri("/api/v1/admin/entity-archetypes/archetype-inspection-robot-v1")
                 .body(Body::empty())
@@ -2720,7 +2728,7 @@ async fn category_key_rename_rewrites_dependent_archetypes_and_dynamic_entities(
     let archetypes_response = app
         .clone()
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::GET)
                 .uri("/api/v1/admin/entity-archetypes")
                 .body(Body::empty())
@@ -2741,7 +2749,7 @@ async fn category_key_rename_rewrites_dependent_archetypes_and_dynamic_entities(
     let entities_response = app
         .clone()
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::GET)
                 .uri("/api/v1/admin/entities")
                 .body(Body::empty())
@@ -2758,11 +2766,14 @@ async fn category_key_rename_rewrites_dependent_archetypes_and_dynamic_entities(
         .find(|item| item["id"] == json!("dynamic-robot-rename-01"))
         .unwrap();
     assert_eq!(entity["categoryKey"], json!("mobile-robotics"));
-    assert_eq!(entity["displayAttributes"]["category"], json!("mobile-robotics"));
+    assert_eq!(
+        entity["displayAttributes"]["category"],
+        json!("mobile-robotics")
+    );
 
     let site_bootstrap = app
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::GET)
                 .uri("/api/v1/site/bootstrap")
                 .body(Body::empty())
@@ -2791,7 +2802,7 @@ async fn workspace_registry_supports_crud_and_homepage_switching() {
     let initial_home = app
         .clone()
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::GET)
                 .uri("/api/v1/site/home-workspace")
                 .body(Body::empty())
@@ -2844,7 +2855,7 @@ async fn workspace_registry_supports_crud_and_homepage_switching() {
     let list_response = app
         .clone()
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::GET)
                 .uri("/api/v1/admin/workspaces")
                 .body(Body::empty())
@@ -2859,18 +2870,20 @@ async fn workspace_registry_supports_crud_and_homepage_switching() {
         .unwrap()
         .iter()
         .any(|workspace| workspace["id"] == json!("workspace-plant-b")));
-    assert!(list_body
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter(|workspace| workspace["isHomepage"] == json!(true))
-        .count()
-        == 1);
+    assert!(
+        list_body
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|workspace| workspace["isHomepage"] == json!(true))
+            .count()
+            == 1
+    );
 
     let home_response = app
         .clone()
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::GET)
                 .uri("/api/v1/site/home-workspace")
                 .body(Body::empty())
@@ -2885,7 +2898,7 @@ async fn workspace_registry_supports_crud_and_homepage_switching() {
     let delete_default_response = app
         .clone()
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::DELETE)
                 .uri("/api/v1/admin/workspaces/workspace-plant-b")
                 .body(Body::empty())
@@ -2897,7 +2910,7 @@ async fn workspace_registry_supports_crud_and_homepage_switching() {
 
     let final_home = app
         .oneshot(
-            Request::builder()
+            admin_request_builder()
                 .method(Method::GET)
                 .uri("/api/v1/site/home-workspace")
                 .body(Body::empty())
@@ -2963,12 +2976,16 @@ impl Drop for PublishTestHarness {
 }
 
 fn json_request(method: Method, uri: &str, body: Value) -> Request<Body> {
-    Request::builder()
+    admin_request_builder()
         .method(method)
         .uri(uri)
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(body.to_string()))
         .unwrap()
+}
+
+fn admin_request_builder() -> axum::http::request::Builder {
+    Request::builder().header("x-admin-api-token", ADMIN_API_TOKEN)
 }
 
 async fn parse_json(response: axum::response::Response) -> Value {
@@ -2978,6 +2995,7 @@ async fn parse_json(response: axum::response::Response) -> Value {
 
 fn init_test_database_url() {
     std::env::set_var("DATABASE_URL", "sqlite::memory:");
+    std::env::set_var("BACKEND_ADMIN_API_TOKEN", ADMIN_API_TOKEN);
 }
 
 fn unique_test_dir(label: &str) -> PathBuf {
