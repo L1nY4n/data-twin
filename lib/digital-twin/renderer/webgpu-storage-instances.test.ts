@@ -2,12 +2,25 @@ import { describe, expect, test } from 'bun:test'
 import { BoxGeometry, Color, InstancedMesh, MeshBasicMaterial } from 'three'
 import {
   attachWebGpuStorageRaycast,
+  createWebGpuSharedMovingInstancePipeline,
   createWebGpuStorageInstancePipeline,
   detachWebGpuStorageRaycast,
+  dispatchWebGpuSharedMovingCompute,
+  getWebGpuSharedMovingPart,
+  markWebGpuSharedMovingColorRange,
+  markWebGpuSharedMovingPartTransformRange,
+  markWebGpuSharedMovingTargetRange,
   markWebGpuStorageColorRange,
   markWebGpuStorageTargetRange,
   markWebGpuStorageTransformRange,
+  resetWebGpuSharedMovingMotion,
+  resetWebGpuSharedMovingSlots,
   resetWebGpuStorageMotion,
+  WebGpuMovingInstanceSlotAllocator,
+  writeWebGpuSharedMovingColor,
+  writeWebGpuSharedMovingMatrixElements,
+  writeWebGpuSharedMovingPartTransform,
+  writeWebGpuSharedMovingTarget,
   writeWebGpuStorageColor,
   writeWebGpuStorageMatrixElements,
   writeWebGpuStorageTargetTransform,
@@ -199,6 +212,154 @@ describe('webgpu storage instances', () => {
       mesh.dispose()
       geometry.dispose()
       material.dispose()
+      pipeline.dispose()
+    }
+  })
+
+  test('allocates shared moving storage once while giving each visual part its own matrix and color streams', () => {
+    const pipeline = createWebGpuSharedMovingInstancePipeline({
+      count: 2,
+      parts: [
+        { id: 'body', transformKind: 'yaw', material: { vertexColors: true } },
+        { id: 'status', transformKind: 'translation', material: { vertexColors: true } },
+        { id: 'ring', transformKind: 'ground-ring', material: { vertexColors: true } },
+      ],
+    })
+
+    try {
+      expect(pipeline.poseAttribute.isStorageInstancedBufferAttribute).toBe(true)
+      expect(pipeline.targetPoseAttribute.isStorageInstancedBufferAttribute).toBe(true)
+      expect(pipeline.motionMode).toBe('gpu-damped')
+      expect(pipeline.motionInitialized).toBeInstanceOf(Uint8Array)
+      expect(Object.keys(pipeline.parts).sort()).toEqual(['body', 'ring', 'status'])
+      expect(getWebGpuSharedMovingPart(pipeline, 'body').matrixAttribute.itemSize).toBe(16)
+      expect(getWebGpuSharedMovingPart(pipeline, 'status').scaleAttribute.itemSize).toBe(4)
+      expect(pipeline.computeNode).toBeTruthy()
+    } finally {
+      pipeline.dispose()
+    }
+  })
+
+  test('shared moving storage writes one target pose and part-local transforms', () => {
+    const pipeline = createWebGpuSharedMovingInstancePipeline({
+      count: 1,
+      parts: [
+        { id: 'body', transformKind: 'yaw', material: { vertexColors: true } },
+        { id: 'status', transformKind: 'translation', material: { vertexColors: true } },
+        { id: 'ring', transformKind: 'ground-ring', material: { vertexColors: true } },
+      ],
+    })
+
+    try {
+      const bodyActual = new Float32Array(16)
+      const bodyExpected = new Float32Array(16)
+      const statusActual = new Float32Array(16)
+      const statusExpected = new Float32Array(16)
+      const ringActual = new Float32Array(16)
+      const ringExpected = new Float32Array(16)
+
+      writeWebGpuSharedMovingTarget(pipeline, 0, 4, 2, -3, 0.72)
+      writeWebGpuSharedMovingPartTransform(pipeline, 'body', 0, 1.5, 2.5, 3.5, 0.75)
+      writeWebGpuSharedMovingPartTransform(pipeline, 'status', 0, 1, 1, 1, 2.25)
+      writeWebGpuSharedMovingPartTransform(pipeline, 'ring', 0, 2, 1, 3, 0.03)
+
+      writeWebGpuSharedMovingMatrixElements(pipeline, 'body', 0, bodyActual)
+      writeWebGpuSharedMovingMatrixElements(pipeline, 'status', 0, statusActual)
+      writeWebGpuSharedMovingMatrixElements(pipeline, 'ring', 0, ringActual)
+      writeYawScaleMatrix(bodyExpected, 0, 4, 2.75, -3, 0.72, 1.5, 2.5, 3.5)
+      writeTranslationScaleMatrix(statusExpected, 0, 4, 4.25, -3, 1, 1, 1)
+      writeGroundRingMatrix(ringExpected, 0, 4, 2.03, -3, 2, 3)
+
+      expectArrayClose(bodyActual, bodyExpected)
+      expectArrayClose(statusActual, statusExpected)
+      expectArrayClose(ringActual, ringExpected)
+      expect(pipeline.motionInitialized[0]).toBe(1)
+    } finally {
+      pipeline.dispose()
+    }
+  })
+
+  test('shared moving storage marks shared target and part streams with one compute dispatch', () => {
+    const pipeline = createWebGpuSharedMovingInstancePipeline({
+      count: 2,
+      parts: [
+        { id: 'body', transformKind: 'yaw', material: { vertexColors: true } },
+        { id: 'status', transformKind: 'translation', material: { vertexColors: true } },
+      ],
+    })
+
+    try {
+      const color = new Color('#ef4444')
+      writeWebGpuSharedMovingTarget(pipeline, 1, 7, 1, -2, 0.5)
+      writeWebGpuSharedMovingPartTransform(pipeline, 'body', 1, 2, 3, 4, 0.5)
+      writeWebGpuSharedMovingColor(pipeline, 'status', 1, color)
+
+      const targetVersion = pipeline.targetPoseAttribute.version
+      const poseVersion = pipeline.poseAttribute.version
+      const bodyScaleVersion = getWebGpuSharedMovingPart(pipeline, 'body').scaleAttribute.version
+      const statusScaleVersion = getWebGpuSharedMovingPart(pipeline, 'status').scaleAttribute.version
+      const statusColorVersion = getWebGpuSharedMovingPart(pipeline, 'status').colorAttribute.version
+
+      markWebGpuSharedMovingTargetRange(pipeline, 1, 1)
+      expect(getWebGpuSharedMovingPart(pipeline, 'body').scaleAttribute.version).toBe(bodyScaleVersion)
+      expect(getWebGpuSharedMovingPart(pipeline, 'status').scaleAttribute.version).toBe(statusScaleVersion)
+
+      markWebGpuSharedMovingPartTransformRange(pipeline, 1, 1)
+      markWebGpuSharedMovingColorRange(pipeline, 'status', 1, 1)
+
+      expect(pipeline.targetPoseAttribute.version).toBe(targetVersion + 1)
+      expect(pipeline.poseAttribute.version).toBe(poseVersion + 1)
+      expect(getWebGpuSharedMovingPart(pipeline, 'body').scaleAttribute.version).toBe(bodyScaleVersion + 1)
+      expect(getWebGpuSharedMovingPart(pipeline, 'status').scaleAttribute.version).toBe(statusScaleVersion + 1)
+      expect(getWebGpuSharedMovingPart(pipeline, 'status').colorAttribute.version).toBe(statusColorVersion + 1)
+      expect(pipeline.currentPoseUploadDirty).toBe(false)
+
+      let computeCount = 0
+      expect(dispatchWebGpuSharedMovingCompute({ compute: () => { computeCount += 1 } }, pipeline, 0.4)).toBe(true)
+      expect(computeCount).toBe(1)
+      expect(pipeline.motionAlphaUniform.value).toBe(0.4)
+
+      resetWebGpuSharedMovingMotion(pipeline)
+      expect(pipeline.motionInitialized[1]).toBe(0)
+      expect(pipeline.currentPoseUploadDirty).toBe(true)
+    } finally {
+      pipeline.dispose()
+    }
+  })
+
+  test('moving instance slot allocator keeps surviving ids stable and reuses freed slots', () => {
+    const allocator = new WebGpuMovingInstanceSlotAllocator(3)
+    const first = allocator.sync(['a', 'b', 'c'])
+    expect(first.slotById.get('a')).toBe(0)
+    expect(first.slotById.get('b')).toBe(1)
+    expect(first.slotById.get('c')).toBe(2)
+    expect(first.newlyAssignedSlots).toEqual([0, 1, 2])
+    expect(first.releasedSlots).toEqual([])
+
+    const second = allocator.sync(['b', 'd'])
+    expect(second.slotById.get('b')).toBe(1)
+    expect(second.slotById.get('d')).toBe(2)
+    expect(second.slotById.has('a')).toBe(false)
+    expect(second.slotEntityIds).toEqual([null, 'b', 'd'])
+    expect(second.newlyAssignedSlots).toEqual([2])
+    expect(second.releasedSlots).toEqual([0, 2])
+  })
+
+  test('shared moving slot resets preserve surviving slot motion', () => {
+    const pipeline = createWebGpuSharedMovingInstancePipeline({
+      count: 3,
+      parts: [{ id: 'body', transformKind: 'yaw', material: { vertexColors: true } }],
+    })
+
+    try {
+      pipeline.motionInitialized.set([1, 1, 1])
+      pipeline.currentPoseUploadDirty = false
+
+      resetWebGpuSharedMovingSlots(pipeline, [2])
+
+      expect([...pipeline.motionInitialized]).toEqual([1, 1, 0])
+      expect(pipeline.currentPoseUploadDirty).toBe(true)
+    } finally {
       pipeline.dispose()
     }
   })

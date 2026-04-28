@@ -24,15 +24,18 @@ import {
   STABLE_TRANSPARENT_OVERLAY,
 } from '@/lib/digital-twin/renderer/material-stability'
 import {
-  attachWebGpuStorageRaycast,
-  createWebGpuStorageInstancePipeline,
+  attachWebGpuSharedMovingRaycast,
   detachWebGpuStorageRaycast,
-  dispatchWebGpuStorageCompute,
-  markWebGpuStorageColorRange,
-  markWebGpuStorageTargetRange,
-  resetWebGpuStorageMotion,
-  writeWebGpuStorageColor,
-  writeWebGpuStorageTargetTransform,
+  createWebGpuSharedMovingInstancePipeline,
+  dispatchWebGpuSharedMovingCompute,
+  getWebGpuSharedMovingPart,
+  markWebGpuSharedMovingColorRange,
+  markWebGpuSharedMovingPartTransformRange,
+  markWebGpuSharedMovingTargetRange,
+  resetWebGpuSharedMovingSlots,
+  writeWebGpuSharedMovingColor,
+  writeWebGpuSharedMovingPartTransform,
+  writeWebGpuSharedMovingTarget,
 } from '@/lib/digital-twin/renderer/webgpu-storage-instances'
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
 import { runtimeVehiclePoseBuffer } from '@/lib/digital-twin/runtime-vehicle-pose-buffer'
@@ -176,60 +179,58 @@ export const DynamicEntityInstances = memo(function DynamicEntityInstances({
   })
   const rendererBackend = useDigitalTwinStore((state) => state.rendererBackend)
   const useWebGpuStorage = rendererBackend === 'webgpu'
-  const bodyStoragePipeline = useMemo(
+  const sharedMovingPipeline = useMemo(
     () =>
       useWebGpuStorage
-        ? createWebGpuStorageInstancePipeline({
+        ? createWebGpuSharedMovingInstancePipeline({
             count: items.length,
-            transformKind: 'yaw',
-            motionMode: 'gpu-damped',
-            material: {
-              vertexColors: true,
-              metalness: 0.25,
-              roughness: 0.55,
-            },
-          })
-        : null,
-    [items.length, useWebGpuStorage]
-  )
-  const statusStoragePipeline = useMemo(
-    () =>
-      useWebGpuStorage
-        ? createWebGpuStorageInstancePipeline({
-            count: items.length,
-            transformKind: 'translation',
-            motionMode: 'gpu-damped',
-            material: {
-              vertexColors: true,
-              emissive: '#111827',
-              emissiveIntensity: 0.7,
-              opacity: 0.85,
-              ...STABLE_TRANSPARENT_OVERLAY,
-            },
-          })
-        : null,
-    [items.length, useWebGpuStorage]
-  )
-  const ringStoragePipeline = useMemo(
-    () =>
-      useWebGpuStorage
-        ? createWebGpuStorageInstancePipeline({
-            count: items.length,
-            transformKind: 'ground-ring',
-            motionMode: 'gpu-damped',
-            material: {
-              vertexColors: true,
-              emissive: '#111827',
-              emissiveIntensity: 0.14,
-              opacity: 0.32,
-              ...STABLE_DOUBLE_SIDED_OVERLAY,
-            },
+            parts: [
+              {
+                id: 'body',
+                transformKind: 'yaw',
+                material: {
+                  vertexColors: true,
+                  metalness: 0.25,
+                  roughness: 0.55,
+                },
+              },
+              {
+                id: 'status',
+                transformKind: 'translation',
+                material: {
+                  vertexColors: true,
+                  emissive: '#111827',
+                  emissiveIntensity: 0.7,
+                  opacity: 0.85,
+                  ...STABLE_TRANSPARENT_OVERLAY,
+                },
+              },
+              {
+                id: 'ring',
+                transformKind: 'ground-ring',
+                material: {
+                  vertexColors: true,
+                  emissive: '#111827',
+                  emissiveIntensity: 0.14,
+                  opacity: 0.32,
+                  ...STABLE_DOUBLE_SIDED_OVERLAY,
+                },
+              },
+            ],
           })
         : null,
     [items.length, useWebGpuStorage]
   )
   const entityIds = useMemo(() => items.map((item) => item.entity.id), [items])
   const entityIdSignature = useMemo(() => entityIds.join('|'), [entityIds])
+  const slotState = useMemo(
+    () => sharedMovingPipeline?.slotAllocator.sync(entityIds) ?? null,
+    [entityIds, sharedMovingPipeline]
+  )
+  const renderEntityIds = useMemo(
+    () => slotState?.slotEntityIds ?? entityIds,
+    [entityIds, slotState]
+  )
   const entityIdSet = useMemo(() => new Set(entityIds), [entityIds])
   const suppressedEntityIdSignature = useMemo(
     () => (suppressedEntityIds ? [...suppressedEntityIds].sort().join('|') : ''),
@@ -247,7 +248,6 @@ export const DynamicEntityInstances = memo(function DynamicEntityInstances({
       ),
     [items]
   )
-
   useEffect(() => {
     const nextIds = new Set(entityIdSignature ? entityIdSignature.split('|') : [])
     runtimeRef.current.forEach((_state, id) => {
@@ -263,13 +263,13 @@ export const DynamicEntityInstances = memo(function DynamicEntityInstances({
     forceColorSyncRef.current = true
   }, [entityIdSignature, suppressedEntityIdSignature])
 
-  useEffect(() => {
-    if (bodyStoragePipeline && statusStoragePipeline && ringStoragePipeline) {
-      resetWebGpuStorageMotion(bodyStoragePipeline)
-      resetWebGpuStorageMotion(statusStoragePipeline)
-      resetWebGpuStorageMotion(ringStoragePipeline)
-    }
-  }, [bodyStoragePipeline, entityIdSignature, ringStoragePipeline, statusStoragePipeline])
+  useLayoutEffect(() => {
+    if (!sharedMovingPipeline || !slotState) return
+    resetWebGpuSharedMovingSlots(sharedMovingPipeline, [
+      ...slotState.releasedSlots,
+      ...slotState.newlyAssignedSlots,
+    ])
+  }, [sharedMovingPipeline, slotState])
 
   useEffect(() => {
     forceColorSyncRef.current = true
@@ -277,11 +277,9 @@ export const DynamicEntityInstances = memo(function DynamicEntityInstances({
 
   useEffect(
     () => () => {
-      bodyStoragePipeline?.dispose()
-      statusStoragePipeline?.dispose()
-      ringStoragePipeline?.dispose()
+      sharedMovingPipeline?.dispose()
     },
-    [bodyStoragePipeline, ringStoragePipeline, statusStoragePipeline]
+    [sharedMovingPipeline]
   )
 
   useLayoutEffect(() => {
@@ -290,16 +288,16 @@ export const DynamicEntityInstances = memo(function DynamicEntityInstances({
     const ringMesh = ringRef.current
     if (!bodyMesh || !statusMesh || !ringMesh) return
 
-    if (bodyStoragePipeline && statusStoragePipeline && ringStoragePipeline) {
+    if (sharedMovingPipeline) {
       bodyMesh.instanceColor = null
       statusMesh.instanceColor = null
       ringMesh.instanceColor = null
       bodyMesh.instanceMatrix.setUsage(THREE.StaticDrawUsage)
       statusMesh.instanceMatrix.setUsage(THREE.StaticDrawUsage)
       ringMesh.instanceMatrix.setUsage(THREE.StaticDrawUsage)
-      attachWebGpuStorageRaycast(bodyMesh, bodyStoragePipeline)
-      attachWebGpuStorageRaycast(statusMesh, statusStoragePipeline)
-      attachWebGpuStorageRaycast(ringMesh, ringStoragePipeline)
+      attachWebGpuSharedMovingRaycast(bodyMesh, sharedMovingPipeline, 'body')
+      attachWebGpuSharedMovingRaycast(statusMesh, sharedMovingPipeline, 'status')
+      attachWebGpuSharedMovingRaycast(ringMesh, sharedMovingPipeline, 'ring')
     } else {
       detachWebGpuStorageRaycast(bodyMesh)
       detachWebGpuStorageRaycast(statusMesh)
@@ -320,7 +318,7 @@ export const DynamicEntityInstances = memo(function DynamicEntityInstances({
 
     forceMatrixSyncRef.current = true
     forceColorSyncRef.current = true
-  }, [bodyStoragePipeline, interactionBounds, ringStoragePipeline, statusStoragePipeline])
+  }, [interactionBounds, sharedMovingPipeline])
 
   useFrame(({ camera, gl }, delta) => {
     const bodyMesh = bodyRef.current
@@ -350,7 +348,7 @@ export const DynamicEntityInstances = memo(function DynamicEntityInstances({
     const forceColorSync = forceColorSyncRef.current
     const dt = Math.min(delta, 0.05)
     const smoothing = 1 - Math.exp(-14 * dt)
-    const usingWebGpuStorage = bodyStoragePipeline !== null && statusStoragePipeline !== null && ringStoragePipeline !== null
+    const usingWebGpuStorage = sharedMovingPipeline !== null
     const batchHasFocusedEntity =
       (!!selectedEntityId && entityIdSet.has(selectedEntityId)) ||
       (!!hoveredEntityId && entityIdSet.has(hoveredEntityId))
@@ -370,9 +368,7 @@ export const DynamicEntityInstances = memo(function DynamicEntityInstances({
 
       if (!shouldSimulateEntityThisTick(frameTickRef.current, cadence)) {
         if (usingWebGpuStorage && gpuMotionFramesRef.current > 0) {
-          dispatchWebGpuStorageCompute(gl, bodyStoragePipeline, smoothing)
-          dispatchWebGpuStorageCompute(gl, statusStoragePipeline, smoothing)
-          dispatchWebGpuStorageCompute(gl, ringStoragePipeline, smoothing)
+          dispatchWebGpuSharedMovingCompute(gl, sharedMovingPipeline, smoothing)
           gpuMotionFramesRef.current -= 1
         }
         return
@@ -384,12 +380,15 @@ export const DynamicEntityInstances = memo(function DynamicEntityInstances({
 
     let firstDirtyIndex = Number.POSITIVE_INFINITY
     let lastDirtyIndex = -1
+    let firstDirtyPartIndex = Number.POSITIVE_INFINITY
+    let lastDirtyPartIndex = -1
     let firstDirtyColorIndex = Number.POSITIVE_INFINITY
     let lastDirtyColorIndex = -1
     let colorDirty = false
 
     for (let index = 0; index < items.length; index += 1) {
       const { entity, presentation } = items[index]
+      const slot = slotState?.slotById.get(entity.id) ?? index
       const snapshot = getSnapshotById(entity.id)
       const hasDynamicSnapshot = snapshot?.type === 'dynamic'
       const targetPosition = hasDynamicSnapshot ? snapshot.position : entity.position
@@ -401,6 +400,7 @@ export const DynamicEntityInstances = memo(function DynamicEntityInstances({
 
       let runtime = runtimeStates.get(entity.id)
       let shouldSyncMatrix = forceMatrixSync
+      let shouldSyncPartTransform = forceMatrixSync
       if (!runtime) {
         runtime = {
           x: targetPosition.x,
@@ -418,6 +418,7 @@ export const DynamicEntityInstances = memo(function DynamicEntityInstances({
         }
         runtimeStates.set(entity.id, runtime)
         shouldSyncMatrix = true
+        shouldSyncPartTransform = true
       }
 
       const poseResult = runtimeVehiclePoseBuffer.populate(entity.id, runtime)
@@ -446,6 +447,7 @@ export const DynamicEntityInstances = memo(function DynamicEntityInstances({
         runtime.scaleY = targetScale.y
         runtime.scaleZ = targetScale.z
         shouldSyncMatrix = true
+        shouldSyncPartTransform = true
       }
 
       if (!usingWebGpuStorage && !isSettled(runtime)) {
@@ -461,16 +463,23 @@ export const DynamicEntityInstances = memo(function DynamicEntityInstances({
           const renderYaw = usingWebGpuStorage ? runtime.targetYaw : runtime.yaw
           const hiddenY = renderY - 10000
           if (usingWebGpuStorage) {
-            writeWebGpuStorageTargetTransform(bodyStoragePipeline, index, renderX, hiddenY, renderZ, renderYaw, 0.001, 0.001, 0.001)
-            writeWebGpuStorageTargetTransform(statusStoragePipeline, index, renderX, hiddenY, renderZ, 0, 0.001, 0.001, 0.001)
-            writeWebGpuStorageTargetTransform(ringStoragePipeline, index, renderX, hiddenY, renderZ, 0, 0.001, 1, 0.001)
+            writeWebGpuSharedMovingTarget(sharedMovingPipeline, slot, renderX, hiddenY, renderZ, renderYaw)
+            if (shouldSyncPartTransform) {
+              writeWebGpuSharedMovingPartTransform(sharedMovingPipeline, 'body', slot, 0.001, 0.001, 0.001, 0)
+              writeWebGpuSharedMovingPartTransform(sharedMovingPipeline, 'status', slot, 0.001, 0.001, 0.001, 0)
+              writeWebGpuSharedMovingPartTransform(sharedMovingPipeline, 'ring', slot, 0.001, 1, 0.001, 0)
+            }
           } else {
             writeTranslationScaleMatrix(bodyMatrixArray!, index, runtime.x, hiddenY, runtime.z, 0.001, 0.001, 0.001)
             writeTranslationScaleMatrix(statusMatrixArray!, index, runtime.x, hiddenY, runtime.z, 0.001, 0.001, 0.001)
             writeGroundRingMatrix(ringMatrixArray!, index, runtime.x, hiddenY, runtime.z, 0.001, 0.001)
           }
-          firstDirtyIndex = Math.min(firstDirtyIndex, index)
-          lastDirtyIndex = Math.max(lastDirtyIndex, index)
+          firstDirtyIndex = Math.min(firstDirtyIndex, usingWebGpuStorage ? slot : index)
+          lastDirtyIndex = Math.max(lastDirtyIndex, usingWebGpuStorage ? slot : index)
+          if (usingWebGpuStorage && shouldSyncPartTransform) {
+            firstDirtyPartIndex = Math.min(firstDirtyPartIndex, slot)
+            lastDirtyPartIndex = Math.max(lastDirtyPartIndex, slot)
+          }
         }
         continue
       }
@@ -481,39 +490,36 @@ export const DynamicEntityInstances = memo(function DynamicEntityInstances({
         const renderZ = usingWebGpuStorage ? runtime.targetZ : runtime.z
         const renderYaw = usingWebGpuStorage ? runtime.targetYaw : runtime.yaw
         if (usingWebGpuStorage) {
-          writeWebGpuStorageTargetTransform(
-            bodyStoragePipeline,
-            index,
-            renderX,
-            renderY + targetScale.y * 0.9,
-            renderZ,
-            renderYaw,
-            Math.max(0.65, targetScale.x),
-            Math.max(0.85, targetScale.y),
-            Math.max(0.65, targetScale.z)
-          )
-          writeWebGpuStorageTargetTransform(
-            statusStoragePipeline,
-            index,
-            renderX,
-            renderY + Math.max(1.4, targetScale.y * 1.95),
-            renderZ,
-            0,
-            1,
-            1,
-            1
-          )
-          writeWebGpuStorageTargetTransform(
-            ringStoragePipeline,
-            index,
-            renderX,
-            renderY + 0.03,
-            renderZ,
-            0,
-            Math.max(0.75, targetScale.x),
-            1,
-            Math.max(0.75, targetScale.z)
-          )
+          writeWebGpuSharedMovingTarget(sharedMovingPipeline, slot, renderX, renderY, renderZ, renderYaw)
+          if (shouldSyncPartTransform) {
+            writeWebGpuSharedMovingPartTransform(
+              sharedMovingPipeline,
+              'body',
+              slot,
+              Math.max(0.65, targetScale.x),
+              Math.max(0.85, targetScale.y),
+              Math.max(0.65, targetScale.z),
+              targetScale.y * 0.9
+            )
+            writeWebGpuSharedMovingPartTransform(
+              sharedMovingPipeline,
+              'status',
+              slot,
+              1,
+              1,
+              1,
+              Math.max(1.4, targetScale.y * 1.95)
+            )
+            writeWebGpuSharedMovingPartTransform(
+              sharedMovingPipeline,
+              'ring',
+              slot,
+              Math.max(0.75, targetScale.x),
+              1,
+              Math.max(0.75, targetScale.z),
+              0.03
+            )
+          }
         } else {
           writeYawScaleMatrix(
             bodyMatrixArray!,
@@ -546,8 +552,12 @@ export const DynamicEntityInstances = memo(function DynamicEntityInstances({
             Math.max(0.75, targetScale.z)
           )
         }
-        firstDirtyIndex = Math.min(firstDirtyIndex, index)
-        lastDirtyIndex = Math.max(lastDirtyIndex, index)
+        firstDirtyIndex = Math.min(firstDirtyIndex, usingWebGpuStorage ? slot : index)
+        lastDirtyIndex = Math.max(lastDirtyIndex, usingWebGpuStorage ? slot : index)
+        if (usingWebGpuStorage && shouldSyncPartTransform) {
+          firstDirtyPartIndex = Math.min(firstDirtyPartIndex, slot)
+          lastDirtyPartIndex = Math.max(lastDirtyPartIndex, slot)
+        }
       }
 
       const prevStatus = statusStates.get(entity.id)
@@ -561,45 +571,44 @@ export const DynamicEntityInstances = memo(function DynamicEntityInstances({
         statusColor.set(STATUS_COLORS[renderStatus])
         ringColor.set(entity.id === selectedEntityId || entity.id === hoveredEntityId ? '#3b82f6' : presentation.accentColor)
         if (usingWebGpuStorage) {
-          writeWebGpuStorageColor(bodyStoragePipeline, index, bodyColor)
-          writeWebGpuStorageColor(statusStoragePipeline, index, statusColor)
-          writeWebGpuStorageColor(ringStoragePipeline, index, ringColor)
+          writeWebGpuSharedMovingColor(sharedMovingPipeline, 'body', slot, bodyColor)
+          writeWebGpuSharedMovingColor(sharedMovingPipeline, 'status', slot, statusColor)
+          writeWebGpuSharedMovingColor(sharedMovingPipeline, 'ring', slot, ringColor)
         } else {
           bodyMesh.setColorAt(index, bodyColor)
           statusMesh.setColorAt(index, statusColor)
           ringMesh.setColorAt(index, ringColor)
         }
-        firstDirtyColorIndex = Math.min(firstDirtyColorIndex, index)
-        lastDirtyColorIndex = Math.max(lastDirtyColorIndex, index)
+        firstDirtyColorIndex = Math.min(firstDirtyColorIndex, usingWebGpuStorage ? slot : index)
+        lastDirtyColorIndex = Math.max(lastDirtyColorIndex, usingWebGpuStorage ? slot : index)
         colorDirty = true
       }
     }
 
     if (firstDirtyIndex <= lastDirtyIndex) {
       if (usingWebGpuStorage) {
-        markWebGpuStorageTargetRange(bodyStoragePipeline, firstDirtyIndex, lastDirtyIndex)
-        markWebGpuStorageTargetRange(statusStoragePipeline, firstDirtyIndex, lastDirtyIndex)
-        markWebGpuStorageTargetRange(ringStoragePipeline, firstDirtyIndex, lastDirtyIndex)
-        dispatchWebGpuStorageCompute(gl, bodyStoragePipeline, smoothing)
-        dispatchWebGpuStorageCompute(gl, statusStoragePipeline, smoothing)
-        dispatchWebGpuStorageCompute(gl, ringStoragePipeline, smoothing)
-        gpuMotionFramesRef.current = GPU_MOTION_ACTIVE_FRAMES
+        markWebGpuSharedMovingTargetRange(sharedMovingPipeline, firstDirtyIndex, lastDirtyIndex)
       } else {
         markInstancedMatrixRange(bodyMesh, firstDirtyIndex, lastDirtyIndex)
         markInstancedMatrixRange(statusMesh, firstDirtyIndex, lastDirtyIndex)
         markInstancedMatrixRange(ringMesh, firstDirtyIndex, lastDirtyIndex)
       }
+    }
+    if (usingWebGpuStorage && firstDirtyPartIndex <= lastDirtyPartIndex) {
+      markWebGpuSharedMovingPartTransformRange(sharedMovingPipeline, firstDirtyPartIndex, lastDirtyPartIndex)
+    }
+    if (usingWebGpuStorage && (firstDirtyIndex <= lastDirtyIndex || firstDirtyPartIndex <= lastDirtyPartIndex)) {
+      dispatchWebGpuSharedMovingCompute(gl, sharedMovingPipeline, smoothing)
+      gpuMotionFramesRef.current = GPU_MOTION_ACTIVE_FRAMES
     } else if (usingWebGpuStorage && gpuMotionFramesRef.current > 0) {
-      dispatchWebGpuStorageCompute(gl, bodyStoragePipeline, smoothing)
-      dispatchWebGpuStorageCompute(gl, statusStoragePipeline, smoothing)
-      dispatchWebGpuStorageCompute(gl, ringStoragePipeline, smoothing)
+      dispatchWebGpuSharedMovingCompute(gl, sharedMovingPipeline, smoothing)
       gpuMotionFramesRef.current -= 1
     }
     if (colorDirty) {
       if (usingWebGpuStorage) {
-        markWebGpuStorageColorRange(bodyStoragePipeline, firstDirtyColorIndex, lastDirtyColorIndex)
-        markWebGpuStorageColorRange(statusStoragePipeline, firstDirtyColorIndex, lastDirtyColorIndex)
-        markWebGpuStorageColorRange(ringStoragePipeline, firstDirtyColorIndex, lastDirtyColorIndex)
+        markWebGpuSharedMovingColorRange(sharedMovingPipeline, 'body', firstDirtyColorIndex, lastDirtyColorIndex)
+        markWebGpuSharedMovingColorRange(sharedMovingPipeline, 'status', firstDirtyColorIndex, lastDirtyColorIndex)
+        markWebGpuSharedMovingColorRange(sharedMovingPipeline, 'ring', firstDirtyColorIndex, lastDirtyColorIndex)
       } else {
         if (bodyMesh.instanceColor) bodyMesh.instanceColor.needsUpdate = true
         if (statusMesh.instanceColor) statusMesh.instanceColor.needsUpdate = true
@@ -641,9 +650,15 @@ export const DynamicEntityInstances = memo(function DynamicEntityInstances({
       }),
     []
   )
-  const bodyMaterial = bodyStoragePipeline?.material ?? cpuBodyMaterial
-  const statusMaterial = statusStoragePipeline?.material ?? cpuStatusMaterial
-  const ringMaterial = ringStoragePipeline?.material ?? cpuRingMaterial
+  const bodyMaterial = sharedMovingPipeline
+    ? getWebGpuSharedMovingPart(sharedMovingPipeline, 'body').material
+    : cpuBodyMaterial
+  const statusMaterial = sharedMovingPipeline
+    ? getWebGpuSharedMovingPart(sharedMovingPipeline, 'status').material
+    : cpuStatusMaterial
+  const ringMaterial = sharedMovingPipeline
+    ? getWebGpuSharedMovingPart(sharedMovingPipeline, 'ring').material
+    : cpuRingMaterial
 
   if (items.length === 0) return null
 
@@ -652,7 +667,7 @@ export const DynamicEntityInstances = memo(function DynamicEntityInstances({
       <instancedMesh
         ref={bodyRef}
         args={[undefined, undefined, items.length]}
-        userData={{ pickable: true, entityIds }}
+        userData={{ pickable: true, entityIds: renderEntityIds }}
       >
         <capsuleGeometry args={[0.45, 1.4, 8, 16]} />
         <primitive object={bodyMaterial} attach="material" />
@@ -660,7 +675,7 @@ export const DynamicEntityInstances = memo(function DynamicEntityInstances({
       <instancedMesh
         ref={statusRef}
         args={[undefined, undefined, items.length]}
-        userData={{ pickable: true, entityIds }}
+        userData={{ pickable: true, entityIds: renderEntityIds }}
       >
         <sphereGeometry args={[0.16, 18, 18]} />
         <primitive object={statusMaterial} attach="material" />
@@ -669,7 +684,7 @@ export const DynamicEntityInstances = memo(function DynamicEntityInstances({
         ref={ringRef}
         args={[undefined, undefined, items.length]}
         renderOrder={OVERLAY_RENDER_ORDER.entityRing}
-        userData={{ pickable: true, entityIds }}
+        userData={{ pickable: true, entityIds: renderEntityIds }}
       >
         <ringGeometry args={[1.05, 1.16, 32]} />
         <primitive object={ringMaterial} attach="material" />
