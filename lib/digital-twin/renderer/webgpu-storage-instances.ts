@@ -8,11 +8,13 @@ import {
   cos,
   instanceIndex,
   mat4,
+  mix,
   normalGeometry,
   positionGeometry,
   sin,
   storage,
   transformNormal,
+  uniform,
   vec4,
   vertexColor,
 } from 'three/tsl'
@@ -23,26 +25,35 @@ import {
 } from './instance-matrix-writer'
 
 export type WebGpuStorageTransformKind = 'yaw' | 'translation' | 'ground-ring'
+export type WebGpuStorageMotionMode = 'cpu-driven' | 'gpu-damped'
 
 export interface WebGpuStorageInstancePipeline {
   count: number
   transformKind: WebGpuStorageTransformKind
+  motionMode: WebGpuStorageMotionMode
   poseAttribute: StorageInstancedBufferAttribute
+  targetPoseAttribute: StorageInstancedBufferAttribute | null
   scaleAttribute: StorageInstancedBufferAttribute
   colorAttribute: StorageInstancedBufferAttribute
   matrixAttribute: StorageInstancedBufferAttribute
   poseArray: Float32Array
+  targetPoseArray: Float32Array | null
   scaleArray: Float32Array
   colorArray: Float32Array
   matrixArray: Float32Array
   material: THREE.Material
   computeNode: unknown
+  motionAlphaUniform: { value: number } | null
+  motionInitialized: Uint8Array | null
+  currentPoseUploadDirty: boolean
   dispose: () => void
 }
 
 interface CreateWebGpuStorageInstancePipelineOptions {
   count: number
   transformKind: WebGpuStorageTransformKind
+  motionMode?: WebGpuStorageMotionMode
+  initialMotionAlpha?: number
   material: THREE.MeshStandardMaterialParameters
 }
 
@@ -71,16 +82,26 @@ function createTransformComputeNode(
   transformKind: WebGpuStorageTransformKind,
   count: number,
   poseAttribute: StorageInstancedBufferAttribute,
+  targetPoseAttribute: StorageInstancedBufferAttribute | null,
   scaleAttribute: StorageInstancedBufferAttribute,
-  matrixAttribute: StorageInstancedBufferAttribute
+  matrixAttribute: StorageInstancedBufferAttribute,
+  motionAlphaUniform: ReturnType<typeof uniform> | null
 ) {
   const safeCount = Math.max(1, count)
-  const poseStorage = storage(poseAttribute, 'vec4', safeCount).toReadOnly()
+  const poseStorage = motionAlphaUniform
+    ? storage(poseAttribute, 'vec4', safeCount)
+    : storage(poseAttribute, 'vec4', safeCount).toReadOnly()
+  const targetPoseStorage = targetPoseAttribute
+    ? storage(targetPoseAttribute, 'vec4', safeCount).toReadOnly()
+    : null
   const scaleStorage = storage(scaleAttribute, 'vec4', safeCount).toReadOnly()
   const matrixStorage = storage(matrixAttribute, 'mat4', safeCount)
 
   return (Fn(() => {
     const pose = poseStorage.element(instanceIndex)
+    if (targetPoseStorage && motionAlphaUniform) {
+      pose.assign(mix(pose, targetPoseStorage.element(instanceIndex), motionAlphaUniform))
+    }
     const scale = scaleStorage.element(instanceIndex)
     const matrix = matrixStorage.element(instanceIndex)
 
@@ -160,34 +181,48 @@ function createStorageNodeMaterial(
 export function createWebGpuStorageInstancePipeline({
   count,
   transformKind,
+  motionMode = 'cpu-driven',
+  initialMotionAlpha = 1,
   material: materialParameters,
 }: CreateWebGpuStorageInstancePipelineOptions): WebGpuStorageInstancePipeline {
   const poseAttribute = createStorageInstancedAttribute(count, 4)
+  const targetPoseAttribute =
+    motionMode === 'gpu-damped' ? createStorageInstancedAttribute(count, 4) : null
   const scaleAttribute = createStorageInstancedAttribute(count, 4)
   const colorAttribute = createStorageInstancedAttribute(count, 4)
   const matrixAttribute = createStorageInstancedAttribute(count, 16)
   const material = createStorageNodeMaterial(count, materialParameters, matrixAttribute, colorAttribute)
+  const motionAlphaUniform =
+    motionMode === 'gpu-damped' ? uniform(initialMotionAlpha) : null
   const computeNode = createTransformComputeNode(
     transformKind,
     count,
     poseAttribute,
+    targetPoseAttribute,
     scaleAttribute,
-    matrixAttribute
+    matrixAttribute,
+    motionAlphaUniform
   )
 
   return {
     count,
     transformKind,
+    motionMode,
     poseAttribute,
+    targetPoseAttribute,
     scaleAttribute,
     colorAttribute,
     matrixAttribute,
     poseArray: poseAttribute.array as Float32Array,
+    targetPoseArray: targetPoseAttribute ? targetPoseAttribute.array as Float32Array : null,
     scaleArray: scaleAttribute.array as Float32Array,
     colorArray: colorAttribute.array as Float32Array,
     matrixArray: matrixAttribute.array as Float32Array,
     material,
     computeNode,
+    motionAlphaUniform: motionAlphaUniform as { value: number } | null,
+    motionInitialized: motionMode === 'gpu-damped' ? new Uint8Array(Math.max(1, count)) : null,
+    currentPoseUploadDirty: motionMode === 'gpu-damped',
     dispose: () => material.dispose(),
   }
 }
@@ -212,6 +247,49 @@ export function writeWebGpuStorageTransform(
   pipeline.scaleArray[offset + 1] = scaleY
   pipeline.scaleArray[offset + 2] = scaleZ
   pipeline.scaleArray[offset + 3] = 1
+}
+
+export function writeWebGpuStorageTargetTransform(
+  pipeline: WebGpuStorageInstancePipeline,
+  index: number,
+  x: number,
+  y: number,
+  z: number,
+  yaw: number,
+  scaleX: number,
+  scaleY: number,
+  scaleZ: number
+) {
+  if (!pipeline.targetPoseArray || !pipeline.motionInitialized) {
+    writeWebGpuStorageTransform(pipeline, index, x, y, z, yaw, scaleX, scaleY, scaleZ)
+    return
+  }
+
+  const offset = index * 4
+  pipeline.targetPoseArray[offset] = x
+  pipeline.targetPoseArray[offset + 1] = y
+  pipeline.targetPoseArray[offset + 2] = z
+  pipeline.targetPoseArray[offset + 3] = yaw
+  pipeline.scaleArray[offset] = scaleX
+  pipeline.scaleArray[offset + 1] = scaleY
+  pipeline.scaleArray[offset + 2] = scaleZ
+  pipeline.scaleArray[offset + 3] = 1
+
+  if (pipeline.motionInitialized[index] !== 1) {
+    pipeline.poseArray[offset] = x
+    pipeline.poseArray[offset + 1] = y
+    pipeline.poseArray[offset + 2] = z
+    pipeline.poseArray[offset + 3] = yaw
+    pipeline.motionInitialized[index] = 1
+    pipeline.currentPoseUploadDirty = true
+  }
+}
+
+export function resetWebGpuStorageMotion(pipeline: WebGpuStorageInstancePipeline) {
+  pipeline.motionInitialized?.fill(0)
+  if (pipeline.motionInitialized) {
+    pipeline.currentPoseUploadDirty = true
+  }
 }
 
 export function writeWebGpuStorageColor(
@@ -249,6 +327,24 @@ export function markWebGpuStorageTransformRange(
   markStorageAttributeRange(pipeline.scaleAttribute, firstIndex, lastIndex)
 }
 
+export function markWebGpuStorageTargetRange(
+  pipeline: WebGpuStorageInstancePipeline,
+  firstIndex: number,
+  lastIndex: number
+) {
+  if (!pipeline.targetPoseAttribute) {
+    markWebGpuStorageTransformRange(pipeline, firstIndex, lastIndex)
+    return
+  }
+
+  markStorageAttributeRange(pipeline.targetPoseAttribute, firstIndex, lastIndex)
+  markStorageAttributeRange(pipeline.scaleAttribute, firstIndex, lastIndex)
+  if (pipeline.currentPoseUploadDirty) {
+    markStorageAttributeRange(pipeline.poseAttribute, firstIndex, lastIndex)
+    pipeline.currentPoseUploadDirty = false
+  }
+}
+
 export function markWebGpuStorageColorRange(
   pipeline: WebGpuStorageInstancePipeline,
   firstIndex: number,
@@ -257,10 +353,17 @@ export function markWebGpuStorageColorRange(
   markStorageAttributeRange(pipeline.colorAttribute, firstIndex, lastIndex)
 }
 
-export function dispatchWebGpuStorageCompute(renderer: unknown, pipeline: WebGpuStorageInstancePipeline) {
+export function dispatchWebGpuStorageCompute(
+  renderer: unknown,
+  pipeline: WebGpuStorageInstancePipeline,
+  motionAlpha = 1
+) {
   const compute = (renderer as { compute?: (node: unknown) => void }).compute
   if (typeof compute !== 'function') return false
 
+  if (pipeline.motionAlphaUniform) {
+    pipeline.motionAlphaUniform.value = Math.min(1, Math.max(0, motionAlpha))
+  }
   compute.call(renderer, pipeline.computeNode)
   return true
 }
@@ -270,11 +373,12 @@ export function writeWebGpuStorageMatrixElements(
   index: number,
   target: ArrayLike<number> & { [index: number]: number }
 ) {
+  const poseArray = pipeline.targetPoseArray ?? pipeline.poseArray
   const poseOffset = index * 4
-  const x = pipeline.poseArray[poseOffset] ?? 0
-  const y = pipeline.poseArray[poseOffset + 1] ?? 0
-  const z = pipeline.poseArray[poseOffset + 2] ?? 0
-  const yaw = pipeline.poseArray[poseOffset + 3] ?? 0
+  const x = poseArray[poseOffset] ?? 0
+  const y = poseArray[poseOffset + 1] ?? 0
+  const z = poseArray[poseOffset + 2] ?? 0
+  const yaw = poseArray[poseOffset + 3] ?? 0
   const scaleX = pipeline.scaleArray[poseOffset] ?? 1
   const scaleY = pipeline.scaleArray[poseOffset + 1] ?? 1
   const scaleZ = pipeline.scaleArray[poseOffset + 2] ?? 1

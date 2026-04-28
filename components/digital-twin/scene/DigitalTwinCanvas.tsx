@@ -14,7 +14,10 @@ import type * as THREE from 'three'
 import type { OrbitControls as OrbitControlsType } from 'three-stdlib'
 import type { Entity } from '@/lib/digital-twin/types'
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
-import { createPreferredRenderer } from '@/lib/digital-twin/renderer/createPreferredRenderer'
+import {
+  createPreferredRenderer,
+  type PreferredRendererDiagnostics,
+} from '@/lib/digital-twin/renderer/createPreferredRenderer'
 import { getFrameDrawCallSample } from '@/lib/digital-twin/performance-runtime'
 import { runtimeVehiclePoseBuffer } from '@/lib/digital-twin/runtime-vehicle-pose-buffer'
 import { stabilizeCameraPreset } from '@/lib/digital-twin/camera-presets'
@@ -53,12 +56,19 @@ const FOLLOW_DISTANCE = 9
 const FOLLOW_HEIGHT = 4.8
 const FIRSTPERSON_FORWARD_DISTANCE = 6
 const FIRSTPERSON_EYE_HEIGHT = 1.55
+const FOLLOW_CAMERA_RESPONSE = 12
+const FIRSTPERSON_CAMERA_RESPONSE = 16
+const MAX_TRACKED_CAMERA_DELTA = 1 / 30
 const MIN_ORBIT_POLAR_ANGLE = 0.08
 const MAX_ORBIT_POLAR_ANGLE = Math.PI / 2.05
 const RENDERER_TRANSITION_FALLBACK_MS = 2500
 
 type RendererMode = 'auto' | 'webgpu' | 'webgl2'
 type RendererBackend = 'webgpu' | 'webgl2' | 'unknown'
+
+function hasNavigatorWebGpu() {
+  return typeof navigator !== 'undefined' && 'gpu' in navigator
+}
 
 function isTrackedViewMode(viewMode: 'orbit' | 'topdown' | 'follow' | 'firstperson') {
   return viewMode === 'follow' || viewMode === 'firstperson'
@@ -148,7 +158,8 @@ function applySmoothedCameraPose(
   camera: THREE.Camera,
   controls: OrbitControlsType,
   desiredPose: CameraPose,
-  smoothing: number
+  smoothing: number,
+  options: { syncOrbitControls?: boolean } = {}
 ) {
   camera.position.x += (desiredPose.position.x - camera.position.x) * smoothing
   camera.position.y += (desiredPose.position.y - camera.position.y) * smoothing
@@ -157,7 +168,36 @@ function applySmoothedCameraPose(
   controls.target.x += (desiredPose.target.x - controls.target.x) * smoothing
   controls.target.y += (desiredPose.target.y - controls.target.y) * smoothing
   controls.target.z += (desiredPose.target.z - controls.target.z) * smoothing
+
+  if (options.syncOrbitControls ?? true) {
+    controls.update()
+  } else {
+    camera.lookAt(controls.target)
+    camera.updateMatrixWorld()
+  }
+}
+
+function flushOrbitControlsDamping(controls: OrbitControlsType) {
+  const position = controls.object.position.clone()
+  const target = controls.target.clone()
+  const dampingEnabled = controls.enableDamping
+
+  controls.enableDamping = false
   controls.update()
+  controls.object.position.copy(position)
+  controls.target.copy(target)
+  controls.object.lookAt(target)
+  controls.object.updateMatrixWorld()
+  controls.enableDamping = dampingEnabled
+}
+
+function resolveTrackedCameraSmoothing(
+  viewMode: 'follow' | 'firstperson',
+  delta: number
+) {
+  const response =
+    viewMode === 'firstperson' ? FIRSTPERSON_CAMERA_RESPONSE : FOLLOW_CAMERA_RESPONSE
+  return 1 - Math.exp(-Math.min(delta, MAX_TRACKED_CAMERA_DELTA) * response)
 }
 
 const SceneContent = memo(function SceneContent({ backgroundColor }: SceneContentProps) {
@@ -232,10 +272,15 @@ const SceneContent = memo(function SceneContent({ backgroundColor }: SceneConten
     if (!controls) return
 
     const trackedMode = isTrackedViewMode(viewMode)
+    if (trackedMode) {
+      flushOrbitControlsDamping(controls)
+    }
+
     controls.enabled = !trackedMode
     controls.enablePan = !trackedMode
     controls.enableRotate = !trackedMode
     controls.enableZoom = !trackedMode
+    controls.enableDamping = !trackedMode
 
     if (trackedMode) {
       focusAnimationRef.current = null
@@ -312,9 +357,11 @@ const SceneContent = memo(function SceneContent({ backgroundColor }: SceneConten
         viewMode === 'follow'
           ? resolveFollowCameraPose(trackedPose)
           : resolveFirstPersonCameraPose(trackedPose)
-      const smoothing = 1 - Math.exp(-delta * (viewMode === 'firstperson' ? 10 : 8))
+      const smoothing = resolveTrackedCameraSmoothing(viewMode, delta)
 
-      applySmoothedCameraPose(camera, controls, desiredPose, smoothing)
+      applySmoothedCameraPose(camera, controls, desiredPose, smoothing, {
+        syncOrbitControls: false,
+      })
     } else if (controlsRef.current && focusAnimationRef.current) {
       const { position, target } = focusAnimationRef.current
       const smoothing = 1 - Math.exp(-delta * 8)
@@ -473,6 +520,18 @@ const PerformanceHud = memo(function PerformanceHud({
   const visibleLabels = useDigitalTwinStore((state) => state.performanceMetrics.visibleLabels)
   const poolHitRate = useDigitalTwinStore((state) => state.performanceMetrics.poolHitRate)
   const poolRequests = useDigitalTwinStore((state) => state.performanceMetrics.poolRequests)
+  const rendererDiagnostics = useDigitalTwinStore((state) => state.rendererDiagnostics)
+  const webGpuAvailability =
+    rendererDiagnostics.webgpuAvailable === null
+      ? 'unknown'
+      : rendererDiagnostics.webgpuAvailable
+        ? 'available'
+        : 'unavailable'
+  const fallbackSummary = rendererDiagnostics.fallbackReason
+    ? rendererDiagnostics.message
+      ? `${rendererDiagnostics.fallbackReason}: ${rendererDiagnostics.message}`
+      : rendererDiagnostics.fallbackReason
+    : null
 
   return (
     <div
@@ -485,6 +544,10 @@ const PerformanceHud = memo(function PerformanceHud({
         {poolRequests > 0 ? `Pool ${(poolHitRate * 100).toFixed(0)}%` : 'Pool idle'} | {qualityProfile}
       </div>
       <div>Renderer {rendererBackend} ({rendererMode})</div>
+      <div>
+        WebGPU {webGpuAvailability} | Storage {rendererDiagnostics.storageBufferActive ? 'on' : 'off'}
+      </div>
+      {fallbackSummary && <div>Fallback {fallbackSummary}</div>}
     </div>
   )
 })
@@ -496,6 +559,7 @@ export function DigitalTwinCanvas({ showStats = false }: DigitalTwinCanvasProps)
   const rendererMode = useDigitalTwinStore((state) => state.rendererMode)
   const rendererBackend = useDigitalTwinStore((state) => state.rendererBackend)
   const setRendererBackend = useDigitalTwinStore((state) => state.setRendererBackend)
+  const setRendererDiagnostics = useDigitalTwinStore((state) => state.setRendererDiagnostics)
   const isDark = resolvedTheme === 'dark'
   const canvasBackground = isDark ? sceneConfig.backgroundColor : '#eaf1fb'
   const dprRange: [number, number] = qualityProfile === 'performance' ? [1, 1.2] : [1, 1.35]
@@ -560,8 +624,16 @@ export function DigitalTwinCanvas({ showStats = false }: DigitalTwinCanvasProps)
 
     beginRendererTransition()
     setRendererBackend('unknown')
+    setRendererDiagnostics({
+      requestedMode: rendererMode,
+      backend: 'unknown',
+      webgpuAvailable: hasNavigatorWebGpu(),
+      fallbackReason: null,
+      message: 'renderer recreating',
+      storageBufferActive: false,
+    })
     setRendererRevision((revision) => revision + 1)
-  }, [beginRendererTransition, rendererBackend, rendererMode, setRendererBackend])
+  }, [beginRendererTransition, rendererBackend, rendererMode, setRendererBackend, setRendererDiagnostics])
 
   return (
     <div className="relative h-full w-full" style={{ background: canvasBackground }}>
@@ -577,6 +649,7 @@ export function DigitalTwinCanvas({ showStats = false }: DigitalTwinCanvasProps)
           const unknownRenderer = gl as unknown as {
             setClearColor?: (color: string) => void
             __backend?: 'webgpu' | 'webgl2'
+            __diagnostics?: PreferredRendererDiagnostics
           }
           if (typeof unknownRenderer.setClearColor === 'function') {
             unknownRenderer.setClearColor(canvasBackground)
@@ -585,7 +658,20 @@ export function DigitalTwinCanvas({ showStats = false }: DigitalTwinCanvasProps)
           if (typeof glRenderer.setPixelRatio === 'function') {
             glRenderer.setPixelRatio(window.devicePixelRatio <= 1.5 ? window.devicePixelRatio : dprRange[1])
           }
-          setRendererBackend(unknownRenderer.__backend ?? 'unknown')
+          const backend = unknownRenderer.__backend ?? unknownRenderer.__diagnostics?.backend ?? 'unknown'
+          setRendererBackend(backend)
+          setRendererDiagnostics({
+            requestedMode: rendererMode,
+            backend,
+            webgpuAvailable: unknownRenderer.__diagnostics?.webgpuAvailable ?? hasNavigatorWebGpu(),
+            fallbackReason:
+              unknownRenderer.__diagnostics?.fallbackReason ??
+              (rendererMode !== 'webgl2' && backend !== 'webgpu'
+                ? 'unknown-webgpu-fallback'
+                : null),
+            message: unknownRenderer.__diagnostics?.message ?? null,
+            storageBufferActive: backend === 'webgpu',
+          })
         }}
       >
         <Suspense fallback={<SceneLoading />}>

@@ -31,9 +31,10 @@ import {
   detachWebGpuStorageRaycast,
   dispatchWebGpuStorageCompute,
   markWebGpuStorageColorRange,
-  markWebGpuStorageTransformRange,
+  markWebGpuStorageTargetRange,
+  resetWebGpuStorageMotion,
   writeWebGpuStorageColor,
-  writeWebGpuStorageTransform,
+  writeWebGpuStorageTargetTransform,
 } from '@/lib/digital-twin/renderer/webgpu-storage-instances'
 import {
   reseedVehicleRuntimeState,
@@ -48,6 +49,7 @@ interface VehicleInstancesProps {
 const CAMERA_PROJECTION_MATRIX = new THREE.Matrix4()
 const CAMERA_FRUSTUM = new THREE.Frustum()
 const CAMERA_DIRECTION = new THREE.Vector3()
+const GPU_MOTION_ACTIVE_FRAMES = 90
 
 const VEHICLE_SIZES: Record<VehicleEntity['vehicleType'], { width: number; height: number; depth: number }> = {
   car: { width: 1.8, height: 1, depth: 3.8 },
@@ -132,6 +134,7 @@ export const VehicleInstances = memo(function VehicleInstances({
   const forceColorSyncRef = useRef(true)
   const batchVisibleRef = useRef(true)
   const frameTickRef = useRef(0)
+  const gpuMotionFramesRef = useRef(0)
   const colorRef = useRef(new THREE.Color())
   const rendererBackend = useDigitalTwinStore((state) => state.rendererBackend)
   const useWebGpuStorage = rendererBackend === 'webgpu'
@@ -142,6 +145,7 @@ export const VehicleInstances = memo(function VehicleInstances({
         ? createWebGpuStorageInstancePipeline({
             count: entities.length,
             transformKind: 'yaw',
+            motionMode: 'gpu-damped',
             material: {
               vertexColors: true,
               metalness: 0.42,
@@ -189,6 +193,12 @@ export const VehicleInstances = memo(function VehicleInstances({
     forceColorSyncRef.current = true
   }, [entityIdSignature, suppressedEntityIdSignature])
 
+  useEffect(() => {
+    if (vehicleStoragePipeline) {
+      resetWebGpuStorageMotion(vehicleStoragePipeline)
+    }
+  }, [entityIdSignature, vehicleStoragePipeline])
+
   useLayoutEffect(() => {
     if (shellRef.current) {
       if (vehicleStoragePipeline) {
@@ -205,7 +215,7 @@ export const VehicleInstances = memo(function VehicleInstances({
     }
   }, [interactionBounds, vehicleStoragePipeline])
 
-  useFrame(({ camera, gl }) => {
+  useFrame(({ camera, gl }, delta) => {
     if (!shellRef.current || entities.length === 0) return
     if (!isInteractionBoundsVisible(camera, interactionBounds.sphere)) {
       batchVisibleRef.current = false
@@ -224,8 +234,11 @@ export const VehicleInstances = memo(function VehicleInstances({
       batchVisibleRef.current = true
     }
     const shellColor = colorRef.current
+    const dt = Math.min(delta, 0.05)
+    const smoothing = 1 - Math.exp(-16 * dt)
     const forceMatrixSync = forceMatrixSyncRef.current
     const forceColorSync = forceColorSyncRef.current
+    const usingWebGpuStorage = vehicleStoragePipeline !== null
     const selectedEntityId = store.selectedEntityId
     const hoveredEntityId = store.hoveredEntityId
     const batchHasFocusedEntity =
@@ -246,6 +259,10 @@ export const VehicleInstances = memo(function VehicleInstances({
       })
 
       if (!shouldSimulateEntityThisTick(frameTickRef.current, cadence)) {
+        if (usingWebGpuStorage && gpuMotionFramesRef.current > 0) {
+          dispatchWebGpuStorageCompute(gl, vehicleStoragePipeline, smoothing)
+          gpuMotionFramesRef.current -= 1
+        }
         return
       }
     }
@@ -255,7 +272,6 @@ export const VehicleInstances = memo(function VehicleInstances({
     let firstDirtyColorIndex = Number.POSITIVE_INFINITY
     let lastDirtyColorIndex = -1
     let colorDirty = false
-    const usingWebGpuStorage = vehicleStoragePipeline !== null
     const shellMatrixArray = usingWebGpuStorage ? null : shellRef.current.instanceMatrix.array
 
     for (let index = 0; index < entities.length; index += 1) {
@@ -307,7 +323,7 @@ export const VehicleInstances = memo(function VehicleInstances({
       if (suppressedEntityIds?.has(entity.id)) {
         if (shouldSyncMatrix) {
           if (usingWebGpuStorage) {
-            writeWebGpuStorageTransform(
+            writeWebGpuStorageTargetTransform(
               vehicleStoragePipeline,
               index,
               state.x,
@@ -333,7 +349,7 @@ export const VehicleInstances = memo(function VehicleInstances({
 
       if (shouldSyncMatrix) {
         if (usingWebGpuStorage) {
-          writeWebGpuStorageTransform(
+          writeWebGpuStorageTargetTransform(
             vehicleStoragePipeline,
             index,
             state.x,
@@ -368,11 +384,15 @@ export const VehicleInstances = memo(function VehicleInstances({
 
     if (firstDirtyIndex <= lastDirtyIndex) {
       if (usingWebGpuStorage) {
-        markWebGpuStorageTransformRange(vehicleStoragePipeline, firstDirtyIndex, lastDirtyIndex)
-        dispatchWebGpuStorageCompute(gl, vehicleStoragePipeline)
+        markWebGpuStorageTargetRange(vehicleStoragePipeline, firstDirtyIndex, lastDirtyIndex)
+        dispatchWebGpuStorageCompute(gl, vehicleStoragePipeline, smoothing)
+        gpuMotionFramesRef.current = GPU_MOTION_ACTIVE_FRAMES
       } else {
         markInstancedMatrixRange(shellRef.current, firstDirtyIndex, lastDirtyIndex)
       }
+    } else if (usingWebGpuStorage && gpuMotionFramesRef.current > 0) {
+      dispatchWebGpuStorageCompute(gl, vehicleStoragePipeline, smoothing)
+      gpuMotionFramesRef.current -= 1
     }
     if (colorDirty) {
       if (usingWebGpuStorage) {

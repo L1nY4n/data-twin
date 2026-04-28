@@ -8,8 +8,10 @@ describe('renderer backend guards', () => {
 
     expect(source.includes('rendererMode')).toBe(true)
     expect(source.includes('rendererBackend')).toBe(true)
+    expect(source.includes('rendererDiagnostics')).toBe(true)
     expect(source.includes('setRendererMode')).toBe(true)
     expect(source.includes('setRendererBackend')).toBe(true)
+    expect(source.includes('setRendererDiagnostics')).toBe(true)
   })
 
   test('canvas should use dual backend renderer creation helper', () => {
@@ -17,9 +19,21 @@ describe('renderer backend guards', () => {
       join(process.cwd(), 'components/digital-twin/scene/DigitalTwinCanvas.tsx'),
       'utf8'
     )
+    const renderer = readFileSync(
+      join(process.cwd(), 'lib/digital-twin/renderer/createPreferredRenderer.ts'),
+      'utf8'
+    )
 
     expect(source.includes('createPreferredRenderer')).toBe(true)
     expect(source.includes('rendererMode')).toBe(true)
+    expect(source.includes('__diagnostics')).toBe(true)
+    expect(source.includes('setRendererDiagnostics')).toBe(true)
+    expect(source.includes('storageBufferActive: backend === \'webgpu\'')).toBe(true)
+    expect(renderer.includes('PreferredRendererDiagnostics')).toBe(true)
+    expect(renderer.includes('fallbackReason')).toBe(true)
+    expect(renderer.includes('webgpu-insecure-context')).toBe(true)
+    expect(renderer.includes('webgpu-init-failed')).toBe(true)
+    expect(renderer.includes('navigator-gpu-unavailable')).toBe(true)
   })
 
   test('canvas should not key renderer remounts directly by renderer mode', () => {
@@ -302,6 +316,10 @@ describe('renderer backend guards', () => {
 
     expect(source.includes('runBenchmark')).toBe(true)
     expect(source.includes('setRendererMode')).toBe(true)
+    expect(source.includes('rendererDiagnostics')).toBe(true)
+    expect(source.includes('backendMismatch')).toBe(true)
+    expect(source.includes('storageBufferActive')).toBe(true)
+    expect(source.includes('fallbackReason')).toBe(true)
     expect(source.includes('ViewerAdminSurfaceShell')).toBe(true)
     expect(source.includes('ViewerAdminToolbarBar')).toBe(true)
     expect(source.includes('ProductModuleNav')).toBe(true)
@@ -327,6 +345,10 @@ describe('renderer backend guards', () => {
     expect(source.includes('skipped: true')).toBe(true)
     expect(source.includes('DATA_T_SCREENSHOTS')).toBe(true)
     expect(source.includes('DATA_T_SCREENSHOT_TIMEOUT_MS')).toBe(true)
+    expect(source.includes('DATA_T_ALLOW_WEBGPU_FALLBACK')).toBe(true)
+    expect(source.includes('parseRendererHud')).toBe(true)
+    expect(source.includes('backendMismatch')).toBe(true)
+    expect(source.includes('actualBackend')).toBe(true)
   })
 
   test('canvas should mount the chemical plant environment layer', () => {

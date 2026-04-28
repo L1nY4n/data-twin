@@ -864,7 +864,7 @@ describe('performance guards', () => {
     expect(vehicleInstances.includes('runtimeVehiclePoseBuffer.populate(entity.id, state)')).toBe(true)
   })
 
-  test('instanced moving entities should only upload matrices while dirty or unsettled', () => {
+  test('instanced moving entities should only upload CPU matrices while dirty or unsettled', () => {
     const personInstances = readFileSync(
       join(process.cwd(), 'components/digital-twin/entities/PersonInstances.tsx'),
       'utf8'
@@ -876,7 +876,7 @@ describe('performance guards', () => {
 
     expect(personInstances.includes('forceMatrixSyncRef')).toBe(true)
     expect(personInstances.includes('firstDirtyIndex')).toBe(true)
-    expect(personInstances.includes('if (!isSettled(state))')).toBe(true)
+    expect(personInstances.includes('if (!usingWebGpuStorage && !isSettled(state))')).toBe(true)
     expect(personInstances.includes('writeYawScaleMatrix')).toBe(true)
     expect(personInstances.includes('markInstancedMatrixRange')).toBe(true)
     expect(personInstances.includes('ensureInstancedColorBuffer')).toBe(true)
@@ -912,6 +912,7 @@ describe('performance guards', () => {
     expect(dynamicInstances.includes('writeGroundRingMatrix')).toBe(true)
     expect(dynamicInstances.includes('writeTranslationScaleMatrix')).toBe(true)
     expect(dynamicInstances.includes('writeTranslationScaleMatrix(statusMatrixArray')).toBe(true)
+    expect(dynamicInstances.includes('if (!usingWebGpuStorage && !isSettled(runtime))')).toBe(true)
     expect(dynamicInstances.includes('writeYawScaleMatrix(statusMatrixArray')).toBe(false)
     expect(dynamicInstances.includes('new THREE.Object3D')).toBe(false)
     expect(dynamicInstances.includes('const hasDynamicSnapshot = snapshot?.type === \'dynamic\'')).toBe(true)
@@ -941,6 +942,12 @@ describe('performance guards', () => {
     expect(storagePipeline.includes('storage(')).toBe(true)
     expect(storagePipeline.includes('Fn(()')).toBe(true)
     expect(storagePipeline.includes('.compute(safeCount)')).toBe(true)
+    expect(storagePipeline.includes("motionMode: WebGpuStorageMotionMode")).toBe(true)
+    expect(storagePipeline.includes('targetPoseAttribute')).toBe(true)
+    expect(storagePipeline.includes('motionAlphaUniform')).toBe(true)
+    expect(storagePipeline.includes('writeWebGpuStorageTargetTransform')).toBe(true)
+    expect(storagePipeline.includes('markWebGpuStorageTargetRange')).toBe(true)
+    expect(storagePipeline.includes('resetWebGpuStorageMotion')).toBe(true)
     expect(storagePipeline.includes('attachWebGpuStorageRaycast')).toBe(true)
     expect(storagePipeline.includes('detachWebGpuStorageRaycast')).toBe(true)
     expect(storagePipeline.includes('writeWebGpuStorageMatrixElements')).toBe(true)
@@ -948,8 +955,11 @@ describe('performance guards', () => {
     for (const source of [personInstances, vehicleInstances, dynamicInstances]) {
       expect(source.includes('rendererBackend === \'webgpu\'')).toBe(true)
       expect(source.includes('createWebGpuStorageInstancePipeline')).toBe(true)
-      expect(source.includes('writeWebGpuStorageTransform')).toBe(true)
-      expect(source.includes('markWebGpuStorageTransformRange')).toBe(true)
+      expect(source.includes("motionMode: 'gpu-damped'")).toBe(true)
+      expect(source.includes('writeWebGpuStorageTargetTransform')).toBe(true)
+      expect(source.includes('markWebGpuStorageTargetRange')).toBe(true)
+      expect(source.includes('resetWebGpuStorageMotion')).toBe(true)
+      expect(source.includes('gpuMotionFramesRef')).toBe(true)
       expect(source.includes('dispatchWebGpuStorageCompute')).toBe(true)
       expect(source.includes('attachWebGpuStorageRaycast')).toBe(true)
       expect(source.includes('detachWebGpuStorageRaycast')).toBe(true)

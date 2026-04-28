@@ -5,9 +5,12 @@ import {
   createWebGpuStorageInstancePipeline,
   detachWebGpuStorageRaycast,
   markWebGpuStorageColorRange,
+  markWebGpuStorageTargetRange,
   markWebGpuStorageTransformRange,
+  resetWebGpuStorageMotion,
   writeWebGpuStorageColor,
   writeWebGpuStorageMatrixElements,
+  writeWebGpuStorageTargetTransform,
   writeWebGpuStorageTransform,
   type WebGpuStorageTransformKind,
 } from './webgpu-storage-instances'
@@ -36,6 +39,9 @@ describe('webgpu storage instances', () => {
       expect(pipeline.scaleAttribute.isStorageInstancedBufferAttribute).toBe(true)
       expect(pipeline.colorAttribute.isStorageInstancedBufferAttribute).toBe(true)
       expect(pipeline.matrixAttribute.isStorageInstancedBufferAttribute).toBe(true)
+      expect(pipeline.motionMode).toBe('cpu-driven')
+      expect(pipeline.targetPoseAttribute).toBeNull()
+      expect(pipeline.targetPoseArray).toBeNull()
       expect(pipeline.poseAttribute.itemSize).toBe(4)
       expect(pipeline.scaleAttribute.itemSize).toBe(4)
       expect(pipeline.colorAttribute.itemSize).toBe(4)
@@ -103,6 +109,43 @@ describe('webgpu storage instances', () => {
       expect(pipeline.colorArray[5]).toBeCloseTo(color.g, 5)
       expect(pipeline.colorArray[6]).toBeCloseTo(color.b, 5)
       expect(pipeline.colorArray[7]).toBe(1)
+    } finally {
+      pipeline.dispose()
+    }
+  })
+
+  test('allocates GPU motion target storage and gates current-pose uploads', () => {
+    const pipeline = createWebGpuStorageInstancePipeline({
+      count: 2,
+      transformKind: 'yaw',
+      motionMode: 'gpu-damped',
+      material: { vertexColors: true },
+    })
+
+    try {
+      expect(pipeline.motionMode).toBe('gpu-damped')
+      expect(pipeline.targetPoseAttribute?.isStorageInstancedBufferAttribute).toBe(true)
+      expect(pipeline.targetPoseArray).toBeInstanceOf(Float32Array)
+      expect(pipeline.motionAlphaUniform?.value).toBe(1)
+      expect(pipeline.currentPoseUploadDirty).toBe(true)
+
+      writeWebGpuStorageTargetTransform(pipeline, 1, 7, 1, -2, 0.5, 2, 3, 4)
+      expect(pipeline.targetPoseArray?.[4]).toBe(7)
+      expect(pipeline.targetPoseArray?.[5]).toBe(1)
+      expect(pipeline.targetPoseArray?.[6]).toBe(-2)
+      expect(pipeline.targetPoseArray?.[7]).toBe(0.5)
+      expect(pipeline.poseArray[4]).toBe(7)
+      expect(pipeline.motionInitialized?.[1]).toBe(1)
+
+      markWebGpuStorageTargetRange(pipeline, 1, 1)
+      expect(pipeline.targetPoseAttribute?.version).toBeGreaterThan(0)
+      expect(pipeline.scaleAttribute.version).toBeGreaterThan(0)
+      expect(pipeline.poseAttribute.version).toBeGreaterThan(0)
+      expect(pipeline.currentPoseUploadDirty).toBe(false)
+
+      resetWebGpuStorageMotion(pipeline)
+      expect(pipeline.motionInitialized?.[1]).toBe(0)
+      expect(pipeline.currentPoseUploadDirty).toBe(true)
     } finally {
       pipeline.dispose()
     }

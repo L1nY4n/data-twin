@@ -95,6 +95,15 @@ export type QualityProfile = 'balanced' | 'performance'
 export type RendererMode = 'auto' | 'webgpu' | 'webgl2'
 export type RendererBackend = 'webgpu' | 'webgl2' | 'unknown'
 
+export interface RendererDiagnostics {
+  requestedMode: RendererMode
+  backend: RendererBackend
+  webgpuAvailable: boolean | null
+  fallbackReason: string | null
+  message: string | null
+  storageBufferActive: boolean
+}
+
 interface PerformanceMetrics {
   fps: number
   frameTimeP95: number
@@ -117,6 +126,14 @@ interface EntityBuckets {
   cameras: CameraEntity[]
   zones: ZoneEntity[]
   dynamic: DynamicEntity[]
+}
+
+function isTrackedRuntimeViewMode(mode: ViewMode) {
+  return mode === 'follow' || mode === 'firstperson'
+}
+
+function canTrackRuntimeEntity(entity: Entity | null | undefined) {
+  return !!entity && entity.type !== 'zone'
 }
 
 export interface EntityDirectoryEntry {
@@ -241,6 +258,7 @@ interface DigitalTwinState {
   // 渲染后端
   rendererMode: RendererMode
   rendererBackend: RendererBackend
+  rendererDiagnostics: RendererDiagnostics
 
   // 运行时性能状态
   qualityProfile: QualityProfile
@@ -349,6 +367,7 @@ interface DigitalTwinActions {
   setAutoQuality: (enabled: boolean) => void
   setRendererMode: (mode: RendererMode) => void
   setRendererBackend: (backend: RendererBackend) => void
+  setRendererDiagnostics: (diagnostics: RendererDiagnostics) => void
 
   // 工具方法
   getEntitiesByType: <T extends Entity>(type: EntityType) => T[]
@@ -429,6 +448,14 @@ const initialState: DigitalTwinState = {
   connectionUrl: null,
   rendererMode: 'auto',
   rendererBackend: 'unknown',
+  rendererDiagnostics: {
+    requestedMode: 'auto',
+    backend: 'unknown',
+    webgpuAvailable: null,
+    fallbackReason: null,
+    message: null,
+    storageBufferActive: false,
+  },
 
   qualityProfile: 'balanced',
   autoQuality: false,
@@ -2251,9 +2278,49 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
           sceneConfig: { ...state.sceneConfig, ...config },
         })),
 
-      setViewMode: (mode) => set({ viewMode: mode }),
+      setViewMode: (mode) =>
+        set((state) => {
+          if (mode === 'topdown') {
+            return {
+              viewMode: 'orbit',
+              activeCameraPreset: 'top',
+              cameraFocusRequest: null,
+            }
+          }
 
-      setActiveCameraPreset: (presetId) => set({ activeCameraPreset: presetId }),
+          if (isTrackedRuntimeViewMode(mode)) {
+            const selectedEntity = state.selectedEntityId
+              ? state.entities.get(state.selectedEntityId)
+              : null
+
+            if (!canTrackRuntimeEntity(selectedEntity)) {
+              return {
+                viewMode: 'orbit',
+                activeCameraPreset: null,
+                cameraFocusRequest: null,
+              }
+            }
+
+            return {
+              viewMode: mode,
+              activeCameraPreset: null,
+              cameraFocusRequest: null,
+            }
+          }
+
+          return { viewMode: mode }
+        }),
+
+      setActiveCameraPreset: (presetId) =>
+        set(
+          presetId
+            ? {
+                viewMode: 'orbit',
+                activeCameraPreset: presetId,
+                cameraFocusRequest: null,
+              }
+            : { activeCameraPreset: null }
+        ),
 
       clearCameraFocusRequest: () => set({ cameraFocusRequest: null }),
 
@@ -2269,11 +2336,13 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
 
         set({
           activeCameraPreset: null,
-          cameraFocusRequest: buildCameraFocusRequest(
-            entity,
-            latestCamera,
-            focusedState.sceneConfig.cameraPosition
-          ),
+          cameraFocusRequest: isTrackedRuntimeViewMode(focusedState.viewMode)
+            ? null
+            : buildCameraFocusRequest(
+                entity,
+                latestCamera,
+                focusedState.sceneConfig.cameraPosition
+              ),
         })
       },
 
@@ -2876,6 +2945,18 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
 
       setRendererBackend: (backend) =>
         set((state) => (state.rendererBackend === backend ? state : { rendererBackend: backend })),
+
+      setRendererDiagnostics: (diagnostics) =>
+        set((state) =>
+          state.rendererDiagnostics.requestedMode === diagnostics.requestedMode &&
+          state.rendererDiagnostics.backend === diagnostics.backend &&
+          state.rendererDiagnostics.webgpuAvailable === diagnostics.webgpuAvailable &&
+          state.rendererDiagnostics.fallbackReason === diagnostics.fallbackReason &&
+          state.rendererDiagnostics.message === diagnostics.message &&
+          state.rendererDiagnostics.storageBufferActive === diagnostics.storageBufferActive
+            ? state
+            : { rendererDiagnostics: diagnostics }
+        ),
 
       // 工具方法
       getEntitiesByType: <T extends Entity>(type: EntityType): T[] => {

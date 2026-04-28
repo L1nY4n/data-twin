@@ -19,9 +19,10 @@ import {
   detachWebGpuStorageRaycast,
   dispatchWebGpuStorageCompute,
   markWebGpuStorageColorRange,
-  markWebGpuStorageTransformRange,
+  markWebGpuStorageTargetRange,
+  resetWebGpuStorageMotion,
   writeWebGpuStorageColor,
-  writeWebGpuStorageTransform,
+  writeWebGpuStorageTargetTransform,
 } from '@/lib/digital-twin/renderer/webgpu-storage-instances'
 import {
   resolveEntitySimulationCadence,
@@ -53,6 +54,7 @@ interface PersonRuntimeState {
 
 const POSITION_EPSILON = 0.001
 const ROTATION_EPSILON = 0.001
+const GPU_MOTION_ACTIVE_FRAMES = 90
 
 function normalizeRadians(value: number): number {
   let angle = value
@@ -135,6 +137,7 @@ export const PersonInstances = memo(function PersonInstances({ entities }: Perso
   const forceColorSyncRef = useRef(true)
   const batchVisibleRef = useRef(true)
   const frameTickRef = useRef(0)
+  const gpuMotionFramesRef = useRef(0)
   const colorRef = useRef(new THREE.Color())
   const rendererBackend = useDigitalTwinStore((state) => state.rendererBackend)
   const useWebGpuStorage = rendererBackend === 'webgpu'
@@ -145,6 +148,7 @@ export const PersonInstances = memo(function PersonInstances({ entities }: Perso
         ? createWebGpuStorageInstancePipeline({
             count: entities.length,
             transformKind: 'yaw',
+            motionMode: 'gpu-damped',
             material: {
               vertexColors: true,
               metalness: 0.2,
@@ -186,7 +190,10 @@ export const PersonInstances = memo(function PersonInstances({ entities }: Perso
   useEffect(() => {
     forceMatrixSyncRef.current = true
     forceColorSyncRef.current = true
-  }, [entityIdSignature])
+    if (personStoragePipeline) {
+      resetWebGpuStorageMotion(personStoragePipeline)
+    }
+  }, [entityIdSignature, personStoragePipeline])
 
   useLayoutEffect(() => {
     if (personRef.current) {
@@ -227,6 +234,7 @@ export const PersonInstances = memo(function PersonInstances({ entities }: Perso
     const smoothing = 1 - Math.exp(-14 * dt)
     const forceMatrixSync = forceMatrixSyncRef.current
     const forceColorSync = forceColorSyncRef.current
+    const usingWebGpuStorage = personStoragePipeline !== null
     const selectedEntityId = store.selectedEntityId
     const hoveredEntityId = store.hoveredEntityId
     const batchHasFocusedEntity =
@@ -247,6 +255,10 @@ export const PersonInstances = memo(function PersonInstances({ entities }: Perso
       })
 
       if (!shouldSimulateEntityThisTick(frameTickRef.current, cadence)) {
+        if (usingWebGpuStorage && gpuMotionFramesRef.current > 0) {
+          dispatchWebGpuStorageCompute(gl, personStoragePipeline, smoothing)
+          gpuMotionFramesRef.current -= 1
+        }
         return
       }
     }
@@ -256,7 +268,6 @@ export const PersonInstances = memo(function PersonInstances({ entities }: Perso
     let firstDirtyColorIndex = Number.POSITIVE_INFINITY
     let lastDirtyColorIndex = -1
     let colorDirty = false
-    const usingWebGpuStorage = personStoragePipeline !== null
     const personMatrixArray = usingWebGpuStorage ? null : personRef.current.instanceMatrix.array
 
     for (let index = 0; index < entities.length; index += 1) {
@@ -304,14 +315,24 @@ export const PersonInstances = memo(function PersonInstances({ entities }: Perso
         shouldSyncMatrix = true
       }
 
-      if (!isSettled(state)) {
+      if (!usingWebGpuStorage && !isSettled(state)) {
         stepRuntimeState(state, smoothing)
         shouldSyncMatrix = true
       }
 
       if (shouldSyncMatrix) {
         if (usingWebGpuStorage) {
-          writeWebGpuStorageTransform(personStoragePipeline, index, state.x, state.y, state.z, state.yaw, 1, 1, 1)
+          writeWebGpuStorageTargetTransform(
+            personStoragePipeline,
+            index,
+            state.targetX,
+            state.targetY,
+            state.targetZ,
+            state.targetYaw,
+            1,
+            1,
+            1
+          )
         } else {
           writeYawScaleMatrix(personMatrixArray!, index, state.x, state.y, state.z, state.yaw, 1, 1, 1)
         }
@@ -336,11 +357,15 @@ export const PersonInstances = memo(function PersonInstances({ entities }: Perso
 
     if (firstDirtyIndex <= lastDirtyIndex) {
       if (usingWebGpuStorage) {
-        markWebGpuStorageTransformRange(personStoragePipeline, firstDirtyIndex, lastDirtyIndex)
-        dispatchWebGpuStorageCompute(gl, personStoragePipeline)
+        markWebGpuStorageTargetRange(personStoragePipeline, firstDirtyIndex, lastDirtyIndex)
+        dispatchWebGpuStorageCompute(gl, personStoragePipeline, smoothing)
+        gpuMotionFramesRef.current = GPU_MOTION_ACTIVE_FRAMES
       } else {
         markInstancedMatrixRange(personRef.current, firstDirtyIndex, lastDirtyIndex)
       }
+    } else if (usingWebGpuStorage && gpuMotionFramesRef.current > 0) {
+      dispatchWebGpuStorageCompute(gl, personStoragePipeline, smoothing)
+      gpuMotionFramesRef.current -= 1
     }
     if (colorDirty) {
       if (usingWebGpuStorage) {

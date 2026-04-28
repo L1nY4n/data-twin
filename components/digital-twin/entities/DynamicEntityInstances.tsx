@@ -29,9 +29,10 @@ import {
   detachWebGpuStorageRaycast,
   dispatchWebGpuStorageCompute,
   markWebGpuStorageColorRange,
-  markWebGpuStorageTransformRange,
+  markWebGpuStorageTargetRange,
+  resetWebGpuStorageMotion,
   writeWebGpuStorageColor,
-  writeWebGpuStorageTransform,
+  writeWebGpuStorageTargetTransform,
 } from '@/lib/digital-twin/renderer/webgpu-storage-instances'
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
 import { runtimeVehiclePoseBuffer } from '@/lib/digital-twin/runtime-vehicle-pose-buffer'
@@ -53,6 +54,7 @@ interface DynamicEntityInstancesProps {
 const CAMERA_PROJECTION_MATRIX = new THREE.Matrix4()
 const CAMERA_FRUSTUM = new THREE.Frustum()
 const CAMERA_DIRECTION = new THREE.Vector3()
+const GPU_MOTION_ACTIVE_FRAMES = 90
 
 const STATUS_COLORS: Record<DynamicEntity['status'], string> = {
   active: '#22c55e',
@@ -166,6 +168,7 @@ export const DynamicEntityInstances = memo(function DynamicEntityInstances({
   const forceColorSyncRef = useRef(true)
   const batchVisibleRef = useRef(true)
   const frameTickRef = useRef(0)
+  const gpuMotionFramesRef = useRef(0)
   const colorRef = useRef({
     body: new THREE.Color(),
     status: new THREE.Color(),
@@ -179,6 +182,7 @@ export const DynamicEntityInstances = memo(function DynamicEntityInstances({
         ? createWebGpuStorageInstancePipeline({
             count: items.length,
             transformKind: 'yaw',
+            motionMode: 'gpu-damped',
             material: {
               vertexColors: true,
               metalness: 0.25,
@@ -194,6 +198,7 @@ export const DynamicEntityInstances = memo(function DynamicEntityInstances({
         ? createWebGpuStorageInstancePipeline({
             count: items.length,
             transformKind: 'translation',
+            motionMode: 'gpu-damped',
             material: {
               vertexColors: true,
               emissive: '#111827',
@@ -211,6 +216,7 @@ export const DynamicEntityInstances = memo(function DynamicEntityInstances({
         ? createWebGpuStorageInstancePipeline({
             count: items.length,
             transformKind: 'ground-ring',
+            motionMode: 'gpu-damped',
             material: {
               vertexColors: true,
               emissive: '#111827',
@@ -256,6 +262,14 @@ export const DynamicEntityInstances = memo(function DynamicEntityInstances({
     forceMatrixSyncRef.current = true
     forceColorSyncRef.current = true
   }, [entityIdSignature, suppressedEntityIdSignature])
+
+  useEffect(() => {
+    if (bodyStoragePipeline && statusStoragePipeline && ringStoragePipeline) {
+      resetWebGpuStorageMotion(bodyStoragePipeline)
+      resetWebGpuStorageMotion(statusStoragePipeline)
+      resetWebGpuStorageMotion(ringStoragePipeline)
+    }
+  }, [bodyStoragePipeline, entityIdSignature, ringStoragePipeline, statusStoragePipeline])
 
   useEffect(() => {
     forceColorSyncRef.current = true
@@ -334,6 +348,9 @@ export const DynamicEntityInstances = memo(function DynamicEntityInstances({
     const ringColor = colorRef.current.ring
     const forceMatrixSync = forceMatrixSyncRef.current
     const forceColorSync = forceColorSyncRef.current
+    const dt = Math.min(delta, 0.05)
+    const smoothing = 1 - Math.exp(-14 * dt)
+    const usingWebGpuStorage = bodyStoragePipeline !== null && statusStoragePipeline !== null && ringStoragePipeline !== null
     const batchHasFocusedEntity =
       (!!selectedEntityId && entityIdSet.has(selectedEntityId)) ||
       (!!hoveredEntityId && entityIdSet.has(hoveredEntityId))
@@ -352,12 +369,15 @@ export const DynamicEntityInstances = memo(function DynamicEntityInstances({
       })
 
       if (!shouldSimulateEntityThisTick(frameTickRef.current, cadence)) {
+        if (usingWebGpuStorage && gpuMotionFramesRef.current > 0) {
+          dispatchWebGpuStorageCompute(gl, bodyStoragePipeline, smoothing)
+          dispatchWebGpuStorageCompute(gl, statusStoragePipeline, smoothing)
+          dispatchWebGpuStorageCompute(gl, ringStoragePipeline, smoothing)
+          gpuMotionFramesRef.current -= 1
+        }
         return
       }
     }
-    const dt = Math.min(delta, 0.05)
-    const smoothing = 1 - Math.exp(-14 * dt)
-    const usingWebGpuStorage = bodyStoragePipeline !== null && statusStoragePipeline !== null && ringStoragePipeline !== null
     const bodyMatrixArray = usingWebGpuStorage ? null : bodyMesh.instanceMatrix.array
     const statusMatrixArray = usingWebGpuStorage ? null : statusMesh.instanceMatrix.array
     const ringMatrixArray = usingWebGpuStorage ? null : ringMesh.instanceMatrix.array
@@ -428,18 +448,22 @@ export const DynamicEntityInstances = memo(function DynamicEntityInstances({
         shouldSyncMatrix = true
       }
 
-      if (!isSettled(runtime)) {
+      if (!usingWebGpuStorage && !isSettled(runtime)) {
         stepRuntimeState(runtime, smoothing)
         shouldSyncMatrix = true
       }
 
       if (suppressedEntityIds?.has(entity.id)) {
         if (shouldSyncMatrix) {
-          const hiddenY = runtime.y - 10000
+          const renderX = usingWebGpuStorage ? runtime.targetX : runtime.x
+          const renderY = usingWebGpuStorage ? runtime.targetY : runtime.y
+          const renderZ = usingWebGpuStorage ? runtime.targetZ : runtime.z
+          const renderYaw = usingWebGpuStorage ? runtime.targetYaw : runtime.yaw
+          const hiddenY = renderY - 10000
           if (usingWebGpuStorage) {
-            writeWebGpuStorageTransform(bodyStoragePipeline, index, runtime.x, hiddenY, runtime.z, runtime.yaw, 0.001, 0.001, 0.001)
-            writeWebGpuStorageTransform(statusStoragePipeline, index, runtime.x, hiddenY, runtime.z, 0, 0.001, 0.001, 0.001)
-            writeWebGpuStorageTransform(ringStoragePipeline, index, runtime.x, hiddenY, runtime.z, 0, 0.001, 1, 0.001)
+            writeWebGpuStorageTargetTransform(bodyStoragePipeline, index, renderX, hiddenY, renderZ, renderYaw, 0.001, 0.001, 0.001)
+            writeWebGpuStorageTargetTransform(statusStoragePipeline, index, renderX, hiddenY, renderZ, 0, 0.001, 0.001, 0.001)
+            writeWebGpuStorageTargetTransform(ringStoragePipeline, index, renderX, hiddenY, renderZ, 0, 0.001, 1, 0.001)
           } else {
             writeTranslationScaleMatrix(bodyMatrixArray!, index, runtime.x, hiddenY, runtime.z, 0.001, 0.001, 0.001)
             writeTranslationScaleMatrix(statusMatrixArray!, index, runtime.x, hiddenY, runtime.z, 0.001, 0.001, 0.001)
@@ -452,35 +476,39 @@ export const DynamicEntityInstances = memo(function DynamicEntityInstances({
       }
 
       if (shouldSyncMatrix) {
+        const renderX = usingWebGpuStorage ? runtime.targetX : runtime.x
+        const renderY = usingWebGpuStorage ? runtime.targetY : runtime.y
+        const renderZ = usingWebGpuStorage ? runtime.targetZ : runtime.z
+        const renderYaw = usingWebGpuStorage ? runtime.targetYaw : runtime.yaw
         if (usingWebGpuStorage) {
-          writeWebGpuStorageTransform(
+          writeWebGpuStorageTargetTransform(
             bodyStoragePipeline,
             index,
-            runtime.x,
-            runtime.y + targetScale.y * 0.9,
-            runtime.z,
-            runtime.yaw,
+            renderX,
+            renderY + targetScale.y * 0.9,
+            renderZ,
+            renderYaw,
             Math.max(0.65, targetScale.x),
             Math.max(0.85, targetScale.y),
             Math.max(0.65, targetScale.z)
           )
-          writeWebGpuStorageTransform(
+          writeWebGpuStorageTargetTransform(
             statusStoragePipeline,
             index,
-            runtime.x,
-            runtime.y + Math.max(1.4, targetScale.y * 1.95),
-            runtime.z,
+            renderX,
+            renderY + Math.max(1.4, targetScale.y * 1.95),
+            renderZ,
             0,
             1,
             1,
             1
           )
-          writeWebGpuStorageTransform(
+          writeWebGpuStorageTargetTransform(
             ringStoragePipeline,
             index,
-            runtime.x,
-            runtime.y + 0.03,
-            runtime.z,
+            renderX,
+            renderY + 0.03,
+            renderZ,
             0,
             Math.max(0.75, targetScale.x),
             1,
@@ -549,17 +577,23 @@ export const DynamicEntityInstances = memo(function DynamicEntityInstances({
 
     if (firstDirtyIndex <= lastDirtyIndex) {
       if (usingWebGpuStorage) {
-        markWebGpuStorageTransformRange(bodyStoragePipeline, firstDirtyIndex, lastDirtyIndex)
-        markWebGpuStorageTransformRange(statusStoragePipeline, firstDirtyIndex, lastDirtyIndex)
-        markWebGpuStorageTransformRange(ringStoragePipeline, firstDirtyIndex, lastDirtyIndex)
-        dispatchWebGpuStorageCompute(gl, bodyStoragePipeline)
-        dispatchWebGpuStorageCompute(gl, statusStoragePipeline)
-        dispatchWebGpuStorageCompute(gl, ringStoragePipeline)
+        markWebGpuStorageTargetRange(bodyStoragePipeline, firstDirtyIndex, lastDirtyIndex)
+        markWebGpuStorageTargetRange(statusStoragePipeline, firstDirtyIndex, lastDirtyIndex)
+        markWebGpuStorageTargetRange(ringStoragePipeline, firstDirtyIndex, lastDirtyIndex)
+        dispatchWebGpuStorageCompute(gl, bodyStoragePipeline, smoothing)
+        dispatchWebGpuStorageCompute(gl, statusStoragePipeline, smoothing)
+        dispatchWebGpuStorageCompute(gl, ringStoragePipeline, smoothing)
+        gpuMotionFramesRef.current = GPU_MOTION_ACTIVE_FRAMES
       } else {
         markInstancedMatrixRange(bodyMesh, firstDirtyIndex, lastDirtyIndex)
         markInstancedMatrixRange(statusMesh, firstDirtyIndex, lastDirtyIndex)
         markInstancedMatrixRange(ringMesh, firstDirtyIndex, lastDirtyIndex)
       }
+    } else if (usingWebGpuStorage && gpuMotionFramesRef.current > 0) {
+      dispatchWebGpuStorageCompute(gl, bodyStoragePipeline, smoothing)
+      dispatchWebGpuStorageCompute(gl, statusStoragePipeline, smoothing)
+      dispatchWebGpuStorageCompute(gl, ringStoragePipeline, smoothing)
+      gpuMotionFramesRef.current -= 1
     }
     if (colorDirty) {
       if (usingWebGpuStorage) {

@@ -3,6 +3,21 @@ import * as THREE from 'three'
 export type PreferredRendererMode = 'auto' | 'webgpu' | 'webgl2'
 export type PreferredRendererBackend = 'webgpu' | 'webgl2'
 export type PreferredRendererPowerPreference = 'default' | 'high-performance' | 'low-power'
+export type PreferredRendererFallbackReason =
+  | 'webgpu-insecure-context'
+  | 'navigator-gpu-unavailable'
+  | 'html-canvas-required'
+  | 'webgpu-renderer-missing'
+  | 'webgpu-init-failed'
+  | 'webgl-init-failed'
+
+export interface PreferredRendererDiagnostics {
+  requestedMode: PreferredRendererMode
+  backend: PreferredRendererBackend
+  webgpuAvailable: boolean
+  fallbackReason: PreferredRendererFallbackReason | null
+  message: string | null
+}
 
 interface CreatePreferredRendererOptions {
   mode: PreferredRendererMode
@@ -15,23 +30,90 @@ interface GLDefaults {
   canvas: HTMLCanvasElement | OffscreenCanvas
 }
 
-type AnyRenderer = THREE.WebGLRenderer & { __backend?: PreferredRendererBackend }
+type AnyRenderer = THREE.WebGLRenderer & {
+  __backend?: PreferredRendererBackend
+  __diagnostics?: PreferredRendererDiagnostics
+}
+
+interface WebGpuRendererAttempt {
+  renderer: AnyRenderer | null
+  diagnostics: PreferredRendererDiagnostics
+}
+
+function describeRendererError(error: unknown) {
+  return error instanceof Error ? error.message : String(error)
+}
+
+function isWebGpuSecureContext() {
+  return typeof window === 'undefined' || window.isSecureContext
+}
+
+function createDiagnostics(
+  options: CreatePreferredRendererOptions,
+  backend: PreferredRendererBackend,
+  fallbackReason: PreferredRendererFallbackReason | null,
+  message: string | null = null
+): PreferredRendererDiagnostics {
+  return {
+    requestedMode: options.mode,
+    backend,
+    webgpuAvailable: typeof navigator !== 'undefined' && 'gpu' in navigator,
+    fallbackReason,
+    message,
+  }
+}
+
+function attachRendererDiagnostics(
+  renderer: AnyRenderer,
+  diagnostics: PreferredRendererDiagnostics
+) {
+  renderer.__backend = diagnostics.backend
+  renderer.__diagnostics = diagnostics
+  return renderer
+}
 
 async function tryCreateWebGpuRenderer(
   defaults: GLDefaults,
   options: CreatePreferredRendererOptions
-): Promise<AnyRenderer | null> {
-  if (typeof navigator === 'undefined' || !('gpu' in navigator)) return null
+): Promise<WebGpuRendererAttempt> {
+  if (!isWebGpuSecureContext()) {
+    return {
+      renderer: null,
+      diagnostics: createDiagnostics(
+        options,
+        'webgl2',
+        'webgpu-insecure-context',
+        'WebGPU requires HTTPS or a secure localhost context.'
+      ),
+    }
+  }
+
+  if (typeof navigator === 'undefined' || !('gpu' in navigator)) {
+    return {
+      renderer: null,
+      diagnostics: createDiagnostics(options, 'webgl2', 'navigator-gpu-unavailable'),
+    }
+  }
 
   try {
-    if (!(defaults.canvas instanceof HTMLCanvasElement)) return null
+    if (!(defaults.canvas instanceof HTMLCanvasElement)) {
+      return {
+        renderer: null,
+        diagnostics: createDiagnostics(options, 'webgl2', 'html-canvas-required'),
+      }
+    }
 
     const webgpuModule = await import('three/webgpu')
     const WebGPURenderer = (webgpuModule as Record<string, unknown>).WebGPURenderer as
       | (new (params: { canvas: HTMLCanvasElement; antialias: boolean; alpha: boolean }) => AnyRenderer)
       | undefined
 
-    if (!WebGPURenderer) return null
+    if (!WebGPURenderer) {
+      return {
+        renderer: null,
+        diagnostics: createDiagnostics(options, 'webgl2', 'webgpu-renderer-missing'),
+      }
+    }
 
     const renderer = new WebGPURenderer({
       canvas: defaults.canvas,
@@ -46,21 +128,42 @@ async function tryCreateWebGpuRenderer(
 
     ;(renderer as unknown as { outputColorSpace?: THREE.ColorSpace }).outputColorSpace = THREE.SRGBColorSpace
     ;(renderer as unknown as { toneMapping?: THREE.ToneMapping }).toneMapping = THREE.ACESFilmicToneMapping
-    renderer.__backend = 'webgpu'
-    return renderer
-  } catch {
-    return null
+    return {
+      renderer: attachRendererDiagnostics(
+        renderer,
+        createDiagnostics(options, 'webgpu', null)
+      ),
+      diagnostics: createDiagnostics(options, 'webgpu', null),
+    }
+  } catch (error) {
+    return {
+      renderer: null,
+      diagnostics: createDiagnostics(
+        options,
+        'webgl2',
+        'webgpu-init-failed',
+        describeRendererError(error)
+      ),
+    }
   }
 }
 
-function configureWebGlRenderer(renderer: AnyRenderer) {
+function configureWebGlRenderer(
+  renderer: AnyRenderer,
+  diagnostics: PreferredRendererDiagnostics
+) {
   renderer.outputColorSpace = THREE.SRGBColorSpace
   renderer.toneMapping = THREE.ACESFilmicToneMapping
-  renderer.__backend = 'webgl2'
-  return renderer
+  return attachRendererDiagnostics(renderer, diagnostics)
 }
 
-function createWebGlRenderer(defaults: GLDefaults, options: CreatePreferredRendererOptions): AnyRenderer {
+function createWebGlRenderer(
+  defaults: GLDefaults,
+  options: CreatePreferredRendererOptions,
+  fallbackDiagnostics?: PreferredRendererDiagnostics
+): AnyRenderer {
+  const diagnostics =
+    fallbackDiagnostics ?? createDiagnostics(options, 'webgl2', null)
   try {
     return configureWebGlRenderer(
       new THREE.WebGLRenderer({
@@ -68,16 +171,22 @@ function createWebGlRenderer(defaults: GLDefaults, options: CreatePreferredRende
         antialias: options.antialias,
         alpha: options.alpha,
         powerPreference: options.powerPreference ?? 'high-performance',
-      }) as AnyRenderer
+      }) as AnyRenderer,
+      diagnostics
     )
-  } catch {
+  } catch (error) {
     return configureWebGlRenderer(
       new THREE.WebGLRenderer({
         canvas: defaults.canvas,
         antialias: false,
         alpha: options.alpha,
         powerPreference: 'default',
-      }) as AnyRenderer
+      }) as AnyRenderer,
+      {
+        ...diagnostics,
+        fallbackReason: 'webgl-init-failed',
+        message: describeRendererError(error),
+      }
     )
   }
 }
@@ -87,8 +196,9 @@ export async function createPreferredRenderer(
   options: CreatePreferredRendererOptions
 ): Promise<AnyRenderer> {
   if (options.mode !== 'webgl2') {
-    const webGpuRenderer = await tryCreateWebGpuRenderer(defaults, options)
-    if (webGpuRenderer) return webGpuRenderer
+    const webGpuAttempt = await tryCreateWebGpuRenderer(defaults, options)
+    if (webGpuAttempt.renderer) return webGpuAttempt.renderer
+    return createWebGlRenderer(defaults, options, webGpuAttempt.diagnostics)
   }
 
   return createWebGlRenderer(defaults, options)

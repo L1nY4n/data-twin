@@ -150,6 +150,28 @@ const jsonPath = envString('DATA_T_JSON_PATH', '')
 const accessToken = envString('DATA_T_ACCESS_TOKEN', '')
 const captureScreenshots = envBoolean('DATA_T_SCREENSHOTS', true)
 const screenshotTimeoutMs = envNumber('DATA_T_SCREENSHOT_TIMEOUT_MS', 5000)
+const allowWebGpuFallback = envBoolean('DATA_T_ALLOW_WEBGPU_FALLBACK', false)
+
+function parseRendererHud(hudText) {
+  if (!hudText) {
+    return {
+      actualBackend: null,
+      requestedMode: null,
+      fallbackReason: null,
+      storageBufferActive: null,
+    }
+  }
+
+  const rendererMatch = hudText.match(/Renderer\s+([a-z0-9-]+)\s+\(([a-z0-9-]+)\)/i)
+  const fallbackMatch = hudText.match(/Fallback\s+([^\n]+)/i)
+  const storageMatch = hudText.match(/Storage\s+(on|off)/i)
+  return {
+    actualBackend: rendererMatch?.[1]?.toLowerCase() ?? null,
+    requestedMode: rendererMatch?.[2]?.toLowerCase() ?? null,
+    fallbackReason: fallbackMatch?.[1]?.trim() ?? null,
+    storageBufferActive: storageMatch ? storageMatch[1].toLowerCase() === 'on' : null,
+  }
+}
 
 async function captureScreenshot(page, screenshotPath) {
   if (!captureScreenshots) return null
@@ -303,6 +325,19 @@ try {
     equipment,
     zone,
   }
+  const finalHud =
+    zone.hud ?? equipment.hud ?? vehicle.hud ?? person.hud ?? initialHud
+  const rendererHud = parseRendererHud(finalHud)
+  const backendMismatch =
+    finalMode.includes('webgpu') && rendererHud.actualBackend !== 'webgpu'
+  Object.assign(summary, {
+    actualBackend: rendererHud.actualBackend,
+    requestedRendererMode: rendererHud.requestedMode,
+    backendMismatch,
+    fallbackReason: rendererHud.fallbackReason,
+    storageBufferActive: rendererHud.storageBufferActive,
+    allowWebGpuFallback,
+  })
 
   const serialized = JSON.stringify(summary, null, 2)
   if (jsonPath) {
@@ -314,7 +349,11 @@ try {
   const stageFailures = [person, vehicle, equipment, zone].flatMap(
     (stage) => stage.unexpectedLogs ?? []
   )
-  if (!finalMode.includes('webgpu') || stageFailures.length > 0) {
+  if (
+    !finalMode.includes('webgpu') ||
+    (!allowWebGpuFallback && backendMismatch) ||
+    stageFailures.length > 0
+  ) {
     process.exitCode = 1
   }
 } finally {
