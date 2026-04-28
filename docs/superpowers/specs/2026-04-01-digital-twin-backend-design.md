@@ -1,5 +1,7 @@
 # 数字孪生园区后端方案设计
 
+> 历史说明：本文形成于仓库早期阶段，文中的 `backend-core` 现已落地并收敛为当前仓库中的 Rust 后端 `backend-core-rs`。
+
 ## 1. 背景
 
 当前仓库是一个以 `Next.js 16 + React 19 + Three.js + Zustand` 为核心的前端数字孪生原型。
@@ -124,7 +126,7 @@
 - 规则编辑
 - 告警展示
 
-前端只连接 `backend-core` 暴露的 REST/WebSocket 接口。
+前端只连接 `backend-core-rs` 暴露的 REST/WebSocket 接口。
 
 #### 2）`protocol-gateway-*`
 
@@ -176,7 +178,7 @@ EMQX 作为本地事件接入层。
 - 写入时序历史表
 - 触发规则计算与告警生成
 
-不建议让 `backend-core` 直接兼任高频摄取职责，否则查询与采集会互相争用资源。
+不建议让 `backend-core-rs` 直接兼任高频摄取职责，否则查询与采集会互相争用资源。
 
 #### 5）`rule-engine`
 
@@ -189,7 +191,7 @@ EMQX 作为本地事件接入层。
 - 时序条件窗口计算
 - 生成 `alarm`、`rule_triggered` 事件
 
-#### 6）`backend-core`
+#### 6）`backend-core-rs`
 
 推荐技术栈：`Rust + Axum + Tokio`
 
@@ -227,7 +229,7 @@ EMQX 作为本地事件接入层。
   -> 当前状态表更新
   -> 时序表写入
   -> 规则判断
-  -> backend-core 推送 WebSocket 给前端
+  -> backend-core-rs 推送 WebSocket 给前端
 ```
 
 ### 5.2 初始化加载
@@ -248,7 +250,7 @@ EMQX 作为本地事件接入层。
 下行命令必须单独建模：
 
 ```text
-前端 -> backend-core -> command service -> 协议网关 -> 设备
+前端 -> backend-core-rs -> command service -> 协议网关 -> 设备
 ```
 
 每次命令都必须记录：
@@ -473,7 +475,7 @@ Redis 不作为最终事实源。
 - 1 套 EMQX 集群
 - 1 套 Redis
 - 1 套 MinIO
-- 2 个 `backend-core` 实例
+- 2 个 `backend-core-rs` 实例
 - 2 个 `ingest-worker` 实例
 - 若干协议网关实例
 
@@ -488,7 +490,7 @@ Redis 不作为最终事实源。
 
 ## 13. 推荐技术选型
 
-- `backend-core`: Rust + Axum + Tokio
+- `backend-core-rs`: Rust + Axum + Tokio
 - `protocol-gateway`: Rust 或 Go，按协议复杂度选择
 - `event-bus`: EMQX
 - `database`: PostgreSQL + TimescaleDB
@@ -501,7 +503,7 @@ Redis 不作为最终事实源。
 
 ### 第 1 期：可用后端骨架
 
-- 建立 `backend-core`
+- 建立 `backend-core-rs`
 - 建立 `WS /ws/realtime`
 - 建立 `site/bootstrap` 初始化接口
 - 将前端从本地模拟切到后端快照 + WebSocket
@@ -529,7 +531,7 @@ Redis 不作为最终事实源。
 - 协议网关独立
 - EMQX 作为本地事件接入层
 - `ingest-worker` 负责高频摄取和规则处理
-- `backend-core` 负责对前端提供业务 API 和实时推送
+- `backend-core-rs` 负责对前端提供业务 API 和实时推送
 - `PostgreSQL + TimescaleDB` 作为主存储
 - 云端只负责运维、备份和统一管理
 

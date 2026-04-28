@@ -45,7 +45,20 @@ export function WorkspacesSection() {
     [workspaces, selectedWorkspaceId]
   )
   const draft = useStructuredDraft(draftSeed ?? selectedWorkspace, cloneWorkspaceDraft)
+  const persistedWorkspaceForDraft = useMemo(
+    () =>
+      draft.draft
+        ? workspaces.find((workspace) => workspace.id === draft.draft?.id) ?? null
+        : null,
+    [draft.draft, workspaces]
+  )
   const selectedWorkspaceIdFromUrl = searchParams.get('workspaceId')
+  const editorReturnHref = persistedWorkspaceForDraft
+    ? `/admin/workspaces?workspaceId=${encodeURIComponent(persistedWorkspaceForDraft.id)}`
+    : '/admin/workspaces'
+  const editorHref = persistedWorkspaceForDraft
+    ? buildEditorHref(persistedWorkspaceForDraft.slug, editorReturnHref)
+    : null
 
   const loadWorkspaces = useCallback(async () => {
     setIsLoading(true)
@@ -257,9 +270,9 @@ export function WorkspacesSection() {
 
               <AdminInsetBlock className="text-sm text-muted-foreground">
                 <div className="flex items-center justify-between gap-3">
-                  <span>全局编辑入口</span>
-                  <AdminButton asChild>
-                    <Link href={buildEditorHref('/admin/workspaces')}>
+                  <span>当前工作区编辑入口</span>
+                  <AdminButton asChild disabled={!editorHref}>
+                    <Link href={editorHref ?? '/admin/workspaces'}>
                       <ArrowUpRight className="mr-1 h-4 w-4" />
                       打开编辑器
                     </Link>

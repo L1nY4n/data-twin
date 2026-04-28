@@ -192,6 +192,32 @@ describe('runtime ingest helpers', () => {
     })
   })
 
+  test('uses heading for low-degree vehicle yaw when rotation units are ambiguous', () => {
+    const vehicle = createVehicle()
+    const message: PositionUpdateMessage = {
+      entityId: vehicle.id,
+      position: { x: 8, y: 0, z: -2 },
+      rotation: {
+        x: 0,
+        y: 5,
+        z: 0,
+      },
+      speed: 1.8,
+      heading: 5,
+    }
+
+    expect(buildRuntimePositionEntityPatch(vehicle, message)).toEqual({
+      position: { x: 8, y: 0, z: -2 },
+      rotation: {
+        x: 0,
+        y: (5 * Math.PI) / 180,
+        z: 0,
+      },
+      speed: 1.8,
+      heading: 5,
+    })
+  })
+
   test('accepts route-track descriptors from the live simulator contract', () => {
     const vehicle = createVehicle()
     const message: PositionUpdateMessage = {
@@ -319,6 +345,7 @@ describe('runtime ingest helpers', () => {
     ).toEqual({
       id: 'incident-valid',
       kind: 'near_miss',
+      eventType: 'near_miss',
       severity: 'warning',
       title: 'Valid incident',
       summary: 'Summary',
@@ -328,6 +355,41 @@ describe('runtime ingest helpers', () => {
       citations: [{ id: 'citation-1', label: 'source', value: 'simulator' }],
       acknowledged: false,
       timestamp: 123,
+    })
+  })
+
+  test('accepts registry-backed eventType payloads while preserving legacy kind access', () => {
+    expect(
+      resolveRuntimeIncident({
+        incident: {
+          id: 'incident-module-event',
+          eventType: 'custom.domain.temperature_spike',
+          moduleKey: 'chem-inspection',
+          severity: 'error',
+          title: 'Temperature spike',
+          summary: 'Domain event',
+          message: 'Domain event payload',
+          primaryEntityId: 'reactor-01',
+          entityIds: ['reactor-01'],
+          citations: [{ id: 'citation-1', label: 'source', value: 'module' }],
+          acknowledged: false,
+          timestamp: 456,
+        },
+      })
+    ).toEqual({
+      id: 'incident-module-event',
+      kind: 'custom.domain.temperature_spike',
+      eventType: 'custom.domain.temperature_spike',
+      moduleKey: 'chem-inspection',
+      severity: 'error',
+      title: 'Temperature spike',
+      summary: 'Domain event',
+      message: 'Domain event payload',
+      primaryEntityId: 'reactor-01',
+      entityIds: ['reactor-01'],
+      citations: [{ id: 'citation-1', label: 'source', value: 'module' }],
+      acknowledged: false,
+      timestamp: 456,
     })
   })
 })

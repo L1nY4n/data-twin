@@ -22,6 +22,7 @@ import {
 } from 'lucide-react'
 import { useDigitalTwinStore, useSelectedEntity, useSelectedStaticFeature } from '@/lib/digital-twin/store'
 import type { 
+  Entity,
   IncidentVideoFeed,
   DynamicEntity,
   PersonEntity, 
@@ -32,7 +33,10 @@ import type {
   CameraEntity,
   ZoneEntity 
 } from '@/lib/digital-twin/types'
+import type { DynamicEntityPresentation } from '@/lib/digital-twin/entity-schema-registry'
 import type { RuntimePublishedStaticFeature } from '@/lib/digital-twin/runtime/static/features'
+import { createDetailRendererRegistry } from '@/lib/digital-twin/detail-renderer-registry'
+import { resolveRuntimeEventType } from '@/lib/digital-twin/module-registry'
 import { formatAngle, calculatePolygonArea } from '@/lib/digital-twin/spatial-utils'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -60,12 +64,26 @@ const STATUS_CONFIG = {
 }
 
 const STATIC_FEATURE_KIND_LABELS: Record<RuntimePublishedStaticFeature['feature']['kind'], string> = {
+  'admin-building': '行政 / 调度建筑',
+  'cooling-tower': '冷却塔',
+  'emergency-station': '消防应急站',
+  'flare-stack': '火炬排放塔',
+  'fire-water': '消防 / 水处理',
+  'gatehouse': '门岗',
+  'loading-rack': '装车栈台',
+  'logistics-warehouse': '立体仓储',
+  'perimeter-fence': '围界照明',
   'process-train': '工艺列',
   'process-strip': '工艺带',
+  'rail-spur': '铁路支线',
   'service-building': '服务建筑',
+  'solar-canopy': '光伏停车棚',
   'pipe-rack': '管廊',
   'sphere-tank': '球罐',
+  'substation-yard': '变电站场',
+  'truck-parking': '车辆待装区',
   'vertical-tank': '立式储罐',
+  weighbridge: '地磅',
   'pump-manifold': '泵组',
   'wall-system': '墙体 / 隔断',
   'door-system': '门体',
@@ -93,6 +111,63 @@ const CAMERA_TYPE_LABELS: Record<CameraEntity['cameraType'], string> = {
   thermal: '热成像',
 }
 
+type EntityDetailRendererContext = {
+  entity: Entity
+  dynamicPresentation: DynamicEntityPresentation | null
+}
+
+const ENTITY_DETAIL_RENDERERS = createDetailRendererRegistry<
+  Entity['type'],
+  EntityDetailRendererContext
+>([
+  {
+    target: 'person',
+    moduleKey: 'entity-catalog',
+    render: ({ entity }) => (entity.type === 'person' ? <PersonDetails entity={entity} /> : null),
+  },
+  {
+    target: 'vehicle',
+    moduleKey: 'entity-catalog',
+    render: ({ entity }) =>
+      entity.type === 'vehicle' ? <VehicleDetails entity={entity} /> : null,
+  },
+  {
+    target: 'equipment',
+    moduleKey: 'entity-catalog',
+    render: ({ entity }) =>
+      entity.type === 'equipment' ? <EquipmentDetails entity={entity} /> : null,
+  },
+  {
+    target: 'sensor',
+    moduleKey: 'entity-catalog',
+    render: ({ entity }) =>
+      entity.type === 'sensor' ? <SensorDetails entity={entity} /> : null,
+  },
+  {
+    target: 'camera',
+    moduleKey: 'entity-catalog',
+    render: ({ entity }) =>
+      entity.type === 'camera' ? <CameraDetails entity={entity} /> : null,
+  },
+  {
+    target: 'zone',
+    moduleKey: 'entity-catalog',
+    render: ({ entity }) => (entity.type === 'zone' ? <ZoneDetails entity={entity} /> : null),
+  },
+  {
+    target: 'dynamic',
+    moduleKey: 'entity-catalog',
+    render: ({ entity, dynamicPresentation }) =>
+      entity.type === 'dynamic' && dynamicPresentation ? (
+        <DynamicDetails
+          entity={entity}
+          categoryName={dynamicPresentation.categoryLabel}
+          archetypeName={dynamicPresentation.archetypeLabel}
+        />
+      ) : null,
+  },
+])
+
 export function EntityDetailPanel() {
   const entity = useSelectedEntity()
   const staticFeature = useSelectedStaticFeature()
@@ -100,10 +175,10 @@ export function EntityDetailPanel() {
   const setActiveIncident = useDigitalTwinStore((state) => state.setActiveIncident)
   const openIncidentVideo = useDigitalTwinStore((state) => state.openIncidentVideo)
   const acknowledgeIncident = useDigitalTwinStore((state) => state.acknowledgeIncident)
+  const getEventTypeRegistration = useDigitalTwinStore((state) => state.getEventTypeRegistration)
+  const getDynamicEntityPresentation = useDigitalTwinStore((state) => state.getDynamicEntityPresentation)
   const setSelectedEntity = useDigitalTwinStore((state) => state.setSelectedEntity)
   const setSelectedStaticFeature = useDigitalTwinStore((state) => state.setSelectedStaticFeature)
-  const entityCategories = useDigitalTwinStore((state) => state.entityCategories)
-  const entityArchetypes = useDigitalTwinStore((state) => state.entityArchetypes)
 
   const handleClose = () => {
     if (entity) {
@@ -131,10 +206,9 @@ export function EntityDetailPanel() {
   if (!entity) return null
 
   const statusConfig = STATUS_CONFIG[entity.status]
-  const dynamicCategory =
-    entity.type === 'dynamic' ? entityCategories.get(entity.categoryKey) : null
-  const dynamicArchetype =
-    entity.type === 'dynamic' ? entityArchetypes.get(entity.archetypeId) : null
+  const dynamicPresentation =
+    entity.type === 'dynamic' ? getDynamicEntityPresentation(entity) : null
+  const detailRenderer = ENTITY_DETAIL_RENDERERS.resolve(entity.type)
 
   return (
     <ViewerAdminSidePanelBody>
@@ -185,23 +259,15 @@ export function EntityDetailPanel() {
           <Separator />
 
           {/* 类型特定信息 */}
-          {entity.type === 'person' && <PersonDetails entity={entity} />}
-          {entity.type === 'vehicle' && <VehicleDetails entity={entity} />}
-          {entity.type === 'equipment' && <EquipmentDetails entity={entity} />}
-          {entity.type === 'sensor' && <SensorDetails entity={entity} />}
-          {entity.type === 'camera' && <CameraDetails entity={entity} />}
-          {entity.type === 'zone' && <ZoneDetails entity={entity} />}
-          {entity.type === 'dynamic' && (
-            <DynamicDetails
-              entity={entity}
-              categoryName={dynamicCategory?.displayName ?? entity.categoryKey}
-              archetypeName={dynamicArchetype?.displayName ?? entity.archetypeId}
-            />
-          )}
+          {detailRenderer?.render({
+            entity,
+            dynamicPresentation,
+          }) ?? null}
 
           <EntityIncidentDetails
             entityId={entity.id}
             incidents={incidents.filter((incident) => incident.entityIds.includes(entity.id)).slice(0, 4)}
+            getEventTypeRegistration={getEventTypeRegistration}
             onSelectIncident={setActiveIncident}
             onOpenIncidentVideo={(incidentId, feed) => openIncidentVideo(feed, incidentId)}
             onAcknowledgeIncident={acknowledgeIncident}
@@ -263,7 +329,7 @@ function StaticFeatureDetailPanel({
           <ViewerAdminSection icon={Map} title="归属信息">
             <ViewerAdminInfoList>
               <ViewerAdminInfoRow label="Sector" value={sector?.name ?? '全局静态层'} />
-              <ViewerAdminInfoRow label="District" value={feature.districtId} />
+              <ViewerAdminInfoRow label="District" value={feature.districtName} />
               <ViewerAdminInfoRow label="Chunk" value={chunk.label} />
               {feature.variant ? (
                 <ViewerAdminInfoRow label="Variant" value={feature.variant} />
@@ -479,12 +545,14 @@ function CameraDetails({ entity }: { entity: CameraEntity }) {
 function EntityIncidentDetails({
   entityId,
   incidents,
+  getEventTypeRegistration,
   onSelectIncident,
   onOpenIncidentVideo,
   onAcknowledgeIncident,
 }: {
   entityId: string
   incidents: RuntimeIncident[]
+  getEventTypeRegistration: (eventType: string) => { displayName: string } | undefined
   onSelectIncident: (id: string | null) => void
   onOpenIncidentVideo: (incidentId: string, feed: IncidentVideoFeed) => void
   onAcknowledgeIncident: (id: string) => void
@@ -503,61 +571,80 @@ function EntityIncidentDetails({
     <ViewerAdminSection icon={Sparkles} title="事件联动">
       <div className="space-y-2">
         {incidents.map((incident) => (
-          <ViewerAdminSoftCard
-            key={incident.id}
-            className="rounded-xl p-3"
-            onClick={() => onSelectIncident(incident.id)}
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="text-sm font-medium">{incident.title}</div>
-                <div className="mt-1 text-xs text-muted-foreground">{incident.summary}</div>
-              </div>
-              <Badge variant="outline">{incident.severity}</Badge>
-            </div>
+          (() => {
+            const eventType = resolveRuntimeEventType({
+              eventType: incident.eventType,
+              kind: incident.kind,
+            })
+            const eventTypeMeta = eventType
+              ? getEventTypeRegistration(eventType)
+              : null
 
-            <div className="mt-2 flex flex-wrap gap-1">
-              {incident.citations.slice(0, 2).map((citation) => (
-                <Badge key={citation.id} variant="secondary" className="text-[10px]">
-                  {citation.label}: {citation.value}
-                </Badge>
-              ))}
-            </div>
+            return (
+              <ViewerAdminSoftCard
+                key={incident.id}
+                className="rounded-xl p-3"
+                onClick={() => onSelectIncident(incident.id)}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-medium">{incident.title}</div>
+                    <div className="mt-1 text-xs text-muted-foreground">{incident.summary}</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {eventType ? (
+                      <Badge variant="secondary" className="text-[10px]">
+                        {eventTypeMeta?.displayName ?? eventType}
+                      </Badge>
+                    ) : null}
+                    <Badge variant="outline">{incident.severity}</Badge>
+                  </div>
+                </div>
 
-            <div className="mt-3 flex items-center justify-between gap-3">
-              <div className="text-[10px] text-muted-foreground">
-                {new Date(incident.timestamp).toLocaleString('zh-CN')} ·
-                {incident.entityIds.includes(entityId) ? ' 已绑定当前对象' : ' 关联事件'}
-              </div>
-              {incident.videoFeed && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-7 px-2 text-xs"
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    onOpenIncidentVideo(incident.id, incident.videoFeed!)
-                  }}
-                >
-                  <MonitorPlay className="mr-1 h-3.5 w-3.5" />
-                  视频
-                </Button>
-              )}
-              {!incident.acknowledged && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 px-2 text-xs"
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    onAcknowledgeIncident(incident.id)
-                  }}
-                >
-                  确认
-                </Button>
-              )}
-            </div>
-          </ViewerAdminSoftCard>
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {incident.citations.slice(0, 2).map((citation) => (
+                    <Badge key={citation.id} variant="secondary" className="text-[10px]">
+                      {citation.label}: {citation.value}
+                    </Badge>
+                  ))}
+                </div>
+
+                <div className="mt-3 flex items-center justify-between gap-3">
+                  <div className="text-[10px] text-muted-foreground">
+                    {new Date(incident.timestamp).toLocaleString('zh-CN')} ·
+                    {incident.entityIds.includes(entityId) ? ' 已绑定当前对象' : ' 关联事件'}
+                  </div>
+                  {incident.videoFeed && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 px-2 text-xs"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        onOpenIncidentVideo(incident.id, incident.videoFeed!)
+                      }}
+                    >
+                      <MonitorPlay className="mr-1 h-3.5 w-3.5" />
+                      视频
+                    </Button>
+                  )}
+                  {!incident.acknowledged && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-xs"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        onAcknowledgeIncident(incident.id)
+                      }}
+                    >
+                      确认
+                    </Button>
+                  )}
+                </div>
+              </ViewerAdminSoftCard>
+            )
+          })()
         ))}
       </div>
     </ViewerAdminSection>

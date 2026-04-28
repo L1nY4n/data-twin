@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
 import { isRuntimeIncidentActive } from '@/lib/digital-twin/incident-utils'
+import { resolveRuntimeEventType } from '@/lib/digital-twin/module-registry'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -80,6 +81,7 @@ export function BottomPanel() {
   const focusCameraOnEntity = useDigitalTwinStore((state) => state.focusCameraOnEntity)
   const acknowledgeIncident = useDigitalTwinStore((state) => state.acknowledgeIncident)
   const acknowledgeAlarm = useDigitalTwinStore((state) => state.acknowledgeAlarm)
+  const getEventTypeRegistration = useDigitalTwinStore((state) => state.getEventTypeRegistration)
   const entityDirectory = useDigitalTwinStore((state) => state.entityDirectory)
   const ruleMap = useDigitalTwinStore((state) => state.rules)
   const rules = useMemo(() => Array.from(ruleMap.values()), [ruleMap])
@@ -216,6 +218,13 @@ export function BottomPanel() {
                       incidents.map((incident) => {
                         const Icon = ALARM_ICON_MAP[incident.severity]
                         const color = ALARM_COLOR_MAP[incident.severity]
+                        const eventType = resolveRuntimeEventType({
+                          eventType: incident.eventType,
+                          kind: incident.kind,
+                        })
+                        const eventTypeMeta = eventType
+                          ? getEventTypeRegistration(eventType)
+                          : null
                         return (
                           <ViewerAdminSoftCard
                             key={incident.id}
@@ -236,7 +245,7 @@ export function BottomPanel() {
                                 <div className="flex items-center gap-2">
                                   <p className="text-sm font-medium">{incident.title}</p>
                                   <Badge variant="outline" className="text-[10px]">
-                                    {incident.kind}
+                                    {eventTypeMeta?.displayName ?? eventType ?? incident.kind}
                                   </Badge>
                                 </div>
                                 <p className="mt-1 text-xs text-muted-foreground">{incident.summary}</p>

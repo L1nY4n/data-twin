@@ -2,14 +2,14 @@ import { describe, expect, test } from 'bun:test'
 import { aggregatePoolMetrics, getFrameDrawCallSample } from './performance-runtime'
 
 describe('performance runtime helpers', () => {
-  test('derives frame draw calls from a cumulative renderer counter', () => {
+  test('samples frame draw calls from the renderer frame counter', () => {
     expect(getFrameDrawCallSample(820, 1000)).toEqual({
-      drawCalls: 180,
+      drawCalls: 1000,
       previousRawDrawCalls: 1000,
     })
   })
 
-  test('falls back to the raw draw count when the renderer counter resets', () => {
+  test('keeps direct frame draw call samples when they drop between frames', () => {
     expect(getFrameDrawCallSample(1000, 140)).toEqual({
       drawCalls: 140,
       previousRawDrawCalls: 140,

@@ -13,6 +13,7 @@ import { createPublishedStaticPalette } from '@/components/digital-twin/scene/pa
 import { SpaceGrid } from '@/components/digital-twin/scene/SpaceGrid'
 import { SceneLoading } from '@/components/digital-twin/scene/SceneLoading'
 import { createPreferredRenderer } from '@/lib/digital-twin/renderer/createPreferredRenderer'
+import { useEditorPreviewStore } from '@/lib/digital-twin/editor-preview-store'
 import {
   type EditorTransformMode,
   getEditorViewerState,
@@ -26,6 +27,7 @@ import { getStaticAssetCatalogItem } from '@/lib/digital-twin/static-asset-catal
 import type { Vector3 } from '@/lib/digital-twin/types'
 import { EditorAuthoredStaticAssetLayer } from './scene/EditorAuthoredStaticAssetLayer'
 import { EditorEntityLayer } from './scene/EditorEntityLayer'
+import { EditorFloorPlanOverlay } from './scene/EditorFloorPlanOverlay'
 import { EditorScenePicking } from './scene/EditorScenePicking'
 import { EditorStaticEnvironment } from './scene/EditorStaticEnvironment'
 import { EditorTransformGizmo } from './scene/EditorTransformGizmo'
@@ -33,7 +35,9 @@ import {
   installEditorDragCheckBridge,
   setEditorDragCheckCameraProvider,
   setEditorDragCheckPrepareTargetProvider,
+  setEditorDragCheckSelectTargetProvider,
   setEditorDragCheckSelectionProvider,
+  setEditorDragCheckStoreProvider,
 } from './scene/editor-drag-check-bridge'
 
 type EditorOrbitMouseButtons = {
@@ -100,6 +104,7 @@ function EditorOrbitControls({
   minDistance,
   minPolarAngle,
   mouseButtons,
+  onInteractionChange,
   onRest,
   target,
 }: {
@@ -111,8 +116,9 @@ function EditorOrbitControls({
   minDistance: number
   minPolarAngle?: number
   mouseButtons: EditorOrbitMouseButtons
+  onInteractionChange?: (active: boolean) => void
   onRest: () => void
-  target: [number, number, number]
+  target: Vector3
 }) {
   const camera = useThree((state) => state.camera)
   const gl = useThree((state) => state.gl)
@@ -121,11 +127,28 @@ function EditorOrbitControls({
   const set = useThree((state) => state.set)
   const controls = useMemo(() => new OrbitControlsImpl(camera, gl.domElement), [camera, gl])
   const onRestRef = useRef(onRest)
+  const onInteractionChangeRef = useRef(onInteractionChange)
   const settleRequestedRef = useRef(false)
+  const interactionActiveRef = useRef(false)
+  const pendingTargetRef = useRef<Vector3 | null>(null)
+
+  const syncControlsTarget = useCallback(
+    (nextTarget: Vector3) => {
+      if (controls.target.equals(nextTarget as THREE.Vector3)) return
+      controls.target.set(nextTarget.x, nextTarget.y, nextTarget.z)
+      controls.update()
+      invalidate()
+    },
+    [controls, invalidate]
+  )
 
   useEffect(() => {
     onRestRef.current = onRest
   }, [onRest])
+
+  useEffect(() => {
+    onInteractionChangeRef.current = onInteractionChange
+  }, [onInteractionChangeRef, onInteractionChange])
 
   useEffect(() => {
     controlsRef.current = controls
@@ -162,8 +185,6 @@ function EditorOrbitControls({
     controls.minPolarAngle = minPolarAngle ?? 0
     controls.maxPolarAngle = maxPolarAngle ?? Math.PI
     controls.mouseButtons = mouseButtons
-    controls.target.set(target[0], target[1], target[2])
-    controls.update()
     invalidate()
   }, [
     controls,
@@ -173,50 +194,56 @@ function EditorOrbitControls({
     minDistance,
     minPolarAngle,
     mouseButtons,
-    target,
   ])
 
   useEffect(() => {
-    let rafId: number | null = null
+    const nextTarget = { x: target.x, y: target.y, z: target.z }
+    if (interactionActiveRef.current) {
+      pendingTargetRef.current = nextTarget
+      return
+    }
 
-    const finishSettledInteraction = () => {
-      if (!settleRequestedRef.current) return
+    pendingTargetRef.current = null
+    syncControlsTarget(nextTarget)
+  }, [syncControlsTarget, target.x, target.y, target.z])
+
+  useFrame(() => {
+    if (!controls.enabled) {
       settleRequestedRef.current = false
-      onRestRef.current()
+      return
     }
 
-    const stepControls = () => {
-      rafId = null
-      if (!controls.enabled) {
-        settleRequestedRef.current = false
-        return
-      }
-      const controlsChanged = (controls.update as () => boolean)()
-      if (controlsChanged) {
-        invalidate()
-        rafId = window.requestAnimationFrame(stepControls)
-        return
-      }
-      finishSettledInteraction()
+    const controlsChanged = (controls.update as () => boolean)()
+    if (controlsChanged) {
+      invalidate()
+      return
     }
 
-    const scheduleControlsStep = () => {
-      if (rafId !== null) return
-      rafId = window.requestAnimationFrame(stepControls)
-    }
+    if (!settleRequestedRef.current) return
+    settleRequestedRef.current = false
+    onRestRef.current()
+  }, -1)
 
+  useEffect(() => {
     const handleChange = () => {
       invalidate()
     }
 
     const handleStart = () => {
+      interactionActiveRef.current = true
+      onInteractionChangeRef.current?.(true)
       settleRequestedRef.current = false
-      scheduleControlsStep()
     }
 
     const handleEnd = () => {
+      interactionActiveRef.current = false
+      onInteractionChangeRef.current?.(false)
+      if (pendingTargetRef.current) {
+        syncControlsTarget(pendingTargetRef.current)
+        pendingTargetRef.current = null
+      }
       settleRequestedRef.current = true
-      scheduleControlsStep()
+      invalidate()
     }
 
     controls.addEventListener('change', handleChange)
@@ -224,15 +251,15 @@ function EditorOrbitControls({
     controls.addEventListener('end', handleEnd)
 
     return () => {
-      if (rafId !== null) {
-        window.cancelAnimationFrame(rafId)
-      }
       controls.removeEventListener('change', handleChange)
       controls.removeEventListener('start', handleStart)
       controls.removeEventListener('end', handleEnd)
+      onInteractionChangeRef.current?.(false)
+      interactionActiveRef.current = false
+      pendingTargetRef.current = null
       controls.dispose()
     }
-  }, [controls, invalidate])
+  }, [controls, invalidate, syncControlsTarget])
 
   return <primitive object={controls} />
 }
@@ -309,10 +336,20 @@ const EditorSceneContent = memo(function EditorSceneContent({
     position: Vector3
     target: Vector3
   } | null>(null)
+  const orbitInteractionActiveRef = useRef(false)
+  const pendingCameraPositionRef = useRef<Vector3 | null>(null)
   const lockedCameraPoseRef = useRef<{
     position: Vector3
     target: Vector3
   } | null>(null)
+  const editorCameraPositionArray = useMemo<[number, number, number]>(
+    () => [
+      editorCameraPosition.x,
+      editorCameraPosition.y,
+      editorCameraPosition.z,
+    ],
+    [editorCameraPosition.x, editorCameraPosition.y, editorCameraPosition.z]
+  )
   const environmentFile = isDark
     ? '/hdr/dikhololo_night_1k.hdr'
     : '/hdr/potsdamer_platz_1k.hdr'
@@ -326,6 +363,38 @@ const EditorSceneContent = memo(function EditorSceneContent({
         selectedTargetId: state.selectedStaticAssetId ?? state.selectedEntityId,
         selectedTargetKind: state.draftStaticAsset ? 'static-asset' : state.draftEntity?.type ?? null,
         transformMode: state.transformMode,
+        isTransformDragging: state.isTransformDragging,
+      }
+    })
+
+    setEditorDragCheckStoreProvider(() => {
+      const state = useEditorDigitalTwinStore.getState()
+      const previewState = useEditorPreviewStore.getState()
+      return {
+        selectedStaticAssetId: state.selectedStaticAssetId,
+        draftStaticAssetId: state.draftStaticAsset?.id ?? null,
+        savedStaticAssetId: state.savedStaticAsset?.id ?? null,
+        draftStaticAssetPosition: state.draftStaticAsset
+          ? {
+              x: state.draftStaticAsset.position.x,
+              y: state.draftStaticAsset.position.y,
+              z: state.draftStaticAsset.position.z,
+            }
+          : null,
+        savedStaticAssetPosition: state.savedStaticAsset
+          ? {
+              x: state.savedStaticAsset.position.x,
+              y: state.savedStaticAsset.position.y,
+              z: state.savedStaticAsset.position.z,
+            }
+          : null,
+        transformPreviewPosition: previewState.transformPreview
+          ? {
+              x: previewState.transformPreview.position.x,
+              y: previewState.transformPreview.position.y,
+              z: previewState.transformPreview.position.z,
+            }
+          : null,
         isTransformDragging: state.isTransformDragging,
       }
     })
@@ -396,15 +465,37 @@ const EditorSceneContent = memo(function EditorSceneContent({
       }
     })
 
+    setEditorDragCheckSelectTargetProvider((targetId, transformMode = 'translate') => {
+      const state = useEditorDigitalTwinStore.getState()
+      const staticAsset = state.staticAssets.get(targetId)
+      if (staticAsset) {
+        state.selectStaticAsset(targetId)
+      } else if (state.entities.has(targetId)) {
+        state.selectEntity(targetId)
+      } else {
+        return null
+      }
+
+      useEditorDigitalTwinStore.getState().setTransformMode(transformMode)
+      const next = useEditorDigitalTwinStore.getState()
+      return {
+        selectedTargetId: next.selectedStaticAssetId ?? next.selectedEntityId,
+        transformMode: next.transformMode,
+      }
+    })
+
     return () => {
       setEditorDragCheckSelectionProvider(null)
+      setEditorDragCheckStoreProvider(null)
       setEditorDragCheckCameraProvider(null)
       setEditorDragCheckPrepareTargetProvider(null)
+      setEditorDragCheckSelectTargetProvider(null)
     }
   }, [])
 
   useEffect(() => {
     if (!cameraFocusRequest) return
+    pendingCameraPositionRef.current = null
     focusAnimationRef.current = {
       position: cameraFocusRequest.position,
       target: cameraFocusRequest.target,
@@ -419,31 +510,65 @@ const EditorSceneContent = memo(function EditorSceneContent({
         ? orthographicCameraRef.current
         : perspectiveCameraRef.current
     const controls = controlsRef.current
-    if (!activeCamera || !controls || focusAnimationRef.current) return
+    if (!activeCamera || !controls || focusAnimationRef.current || isTransformDragging) return
+
+    if (orbitInteractionActiveRef.current) {
+      pendingCameraPositionRef.current = {
+        x: editorCameraPosition.x,
+        y: editorCameraPosition.y,
+        z: editorCameraPosition.z,
+      }
+      return
+    }
 
     activeCamera.position.set(
       editorCameraPosition.x,
       editorCameraPosition.y,
       editorCameraPosition.z
     )
-    controls.target.set(
-      editorCameraTarget.x,
-      editorCameraTarget.y,
-      editorCameraTarget.z
-    )
     activeCamera.updateProjectionMatrix()
     controls.update()
+    invalidate()
   }, [
     editorCameraPosition.x,
     editorCameraPosition.y,
     editorCameraPosition.z,
-    editorCameraTarget.x,
-    editorCameraTarget.y,
-    editorCameraTarget.z,
-    isMarqueeSelecting,
+    invalidate,
     isTransformDragging,
     viewportProjection,
   ])
+
+  const handleOrbitInteractionChange = useCallback(
+    (active: boolean) => {
+      orbitInteractionActiveRef.current = active
+
+      if (active || focusAnimationRef.current || isTransformDragging) {
+        return
+      }
+
+      const nextCameraPosition = pendingCameraPositionRef.current
+      const activeCamera =
+        viewportProjection === 'orthographic'
+          ? orthographicCameraRef.current
+          : perspectiveCameraRef.current
+      const controls = controlsRef.current
+
+      if (!nextCameraPosition || !activeCamera || !controls) {
+        return
+      }
+
+      pendingCameraPositionRef.current = null
+      activeCamera.position.set(
+        nextCameraPosition.x,
+        nextCameraPosition.y,
+        nextCameraPosition.z
+      )
+      activeCamera.updateProjectionMatrix()
+      controls.update()
+      invalidate()
+    },
+    [invalidate, isTransformDragging, viewportProjection]
+  )
 
   useEffect(() => {
     if (!isTransformDragging) {
@@ -458,8 +583,8 @@ const EditorSceneContent = memo(function EditorSceneContent({
     const controls = controlsRef.current
     if (!activeCamera || !controls || lockedCameraPoseRef.current) return
 
-    // OrbitControls can still advance the camera during the same gesture that
-    // TransformControls claims, so pin the pose for the active gizmo drag.
+    // The current React/store-driven editor still needs pose pinning while a
+    // gizmo owns the pointer, even after orbit controls are disabled.
     lockedCameraPoseRef.current = {
       position: {
         x: activeCamera.position.x,
@@ -495,7 +620,12 @@ const EditorSceneContent = memo(function EditorSceneContent({
         lockedPose.target.z
       )
       activeCamera.updateProjectionMatrix()
-      controls.update()
+      activeCamera.lookAt(
+        lockedPose.target.x,
+        lockedPose.target.y,
+        lockedPose.target.z
+      )
+      activeCamera.updateMatrixWorld()
       return
     }
 
@@ -586,21 +716,13 @@ const EditorSceneContent = memo(function EditorSceneContent({
       <PerspectiveCamera
         ref={perspectiveCameraRef}
         makeDefault={viewportProjection === 'perspective'}
-        position={[
-          editorCameraPosition.x,
-          editorCameraPosition.y,
-          editorCameraPosition.z,
-        ]}
+        position={editorCameraPositionArray}
         fov={50}
       />
       <OrthographicCamera
         ref={orthographicCameraRef}
         makeDefault={viewportProjection === 'orthographic'}
-        position={[
-          editorCameraPosition.x,
-          editorCameraPosition.y,
-          editorCameraPosition.z,
-        ]}
+        position={editorCameraPositionArray}
         zoom={32}
         near={0.1}
         far={1200}
@@ -615,12 +737,9 @@ const EditorSceneContent = memo(function EditorSceneContent({
         minDistance={8}
         maxDistance={320}
         maxPolarAngle={Math.PI / 2.05}
+        onInteractionChange={handleOrbitInteractionChange}
         onRest={persistCameraPose}
-        target={[
-          editorCameraTarget.x,
-          editorCameraTarget.y,
-          editorCameraTarget.z,
-        ]}
+        target={editorCameraTarget}
       />
 
       <SpaceGrid
@@ -636,6 +755,8 @@ const EditorSceneContent = memo(function EditorSceneContent({
         publishedScenePackage={publishedScenePackage}
       />
 
+      <EditorFloorPlanOverlay />
+
       <group ref={pickRootRef}>
         <EditorAuthoredStaticAssetLayer palette={palette} />
         <EditorEntityLayer />
@@ -649,7 +770,6 @@ const EditorSceneContent = memo(function EditorSceneContent({
             : perspectiveCameraRef.current ?? orthographicCameraRef.current ?? sceneCamera
         }
         domElement={gl.domElement}
-        orbitControlsRef={controlsRef}
       />
     </>
   )

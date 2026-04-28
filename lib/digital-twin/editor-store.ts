@@ -6,7 +6,7 @@ import {
   cloneStaticAssetDraft,
 } from './admin-view-models'
 import { generateId } from './mock-data'
-import { DEFAULT_PUBLISHED_SCENE_PACKAGE, type PublishedScenePackage } from './publish'
+import type { PublishedScenePackage } from './publish'
 import { createStaticAssetTemplateFromCatalog } from './static-asset-catalog'
 import type {
   CameraPreset,
@@ -15,6 +15,8 @@ import type {
   StaticAssetPlacement,
   StaticAssetPlacementPreview,
   StaticAssetInstance,
+  VehicleRouteLike,
+  VehicleTrackLike,
   Vector3,
   ViewMode,
 } from './types'
@@ -24,11 +26,15 @@ export type EditorSelectionKind = 'entity' | 'static-asset'
 export type EditorViewportProjection = 'perspective' | 'orthographic'
 export type EditorCameraDirection = 'north' | 'east' | 'south' | 'west' | 'top'
 
-interface TransformSnapshot {
+export interface EditorTransformSnapshot {
   position: Vector3
   rotation: Vector3
   scale: Vector3
+  routeTrack?: VehicleTrackLike
+  trackPosition?: VehicleRouteLike
 }
+
+type TransformSnapshot = EditorTransformSnapshot
 
 interface CameraFocusRequest {
   position: Vector3
@@ -42,12 +48,21 @@ interface EditorSelectionMarquee {
   height: number
 }
 
+export interface EditorFloorPlanReference {
+  src: string
+  label: string
+  position: Vector3
+  scaleMeters: number
+  opacity: number
+  visible: boolean
+}
+
 interface HydrateEditorOptions {
   preserveEditorCameraPose?: boolean
 }
 
 type TransformableDraft = Entity | StaticAssetInstance
-type TransformField = keyof TransformSnapshot
+type TransformField = 'position' | 'rotation' | 'scale'
 type EditableDraftPatch = Pick<TransformableDraft, 'name' | 'visible'>
 
 interface EditorDigitalTwinState {
@@ -69,12 +84,13 @@ interface EditorDigitalTwinState {
   activeCameraPreset: string | null
   editorCameraPosition: Vector3
   editorCameraTarget: Vector3
+  hasHydratedFromBootstrap: boolean
   cameraFocusRequest: CameraFocusRequest | null
   snapEnabled: boolean
   translateSnap: number
   rotateSnapDegrees: number
+  floorPlanReference: EditorFloorPlanReference | null
   placementPreview: StaticAssetPlacementPreview | null
-  transformPreview: TransformSnapshot | null
   draftEntity: Entity | null
   savedEntity: Entity | null
   draftStaticAsset: StaticAssetInstance | null
@@ -119,8 +135,9 @@ interface EditorDigitalTwinActions {
   setSnapEnabled: (enabled: boolean) => void
   setTranslateSnap: (value: number) => void
   setRotateSnapDegrees: (value: number) => void
+  setFloorPlanReference: (reference: EditorFloorPlanReference | null) => void
+  updateFloorPlanReference: (patch: Partial<EditorFloorPlanReference>) => void
   setPlacementPreview: (placement: StaticAssetPlacementPreview | null) => void
-  setTransformPreview: (preview: TransformSnapshot | null) => void
   setTransformDragging: (dragging: boolean) => void
   setMarqueeSelecting: (selecting: boolean) => void
   setSelectionMarquee: (marquee: EditorSelectionMarquee | null) => void
@@ -196,6 +213,7 @@ export type EditorViewerStoreSlice = Pick<
   | 'activeCameraPreset'
   | 'editorCameraPosition'
   | 'editorCameraTarget'
+  | 'hasHydratedFromBootstrap'
   | 'cameraFocusRequest'
   | 'selectEntity'
   | 'selectStaticAsset'
@@ -216,8 +234,9 @@ export type EditorUiStoreSlice = Pick<
   | 'snapEnabled'
   | 'translateSnap'
   | 'rotateSnapDegrees'
+  | 'floorPlanReference'
   | 'placementPreview'
-  | 'transformPreview'
+  | 'hasHydratedFromBootstrap'
   | 'isLoading'
   | 'isSaving'
   | 'isTransformDragging'
@@ -232,8 +251,9 @@ export type EditorUiStoreSlice = Pick<
   | 'setSnapEnabled'
   | 'setTranslateSnap'
   | 'setRotateSnapDegrees'
+  | 'setFloorPlanReference'
+  | 'updateFloorPlanReference'
   | 'setPlacementPreview'
-  | 'setTransformPreview'
   | 'setTransformDragging'
   | 'setMarqueeSelecting'
   | 'setSelectionMarquee'
@@ -298,8 +318,64 @@ function cloneCameraPresets(presets: CameraPreset[]) {
   return presets.map(cloneCameraPreset)
 }
 
+const EDITOR_EMPTY_SCENE_CONFIG: SceneConfig = {
+  id: 'editor-loading-workspace',
+  name: '加载编辑工作区',
+  gridSize: 120,
+  gridDivisions: 24,
+  backgroundColor: '#09131d',
+  ambientLightIntensity: 0.82,
+  showAxes: true,
+  showGrid: true,
+  cameraPosition: { x: 48, y: 32, z: 48 },
+  cameraTarget: { x: 0, y: 0, z: 0 },
+}
+
+const EDITOR_EMPTY_CAMERA_PRESETS: CameraPreset[] = [
+  {
+    id: 'editor-default',
+    name: '编辑器默认视角',
+    position: cloneVector(EDITOR_EMPTY_SCENE_CONFIG.cameraPosition),
+    target: cloneVector(EDITOR_EMPTY_SCENE_CONFIG.cameraTarget),
+    fov: 50,
+  },
+]
+
+export const EDITOR_EMPTY_PUBLISHED_SCENE_PACKAGE: PublishedScenePackage = {
+  schemaVersion: 1,
+  sceneId: 'editor-loading-workspace',
+  profile: 'default',
+  generatedAt: '1970-01-01T00:00:00.000Z',
+  source: 'working-snapshot',
+  staticAssetManifestUrl: '/generated/published-static/empty-manifest.json',
+  bounds: {
+    min: { x: -60, y: 0, z: -60 },
+    max: { x: 60, y: 60, z: 60 },
+  },
+  sceneConfig: {
+    ...EDITOR_EMPTY_SCENE_CONFIG,
+    cameraPosition: cloneVector(EDITOR_EMPTY_SCENE_CONFIG.cameraPosition),
+    cameraTarget: cloneVector(EDITOR_EMPTY_SCENE_CONFIG.cameraTarget),
+  },
+  sectors: [],
+  staticChunks: [],
+  interactionLayers: [],
+  zoneOverlays: [],
+  dynamicLayers: [],
+  routingLayers: [],
+  cameraPresets: cloneCameraPresets(EDITOR_EMPTY_CAMERA_PRESETS),
+  entityCounts: {
+    default: { persons: 0, vehicles: 0, equipment: 0 },
+    production: { persons: 0, vehicles: 0, equipment: 0 },
+  },
+}
+
 function snapNumber(value: number, step: number) {
   return Math.round(value / step) * step
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value))
 }
 
 function createDirectionalFocusRequest(
@@ -349,32 +425,49 @@ function createDirectionalFocusRequest(
 }
 
 function createTransformSnapshot(value: TransformableDraft): TransformSnapshot {
-  return {
+  const snapshot: TransformSnapshot = {
     position: cloneVector(value.position),
     rotation: cloneVector(value.rotation),
     scale: cloneVector(value.scale),
   }
-}
 
-function cloneTransformSnapshot(snapshot: TransformSnapshot): TransformSnapshot {
-  return {
-    position: cloneVector(snapshot.position),
-    rotation: cloneVector(snapshot.rotation),
-    scale: cloneVector(snapshot.scale),
+  if ('type' in value && value.type === 'vehicle') {
+    snapshot.routeTrack = value.routeTrack
+      ? JSON.parse(JSON.stringify(value.routeTrack))
+      : undefined
+    snapshot.trackPosition = value.trackPosition
+      ? JSON.parse(JSON.stringify(value.trackPosition))
+      : undefined
   }
+
+  return snapshot
 }
 
 function applyTransformSnapshot<T extends TransformableDraft>(
   value: T,
   snapshot: TransformSnapshot
 ): T {
-  return {
+  const nextValue = {
     ...value,
     position: cloneVector(snapshot.position),
     rotation: cloneVector(snapshot.rotation),
     scale: cloneVector(snapshot.scale),
     updatedAt: Date.now(),
+  } as T
+
+  if ('type' in nextValue && nextValue.type === 'vehicle') {
+    return {
+      ...nextValue,
+      routeTrack: snapshot.routeTrack
+        ? JSON.parse(JSON.stringify(snapshot.routeTrack))
+        : undefined,
+      trackPosition: snapshot.trackPosition
+        ? JSON.parse(JSON.stringify(snapshot.trackPosition))
+        : undefined,
+    }
   }
+
+  return nextValue
 }
 
 function areVectorsEqual(left: Vector3, right: Vector3) {
@@ -385,7 +478,9 @@ function hasSnapshotChanged(left: TransformSnapshot, right: TransformSnapshot) {
   return (
     !areVectorsEqual(left.position, right.position) ||
     !areVectorsEqual(left.rotation, right.rotation) ||
-    !areVectorsEqual(left.scale, right.scale)
+    !areVectorsEqual(left.scale, right.scale) ||
+    JSON.stringify(left.routeTrack ?? null) !== JSON.stringify(right.routeTrack ?? null) ||
+    JSON.stringify(left.trackPosition ?? null) !== JSON.stringify(right.trackPosition ?? null)
   )
 }
 
@@ -398,8 +493,30 @@ function hasEditableDraftChanged(
     current.name !== saved.name ||
     current.visible !== saved.visible ||
     JSON.stringify(current.metadata ?? {}) !== JSON.stringify(saved.metadata ?? {}) ||
+    ('type' in current && current.type === 'vehicle'
+      ? JSON.stringify(current.routeTrack ?? null) !==
+          JSON.stringify(
+            'type' in saved && saved.type === 'vehicle' ? saved.routeTrack ?? null : null
+          ) ||
+        JSON.stringify(current.trackPosition ?? null) !==
+          JSON.stringify(
+            'type' in saved && saved.type === 'vehicle' ? saved.trackPosition ?? null : null
+          )
+      : false) ||
     hasSnapshotChanged(createTransformSnapshot(current), createTransformSnapshot(saved))
   )
+}
+
+function detachVehicleRoutingFromDraft<T extends TransformableDraft>(draft: T): T {
+  if (!('type' in draft) || draft.type !== 'vehicle') {
+    return draft
+  }
+
+  return {
+    ...draft,
+    routeTrack: undefined,
+    trackPosition: undefined,
+  }
 }
 
 function getActiveDraft(state: EditorDigitalTwinState): TransformableDraft | null {
@@ -432,7 +549,6 @@ function clearSelectionState(sceneDirty = false) {
   return {
     placementCatalogId: null,
     placementPreview: null,
-    transformPreview: null,
     selectedEntityId: null,
     selectedStaticAssetId: null,
     draftEntity: null,
@@ -453,10 +569,10 @@ function cloneEditableEntitySelection(entity: Entity | null) {
   return cloneEntityDraft(entity)
 }
 
-const defaultPublishedScenePackage = DEFAULT_PUBLISHED_SCENE_PACKAGE
+const defaultPublishedScenePackage = EDITOR_EMPTY_PUBLISHED_SCENE_PACKAGE
 const defaultCameraPresets = cloneCameraPresets(defaultPublishedScenePackage.cameraPresets)
-const DEFAULT_TRANSLATE_SNAP = 1
-const DEFAULT_ROTATE_SNAP_DEGREES = 15
+const DEFAULT_TRANSLATE_SNAP = 0.25
+const DEFAULT_ROTATE_SNAP_DEGREES = 5
 
 const initialState: EditorDigitalTwinState = {
   publishedScenePackage: defaultPublishedScenePackage,
@@ -477,12 +593,13 @@ const initialState: EditorDigitalTwinState = {
   activeCameraPreset: defaultCameraPresets[0]?.id ?? null,
   editorCameraPosition: cloneVector(defaultPublishedScenePackage.sceneConfig.cameraPosition),
   editorCameraTarget: cloneVector(defaultPublishedScenePackage.sceneConfig.cameraTarget),
+  hasHydratedFromBootstrap: false,
   cameraFocusRequest: null,
   snapEnabled: false,
   translateSnap: DEFAULT_TRANSLATE_SNAP,
   rotateSnapDegrees: DEFAULT_ROTATE_SNAP_DEGREES,
+  floorPlanReference: null,
   placementPreview: null,
-  transformPreview: null,
   draftEntity: null,
   savedEntity: null,
   draftStaticAsset: null,
@@ -536,6 +653,7 @@ export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, ge
             : cameraPresets[0]?.id ?? null,
           editorCameraPosition,
           editorCameraTarget,
+          hasHydratedFromBootstrap: true,
           cameraFocusRequest: null,
           entities,
           staticAssets,
@@ -553,7 +671,7 @@ export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, ge
           savedEntity: null,
           draftStaticAsset: cloneStaticAssetDraft(selectedStaticAsset),
           savedStaticAsset: cloneStaticAssetDraft(selectedStaticAsset),
-          transformPreview: null,
+          floorPlanReference: null,
           transformSessionStart: null,
           history: [],
           redoHistory: [],
@@ -577,6 +695,7 @@ export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, ge
           : cameraPresets[0]?.id ?? null,
         editorCameraPosition,
         editorCameraTarget,
+        hasHydratedFromBootstrap: true,
         cameraFocusRequest: null,
         entities,
         staticAssets,
@@ -594,7 +713,7 @@ export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, ge
         savedEntity: editableSelection ? cloneEntityDraft(editableSelection) : null,
         draftStaticAsset: null,
         savedStaticAsset: null,
-        transformPreview: null,
+        floorPlanReference: null,
         transformSessionStart: null,
         history: [],
         redoHistory: [],
@@ -627,7 +746,6 @@ export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, ge
         savedEntity: cloneEntityDraft(draftEntity),
         draftStaticAsset: null,
         savedStaticAsset: null,
-        transformPreview: null,
         transformSessionStart: null,
         history: [],
         redoHistory: [],
@@ -663,7 +781,6 @@ export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, ge
         savedStaticAsset: state.staticAssets.has(id)
           ? cloneStaticAssetDraft(staticAsset)
           : null,
-        transformPreview: null,
         transformSessionStart: null,
         history: [],
         redoHistory: [],
@@ -679,7 +796,6 @@ export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, ge
     set({
       placementCatalogId: catalogId,
       placementPreview: null,
-      transformPreview: null,
     }),
 
   placeStaticAsset: (placement) => {
@@ -700,7 +816,6 @@ export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, ge
       savedEntity: null,
       draftStaticAsset,
       savedStaticAsset: null,
-      transformPreview: null,
       transformSessionStart: null,
       history: [],
       redoHistory: [],
@@ -791,17 +906,37 @@ export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, ge
     set({ translateSnap: Math.max(0.1, translateSnap) }),
   setRotateSnapDegrees: (rotateSnapDegrees) =>
     set({ rotateSnapDegrees: Math.max(1, rotateSnapDegrees) }),
-  setPlacementPreview: (placementPreview) => set({ placementPreview }),
-  setTransformPreview: (transformPreview) =>
+  setFloorPlanReference: (floorPlanReference) =>
     set({
-      transformPreview: transformPreview ? cloneTransformSnapshot(transformPreview) : null,
+      floorPlanReference: floorPlanReference
+        ? {
+            ...floorPlanReference,
+            scaleMeters: Math.max(1, floorPlanReference.scaleMeters),
+            opacity: clampNumber(floorPlanReference.opacity, 0.05, 1),
+          }
+        : null,
     }),
-  setTransformDragging: (dragging) =>
-    set(
-      dragging
-        ? { isTransformDragging: true }
-        : { isTransformDragging: false, transformPreview: null }
-    ),
+  updateFloorPlanReference: (patch) =>
+    set((state) => {
+      if (!state.floorPlanReference) return state
+
+      return {
+        floorPlanReference: {
+          ...state.floorPlanReference,
+          ...patch,
+          scaleMeters:
+            typeof patch.scaleMeters === 'number'
+              ? Math.max(1, patch.scaleMeters)
+              : state.floorPlanReference.scaleMeters,
+          opacity:
+            typeof patch.opacity === 'number'
+              ? clampNumber(patch.opacity, 0.05, 1)
+              : state.floorPlanReference.opacity,
+        },
+      }
+    }),
+  setPlacementPreview: (placementPreview) => set({ placementPreview }),
+  setTransformDragging: (dragging) => set({ isTransformDragging: dragging }),
   setMarqueeSelecting: (isMarqueeSelecting) => set({ isMarqueeSelecting }),
   setSelectionMarquee: (selectionMarquee) => set({ selectionMarquee }),
 
@@ -889,7 +1024,9 @@ export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, ge
         [axis]: value,
       }
 
-      const nextDraft = applyTransformSnapshot(draft, nextSnapshot)
+      const nextDraft = detachVehicleRoutingFromDraft(
+        applyTransformSnapshot(draft, nextSnapshot)
+      )
       const selectionDirty = hasEditableDraftChanged(nextDraft, getActiveSaved(state))
 
       return {
@@ -931,7 +1068,9 @@ export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, ge
       if (!hasSnapshotChanged(currentSnapshot, snapshot)) {
         return state
       }
-      const draftEntity = applyTransformSnapshot(state.draftEntity, snapshot)
+      const draftEntity = detachVehicleRoutingFromDraft(
+        applyTransformSnapshot(state.draftEntity, snapshot)
+      )
       const selectionDirty = hasEditableDraftChanged(draftEntity, state.savedEntity)
       return {
         draftEntity,
@@ -1162,6 +1301,7 @@ function selectEditorViewerSlice(state: EditorDigitalTwinStore): EditorViewerSto
     activeCameraPreset: state.activeCameraPreset,
     editorCameraPosition: state.editorCameraPosition,
     editorCameraTarget: state.editorCameraTarget,
+    hasHydratedFromBootstrap: state.hasHydratedFromBootstrap,
     cameraFocusRequest: state.cameraFocusRequest,
     selectEntity: state.selectEntity,
     selectStaticAsset: state.selectStaticAsset,
@@ -1183,8 +1323,9 @@ function selectEditorUiSlice(state: EditorDigitalTwinStore): EditorUiStoreSlice 
     snapEnabled: state.snapEnabled,
     translateSnap: state.translateSnap,
     rotateSnapDegrees: state.rotateSnapDegrees,
+    floorPlanReference: state.floorPlanReference,
     placementPreview: state.placementPreview,
-    transformPreview: state.transformPreview,
+    hasHydratedFromBootstrap: state.hasHydratedFromBootstrap,
     isLoading: state.isLoading,
     isSaving: state.isSaving,
     isTransformDragging: state.isTransformDragging,
@@ -1199,8 +1340,9 @@ function selectEditorUiSlice(state: EditorDigitalTwinStore): EditorUiStoreSlice 
     setSnapEnabled: state.setSnapEnabled,
     setTranslateSnap: state.setTranslateSnap,
     setRotateSnapDegrees: state.setRotateSnapDegrees,
+    setFloorPlanReference: state.setFloorPlanReference,
+    updateFloorPlanReference: state.updateFloorPlanReference,
     setPlacementPreview: state.setPlacementPreview,
-    setTransformPreview: state.setTransformPreview,
     setTransformDragging: state.setTransformDragging,
     setMarqueeSelecting: state.setMarqueeSelecting,
     setSelectionMarquee: state.setSelectionMarquee,

@@ -5,7 +5,7 @@ use axum::{
 };
 use serde_json::Value;
 use std::{
-    collections::{hash_map::DefaultHasher, HashMap, VecDeque},
+    collections::{hash_map::DefaultHasher, HashMap, HashSet, VecDeque},
     hash::{Hash, Hasher},
     sync::Arc,
 };
@@ -20,7 +20,7 @@ use crate::{
 type RuntimeIngestResult =
     Result<Json<RuntimeIngestResponse>, (StatusCode, Json<serde_json::Value>)>;
 
-const MAX_RUNTIME_INGEST_EVENTS: usize = 64;
+const MAX_RUNTIME_INGEST_EVENTS: usize = 512;
 const MAX_INCIDENT_PAYLOAD_BYTES: usize = 16 * 1024;
 const REQUEST_WINDOW_MS: u64 = 10_000;
 const MAX_REQUESTS_PER_WINDOW: usize = 120;
@@ -28,8 +28,8 @@ const REPLAY_WINDOW_MS: u64 = 30_000;
 
 #[derive(Default)]
 struct RuntimeIngestGuardStore {
-    requests_by_source: HashMap<String, VecDeque<u64>>,
-    event_fingerprint_expiry: HashMap<u64, u64>,
+    requests_by_scope: HashMap<String, VecDeque<u64>>,
+    event_fingerprint_expiry_by_scope: HashMap<String, HashMap<u64, u64>>,
 }
 
 #[derive(Clone, Default)]
@@ -40,8 +40,8 @@ pub struct RuntimeIngestState {
 impl RuntimeIngestState {
     pub async fn validate_and_record(
         &self,
-        source_key: &str,
-        source_label: &str,
+        scope_key: &str,
+        scope_label: &str,
         event_fingerprints: &[u64],
         now: u64,
     ) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
@@ -49,13 +49,10 @@ impl RuntimeIngestState {
         let request_window_start = now.saturating_sub(REQUEST_WINDOW_MS);
         let replay_window_expiry = now.saturating_add(REPLAY_WINDOW_MS);
 
-        guard
-            .event_fingerprint_expiry
-            .retain(|_, expiry| *expiry > now);
-
+        let mut seen_in_batch = HashSet::with_capacity(event_fingerprints.len());
         if event_fingerprints
             .iter()
-            .any(|fingerprint| guard.event_fingerprint_expiry.contains_key(fingerprint))
+            .any(|fingerprint| !seen_in_batch.insert(*fingerprint))
         {
             return Err((
                 StatusCode::CONFLICT,
@@ -65,9 +62,33 @@ impl RuntimeIngestState {
             ));
         }
 
+        guard
+            .event_fingerprint_expiry_by_scope
+            .retain(|_, fingerprints| {
+                fingerprints.retain(|_, expiry| *expiry > now);
+                !fingerprints.is_empty()
+            });
+        let duplicate_in_replay_window = guard
+            .event_fingerprint_expiry_by_scope
+            .get(scope_key)
+            .is_some_and(|existing_scope_fingerprints| {
+                event_fingerprints
+                    .iter()
+                    .any(|fingerprint| existing_scope_fingerprints.contains_key(fingerprint))
+            });
+
+        if duplicate_in_replay_window {
+            return Err((
+                StatusCode::CONFLICT,
+                Json(serde_json::json!({
+                    "error": "duplicate runtime event detected within replay window"
+                })),
+            ));
+        }
+
         let request_times = guard
-            .requests_by_source
-            .entry(source_key.to_string())
+            .requests_by_scope
+            .entry(scope_key.to_string())
             .or_default();
         while request_times
             .front()
@@ -80,18 +101,20 @@ impl RuntimeIngestState {
                 StatusCode::TOO_MANY_REQUESTS,
                 Json(serde_json::json!({
                     "error": format!(
-                        "runtime ingest rate limit exceeded for source {}",
-                        source_label
+                        "runtime ingest rate limit exceeded for workspace {}",
+                        scope_label
                     )
                 })),
             ));
         }
 
         request_times.push_back(now);
+        let scope_fingerprints = guard
+            .event_fingerprint_expiry_by_scope
+            .entry(scope_key.to_string())
+            .or_default();
         for fingerprint in event_fingerprints {
-            guard
-                .event_fingerprint_expiry
-                .insert(*fingerprint, replay_window_expiry);
+            scope_fingerprints.insert(*fingerprint, replay_window_expiry);
         }
 
         Ok(())
@@ -123,11 +146,24 @@ fn validate_incident_payload(
     ))?;
 
     require_string_field(object, "id")?;
-    let kind = require_string_field(object, "kind")?;
-    if !matches!(kind, "near_miss" | "zone_intrusion" | "overspeed") {
+    let event_type = object
+        .get("eventType")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| {
+            object
+                .get("kind")
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+        })
+        .ok_or((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "incident.eventType or incident.kind must be a non-empty string" })),
+        ))?;
+    if event_type.trim().is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": "incident.kind is invalid" })),
+            Json(serde_json::json!({ "error": "incident.eventType or incident.kind is invalid" })),
         ));
     }
 
@@ -195,10 +231,9 @@ fn validate_incident_payload(
 }
 
 fn fingerprint_runtime_event(
-    source: &str,
     event: &RuntimeIngestEvent,
 ) -> Result<u64, (StatusCode, Json<serde_json::Value>)> {
-    let serialized = serde_json::to_string(&(source, event)).map_err(|error| {
+    let serialized = serde_json::to_string(event).map_err(|error| {
         (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({
@@ -260,6 +295,61 @@ fn normalize_runtime_event(
             }
         }
     })
+}
+
+fn runtime_event_entity_id(event: &RuntimeIngestEvent) -> Option<&str> {
+    match event {
+        RuntimeIngestEvent::PositionUpdate { payload, .. } => Some(payload.entity_id.as_str()),
+        RuntimeIngestEvent::StatusUpdate { payload, .. } => Some(payload.entity_id.as_str()),
+        _ => None,
+    }
+}
+
+async fn validate_runtime_event_entity_refs(
+    state: &AppState,
+    workspace_id: &str,
+    events: &[RuntimeIngestEvent],
+) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
+    let mut seen = HashSet::new();
+    let mut entity_ids = Vec::new();
+
+    for event in events {
+        let Some(entity_id) = runtime_event_entity_id(event) else {
+            continue;
+        };
+        if seen.insert(entity_id) {
+            entity_ids.push(entity_id.to_string());
+        }
+    }
+
+    if entity_ids.is_empty() {
+        return Ok(());
+    }
+
+    let missing = state
+        .store
+        .workspace_missing_entities(workspace_id, &entity_ids)
+        .await
+        .map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": error.to_string() })),
+            )
+        })?;
+
+    if let Some(entity_id) = missing.first() {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({
+                "error": format!(
+                    "entity {} was not found in workspace {}",
+                    entity_id, workspace_id
+                )
+            })),
+        ));
+    }
+
+    Ok(())
 }
 
 pub async fn post_runtime_ingest(
@@ -331,74 +421,28 @@ pub async fn post_runtime_ingest(
         })?
         .id;
     let received_at = now_millis();
+    validate_runtime_event_entity_refs(&state, &home_workspace_id, &request.events).await?;
+
     let mut normalized_events = Vec::with_capacity(request.events.len());
     let mut fingerprints = Vec::with_capacity(request.events.len());
-    let scoped_source = format!("{home_workspace_id}:{}", request.source);
     for event in request.events {
-        match &event {
-            RuntimeIngestEvent::PositionUpdate { payload, .. } => {
-                let exists = state
-                    .store
-                    .workspace_has_entity(&home_workspace_id, &payload.entity_id)
-                    .await
-                    .map_err(|error| {
-                        (
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            Json(serde_json::json!({ "error": error.to_string() })),
-                        )
-                    })?;
-                if !exists {
-                    return Err((
-                        StatusCode::NOT_FOUND,
-                        Json(serde_json::json!({
-                            "error": format!(
-                                "entity {} was not found in workspace {}",
-                                payload.entity_id, home_workspace_id
-                            )
-                        })),
-                    ));
-                }
-            }
-            RuntimeIngestEvent::StatusUpdate { payload, .. } => {
-                let exists = state
-                    .store
-                    .workspace_has_entity(&home_workspace_id, &payload.entity_id)
-                    .await
-                    .map_err(|error| {
-                        (
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            Json(serde_json::json!({ "error": error.to_string() })),
-                        )
-                    })?;
-                if !exists {
-                    return Err((
-                        StatusCode::NOT_FOUND,
-                        Json(serde_json::json!({
-                            "error": format!(
-                                "entity {} was not found in workspace {}",
-                                payload.entity_id, home_workspace_id
-                            )
-                        })),
-                    ));
-                }
-            }
-            _ => {}
-        }
-
-        fingerprints.push(fingerprint_runtime_event(&scoped_source, &event)?);
+        fingerprints.push(fingerprint_runtime_event(&event)?);
         normalized_events.push(normalize_runtime_event(event, received_at)?);
     }
 
     state
         .runtime_ingest_state
-        .validate_and_record(&scoped_source, &request.source, &fingerprints, received_at)
+        .validate_and_record(
+            &home_workspace_id,
+            &home_workspace_id,
+            &fingerprints,
+            received_at,
+        )
         .await?;
 
-    for normalized_event in normalized_events {
-        state
-            .realtime
-            .emit_for_workspace(&home_workspace_id, normalized_event);
-    }
+    state
+        .realtime
+        .emit_many_for_workspace(&home_workspace_id, received_at, normalized_events);
 
     Ok(Json(RuntimeIngestResponse {
         source: request.source,
@@ -466,74 +510,23 @@ pub async fn post_workspace_runtime_ingest(
     }
 
     let received_at = now_millis();
+    validate_runtime_event_entity_refs(&state, &workspace_id, &request.events).await?;
+
     let mut normalized_events = Vec::with_capacity(request.events.len());
     let mut fingerprints = Vec::with_capacity(request.events.len());
-    let scoped_source = format!("{workspace_id}:{}", request.source);
     for event in request.events {
-        match &event {
-            RuntimeIngestEvent::PositionUpdate { payload, .. } => {
-                let exists = state
-                    .store
-                    .workspace_has_entity(&workspace_id, &payload.entity_id)
-                    .await
-                    .map_err(|error| {
-                        (
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            Json(serde_json::json!({ "error": error.to_string() })),
-                        )
-                    })?;
-                if !exists {
-                    return Err((
-                        StatusCode::NOT_FOUND,
-                        Json(serde_json::json!({
-                            "error": format!(
-                                "entity {} was not found in workspace {}",
-                                payload.entity_id, workspace_id
-                            )
-                        })),
-                    ));
-                }
-            }
-            RuntimeIngestEvent::StatusUpdate { payload, .. } => {
-                let exists = state
-                    .store
-                    .workspace_has_entity(&workspace_id, &payload.entity_id)
-                    .await
-                    .map_err(|error| {
-                        (
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            Json(serde_json::json!({ "error": error.to_string() })),
-                        )
-                    })?;
-                if !exists {
-                    return Err((
-                        StatusCode::NOT_FOUND,
-                        Json(serde_json::json!({
-                            "error": format!(
-                                "entity {} was not found in workspace {}",
-                                payload.entity_id, workspace_id
-                            )
-                        })),
-                    ));
-                }
-            }
-            _ => {}
-        }
-
-        fingerprints.push(fingerprint_runtime_event(&scoped_source, &event)?);
+        fingerprints.push(fingerprint_runtime_event(&event)?);
         normalized_events.push(normalize_runtime_event(event, received_at)?);
     }
 
     state
         .runtime_ingest_state
-        .validate_and_record(&scoped_source, &request.source, &fingerprints, received_at)
+        .validate_and_record(&workspace_id, &workspace_id, &fingerprints, received_at)
         .await?;
 
-    for normalized_event in normalized_events {
-        state
-            .realtime
-            .emit_for_workspace(&workspace_id, normalized_event);
-    }
+    state
+        .realtime
+        .emit_many_for_workspace(&workspace_id, received_at, normalized_events);
 
     Ok(Json(RuntimeIngestResponse {
         source: request.source,

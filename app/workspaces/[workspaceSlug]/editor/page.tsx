@@ -1,6 +1,8 @@
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import { EditorShell } from '@/components/editor/EditorShell'
 import { fetchWorkspaceBySlug } from '@/lib/digital-twin/bootstrap-client'
+import { buildEditorHref } from '@/lib/digital-twin/editor-routing'
+import { hasFrontendAccess } from '@/lib/digital-twin/frontend-access-server'
 
 export const dynamic = 'force-dynamic'
 
@@ -13,6 +15,11 @@ export default async function WorkspaceEditorPage({
 }) {
   const routeParams = await params
   const query = (await searchParams) ?? {}
+  const editorHref = buildEditorHref(routeParams.workspaceSlug, query.returnTo)
+  if (!(await hasFrontendAccess())) {
+    redirect(`/access?next=${encodeURIComponent(editorHref)}`)
+  }
+
   let workspace
 
   try {

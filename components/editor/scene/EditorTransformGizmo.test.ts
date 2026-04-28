@@ -1,34 +1,33 @@
 import { describe, expect, test } from 'bun:test'
 import {
   resolveEditorTransformAxisConfig,
-  setEditorCanvasControlsEnabled,
 } from './EditorTransformGizmo'
 
 describe('editor transform gizmo axis config', () => {
-  test('keeps ground entities on XZ translation only', () => {
+  test('keeps translation fully available on all axes', () => {
     expect(resolveEditorTransformAxisConfig('person', 'translate')).toEqual({
       showX: true,
-      showY: false,
+      showY: true,
       showZ: true,
     })
     expect(resolveEditorTransformAxisConfig('vehicle', 'translate')).toEqual({
       showX: true,
-      showY: false,
+      showY: true,
       showZ: true,
     })
     expect(resolveEditorTransformAxisConfig('equipment', 'translate')).toEqual({
       showX: true,
-      showY: false,
+      showY: true,
       showZ: true,
     })
     expect(resolveEditorTransformAxisConfig('static-asset', 'translate')).toEqual({
       showX: true,
-      showY: false,
+      showY: true,
       showZ: true,
     })
   })
 
-  test('allows sensor and camera translation on Y when needed', () => {
+  test('keeps elevated and dynamic targets on the same full translation axes', () => {
     expect(resolveEditorTransformAxisConfig('sensor', 'translate')).toEqual({
       showX: true,
       showY: true,
@@ -39,25 +38,30 @@ describe('editor transform gizmo axis config', () => {
       showY: true,
       showZ: true,
     })
+    expect(resolveEditorTransformAxisConfig('dynamic', 'translate')).toEqual({
+      showX: true,
+      showY: true,
+      showZ: true,
+    })
   })
 
-  test('rotation stays on Y axis only for all entity types', () => {
+  test('rotation is available on all axes', () => {
     expect(resolveEditorTransformAxisConfig('person', 'rotate')).toEqual({
-      showX: false,
+      showX: true,
       showY: true,
-      showZ: false,
+      showZ: true,
     })
     expect(resolveEditorTransformAxisConfig('camera', 'rotate')).toEqual({
-      showX: false,
+      showX: true,
       showY: true,
-      showZ: false,
+      showZ: true,
     })
   })
 
-  test('scale keeps ground-authored assets on XZ while elevated types retain Y', () => {
+  test('scale is available on all axes', () => {
     expect(resolveEditorTransformAxisConfig('static-asset', 'scale')).toEqual({
       showX: true,
-      showY: false,
+      showY: true,
       showZ: true,
     })
     expect(resolveEditorTransformAxisConfig('camera', 'scale')).toEqual({
@@ -65,17 +69,10 @@ describe('editor transform gizmo axis config', () => {
       showY: true,
       showZ: true,
     })
-  })
-
-  test('only toggles canvas controls that expose an enabled flag', () => {
-    const orbitLikeControls = { enabled: true }
-    const unrelatedControls = { axis: 'X' }
-
-    setEditorCanvasControlsEnabled(orbitLikeControls, false)
-    setEditorCanvasControlsEnabled(unrelatedControls as never, false)
-    setEditorCanvasControlsEnabled(null, true)
-
-    expect(orbitLikeControls.enabled).toBe(false)
-    expect(unrelatedControls).toEqual({ axis: 'X' })
+    expect(resolveEditorTransformAxisConfig('dynamic', 'scale')).toEqual({
+      showX: true,
+      showY: true,
+      showZ: true,
+    })
   })
 })

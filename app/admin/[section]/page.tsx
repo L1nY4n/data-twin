@@ -1,7 +1,7 @@
 import { notFound, redirect } from 'next/navigation'
 import { fetchHomeWorkspace } from '@/lib/digital-twin/bootstrap-client'
-import { ADMIN_SECTIONS, type AdminSection } from '@/lib/digital-twin/admin'
-import { buildAdminHref } from '@/components/admin/admin-meta'
+import type { AdminSection } from '@/lib/digital-twin/admin'
+import { buildAdminHref, hasAdminPageRegistration } from '@/components/admin/admin-meta'
 
 export default async function AdminSectionPage({
   params,
@@ -10,7 +10,7 @@ export default async function AdminSectionPage({
 }) {
   const { section } = await params
 
-  if (!ADMIN_SECTIONS.includes(section as AdminSection)) {
+  if (!hasAdminPageRegistration(section) && !section.startsWith('module:')) {
     notFound()
   }
 

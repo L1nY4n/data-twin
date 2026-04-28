@@ -8,7 +8,7 @@ import { promisify } from 'node:util'
 import { Group, Mesh, MeshStandardMaterial } from 'three'
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js'
 import {
-  buildPublishedCampusScenePackageFromSnapshot,
+  buildPublishedScenePackageForScope,
   createPublishedCampusScenePackage,
   createPublishedStaticAssetManifest,
   encodePublishedStaticMaterialName,
@@ -165,6 +165,7 @@ async function main() {
   const compression = process.argv.includes('--meshopt') ? 'meshopt' : 'none'
   const baseUrlFlagIndex = process.argv.indexOf('--base-url')
   const snapshotFlagIndex = process.argv.indexOf('--snapshot')
+  const scopeFlagIndex = process.argv.indexOf('--scope')
   const baseUrl =
     baseUrlFlagIndex >= 0 && process.argv[baseUrlFlagIndex + 1]
       ? process.argv[baseUrlFlagIndex + 1]
@@ -173,6 +174,10 @@ async function main() {
     snapshotFlagIndex >= 0 && process.argv[snapshotFlagIndex + 1]
       ? path.resolve(process.argv[snapshotFlagIndex + 1])
       : null
+  const publishScope =
+    scopeFlagIndex >= 0 && process.argv[scopeFlagIndex + 1] === 'workspace'
+      ? 'workspace'
+      : 'campus'
   const manifestUrl =
     baseUrl === PUBLISHED_STATIC_ASSET_BASE_URL
       ? PUBLISHED_STATIC_ASSET_MANIFEST_URL
@@ -186,7 +191,8 @@ async function main() {
     ? ((JSON.parse(await readFile(snapshotPath, 'utf8')) as PublishedWorkingSnapshot) ?? null)
     : null
   const pkg = snapshot
-    ? buildPublishedCampusScenePackageFromSnapshot(snapshot, {
+    ? buildPublishedScenePackageForScope(snapshot, {
+        scope: publishScope,
         staticAssetManifestUrl: manifestUrl,
       })
     : createPublishedCampusScenePackage('default', {

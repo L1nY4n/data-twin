@@ -34,6 +34,7 @@ export interface PublishedStaticFeature {
   id: string
   sectorId: string
   districtId: string
+  districtName: string
   label: string
   kind: LayoutBlueprintKind
   center: Vector3

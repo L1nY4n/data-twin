@@ -1,8 +1,10 @@
 # Digital Twin Backend Phase 1 Rust Implementation Plan
 
+> Historical implementation note: this plan uses the generic service label `backend-core` in prose, but the implemented repository service is `backend-core-rs`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build a standalone Rust `backend-core` service that serves the digital twin bootstrap payload and realtime WebSocket updates, then switch the Next.js frontend from local simulation to backend bootstrap plus live updates.
+**Goal:** Build a standalone Rust `backend-core-rs` service that serves the digital twin bootstrap payload and realtime WebSocket updates, then switch the Next.js frontend from local simulation to backend bootstrap plus live updates.
 
 **Architecture:** Keep the existing Next.js frontend at the repo root. Implement the first backend slice as a Rust service using `axum + tokio`, with an in-memory seeded scene and deterministic realtime ticker so the frontend can integrate against stable HTTP and WebSocket contracts before EMQX, persistence, and protocol gateways are introduced.
 
@@ -14,7 +16,7 @@
 
 This Phase 1 plan covers only:
 
-- Rust `backend-core` runtime
+- Rust `backend-core-rs` runtime
 - `GET /health/live`
 - `GET /health/ready`
 - `GET /api/v1/site/bootstrap`

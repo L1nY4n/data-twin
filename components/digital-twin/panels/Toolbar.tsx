@@ -50,12 +50,20 @@ const VIEW_MODE_CONFIG: Record<ViewMode, { icon: typeof Move; label: string }> =
   firstperson: { icon: Camera, label: '第一人称' },
 }
 
+function isTrackedViewMode(mode: ViewMode) {
+  return mode === 'follow' || mode === 'firstperson'
+}
+
 export function Toolbar({ workspaceSlug }: { workspaceSlug: string }) {
   const { resolvedTheme, setTheme } = useTheme()
   const sceneConfig = useDigitalTwinStore((state) => state.sceneConfig)
   const setSceneConfig = useDigitalTwinStore((state) => state.setSceneConfig)
   const viewMode = useDigitalTwinStore((state) => state.viewMode)
   const setViewMode = useDigitalTwinStore((state) => state.setViewMode)
+  const selectedEntityType = useDigitalTwinStore((state) => {
+    const selectedId = state.selectedEntityId
+    return selectedId ? state.entities.get(selectedId)?.type ?? null : null
+  })
   const cameraPresets = useDigitalTwinStore((state) => state.cameraPresets)
   const activeCameraPreset = useDigitalTwinStore((state) => state.activeCameraPreset)
   const setActiveCameraPreset = useDigitalTwinStore((state) => state.setActiveCameraPreset)
@@ -81,6 +89,7 @@ export function Toolbar({ workspaceSlug }: { workspaceSlug: string }) {
   const isDarkTheme = resolvedTheme === 'dark'
   const sceneTitle = sceneConfig.name?.trim() || '数字孪生平台'
   const editorHref = buildEditorHref(workspaceSlug, '/')
+  const canTrackSelectedEntity = selectedEntityType !== null && selectedEntityType !== 'zone'
 
   const handleViewModeSelect = (mode: ViewMode) => {
     if (mode === 'topdown') {
@@ -156,10 +165,12 @@ export function Toolbar({ workspaceSlug }: { workspaceSlug: string }) {
               {(Object.keys(VIEW_MODE_CONFIG) as ViewMode[]).map((mode) => {
                 const config = VIEW_MODE_CONFIG[mode]
                 const Icon = config.icon
+                const isTrackedMode = isTrackedViewMode(mode)
                 return (
                   <DropdownMenuItem
                     key={mode}
                     onClick={() => handleViewModeSelect(mode)}
+                    disabled={isTrackedMode && !canTrackSelectedEntity}
                     className={cn(viewMode === mode && 'bg-accent')}
                   >
                     <Icon className="mr-2 h-4 w-4" />

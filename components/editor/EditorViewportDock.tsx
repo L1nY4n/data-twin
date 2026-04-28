@@ -23,10 +23,11 @@ import {
 import { cn } from '@/lib/utils'
 
 const STEP_PRESETS = [
-  { translate: 0.5, rotate: 15, label: '0.5m / 15deg' },
+  { translate: 0.1, rotate: 5, label: '0.1m / 5deg' },
+  { translate: 0.25, rotate: 5, label: '0.25m / 5deg' },
+  { translate: 0.5, rotate: 10, label: '0.5m / 10deg' },
   { translate: 1, rotate: 15, label: '1m / 15deg' },
   { translate: 2, rotate: 30, label: '2m / 30deg' },
-  { translate: 5, rotate: 45, label: '5m / 45deg' },
 ]
 
 const CAMERA_DIRECTION_CONTROLS = [

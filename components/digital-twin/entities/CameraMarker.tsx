@@ -1,6 +1,7 @@
 'use client'
 
-import { memo } from 'react'
+import { memo, useMemo, useRef } from 'react'
+import * as THREE from 'three'
 import type { CameraEntity } from '@/lib/digital-twin/types'
 import {
   OVERLAY_RENDER_ORDER,
@@ -13,11 +14,14 @@ import {
   SpriteInfoCard,
 } from '@/components/digital-twin/scene/SpriteInfoCard'
 import { SpriteTextLabel } from '@/components/digital-twin/scene/SpriteTextLabel'
+import { resolveRenderablePosition, resolveRenderableRotation } from './render-transform'
+import { usePickGroupRegistration } from '../scene/ViewerRuntimeBridge'
 
 interface CameraMarkerProps {
   entity: CameraEntity
   isSelected: boolean
   isHovered: boolean
+  fullTransform?: boolean
 }
 
 const STATUS_COLORS = {
@@ -45,19 +49,39 @@ export const CameraMarker = memo(function CameraMarker({
   entity,
   isSelected,
   isHovered,
+  fullTransform = false,
 }: CameraMarkerProps) {
+  const groupRef = useRef<THREE.Group>(null)
+  const pickRefs = useMemo(() => [groupRef], [])
   const statusColor = STATUS_COLORS[entity.status]
   const bodyColor = CAMERA_COLORS[entity.cameraType]
   const labelMode = entity.labelMode ?? 'html'
   const showLabel = isSelected || isHovered || labelMode !== 'hidden'
   const range = entity.range ?? 18
+  const pickBounds = useMemo(
+    () =>
+      new THREE.Sphere(
+        new THREE.Vector3(entity.position.x, entity.position.y + 1.2, entity.position.z),
+        Math.max(3, range * 0.4)
+      ),
+    [entity.position.x, entity.position.y, entity.position.z, range]
+  )
+
+  usePickGroupRegistration({
+    id: `camera-marker:${entity.id}`,
+    refs: pickRefs,
+    bounds: pickBounds,
+    priority: 'entity',
+    dependencyKey: `${entity.id}:${fullTransform}:${range}`,
+  })
 
   return (
     <group
-      position={[entity.position.x, entity.position.y, entity.position.z]}
+      ref={groupRef}
+      position={resolveRenderablePosition(entity.position, { fullTransform })}
       userData={{ pickable: true, entityId: entity.id }}
     >
-      <group rotation={[0, entity.rotation.y, 0]}>
+      <group rotation={resolveRenderableRotation(entity.rotation, { fullTransform })}>
         <mesh position={[0, 1, 0]} castShadow>
           <cylinderGeometry args={[0.06, 0.08, 2, 12]} />
           <meshStandardMaterial color="#475569" metalness={0.4} roughness={0.65} />

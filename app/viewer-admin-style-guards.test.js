@@ -65,6 +65,7 @@ describe('viewer/admin shared style primitives', () => {
     expect(entityDetail.includes('ViewerAdminInfoList')).toBe(true)
     expect(entityDetail.includes('ViewerAdminStatGrid')).toBe(true)
     expect(entityDetail.includes('ViewerAdminSidePanelBody')).toBe(true)
+    expect(entityDetail.includes('createDetailRendererRegistry')).toBe(true)
     expect(bottomPanel.includes('ViewerAdminPanelHeader')).toBe(true)
     expect(bottomPanel.includes('ViewerAdminSidePanelBody')).toBe(true)
   })
@@ -168,6 +169,8 @@ describe('viewer/admin shared style primitives', () => {
     expect(entityList.includes('viewer-admin-entity-group-trigger')).toBe(true)
     expect(entityList.includes('viewer-admin-entity-row-main')).toBe(true)
     expect(entityList.includes('viewer-admin-entity-focus')).toBe(true)
+    expect(entityList.includes('entity.secondaryLabel')).toBe(true)
+    expect(entityList.includes('entity.archetypeLabel')).toBe(false)
     expect(styles.includes('.viewer-admin-surface .viewer-admin-entity-search')).toBe(true)
     expect(styles.includes('.viewer-admin-surface .viewer-admin-entity-group-trigger')).toBe(true)
     expect(styles.includes('.viewer-admin-surface .viewer-admin-entity-row-main')).toBe(true)
@@ -188,6 +191,10 @@ describe('viewer/admin shared style primitives', () => {
       join(process.cwd(), 'components/digital-twin/scene/DigitalTwinCanvas.tsx'),
       'utf8'
     )
+    const cameraPresets = readFileSync(
+      join(process.cwd(), 'lib/digital-twin/camera-presets.ts'),
+      'utf8'
+    )
 
     expect(toolbar.includes('const handleViewModeSelect = (mode: ViewMode) => {')).toBe(true)
     expect(toolbar.includes("if (mode === 'topdown') {")).toBe(true)
@@ -197,8 +204,14 @@ describe('viewer/admin shared style primitives', () => {
     expect(canvas.includes('const shouldAnimatePreset =')).toBe(true)
     expect(canvas.includes('previousActiveCameraPresetRef')).toBe(true)
     expect(canvas.includes('hasInitializedPresetRef')).toBe(true)
+    expect(canvas.includes('stabilizeCameraPreset')).toBe(true)
     expect(canvas.includes('focusAnimationRef.current = {')).toBe(true)
-    expect(canvas.includes("maxPolarAngle={Math.PI / 2.1}")).toBe(true)
+    expect(canvas.includes('const MIN_ORBIT_POLAR_ANGLE = 0.08')).toBe(true)
+    expect(canvas.includes('const MAX_ORBIT_POLAR_ANGLE = Math.PI / 2.05')).toBe(true)
+    expect(canvas.includes('minPolarAngle={MIN_ORBIT_POLAR_ANGLE}')).toBe(true)
+    expect(canvas.includes('maxPolarAngle={MAX_ORBIT_POLAR_ANGLE}')).toBe(true)
+    expect(cameraPresets.includes('MIN_TOP_PRESET_HORIZONTAL_OFFSET = 6')).toBe(true)
+    expect(cameraPresets.includes('stabilizeCameraPreset')).toBe(true)
     expect(canvas.includes("viewMode === 'topdown'")).toBe(false)
   })
 
@@ -213,10 +226,17 @@ describe('viewer/admin shared style primitives', () => {
     )
 
     expect(toolbar.includes('clearCameraFocusRequest')).toBe(true)
+    expect(toolbar.includes('canTrackSelectedEntity')).toBe(true)
+    expect(toolbar.includes('disabled={isTrackedMode && !canTrackSelectedEntity}')).toBe(true)
     expect(toolbar.includes("setActiveCameraPreset(null)")).toBe(true)
     expect(toolbar.includes("setViewMode('orbit')")).toBe(true)
     expect(toolbar.includes("mode === 'topdown'")).toBe(true)
     expect(canvas.includes("viewMode === 'follow' || viewMode === 'firstperson'")).toBe(true)
+    expect(canvas.includes('flushOrbitControlsDamping')).toBe(true)
+    expect(canvas.includes('controls.enableDamping = !trackedMode')).toBe(true)
+    expect(canvas.includes('resolveTrackedCameraSmoothing')).toBe(true)
+    expect(canvas.includes('syncOrbitControls: false')).toBe(true)
+    expect(canvas.includes('camera.lookAt(controls.target)')).toBe(true)
     expect(canvas.includes('resolveTrackedEntityPose')).toBe(true)
     expect(canvas.includes('resolveFollowCameraPose')).toBe(true)
     expect(canvas.includes('resolveFirstPersonCameraPose')).toBe(true)

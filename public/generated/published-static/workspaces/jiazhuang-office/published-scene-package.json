@@ -1,0 +1,216 @@
+{
+  "schemaVersion": 1,
+  "sceneId": "jiazhuang-office",
+  "profile": "default",
+  "generatedAt": "2026-04-18T07:47:24.722Z",
+  "source": "working-snapshot",
+  "staticAssetManifestUrl": "/generated/published-static/workspaces/jiazhuang-office/versions/647-1776498444598/chunk-manifest.json",
+  "bounds": {
+    "min": {
+      "x": -33.695,
+      "y": -4,
+      "z": -29.54625
+    },
+    "max": {
+      "x": 38.305,
+      "y": 40.745000000000005,
+      "z": 42.45375
+    }
+  },
+  "sceneConfig": {
+    "id": "jiazhuang-office",
+    "name": "加庄办公室",
+    "gridSize": 60,
+    "gridDivisions": 30,
+    "backgroundColor": "#0a0a0f",
+    "ambientLightIntensity": 0.52,
+    "showAxes": false,
+    "showGrid": true,
+    "cameraPosition": {
+      "x": 16.135,
+      "y": 20.745,
+      "z": 22.1775
+    },
+    "cameraTarget": {
+      "x": 0,
+      "y": 0,
+      "z": 0.28
+    }
+  },
+  "sectors": [
+    {
+      "id": "sector-core",
+      "name": "加庄办公室",
+      "offset": {
+        "x": 2.3049999999999997,
+        "y": 18.372500000000002,
+        "z": 6.453749999999999
+      },
+      "bounds": {
+        "min": {
+          "x": -33.695,
+          "y": -4,
+          "z": -29.54625
+        },
+        "max": {
+          "x": 38.305,
+          "y": 40.745000000000005,
+          "z": 42.45375
+        }
+      },
+      "staticChunkId": "chunk:sector-core:static",
+      "dynamicLayerIds": [
+        "layer:sector-core:persons",
+        "layer:sector-core:vehicles",
+        "layer:sector-core:equipment"
+      ],
+      "interactionLayerIds": []
+    }
+  ],
+  "staticChunks": [
+    {
+      "id": "chunk:sector-core:static",
+      "label": "加庄办公室 静态块",
+      "kind": "sector",
+      "sectorId": "sector-core",
+      "bounds": {
+        "min": {
+          "x": -33.695,
+          "y": -4,
+          "z": -29.54625
+        },
+        "max": {
+          "x": 38.305,
+          "y": 40.745000000000005,
+          "z": 42.45375
+        }
+      },
+      "proxy": {
+        "strategy": "sector-proxy",
+        "lodDistance": 240
+      },
+      "runtimeMount": {
+        "kind": "sector-cluster",
+        "renderer": "campus-sector-cluster"
+      },
+      "renderRecipe": {
+        "detailed": []
+      },
+      "featureCount": 0,
+      "features": []
+    }
+  ],
+  "interactionLayers": [],
+  "zoneOverlays": [],
+  "dynamicLayers": [
+    {
+      "id": "layer:sector-core:persons",
+      "entityType": "person",
+      "sectorId": "sector-core",
+      "bounds": {
+        "min": {
+          "x": -33.695,
+          "y": -4,
+          "z": -29.54625
+        },
+        "max": {
+          "x": 38.305,
+          "y": 40.745000000000005,
+          "z": 42.45375
+        }
+      },
+      "count": 0,
+      "anchors": []
+    },
+    {
+      "id": "layer:sector-core:vehicles",
+      "entityType": "vehicle",
+      "sectorId": "sector-core",
+      "bounds": {
+        "min": {
+          "x": -33.695,
+          "y": -4,
+          "z": -29.54625
+        },
+        "max": {
+          "x": 38.305,
+          "y": 40.745000000000005,
+          "z": 42.45375
+        }
+      },
+      "count": 0,
+      "anchorsByType": {
+        "car": [],
+        "truck": [],
+        "forklift": [],
+        "agv": [],
+        "other": []
+      },
+      "minimumSeparation": 3
+    },
+    {
+      "id": "layer:sector-core:equipment",
+      "entityType": "equipment",
+      "sectorId": "sector-core",
+      "bounds": {
+        "min": {
+          "x": -33.695,
+          "y": -4,
+          "z": -29.54625
+        },
+        "max": {
+          "x": 38.305,
+          "y": 40.745000000000005,
+          "z": 42.45375
+        }
+      },
+      "count": 0,
+      "placements": []
+    }
+  ],
+  "routingLayers": [],
+  "cameraPresets": [
+    {
+      "id": "snapshot-current",
+      "name": "保存视角",
+      "position": {
+        "x": 16.135,
+        "y": 20.745,
+        "z": 22.1775
+      },
+      "target": {
+        "x": 0,
+        "y": 0,
+        "z": 0.28
+      },
+      "fov": 50
+    },
+    {
+      "id": "top",
+      "name": "俯视",
+      "position": {
+        "x": 2.3049999999999997,
+        "y": 101.945,
+        "z": 6.453749999999999
+      },
+      "target": {
+        "x": 2.3049999999999997,
+        "y": 0,
+        "z": 6.453749999999999
+      },
+      "fov": 45
+    }
+  ],
+  "entityCounts": {
+    "default": {
+      "persons": 0,
+      "vehicles": 0,
+      "equipment": 0
+    },
+    "production": {
+      "persons": 0,
+      "vehicles": 0,
+      "equipment": 0
+    }
+  }
+}

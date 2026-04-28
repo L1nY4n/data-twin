@@ -4,11 +4,11 @@ import { performance } from 'node:perf_hooks'
 
 const PRODUCTION_SCENARIO = {
   name: 'production-campus',
-  entityCount: 480,
+  entityCount: 756,
   ticks: 3000,
   hotLabelCount: 48,
-  equipmentCount: 96,
-  movingEntities: 180,
+  equipmentCount: 256,
+  movingEntities: 500,
   separationTicks: 2200,
   interactionEvents: 4000,
   occupancyCellSize: 8,

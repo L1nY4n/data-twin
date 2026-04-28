@@ -5,7 +5,7 @@ import type * as THREE from 'three'
 interface PickableUserData {
   pickable?: boolean
   entityId?: string
-  entityIds?: string[]
+  entityIds?: Array<string | null | undefined>
   staticFeatureId?: string
   staticFeatureIds?: string[]
 }

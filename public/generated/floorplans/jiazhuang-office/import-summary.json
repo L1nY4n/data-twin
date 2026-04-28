@@ -1,0 +1,47 @@
+{
+  "name": "jiazhuang-office",
+  "sourceDxf": "/Users/l1ny4n/Downloads/加庄办公室平面图_副本.dxf",
+  "generatedAt": "2026-04-16T14:20:16.436825+00:00",
+  "geometry": {
+    "door_mode": "block",
+    "center_mode": "grounded-xz",
+    "unit_scale": 0.001,
+    "uniform_scale": 1.0,
+    "wall_height_m": 3.2,
+    "door_height_m": 2.3,
+    "wall_thickness_mm": 280.0,
+    "column_thickness_mm": 280.0,
+    "ground_thickness_m": 0.08,
+    "ground_margin_m": 0.6,
+    "window_pad_mm": 20.0
+  },
+  "transformPolicy": {
+    "centerMode": "grounded-xz",
+    "offset": {
+      "x": -65.742855,
+      "y": 0.0,
+      "z": 8.193908
+    },
+    "unitScale": 0.001
+  },
+  "sourceCounts": {
+    "wall": 282,
+    "door": 17,
+    "window": 9,
+    "prunedWallOverlap": 9,
+    "rawWallEntities": 292
+  },
+  "assetCounts": {
+    "wall": 282,
+    "door": 17,
+    "window": 9,
+    "total": 308
+  },
+  "outputs": {
+    "staticAssets": "static-assets.json",
+    "sceneGlb": "scene.glb",
+    "sceneMetadata": "scene-metadata.json",
+    "preview": "preview.html"
+  },
+  "glbGenerated": false
+}

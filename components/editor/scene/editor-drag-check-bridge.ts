@@ -29,8 +29,14 @@ type EditorDragCheckTargetTransformSnapshot = {
   scale: EditorDragCheckVector3 | null
 }
 
+type EditorDragCheckRenderedTargetSnapshot = {
+  position: EditorDragCheckVector3 | null
+}
+
 type EditorDragCheckGizmoSnapshot = {
   xAxisScreenPoint: EditorDragCheckScreenPoint | null
+  visibleXAxisScreenPoint: EditorDragCheckScreenPoint | null
+  pickerXAxisScreenPoint: EditorDragCheckScreenPoint | null
   activeAxis: string | null
 }
 
@@ -39,10 +45,41 @@ type EditorDragCheckPrepareResult = {
   selectedTargetId: string | null
 }
 
+type EditorDragCheckSelectResult = {
+  selectedTargetId: string | null
+  transformMode: 'select' | 'translate' | 'rotate' | 'scale'
+}
+
+type EditorDragCheckDragMetaSnapshot = {
+  dragActivated: boolean
+  deadzonePixels: number | null
+  dragStartPointer: EditorDragCheckScreenPoint | null
+  lastPointer: EditorDragCheckScreenPoint | null
+  pointerDownPointer: EditorDragCheckScreenPoint | null
+  pointerDownHandlePoint: EditorDragCheckScreenPoint | null
+  pointerDownHandleName: string | null
+  pointerDownHandleType: string | null
+  pointerDownMaxDistance: number | null
+  pointerDownBlocked: boolean
+}
+
+type EditorDragCheckStoreSnapshot = {
+  selectedStaticAssetId: string | null
+  draftStaticAssetId: string | null
+  savedStaticAssetId: string | null
+  draftStaticAssetPosition: EditorDragCheckVector3 | null
+  savedStaticAssetPosition: EditorDragCheckVector3 | null
+  transformPreviewPosition: EditorDragCheckVector3 | null
+  isTransformDragging: boolean
+}
+
 export type EditorDragCheckSnapshot = EditorDragCheckSelectionSnapshot &
   {
     camera: EditorDragCheckCameraSnapshot
     targetTransform: EditorDragCheckTargetTransformSnapshot
+    renderedTarget: EditorDragCheckRenderedTargetSnapshot
+    dragMeta: EditorDragCheckDragMetaSnapshot
+    store: EditorDragCheckStoreSnapshot
     gizmo: EditorDragCheckGizmoSnapshot
     timestamp: number
   }
@@ -50,12 +87,23 @@ export type EditorDragCheckSnapshot = EditorDragCheckSelectionSnapshot &
 type SelectionSnapshotProvider = () => EditorDragCheckSelectionSnapshot
 type CameraSnapshotProvider = () => EditorDragCheckCameraSnapshot
 type TargetTransformSnapshotProvider = () => EditorDragCheckTargetTransformSnapshot
+type RenderedTargetSnapshotProvider = () => EditorDragCheckRenderedTargetSnapshot
+type DragMetaSnapshotProvider = () => EditorDragCheckDragMetaSnapshot
+type StoreSnapshotProvider = () => EditorDragCheckStoreSnapshot
 type GizmoSnapshotProvider = () => EditorDragCheckGizmoSnapshot
 type PrepareTargetProvider = () => EditorDragCheckPrepareResult
+type SelectTargetProvider = (
+  targetId: string,
+  transformMode?: 'select' | 'translate' | 'rotate' | 'scale'
+) => EditorDragCheckSelectResult | null
 
 type EditorDragCheckBridge = {
   getSnapshot: () => EditorDragCheckSnapshot
   prepareTranslateTarget: () => EditorDragCheckPrepareResult | null
+  selectTarget: (
+    targetId: string,
+    transformMode?: 'select' | 'translate' | 'rotate' | 'scale'
+  ) => EditorDragCheckSelectResult | null
 }
 
 type EditorDragCheckWindow = Window & {
@@ -72,14 +120,22 @@ const bridgeProviders: {
   selection: SelectionSnapshotProvider | null
   camera: CameraSnapshotProvider | null
   targetTransform: TargetTransformSnapshotProvider | null
+  renderedTarget: RenderedTargetSnapshotProvider | null
+  dragMeta: DragMetaSnapshotProvider | null
+  store: StoreSnapshotProvider | null
   gizmo: GizmoSnapshotProvider | null
   prepareTarget: PrepareTargetProvider | null
+  selectTarget: SelectTargetProvider | null
 } = {
   selection: null,
   camera: null,
   targetTransform: null,
+  renderedTarget: null,
+  dragMeta: null,
+  store: null,
   gizmo: null,
   prepareTarget: null,
+  selectTarget: null,
 }
 
 function shouldEnableDragCheckBridge() {
@@ -106,8 +162,34 @@ function createEmptySnapshot(): EditorDragCheckSnapshot {
       rotation: null,
       scale: null,
     },
+    renderedTarget: {
+      position: null,
+    },
+    dragMeta: {
+      dragActivated: false,
+      deadzonePixels: null,
+      dragStartPointer: null,
+      lastPointer: null,
+      pointerDownPointer: null,
+      pointerDownHandlePoint: null,
+      pointerDownHandleName: null,
+      pointerDownHandleType: null,
+      pointerDownMaxDistance: null,
+      pointerDownBlocked: false,
+    },
+    store: {
+      selectedStaticAssetId: null,
+      draftStaticAssetId: null,
+      savedStaticAssetId: null,
+      draftStaticAssetPosition: null,
+      savedStaticAssetPosition: null,
+      transformPreviewPosition: null,
+      isTransformDragging: false,
+    },
     gizmo: {
       xAxisScreenPoint: null,
+      visibleXAxisScreenPoint: null,
+      pickerXAxisScreenPoint: null,
       activeAxis: null,
     },
     timestamp: Date.now(),
@@ -135,6 +217,21 @@ function createBridgeSnapshot() {
     snapshot.targetTransform = targetTransform
   }
 
+  const renderedTarget = bridgeProviders.renderedTarget?.()
+  if (renderedTarget) {
+    snapshot.renderedTarget = renderedTarget
+  }
+
+  const dragMeta = bridgeProviders.dragMeta?.()
+  if (dragMeta) {
+    snapshot.dragMeta = dragMeta
+  }
+
+  const store = bridgeProviders.store?.()
+  if (store) {
+    snapshot.store = store
+  }
+
   const gizmo = bridgeProviders.gizmo?.()
   if (gizmo) {
     snapshot.gizmo = gizmo
@@ -152,6 +249,8 @@ function ensureBridgeInstalled() {
   bridgeWindow.__EDITOR_DRAG_CHECK__ = {
     getSnapshot: () => createBridgeSnapshot(),
     prepareTranslateTarget: () => bridgeProviders.prepareTarget?.() ?? null,
+    selectTarget: (targetId, transformMode) =>
+      bridgeProviders.selectTarget?.(targetId, transformMode) ?? null,
   }
 }
 
@@ -182,6 +281,24 @@ export function setEditorDragCheckTargetTransformProvider(
   setBridgeProvider('targetTransform', provider)
 }
 
+export function setEditorDragCheckRenderedTargetProvider(
+  provider: RenderedTargetSnapshotProvider | null
+) {
+  setBridgeProvider('renderedTarget', provider)
+}
+
+export function setEditorDragCheckDragMetaProvider(
+  provider: DragMetaSnapshotProvider | null
+) {
+  setBridgeProvider('dragMeta', provider)
+}
+
+export function setEditorDragCheckStoreProvider(
+  provider: StoreSnapshotProvider | null
+) {
+  setBridgeProvider('store', provider)
+}
+
 export function setEditorDragCheckGizmoProvider(provider: GizmoSnapshotProvider | null) {
   setBridgeProvider('gizmo', provider)
 }
@@ -190,4 +307,10 @@ export function setEditorDragCheckPrepareTargetProvider(
   provider: PrepareTargetProvider | null
 ) {
   setBridgeProvider('prepareTarget', provider)
+}
+
+export function setEditorDragCheckSelectTargetProvider(
+  provider: SelectTargetProvider | null
+) {
+  setBridgeProvider('selectTarget', provider)
 }

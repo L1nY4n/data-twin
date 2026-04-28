@@ -223,7 +223,9 @@ export interface Alarm {
 
 export type IncidentSeverity = Alarm['level']
 
-export type IncidentKind = 'near_miss' | 'zone_intrusion' | 'overspeed'
+export type RuntimeEventType = string
+
+export type IncidentKind = RuntimeEventType
 
 export interface IncidentCitation {
   id: string
@@ -245,6 +247,8 @@ export interface IncidentVideoFeed {
 export interface RuntimeIncident {
   id: string
   kind: IncidentKind
+  eventType?: RuntimeEventType
+  moduleKey?: string
   severity: IncidentSeverity
   title: string
   summary: string
@@ -417,6 +421,8 @@ export interface RuleConfig {
 
 // WebSocket消息类型
 export type WSMessageType = 
+  | 'batch'
+  | 'pose_frame'
   | 'position_update'
   | 'status_update'
   | 'alarm'
@@ -431,6 +437,10 @@ export interface WSMessage {
   type: WSMessageType
   payload: unknown
   timestamp: number
+}
+
+export interface RuntimeBatchMessage {
+  events: WSMessage[]
 }
 
 export interface PublishedSceneRuntimeDescriptor {

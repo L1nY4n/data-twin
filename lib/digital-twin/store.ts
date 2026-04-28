@@ -56,6 +56,7 @@ import {
 } from './mock-data'
 import { createTickScheduler } from './ecs/scheduler'
 import { CAMPUS_BOUNDS } from './campus-layout'
+import { stabilizeCameraPresets } from './camera-presets'
 import { getEquipmentSimulationIntervalMs, shouldRunEquipmentSimulation } from './equipment-runtime'
 import { aggregatePoolMetrics } from './performance-runtime'
 import {
@@ -74,14 +75,34 @@ import {
   type RuntimePublishedStaticFeatureRegistry,
 } from './runtime/static/features'
 import {
+  createEntitySchemaRegistry,
+  getDynamicEntityPresentation as resolveDynamicEntityPresentation,
+  type DynamicEntityPresentation,
+  type EntitySchemaRegistry,
+} from './entity-schema-registry'
+import {
   isRuntimeIncidentActive,
   shouldRetainRuntimeIncident,
 } from './incident-utils'
+import type {
+  EventTypeRegistration,
+  PlatformModuleManifest,
+} from './module-registry'
 import { runtimeVehicleSnapshotRegistry } from './runtime-vehicle-snapshot-registry'
+import { runtimeVehiclePoseBuffer } from './runtime-vehicle-pose-buffer'
 
 export type QualityProfile = 'balanced' | 'performance'
 export type RendererMode = 'auto' | 'webgpu' | 'webgl2'
 export type RendererBackend = 'webgpu' | 'webgl2' | 'unknown'
+
+export interface RendererDiagnostics {
+  requestedMode: RendererMode
+  backend: RendererBackend
+  webgpuAvailable: boolean | null
+  fallbackReason: string | null
+  message: string | null
+  storageBufferActive: boolean
+}
 
 interface PerformanceMetrics {
   fps: number
@@ -107,6 +128,14 @@ interface EntityBuckets {
   dynamic: DynamicEntity[]
 }
 
+function isTrackedRuntimeViewMode(mode: ViewMode) {
+  return mode === 'follow' || mode === 'firstperson'
+}
+
+function canTrackRuntimeEntity(entity: Entity | null | undefined) {
+  return !!entity && entity.type !== 'zone'
+}
+
 export interface EntityDirectoryEntry {
   id: string
   type: EntityType
@@ -114,6 +143,31 @@ export interface EntityDirectoryEntry {
   status: EntityStatus
   visible: boolean
   categoryKey?: string
+  categoryLabel?: string
+  categoryColor?: string
+  categorySortOrder?: number
+  archetypeLabel?: string
+  secondaryLabel?: string
+}
+
+interface EntityCategoryPresentation {
+  key: string
+  displayName: string
+  color?: string
+  sortOrder: number
+}
+
+function getEntityCategoryPresentationFromMap(
+  categories: Map<string, EntityCategory>,
+  key: string
+): EntityCategoryPresentation {
+  const category = categories.get(key)
+  return {
+    key,
+    displayName: category?.displayName ?? key,
+    ...(category?.color ? { color: category.color } : {}),
+    sortOrder: category?.sortOrder ?? 0,
+  }
 }
 
 const defaultPublishedScenePackage = DEFAULT_PUBLISHED_SCENE_PACKAGE
@@ -125,7 +179,9 @@ const defaultStaticFeatureRegistry =
 const defaultSceneConfig: SceneConfig = defaultPublishedScenePackage.sceneConfig
 
 // 默认相机预设
-const defaultCameraPresets: CameraPreset[] = defaultPublishedScenePackage.cameraPresets
+const defaultCameraPresets: CameraPreset[] = stabilizeCameraPresets(
+  defaultPublishedScenePackage.cameraPresets
+)
 
 interface DigitalTwinState {
   publishedScenePackage: PublishedScenePackage
@@ -143,8 +199,13 @@ interface DigitalTwinState {
 
   // 实体状态（UI层消费）
   entities: Map<string, Entity>
+  // Authoritative registry data hydrated from bootstrap/admin state.
   entityCategories: Map<string, EntityCategory>
   entityArchetypes: Map<string, EntityArchetype>
+  // Derived lookup index built from the authoritative category/archetype maps.
+  entitySchemaRegistry: EntitySchemaRegistry
+  platformModules: PlatformModuleManifest[]
+  eventTypeRegistry: Map<string, EventTypeRegistration>
   entityBuckets: EntityBuckets
   entityDirectory: Map<string, EntityDirectoryEntry>
   selectedEntityId: string | null
@@ -197,6 +258,7 @@ interface DigitalTwinState {
   // 渲染后端
   rendererMode: RendererMode
   rendererBackend: RendererBackend
+  rendererDiagnostics: RendererDiagnostics
 
   // 运行时性能状态
   qualityProfile: QualityProfile
@@ -214,6 +276,10 @@ interface SimulationTickPayload {
 interface DigitalTwinActions {
   setPublishedScenePackage: (pkg: PublishedScenePackage) => void
   setAuthoredStaticAssets: (assets: StaticAssetInstance[]) => void
+  setPlatformRegistry: (registry: {
+    modules?: PlatformModuleManifest[]
+    eventTypes?: EventTypeRegistration[]
+  }) => void
 
   // 场景操作
   setSceneConfig: (config: Partial<SceneConfig>) => void
@@ -273,6 +339,7 @@ interface DigitalTwinActions {
 
   // 事件操作
   upsertIncident: (incident: RuntimeIncident) => void
+  batchUpsertIncidents: (incidents: RuntimeIncident[]) => void
   acknowledgeIncident: (id: string) => void
   setActiveIncident: (id: string | null) => void
   openIncidentVideo: (feed: IncidentVideoFeed, incidentId?: string | null) => void
@@ -300,12 +367,13 @@ interface DigitalTwinActions {
   setAutoQuality: (enabled: boolean) => void
   setRendererMode: (mode: RendererMode) => void
   setRendererBackend: (backend: RendererBackend) => void
+  setRendererDiagnostics: (diagnostics: RendererDiagnostics) => void
 
   // 工具方法
   getEntitiesByType: <T extends Entity>(type: EntityType) => T[]
   getEntityById: (id: string) => Entity | undefined
-  getEntityArchetypeById: (id: string) => EntityArchetype | undefined
-  getEntityCategoryByKey: (key: string) => EntityCategory | undefined
+  getEventTypeRegistration: (eventType: string) => EventTypeRegistration | undefined
+  getDynamicEntityPresentation: (entity: DynamicEntity) => DynamicEntityPresentation
   getEntitiesInZone: (zoneId: string) => Entity[]
   getEcsSnapshotById: (id: string) => EcsEntitySnapshot | undefined
   reset: () => void
@@ -326,6 +394,9 @@ const initialState: DigitalTwinState = {
   entities: new Map(),
   entityCategories: new Map(),
   entityArchetypes: new Map(),
+  entitySchemaRegistry: createEntitySchemaRegistry({}),
+  platformModules: [],
+  eventTypeRegistry: new Map(),
   entityBuckets: {
     persons: [],
     vehicles: [],
@@ -375,8 +446,16 @@ const initialState: DigitalTwinState = {
 
   isConnected: false,
   connectionUrl: null,
-  rendererMode: 'webgl2',
+  rendererMode: 'auto',
   rendererBackend: 'unknown',
+  rendererDiagnostics: {
+    requestedMode: 'auto',
+    backend: 'unknown',
+    webgpuAvailable: null,
+    fallbackReason: null,
+    message: null,
+    storageBufferActive: false,
+  },
 
   qualityProfile: 'balanced',
   autoQuality: false,
@@ -403,6 +482,42 @@ const LABEL_MODE_TO_CODE: Record<'hidden' | 'sprite' | 'html', number> = {
 
 const ecsWorld = createEcsWorld()
 type MovingSnapshot = EcsEntitySnapshot & { type: 'person' | 'vehicle' }
+
+function upsertRuntimeIncidentState(
+  state: Pick<DigitalTwinState, 'incidents' | 'activeIncidentId'>,
+  incident: RuntimeIncident,
+  now = Date.now()
+) {
+  const retainedIncidents = state.incidents.filter((entry) =>
+    shouldRetainRuntimeIncident(entry, now)
+  )
+  const existingIndex = state.incidents.findIndex((entry) => entry.id === incident.id)
+  if (existingIndex >= 0) {
+    const nextIncidents = retainedIncidents.slice()
+    const retainedIndex = nextIncidents.findIndex((entry) => entry.id === incident.id)
+    if (retainedIndex === -1) {
+      nextIncidents.unshift(incident)
+      return { incidents: nextIncidents.slice(0, 80) }
+    }
+    nextIncidents[retainedIndex] = incident
+    return { incidents: nextIncidents }
+  }
+
+  const nextIncidents = [incident, ...retainedIncidents]
+  const currentActiveIncident =
+    state.activeIncidentId
+      ? nextIncidents.find((entry) => entry.id === state.activeIncidentId) ?? null
+      : null
+  const nextActiveIncidentId =
+    currentActiveIncident && isRuntimeIncidentActive(currentActiveIncident, now)
+      ? currentActiveIncident.id
+      : incident.id
+
+  return {
+    incidents: nextIncidents.slice(0, 80),
+    activeIncidentId: nextActiveIncidentId,
+  }
+}
 
 function collectVisibleSnapshotsByTypes<T extends EntityType>(
   world: EcsWorld,
@@ -448,6 +563,14 @@ function getLabelConfig(profile: QualityProfile) {
   }
 }
 
+function getLabelLodIntervalMs(profile: QualityProfile, entityCount: number) {
+  const base = profile === 'performance' ? 360 : 250
+  if (entityCount >= 300) return profile === 'performance' ? 760 : 560
+  if (entityCount >= 180) return profile === 'performance' ? 620 : 440
+  if (entityCount >= 100) return profile === 'performance' ? 480 : 340
+  return base
+}
+
 function getEntityPublishIntervalMs(
   profile: QualityProfile,
   entityCount: number,
@@ -467,6 +590,35 @@ function getEntityPublishIntervalMs(
   return interactionActive ? Math.min(scaled, 140) : scaled
 }
 
+const RUNTIME_MOTION_PATCH_KEYS = new Set([
+  'position',
+  'rotation',
+  'scale',
+  'speed',
+  'heading',
+  'routeTrack',
+  'trackPosition',
+  'metadata',
+  'updatedAt',
+])
+
+function isMotionOnlyRuntimePatch(updates: Partial<Entity>) {
+  const keys = Object.keys(updates)
+  return keys.length > 0 && keys.every((key) => RUNTIME_MOTION_PATCH_KEYS.has(key))
+}
+
+function shouldPublishRuntimePatchImmediately(
+  id: string,
+  updates: Partial<Entity>,
+  selectedEntityId: string | null,
+  hoveredEntityId: string | null
+) {
+  if (id === selectedEntityId || id === hoveredEntityId) return true
+  const snapshot = ecsWorld.snapshotById.get(id)
+  if (snapshot?.labelMode === 'html') return true
+  return !isMotionOnlyRuntimePatch(updates)
+}
+
 function cloneBoundary(boundary: Vector3[] | undefined): Vector3[] | undefined {
   return boundary ? boundary.map((point) => ({ ...point })) : undefined
 }
@@ -480,11 +632,7 @@ function cloneSceneConfigValue(sceneConfig: SceneConfig): SceneConfig {
 }
 
 function cloneCameraPresetsValue(cameraPresets: CameraPreset[]): CameraPreset[] {
-  return cameraPresets.map((preset) => ({
-    ...preset,
-    position: { ...preset.position },
-    target: { ...preset.target },
-  }))
+  return stabilizeCameraPresets(cameraPresets)
 }
 
 function cloneTimeRanges(schedule: TimeRange[] | undefined): TimeRange[] | undefined {
@@ -1064,6 +1212,8 @@ interface BuildEntityMapOptions {
 
 interface BuildEntityDirectoryOptions {
   previous?: Map<string, EntityDirectoryEntry>
+  getCategoryPresentation?: (key: string) => EntityCategoryPresentation
+  getDynamicPresentation?: (entity: Pick<DynamicEntity, 'archetypeId' | 'categoryKey'>) => DynamicEntityPresentation
 }
 
 function sameEntityArray<T extends Entity>(
@@ -1106,6 +1256,87 @@ function projectEntitySnapshot(
   }
 
   return snapshotToEntity(snapshot)
+}
+
+function projectEntityDirectoryEntry(
+  snapshot: EcsEntitySnapshot,
+  getCategoryPresentation?: (key: string) => EntityCategoryPresentation,
+  getDynamicPresentation?: (entity: Pick<DynamicEntity, 'archetypeId' | 'categoryKey'>) => DynamicEntityPresentation
+): EntityDirectoryEntry {
+  const categoryPresentation = snapshot.categoryKey
+    ? getCategoryPresentation?.(snapshot.categoryKey)
+    : undefined
+  const dynamicPresentation =
+    snapshot.type === 'dynamic' && snapshot.archetypeId && snapshot.categoryKey
+      ? getDynamicPresentation?.({
+          archetypeId: snapshot.archetypeId,
+          categoryKey: snapshot.categoryKey,
+        })
+      : undefined
+  return {
+    id: snapshot.id,
+    type: snapshot.type,
+    name: snapshot.name,
+    status: snapshot.status,
+    visible: snapshot.visible,
+    ...(snapshot.categoryKey ? { categoryKey: snapshot.categoryKey } : {}),
+    ...(snapshot.categoryKey
+      ? {
+          categoryLabel: categoryPresentation?.displayName ?? snapshot.categoryKey,
+          categorySortOrder: categoryPresentation?.sortOrder ?? 0,
+          ...(categoryPresentation?.color ? { categoryColor: categoryPresentation.color } : {}),
+        }
+      : {}),
+    ...(snapshot.type === 'dynamic' && dynamicPresentation
+      ? {
+          archetypeLabel: dynamicPresentation.archetypeLabel,
+          secondaryLabel:
+            dynamicPresentation.categoryLabel && dynamicPresentation.archetypeLabel
+              ? `${dynamicPresentation.categoryLabel} · ${dynamicPresentation.archetypeLabel}`
+              : dynamicPresentation.categoryLabel || dynamicPresentation.archetypeLabel,
+        }
+      : {}),
+  }
+}
+
+function canReuseEntityDirectoryEntry(
+  previousEntry: EntityDirectoryEntry | undefined,
+  snapshot: EcsEntitySnapshot,
+  getCategoryPresentation?: (key: string) => EntityCategoryPresentation,
+  getDynamicPresentation?: (entity: Pick<DynamicEntity, 'archetypeId' | 'categoryKey'>) => DynamicEntityPresentation
+): previousEntry is EntityDirectoryEntry {
+  const categoryPresentation = snapshot.categoryKey
+    ? getCategoryPresentation?.(snapshot.categoryKey)
+    : undefined
+  const dynamicPresentation =
+    snapshot.type === 'dynamic' && snapshot.archetypeId && snapshot.categoryKey
+      ? getDynamicPresentation?.({
+          archetypeId: snapshot.archetypeId,
+          categoryKey: snapshot.categoryKey,
+        })
+      : undefined
+  return (
+    !!previousEntry &&
+    previousEntry.type === snapshot.type &&
+    previousEntry.name === snapshot.name &&
+    previousEntry.status === snapshot.status &&
+    previousEntry.visible === snapshot.visible &&
+    previousEntry.categoryKey === snapshot.categoryKey &&
+    previousEntry.categoryLabel ===
+      (snapshot.categoryKey ? categoryPresentation?.displayName ?? snapshot.categoryKey : undefined) &&
+    previousEntry.categorySortOrder ===
+      (snapshot.categoryKey ? categoryPresentation?.sortOrder ?? 0 : undefined) &&
+    previousEntry.categoryColor ===
+      (snapshot.categoryKey ? categoryPresentation?.color : undefined) &&
+    previousEntry.archetypeLabel ===
+      (snapshot.type === 'dynamic' ? dynamicPresentation?.archetypeLabel : undefined) &&
+    previousEntry.secondaryLabel ===
+      (snapshot.type === 'dynamic' && dynamicPresentation
+        ? dynamicPresentation.categoryLabel && dynamicPresentation.archetypeLabel
+          ? `${dynamicPresentation.categoryLabel} · ${dynamicPresentation.archetypeLabel}`
+          : dynamicPresentation.categoryLabel || dynamicPresentation.archetypeLabel
+        : undefined)
+  )
 }
 
 function buildEntityMapFromWorld(options: BuildEntityMapOptions = {}): Map<string, Entity> {
@@ -1166,25 +1397,25 @@ function buildEntityDirectoryFromWorld(
   ecsWorld.snapshotById.forEach((snapshot, id) => {
     const previousEntry = previous?.get(id)
     if (
-      previousEntry &&
-      previousEntry.type === snapshot.type &&
-      previousEntry.name === snapshot.name &&
-      previousEntry.status === snapshot.status &&
-      previousEntry.visible === snapshot.visible &&
-      previousEntry.categoryKey === snapshot.categoryKey
+      canReuseEntityDirectoryEntry(
+        previousEntry,
+        snapshot,
+        options.getCategoryPresentation,
+        options.getDynamicPresentation
+      )
     ) {
       next.set(id, previousEntry)
       return
     }
 
-    next.set(id, {
-      id: snapshot.id,
-      type: snapshot.type,
-      name: snapshot.name,
-      status: snapshot.status,
-      visible: snapshot.visible,
-      ...(snapshot.categoryKey ? { categoryKey: snapshot.categoryKey } : {}),
-    })
+    next.set(
+      id,
+      projectEntityDirectoryEntry(
+        snapshot,
+        options.getCategoryPresentation,
+        options.getDynamicPresentation
+      )
+    )
   })
 
   if (!previous || previous.size !== next.size) return next
@@ -1285,6 +1516,7 @@ function patchEntityBuckets(
   if (uniqueIds.length === 0 || nextEntities === previousEntities) return previousBuckets
 
   let nextBuckets = previousBuckets
+  const idsByBucket = new Map<keyof EntityBuckets, string[]>()
 
   for (const id of uniqueIds) {
     const previousEntity = previousEntities.get(id)
@@ -1295,70 +1527,75 @@ function patchEntityBuckets(
     }
 
     const bucketKey = getBucketKey(nextEntity)
-    const previousBucket = nextBuckets[bucketKey]
-    const entityIndex = previousBucket.findIndex((entity) => entity.id === id)
-
-    if (entityIndex === -1) {
-      return buildEntityBucketsFromEntities(nextEntities, previousBuckets)
+    const bucketIds = idsByBucket.get(bucketKey)
+    if (bucketIds) {
+      bucketIds.push(id)
+    } else {
+      idsByBucket.set(bucketKey, [id])
     }
+  }
 
-    if (previousBucket[entityIndex] === nextEntity) continue
+  for (const [bucketKey, bucketIds] of idsByBucket) {
+    const previousBucket = previousBuckets[bucketKey]
+    const entityIndexById = new Map(previousBucket.map((entity, index) => [entity.id, index]))
+    let nextBucket = previousBucket
 
-    if (nextBuckets === previousBuckets) {
-      nextBuckets = {
-        persons: previousBuckets.persons,
-        vehicles: previousBuckets.vehicles,
-        equipment: previousBuckets.equipment,
-        sensors: previousBuckets.sensors,
-        cameras: previousBuckets.cameras,
-        zones: previousBuckets.zones,
-        dynamic: previousBuckets.dynamic,
+    for (const id of bucketIds) {
+      const nextEntity = nextEntities.get(id)
+      if (!nextEntity) {
+        return buildEntityBucketsFromEntities(nextEntities, previousBuckets)
       }
+
+      const entityIndex = entityIndexById.get(id)
+      if (entityIndex === undefined) {
+        return buildEntityBucketsFromEntities(nextEntities, previousBuckets)
+      }
+
+      if (previousBucket[entityIndex] === nextEntity) continue
+
+      if (nextBuckets === previousBuckets) {
+        nextBuckets = {
+          persons: previousBuckets.persons,
+          vehicles: previousBuckets.vehicles,
+          equipment: previousBuckets.equipment,
+          sensors: previousBuckets.sensors,
+          cameras: previousBuckets.cameras,
+          zones: previousBuckets.zones,
+          dynamic: previousBuckets.dynamic,
+        }
+      }
+
+      if (nextBucket === previousBucket) {
+        nextBucket = previousBucket.slice()
+      }
+
+      nextBucket[entityIndex] = nextEntity
     }
+
+    if (nextBucket === previousBucket) continue
 
     switch (bucketKey) {
-      case 'persons': {
-        const nextBucket = previousBucket.slice() as PersonEntity[]
-        nextBucket[entityIndex] = nextEntity as PersonEntity
-        nextBuckets.persons = nextBucket
+      case 'persons':
+        nextBuckets.persons = nextBucket as PersonEntity[]
         break
-      }
-      case 'vehicles': {
-        const nextBucket = previousBucket.slice() as VehicleEntity[]
-        nextBucket[entityIndex] = nextEntity as VehicleEntity
-        nextBuckets.vehicles = nextBucket
+      case 'vehicles':
+        nextBuckets.vehicles = nextBucket as VehicleEntity[]
         break
-      }
-      case 'equipment': {
-        const nextBucket = previousBucket.slice() as EquipmentEntity[]
-        nextBucket[entityIndex] = nextEntity as EquipmentEntity
-        nextBuckets.equipment = nextBucket
+      case 'equipment':
+        nextBuckets.equipment = nextBucket as EquipmentEntity[]
         break
-      }
-      case 'sensors': {
-        const nextBucket = previousBucket.slice() as SensorEntity[]
-        nextBucket[entityIndex] = nextEntity as SensorEntity
-        nextBuckets.sensors = nextBucket
+      case 'sensors':
+        nextBuckets.sensors = nextBucket as SensorEntity[]
         break
-      }
-      case 'cameras': {
-        const nextBucket = previousBucket.slice() as CameraEntity[]
-        nextBucket[entityIndex] = nextEntity as CameraEntity
-        nextBuckets.cameras = nextBucket
+      case 'cameras':
+        nextBuckets.cameras = nextBucket as CameraEntity[]
         break
-      }
-      case 'zones': {
-        const nextBucket = previousBucket.slice() as ZoneEntity[]
-        nextBucket[entityIndex] = nextEntity as ZoneEntity
-        nextBuckets.zones = nextBucket
+      case 'zones':
+        nextBuckets.zones = nextBucket as ZoneEntity[]
         break
-      }
-      case 'dynamic': {
-        const nextBucket = previousBucket.slice() as DynamicEntity[]
-        nextBucket[entityIndex] = nextEntity as DynamicEntity
-        nextBuckets.dynamic = nextBucket
+      case 'dynamic':
+        nextBuckets.dynamic = nextBucket as DynamicEntity[]
         break
-      }
     }
   }
 
@@ -1367,7 +1604,9 @@ function patchEntityBuckets(
 
 function patchEntityDirectory(
   previous: Map<string, EntityDirectoryEntry>,
-  ids: Array<string | null | undefined>
+  ids: Array<string | null | undefined>,
+  getCategoryPresentation?: (key: string) => EntityCategoryPresentation,
+  getDynamicPresentation?: (entity: Pick<DynamicEntity, 'archetypeId' | 'categoryKey'>) => DynamicEntityPresentation
 ): Map<string, EntityDirectoryEntry> {
   const uniqueIds = [...new Set(ids.filter((id): id is string => typeof id === 'string' && id.length > 0))]
   if (uniqueIds.length === 0) return previous
@@ -1385,26 +1624,12 @@ function patchEntityDirectory(
       continue
     }
 
-    if (
-      previousEntry &&
-      previousEntry.type === snapshot.type &&
-      previousEntry.name === snapshot.name &&
-      previousEntry.status === snapshot.status &&
-      previousEntry.visible === snapshot.visible &&
-      previousEntry.categoryKey === snapshot.categoryKey
-    ) {
+    if (canReuseEntityDirectoryEntry(previousEntry, snapshot, getCategoryPresentation, getDynamicPresentation)) {
       continue
     }
 
     if (next === previous) next = new Map(previous)
-    next.set(id, {
-      id: snapshot.id,
-      type: snapshot.type,
-      name: snapshot.name,
-      status: snapshot.status,
-      visible: snapshot.visible,
-      ...(snapshot.categoryKey ? { categoryKey: snapshot.categoryKey } : {}),
-    })
+    next.set(id, projectEntityDirectoryEntry(snapshot, getCategoryPresentation, getDynamicPresentation))
   }
 
   return next
@@ -1415,6 +1640,8 @@ function patchPublishedEntityState(options: {
   previousBuckets: EntityBuckets
   previousDirectory: Map<string, EntityDirectoryEntry>
   ids: Array<string | null | undefined>
+  getCategoryPresentation?: (key: string) => EntityCategoryPresentation
+  getDynamicPresentation?: (entity: Pick<DynamicEntity, 'archetypeId' | 'categoryKey'>) => DynamicEntityPresentation
 }) {
   const entities = patchProjectedEntities(options.previousEntities, options.ids)
 
@@ -1426,7 +1653,12 @@ function patchPublishedEntityState(options: {
       entities,
       options.ids
     ),
-    entityDirectory: patchEntityDirectory(options.previousDirectory, options.ids),
+    entityDirectory: patchEntityDirectory(
+      options.previousDirectory,
+      options.ids,
+      options.getCategoryPresentation,
+      options.getDynamicPresentation
+    ),
   }
 }
 
@@ -1434,6 +1666,8 @@ function buildPublishedEntityState(options: {
   previousEntities?: Map<string, Entity>
   previousBuckets?: EntityBuckets
   previousDirectory?: Map<string, EntityDirectoryEntry>
+  getCategoryPresentation?: (key: string) => EntityCategoryPresentation
+  getDynamicPresentation?: (entity: Pick<DynamicEntity, 'archetypeId' | 'categoryKey'>) => DynamicEntityPresentation
 }) {
   const entities = buildEntityMapFromWorld({
     previous: options.previousEntities,
@@ -1444,6 +1678,8 @@ function buildPublishedEntityState(options: {
     entityBuckets: buildEntityBucketsFromEntities(entities, options.previousBuckets),
     entityDirectory: buildEntityDirectoryFromWorld({
       previous: options.previousDirectory,
+      getCategoryPresentation: options.getCategoryPresentation,
+      getDynamicPresentation: options.getDynamicPresentation,
     }),
   }
 }
@@ -1578,6 +1814,7 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
     let lastMetricsAt = 0
     let lastLabelLodAt = 0
     let lastEntityPublishAt = 0
+    let lastRealtimeEntityPublishAt = 0
     let lastEquipmentSimulationAt = 0
     let lastHtmlLabelCount = 0
     let smoothFramesStreak = 0
@@ -1630,6 +1867,7 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
             id: snapshot.id,
             type: snapshot.type,
             position: snapshot.position,
+            vehicleType: snapshot.type === 'vehicle' ? snapshot.vehicleType : undefined,
           }))
         )
 
@@ -1668,7 +1906,8 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
               movement.position,
               DYNAMIC_NEIGHBOR_QUERY_RADIUS,
               snapshot.id
-            )
+            ),
+            snapshot.type === 'vehicle' ? snapshot.vehicleType : undefined
           )
           const nextPosition = separation.position
 
@@ -1777,7 +2016,11 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
           return
         }
 
-        const shouldRecomputeLabelLod = now - lastLabelLodAt >= 250
+        const labelLodIntervalMs = getLabelLodIntervalMs(
+          qualityProfile,
+          ecsWorld.snapshotById.size
+        )
+        const shouldRecomputeLabelLod = now - lastLabelLodAt >= labelLodIntervalMs
         const labelState = shouldRecomputeLabelLod
           ? applyLabelLod(qualityProfile, latestCamera)
           : {
@@ -1855,6 +2098,10 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
                   previousBuckets: state.entityBuckets,
                   previousDirectory: state.entityDirectory,
                   ids: changedIds,
+                  getCategoryPresentation: (key) =>
+                    getEntityCategoryPresentationFromMap(state.entityCategories, key),
+                  getDynamicPresentation: (entity) =>
+                    resolveDynamicEntityPresentation(entity, state.entitySchemaRegistry),
                 })
               : {}),
             ...(trajectoriesChanged ? { trajectories: nextTrajectories } : {}),
@@ -1940,6 +2187,7 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
       lastMetricsAt = 0
       lastLabelLodAt = 0
       lastEntityPublishAt = 0
+      lastRealtimeEntityPublishAt = 0
       lastEquipmentSimulationAt = 0
       lastHtmlLabelCount = 0
       smoothFramesStreak = 0
@@ -1982,17 +2230,49 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
           authoredStaticAssets: new Map(assets.map((asset) => [asset.id, asset])),
         }),
 
-      setEntityRegistry: ({ categories, archetypes }) =>
+      setPlatformRegistry: ({ modules, eventTypes }) =>
         set((state) => ({
-          entityCategories:
+          platformModules: modules ?? state.platformModules,
+          eventTypeRegistry:
+            eventTypes === undefined
+              ? state.eventTypeRegistry
+              : new Map(eventTypes.map((registration) => [registration.eventType, registration])),
+        })),
+
+      setEntityRegistry: ({ categories, archetypes }) =>
+        set((state) => {
+          const nextCategories =
             categories === undefined
               ? state.entityCategories
-              : new Map(categories.map((category) => [category.key, category])),
-          entityArchetypes:
+              : new Map(categories.map((category) => [category.key, category]))
+          const nextArchetypes =
             archetypes === undefined
               ? state.entityArchetypes
-              : new Map(archetypes.map((archetype) => [archetype.id, archetype])),
-        })),
+              : new Map(archetypes.map((archetype) => [archetype.id, archetype]))
+          const getCategoryPresentation = (key: string): EntityCategoryPresentation => {
+            return getEntityCategoryPresentationFromMap(nextCategories, key)
+          }
+          const nextSchemaRegistry = createEntitySchemaRegistry({
+            categories: nextCategories.values(),
+            archetypes: nextArchetypes.values(),
+          })
+          const getDynamicPresentation = (
+            entity: Pick<DynamicEntity, 'archetypeId' | 'categoryKey'>
+          ): DynamicEntityPresentation => resolveDynamicEntityPresentation(entity, nextSchemaRegistry)
+
+          // Keep the original maps as the source of truth and rebuild the
+          // schema registry as a derived runtime index for read paths.
+          return {
+            entityCategories: nextCategories,
+            entityArchetypes: nextArchetypes,
+            entitySchemaRegistry: nextSchemaRegistry,
+            entityDirectory: buildEntityDirectoryFromWorld({
+              previous: state.entityDirectory,
+              getCategoryPresentation,
+              getDynamicPresentation,
+            }),
+          }
+        }),
 
       // 场景操作
       setSceneConfig: (config) =>
@@ -2000,9 +2280,49 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
           sceneConfig: { ...state.sceneConfig, ...config },
         })),
 
-      setViewMode: (mode) => set({ viewMode: mode }),
+      setViewMode: (mode) =>
+        set((state) => {
+          if (mode === 'topdown') {
+            return {
+              viewMode: 'orbit',
+              activeCameraPreset: 'top',
+              cameraFocusRequest: null,
+            }
+          }
 
-      setActiveCameraPreset: (presetId) => set({ activeCameraPreset: presetId }),
+          if (isTrackedRuntimeViewMode(mode)) {
+            const selectedEntity = state.selectedEntityId
+              ? state.entities.get(state.selectedEntityId)
+              : null
+
+            if (!canTrackRuntimeEntity(selectedEntity)) {
+              return {
+                viewMode: 'orbit',
+                activeCameraPreset: null,
+                cameraFocusRequest: null,
+              }
+            }
+
+            return {
+              viewMode: mode,
+              activeCameraPreset: null,
+              cameraFocusRequest: null,
+            }
+          }
+
+          return { viewMode: mode }
+        }),
+
+      setActiveCameraPreset: (presetId) =>
+        set(
+          presetId
+            ? {
+                viewMode: 'orbit',
+                activeCameraPreset: presetId,
+                cameraFocusRequest: null,
+              }
+            : { activeCameraPreset: null }
+        ),
 
       clearCameraFocusRequest: () => set({ cameraFocusRequest: null }),
 
@@ -2018,11 +2338,13 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
 
         set({
           activeCameraPreset: null,
-          cameraFocusRequest: buildCameraFocusRequest(
-            entity,
-            latestCamera,
-            focusedState.sceneConfig.cameraPosition
-          ),
+          cameraFocusRequest: isTrackedRuntimeViewMode(focusedState.viewMode)
+            ? null
+            : buildCameraFocusRequest(
+                entity,
+                latestCamera,
+                focusedState.sceneConfig.cameraPosition
+              ),
         })
       },
 
@@ -2037,6 +2359,10 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
             previousEntities: state.entities,
             previousBuckets: state.entityBuckets,
             previousDirectory: state.entityDirectory,
+            getCategoryPresentation: (key) =>
+              getEntityCategoryPresentationFromMap(state.entityCategories, key),
+            getDynamicPresentation: (entity) =>
+              resolveDynamicEntityPresentation(entity, state.entitySchemaRegistry),
           }),
         }))
       },
@@ -2056,6 +2382,10 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
             previousEntities: state.entities,
             previousBuckets: state.entityBuckets,
             previousDirectory: state.entityDirectory,
+            getCategoryPresentation: (key) =>
+              getEntityCategoryPresentationFromMap(state.entityCategories, key),
+            getDynamicPresentation: (entity) =>
+              resolveDynamicEntityPresentation(entity, state.entitySchemaRegistry),
           }),
         }))
       },
@@ -2069,6 +2399,10 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
             previousBuckets: state.entityBuckets,
             previousDirectory: state.entityDirectory,
             ids: [id],
+            getCategoryPresentation: (key) =>
+              getEntityCategoryPresentationFromMap(state.entityCategories, key),
+            getDynamicPresentation: (entity) =>
+              resolveDynamicEntityPresentation(entity, state.entitySchemaRegistry),
           }),
         }))
       },
@@ -2077,11 +2411,16 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
         enqueueEcsCommands(ecsWorld, [{ type: 'remove', payload: { id } }])
         flushBufferedCommands(ecsWorld)
         runtimeVehicleSnapshotRegistry.clear(id)
+        runtimeVehiclePoseBuffer.delete(id)
         set((state) => ({
           ...buildPublishedEntityState({
             previousEntities: state.entities,
             previousBuckets: state.entityBuckets,
             previousDirectory: state.entityDirectory,
+            getCategoryPresentation: (key) =>
+              getEntityCategoryPresentationFromMap(state.entityCategories, key),
+            getDynamicPresentation: (entity) =>
+              resolveDynamicEntityPresentation(entity, state.entitySchemaRegistry),
           }),
           selectedEntityId: state.selectedEntityId === id ? null : state.selectedEntityId,
           hoveredEntityId: state.hoveredEntityId === id ? null : state.hoveredEntityId,
@@ -2223,6 +2562,10 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
             previousBuckets: state.entityBuckets,
             previousDirectory: state.entityDirectory,
             ids: [id],
+            getCategoryPresentation: (key) =>
+              getEntityCategoryPresentationFromMap(state.entityCategories, key),
+            getDynamicPresentation: (entity) =>
+              resolveDynamicEntityPresentation(entity, state.entitySchemaRegistry),
           }),
         }))
       },
@@ -2243,41 +2586,99 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
             previousBuckets: state.entityBuckets,
             previousDirectory: state.entityDirectory,
             ids: updates.map(({ id }) => id),
+            getCategoryPresentation: (key) =>
+              getEntityCategoryPresentationFromMap(state.entityCategories, key),
+            getDynamicPresentation: (entity) =>
+              resolveDynamicEntityPresentation(entity, state.entitySchemaRegistry),
           }),
         }))
       },
 
       applySimulationTick: ({ entityUpdates, trajectoryUpdates = [], newAlarms = [] }) => {
-        enqueueEcsCommands(
-          ecsWorld,
-          entityUpdates.map(({ id, updates }) => ({
-            type: 'update' as const,
-            payload: { id, updates: updates as never },
-          }))
+        if (entityUpdates.length > 0) {
+          enqueueEcsCommands(
+            ecsWorld,
+            entityUpdates.map(({ id, updates }) => ({
+              type: 'update' as const,
+              payload: { id, updates: updates as never },
+            }))
+          )
+          flushBufferedCommands(ecsWorld)
+        }
+
+        const now = Date.now()
+        const current = get()
+        const interactionActive =
+          current.selectedEntityId !== null ||
+          current.hoveredEntityId !== null ||
+          current.selectedStaticFeatureId !== null ||
+          current.hoveredStaticFeatureId !== null ||
+          lastHtmlLabelCount > 0
+        const publishIntervalMs = getEntityPublishIntervalMs(
+          current.qualityProfile,
+          ecsWorld.snapshotById.size,
+          interactionActive
         )
-        flushBufferedCommands(ecsWorld)
+        const shouldPublishAllRuntimeUpdates =
+          entityUpdates.length > 0 && now - lastRealtimeEntityPublishAt >= publishIntervalMs
+        const idsToPublish = shouldPublishAllRuntimeUpdates
+          ? entityUpdates.map(({ id }) => id)
+          : entityUpdates
+              .filter(({ id, updates }) =>
+                shouldPublishRuntimePatchImmediately(
+                  id,
+                  updates,
+                  current.selectedEntityId,
+                  current.hoveredEntityId
+                )
+              )
+              .map(({ id }) => id)
+
+        if (idsToPublish.length > 0 && shouldPublishAllRuntimeUpdates) {
+          lastRealtimeEntityPublishAt = now
+        }
+
+        if (idsToPublish.length === 0 && trajectoryUpdates.length === 0 && newAlarms.length === 0) {
+          return
+        }
 
         set((state) => {
-          const nextTrajectories = new Map(state.trajectories)
-          trajectoryUpdates.forEach(({ entityId, point }) => {
-            appendTrajectoryPoint(nextTrajectories, entityId, point)
-          })
+          let nextTrajectories = state.trajectories
+          let trajectoriesChanged = false
+          if (trajectoryUpdates.length > 0) {
+            nextTrajectories = new Map(state.trajectories)
+            trajectoryUpdates.forEach(({ entityId, point }) => {
+              appendTrajectoryPoint(nextTrajectories, entityId, point)
+            })
+            trajectoriesChanged = true
+          }
 
-          const mergedAlarms = newAlarms.length > 0 ? [...newAlarms, ...state.alarms].slice(0, 100) : state.alarms
+          const alarmsChanged = newAlarms.length > 0
+          const mergedAlarms = alarmsChanged ? [...newAlarms, ...state.alarms].slice(0, 100) : state.alarms
 
           return {
-            ...patchPublishedEntityState({
-              previousEntities: state.entities,
-              previousBuckets: state.entityBuckets,
-              previousDirectory: state.entityDirectory,
-              ids: entityUpdates.map(({ id }) => id),
-            }),
-            trajectories: nextTrajectories,
-            alarms: mergedAlarms,
-            unacknowledgedAlarmCount: mergedAlarms.reduce(
-              (count, alarm) => (alarm.acknowledged ? count : count + 1),
-              0
-            ),
+            ...(idsToPublish.length > 0
+              ? patchPublishedEntityState({
+                  previousEntities: state.entities,
+                  previousBuckets: state.entityBuckets,
+                  previousDirectory: state.entityDirectory,
+                  ids: idsToPublish,
+                  getCategoryPresentation: (key) =>
+                    getEntityCategoryPresentationFromMap(state.entityCategories, key),
+                  getDynamicPresentation: (entity) =>
+                    resolveDynamicEntityPresentation(entity, state.entitySchemaRegistry),
+                })
+              : {}),
+            ...(trajectoriesChanged ? { trajectories: nextTrajectories } : {}),
+            ...(alarmsChanged
+              ? {
+                  alarms: mergedAlarms,
+                  unacknowledgedAlarmCount: mergedAlarms.reduce(
+                    (count, alarm) => (alarm.acknowledged ? count : count + 1),
+                    0
+                  ),
+                }
+              : {}),
           }
         })
       },
@@ -2296,6 +2697,10 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
               previousEntities: state.entities,
               previousBuckets: state.entityBuckets,
               previousDirectory: state.entityDirectory,
+              getCategoryPresentation: (key) =>
+                getEntityCategoryPresentationFromMap(state.entityCategories, key),
+              getDynamicPresentation: (entity) =>
+                resolveDynamicEntityPresentation(entity, state.entitySchemaRegistry),
             }),
           }))
         }
@@ -2385,37 +2790,21 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
 
       // 事件操作
       upsertIncident: (incident) =>
+        set((state) => upsertRuntimeIncidentState(state, incident)),
+
+      batchUpsertIncidents: (incidents) =>
         set((state) => {
-          const now = Date.now()
-          const retainedIncidents = state.incidents.filter((entry) =>
-            shouldRetainRuntimeIncident(entry, now)
-          )
-          const existingIndex = state.incidents.findIndex((entry) => entry.id === incident.id)
-          if (existingIndex >= 0) {
-            const nextIncidents = retainedIncidents.slice()
-            const retainedIndex = nextIncidents.findIndex((entry) => entry.id === incident.id)
-            if (retainedIndex === -1) {
-              nextIncidents.unshift(incident)
-              return { incidents: nextIncidents.slice(0, 80) }
+          if (incidents.length === 0) return state
+
+          let nextState = state
+          for (const incident of incidents) {
+            nextState = {
+              ...nextState,
+              ...upsertRuntimeIncidentState(nextState, incident),
             }
-            nextIncidents[retainedIndex] = incident
-            return { incidents: nextIncidents }
           }
 
-          const nextIncidents = [incident, ...retainedIncidents]
-          const currentActiveIncident =
-            state.activeIncidentId
-              ? nextIncidents.find((entry) => entry.id === state.activeIncidentId) ?? null
-              : null
-          const nextActiveIncidentId =
-            currentActiveIncident && isRuntimeIncidentActive(currentActiveIncident, now)
-              ? currentActiveIncident.id
-              : incident.id
-
-          return {
-            incidents: nextIncidents.slice(0, 80),
-            activeIncidentId: nextActiveIncidentId,
-          }
+          return nextState
         }),
 
       acknowledgeIncident: (id) =>
@@ -2553,9 +2942,23 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
 
       setAutoQuality: (enabled) => set({ autoQuality: enabled }),
 
-      setRendererMode: (mode) => set({ rendererMode: mode }),
+      setRendererMode: (mode) =>
+        set((state) => (state.rendererMode === mode ? state : { rendererMode: mode })),
 
-      setRendererBackend: (backend) => set({ rendererBackend: backend }),
+      setRendererBackend: (backend) =>
+        set((state) => (state.rendererBackend === backend ? state : { rendererBackend: backend })),
+
+      setRendererDiagnostics: (diagnostics) =>
+        set((state) =>
+          state.rendererDiagnostics.requestedMode === diagnostics.requestedMode &&
+          state.rendererDiagnostics.backend === diagnostics.backend &&
+          state.rendererDiagnostics.webgpuAvailable === diagnostics.webgpuAvailable &&
+          state.rendererDiagnostics.fallbackReason === diagnostics.fallbackReason &&
+          state.rendererDiagnostics.message === diagnostics.message &&
+          state.rendererDiagnostics.storageBufferActive === diagnostics.storageBufferActive
+            ? state
+            : { rendererDiagnostics: diagnostics }
+        ),
 
       // 工具方法
       getEntitiesByType: <T extends Entity>(type: EntityType): T[] => {
@@ -2570,9 +2973,10 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
 
       getEntityById: (id) => get().entities.get(id),
 
-      getEntityArchetypeById: (id) => get().entityArchetypes.get(id),
+      getEventTypeRegistration: (eventType) => get().eventTypeRegistry.get(eventType),
 
-      getEntityCategoryByKey: (key) => get().entityCategories.get(key),
+      getDynamicEntityPresentation: (entity) =>
+        resolveDynamicEntityPresentation(entity, get().entitySchemaRegistry),
 
       getEntitiesInZone: (zoneId) => {
         const zone = get().entities.get(zoneId) as ZoneEntity | undefined
@@ -2598,6 +3002,7 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
         ecsWorld.selectedId = null
         ecsWorld.hoveredId = null
         runtimeVehicleSnapshotRegistry.clear()
+        runtimeVehiclePoseBuffer.clear()
         resetRuntimeClockState()
         set(initialState)
       },

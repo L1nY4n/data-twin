@@ -17,20 +17,24 @@ const INCIDENT_COLOR_MAP: Record<IncidentSeverity, string> = {
 function IncidentPulse({
   incident,
   isActive,
-  position,
   index,
 }: {
   incident: RuntimeIncident
   isActive: boolean
-  position: { x: number; y: number; z: number }
   index: number
 }) {
+  const groupRef = useRef<THREE.Group>(null)
   const ringRef = useRef<THREE.Mesh>(null)
   const beamRef = useRef<THREE.Mesh>(null)
   const coreRef = useRef<THREE.Mesh>(null)
   const color = INCIDENT_COLOR_MAP[incident.severity]
 
   useFrame(({ clock }) => {
+    const entity = useDigitalTwinStore.getState().getEntityById(incident.primaryEntityId)
+    if (groupRef.current && entity) {
+      groupRef.current.position.set(entity.position.x, entity.position.y, entity.position.z)
+    }
+
     const pulse = 0.85 + (Math.sin(clock.elapsedTime * 2.4 + index) + 1) * 0.18
     const beamOpacity = isActive ? 0.28 : 0.18
     const ringOpacity = isActive ? 0.92 : 0.68
@@ -56,7 +60,7 @@ function IncidentPulse({
   })
 
   return (
-    <group position={[position.x, position.y, position.z]}>
+    <group ref={groupRef}>
       <mesh ref={ringRef} rotation-x={-Math.PI / 2} position={[0, 0.08, 0]}>
         <ringGeometry args={[1.55, 1.95, 48]} />
         <meshBasicMaterial
@@ -81,7 +85,6 @@ function IncidentPulse({
 
 export function IncidentEffects() {
   const incidents = useDigitalTwinStore((state) => state.incidents)
-  const entities = useDigitalTwinStore((state) => state.entities)
   const activeIncidentId = useDigitalTwinStore((state) => state.activeIncidentId)
 
   const renderableIncidents = useMemo(
@@ -92,7 +95,7 @@ export function IncidentEffects() {
   return (
     <group>
       {renderableIncidents.map((incident, index) => {
-        const entity = entities.get(incident.primaryEntityId)
+        const entity = useDigitalTwinStore.getState().getEntityById(incident.primaryEntityId)
         if (!entity) return null
 
         return (
@@ -100,7 +103,6 @@ export function IncidentEffects() {
             key={incident.id}
             incident={incident}
             isActive={incident.id === activeIncidentId}
-            position={entity.position}
             index={index}
           />
         )

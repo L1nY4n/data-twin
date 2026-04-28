@@ -12,6 +12,7 @@ import { EditorInspector } from './EditorInspector'
 import { EditorToolbar } from './EditorToolbar'
 import { EditorViewportDock } from './EditorViewportDock'
 import { useEditorChromeMotion } from './useEditorChromeMotion'
+import { useEditorKeyboardShortcuts } from './useEditorKeyboardShortcuts'
 
 const EditorCanvas = dynamic(
   () => import('@/components/editor/EditorCanvas').then((mod) => mod.EditorCanvas),
@@ -65,6 +66,7 @@ export function EditorShell({
     deleteSelection,
     duplicateSelection,
     createStandardRoom,
+    importDetectedFloorPlan,
     publish,
     publishStatus,
     activityStatus,
@@ -73,6 +75,9 @@ export function EditorShell({
   } = useEditorDigitalTwin(workspaceId)
   const isMobile = useIsMobile()
   const error = useEditorUiStore((state) => state.error)
+  const hasHydratedFromBootstrap = useEditorUiStore(
+    (state) => state.hasHydratedFromBootstrap
+  )
   const [resourcesPanelOpen, setResourcesPanelOpen] = useState(true)
   const [inspectorCollapsed, setInspectorCollapsed] = useState(false)
   const [resourcesPanelWidth, setResourcesPanelWidth] = useState(
@@ -274,10 +279,15 @@ export function EditorShell({
     resourcesPanelOpen,
     inspectorCollapsed,
   })
+  useEditorKeyboardShortcuts({
+    deleteSelection,
+    duplicateSelection,
+  })
 
   const shouldShowStatusBanner =
     Boolean(error) || activityStatus.phase === 'recovering' || activityStatus.phase === 'error'
   const canRetryCurrentOperation = Boolean(activityStatus.canRetry && activityStatus.retryAction)
+  const shouldShowBootstrapPlaceholder = !hasHydratedFromBootstrap
   const statusBannerToneClass =
     activityStatus.tone === 'danger'
       ? 'border-[#ff9e9e]/40 bg-[#1b1014]/84 text-[#ffd4d4] shadow-[0_18px_44px_rgba(43,12,16,0.22)]'
@@ -325,128 +335,155 @@ export function EditorShell({
             ) : null}
 
             <div className="relative h-full">
-              <EditorCanvas />
-
-              <div
-                className={cn(
-                  'absolute left-3 z-30 transition-[height,opacity,transform] duration-200',
-                  (hoveredResizeEdge === 'left' || activeResizeHandle === 'left') &&
-                    'cursor-ew-resize',
-                  resourcesPanelOpen
-                    ? isMobile
-                      ? 'inset-y-3 w-[15.25rem]'
-                      : 'inset-y-3 w-[15.75rem]'
-                    : 'top-3 h-10 w-10'
-                )}
-                style={!isMobile ? { width: `${resourcesPanelInlineSize}px` } : undefined}
-                data-editor-resize-hover={hoveredResizeEdge === 'left'}
-                onPointerMove={handleResizeEdgePointerMove('left')}
-                onPointerLeave={handleResizeEdgePointerLeave('left')}
-                onPointerDown={beginPanelResize('left')}
-              >
-                <div
-                  ref={leftPanelRef}
-                  data-editor-chrome="resources"
-                  data-editor-collapsed={!resourcesPanelOpen}
-                  className={cn('pointer-events-auto', resourcesPanelOpen ? 'h-full' : 'h-10')}
-                >
-                  <EditorAppSidebar
-                    collapsed={!resourcesPanelOpen}
-                    onToggleCollapse={() => setResourcesPanelOpen((value) => !value)}
-                    returnHref={returnHref}
-                  />
+              {shouldShowBootstrapPlaceholder ? (
+                <div className="editor-canvas-loading-shell flex h-full w-full items-center justify-center">
+                  <div className="editor-loading-card flex max-w-sm flex-col items-center gap-3 px-6 py-5 text-center text-white">
+                    <Spinner className="h-8 w-8 text-[#7da7ff]" />
+                    <div className="space-y-1">
+                      <p className="text-sm font-semibold text-white">{activityStatus.title}</p>
+                      <p className="text-sm text-white/70">{activityStatus.detail}</p>
+                    </div>
+                    {canRetryCurrentOperation ? (
+                      <button
+                        type="button"
+                        className="rounded-full border border-white/16 bg-white/8 px-3 py-1.5 text-[11px] font-semibold text-white transition hover:bg-white/14"
+                        onClick={() => void retryActivity()}
+                        title={activityStatus.retryLabel ?? '重试当前操作'}
+                        aria-label={activityStatus.retryLabel ?? '重试当前操作'}
+                      >
+                        {activityStatus.retryLabel ?? '重试'}
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <>
+                  <EditorCanvas />
 
-              <div className="pointer-events-none absolute inset-x-0 top-3 z-30 flex justify-center px-14 md:px-16 lg:px-24">
-                <div className="flex w-full max-w-[60rem] flex-col items-center gap-1.5">
                   <div
-                    ref={toolbarRef}
-                    data-editor-chrome="toolbar"
-                    className="pointer-events-auto w-full"
+                    className={cn(
+                      'absolute left-3 z-30 transition-[height,opacity,transform] duration-200',
+                      (hoveredResizeEdge === 'left' || activeResizeHandle === 'left') &&
+                        'cursor-ew-resize',
+                      resourcesPanelOpen
+                        ? isMobile
+                          ? 'inset-y-3 w-[15.25rem]'
+                          : 'inset-y-3 w-[15.75rem]'
+                        : 'top-3 h-10 w-10'
+                    )}
+                    style={!isMobile ? { width: `${resourcesPanelInlineSize}px` } : undefined}
+                    data-editor-resize-hover={hoveredResizeEdge === 'left'}
+                    onPointerMove={handleResizeEdgePointerMove('left')}
+                    onPointerLeave={handleResizeEdgePointerLeave('left')}
+                    onPointerDown={beginPanelResize('left')}
                   >
-                    <EditorToolbar
-                      onSave={() => void saveSelection()}
-                      onPublish={() => void publish()}
-                      onDuplicate={() => void duplicateSelection()}
-                      onDelete={() => void deleteSelection()}
-                      canPublish={canPublish}
-                      publishStatus={publishStatus}
-                      activityStatus={activityStatus}
-                    />
+                    <div
+                      ref={leftPanelRef}
+                      data-editor-chrome="resources"
+                      data-editor-collapsed={!resourcesPanelOpen}
+                      className={cn('pointer-events-auto', resourcesPanelOpen ? 'h-full' : 'h-10')}
+                    >
+                      <EditorAppSidebar
+                        collapsed={!resourcesPanelOpen}
+                        importBusy={activityStatus.isBusy}
+                        onImportDetectedFloorPlan={importDetectedFloorPlan}
+                        onToggleCollapse={() => setResourcesPanelOpen((value) => !value)}
+                        returnHref={returnHref}
+                      />
+                    </div>
                   </div>
 
-                  {shouldShowStatusBanner ? (
-                    <div className="pointer-events-auto w-full max-w-[21rem] self-end xl:mt-1">
+                  <div className="pointer-events-none absolute inset-x-0 top-3 z-30 flex justify-center px-14 md:px-16 lg:px-24">
+                    <div className="flex w-full max-w-[60rem] flex-col items-center gap-1.5">
                       <div
-                        className={cn(
-                          'flex items-start gap-2.5 rounded-[16px] border px-3 py-2 backdrop-blur-xl',
-                          statusBannerToneClass
-                        )}
+                        ref={toolbarRef}
+                        data-editor-chrome="toolbar"
+                        className="pointer-events-auto w-full"
                       >
-                        <div className="min-w-0 flex-1">
-                          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-current/68">
-                            {activityStatus.title}
-                          </p>
-                          <p className="mt-0.5 text-[12px] leading-4 text-current/92">
-                            {bannerDetail}
-                          </p>
-                        </div>
-
-                        {canRetryCurrentOperation ? (
-                          <button
-                            type="button"
-                            className="rounded-full border border-current/20 bg-black/10 px-2.5 py-1 text-[10px] font-semibold text-current transition hover:bg-black/20"
-                            onClick={() => void retryActivity()}
-                            title={activityStatus.retryLabel ?? '重试当前操作'}
-                            aria-label={activityStatus.retryLabel ?? '重试当前操作'}
-                          >
-                            {activityStatus.retryLabel ?? '重试'}
-                          </button>
-                        ) : null}
+                        <EditorToolbar
+                          onSave={() => void saveSelection()}
+                          onPublish={() => void publish()}
+                          onDuplicate={() => void duplicateSelection()}
+                          onDelete={() => void deleteSelection()}
+                          canPublish={canPublish}
+                          publishStatus={publishStatus}
+                          activityStatus={activityStatus}
+                        />
                       </div>
+
+                      {shouldShowStatusBanner ? (
+                        <div className="pointer-events-auto w-full max-w-[21rem] self-end xl:mt-1">
+                          <div
+                            className={cn(
+                              'flex items-start gap-2.5 rounded-[16px] border px-3 py-2 backdrop-blur-xl',
+                              statusBannerToneClass
+                            )}
+                          >
+                            <div className="min-w-0 flex-1">
+                              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-current/68">
+                                {activityStatus.title}
+                              </p>
+                              <p className="mt-0.5 text-[12px] leading-4 text-current/92">
+                                {bannerDetail}
+                              </p>
+                            </div>
+
+                            {canRetryCurrentOperation ? (
+                              <button
+                                type="button"
+                                className="rounded-full border border-current/20 bg-black/10 px-2.5 py-1 text-[10px] font-semibold text-current transition hover:bg-black/20"
+                                onClick={() => void retryActivity()}
+                                title={activityStatus.retryLabel ?? '重试当前操作'}
+                                aria-label={activityStatus.retryLabel ?? '重试当前操作'}
+                              >
+                                {activityStatus.retryLabel ?? '重试'}
+                              </button>
+                            ) : null}
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
-                  ) : null}
-                </div>
-              </div>
+                  </div>
 
-              <div
-                className={cn(
-                  'absolute right-3 z-30 hidden transition-[height,opacity,transform] duration-200 lg:block',
-                  (hoveredResizeEdge === 'right' || activeResizeHandle === 'right') &&
-                    'cursor-ew-resize',
-                  inspectorCollapsed ? 'top-3 h-10 w-10' : 'inset-y-3 w-[15.75rem]'
-                )}
-                style={{ width: `${inspectorPanelInlineSize}px` }}
-                data-editor-resize-hover={hoveredResizeEdge === 'right'}
-                onPointerMove={handleResizeEdgePointerMove('right')}
-                onPointerLeave={handleResizeEdgePointerLeave('right')}
-                onPointerDown={beginPanelResize('right')}
-              >
-                <div
-                  ref={rightPanelRef}
-                  data-editor-chrome="inspector"
-                  data-editor-collapsed={inspectorCollapsed}
-                  className={cn('pointer-events-auto', inspectorCollapsed ? 'h-10' : 'h-full')}
-                >
-                  <EditorInspector
-                    collapsed={inspectorCollapsed}
-                    onToggleCollapse={() => setInspectorCollapsed((value) => !value)}
-                    onCreateStandardRoom={() => void createStandardRoom()}
-                    createStandardRoomBusy={activityStatus.isBusy}
-                  />
-                </div>
-              </div>
+                  <div
+                    className={cn(
+                      'absolute right-3 z-30 hidden transition-[height,opacity,transform] duration-200 lg:block',
+                      (hoveredResizeEdge === 'right' || activeResizeHandle === 'right') &&
+                        'cursor-ew-resize',
+                      inspectorCollapsed ? 'top-3 h-10 w-10' : 'inset-y-3 w-[15.75rem]'
+                    )}
+                    style={{ width: `${inspectorPanelInlineSize}px` }}
+                    data-editor-resize-hover={hoveredResizeEdge === 'right'}
+                    onPointerMove={handleResizeEdgePointerMove('right')}
+                    onPointerLeave={handleResizeEdgePointerLeave('right')}
+                    onPointerDown={beginPanelResize('right')}
+                  >
+                    <div
+                      ref={rightPanelRef}
+                      data-editor-chrome="inspector"
+                      data-editor-collapsed={inspectorCollapsed}
+                      className={cn('pointer-events-auto', inspectorCollapsed ? 'h-10' : 'h-full')}
+                    >
+                      <EditorInspector
+                        collapsed={inspectorCollapsed}
+                        onToggleCollapse={() => setInspectorCollapsed((value) => !value)}
+                        onCreateStandardRoom={() => void createStandardRoom()}
+                        createStandardRoomBusy={activityStatus.isBusy}
+                      />
+                    </div>
+                  </div>
 
-              <div className="pointer-events-none absolute inset-x-0 bottom-2.5 z-20 hidden justify-center px-2.5 md:flex xl:bottom-3">
-                <div
-                  ref={dockRef}
-                  data-editor-chrome="dock"
-                  className="pointer-events-auto"
-                >
-                  <EditorViewportDock />
-                </div>
-              </div>
+                  <div className="pointer-events-none absolute inset-x-0 bottom-2.5 z-20 hidden justify-center px-2.5 md:flex xl:bottom-3">
+                    <div
+                      ref={dockRef}
+                      data-editor-chrome="dock"
+                      className="pointer-events-auto"
+                    >
+                      <EditorViewportDock />
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           </section>
 

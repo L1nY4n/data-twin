@@ -23,12 +23,16 @@ const DigitalTwinCanvas = dynamic(
 
 interface BenchmarkResult {
   mode: 'webgpu' | 'webgl2'
+  requestedMode: string
   quality: 'balanced' | 'performance'
   cameraPreset: string
   avgFps: number
   p95FrameTime: number
   samples: number
   backend: string
+  backendMismatch: boolean
+  fallbackReason: string | null
+  storageBufferActive: boolean
 }
 
 function delay(ms: number) {
@@ -75,14 +79,19 @@ export default function BenchmarkPage() {
     }
 
     const finalState = useDigitalTwinStore.getState()
+    const rendererDiagnostics = finalState.rendererDiagnostics
     const result: BenchmarkResult = {
       mode,
+      requestedMode: finalState.rendererMode,
       quality: benchmarkQuality,
       cameraPreset: finalState.activeCameraPreset ?? 'manual',
       avgFps: average(fpsSamples),
       p95FrameTime: average(p95Samples),
       samples: fpsSamples.length,
       backend: finalState.rendererBackend,
+      backendMismatch: mode === 'webgpu' && finalState.rendererBackend !== 'webgpu',
+      fallbackReason: rendererDiagnostics.fallbackReason,
+      storageBufferActive: rendererDiagnostics.storageBufferActive,
     }
 
     setResults((prev) => ({ ...prev, [mode]: result }))
@@ -212,7 +221,10 @@ export default function BenchmarkPage() {
                     <div>AVG FPS: {results.webgl2?.avgFps.toFixed(1) ?? '-'}</div>
                     <div>P95(ms): {results.webgl2?.p95FrameTime.toFixed(1) ?? '-'}</div>
                     <div>Samples: {results.webgl2?.samples ?? '-'}</div>
+                    <div>Requested: {results.webgl2?.requestedMode ?? '-'}</div>
                     <div>Backend: {results.webgl2?.backend ?? '-'}</div>
+                    <div>Storage: {results.webgl2?.storageBufferActive ? 'on' : 'off'}</div>
+                    <div>Fallback: {results.webgl2?.fallbackReason ?? '-'}</div>
                     <div>Preset: {results.webgl2?.cameraPreset ?? '-'}</div>
                     <div>Quality: {results.webgl2?.quality ?? '-'}</div>
                   </div>
@@ -223,7 +235,11 @@ export default function BenchmarkPage() {
                     <div>AVG FPS: {results.webgpu?.avgFps.toFixed(1) ?? '-'}</div>
                     <div>P95(ms): {results.webgpu?.p95FrameTime.toFixed(1) ?? '-'}</div>
                     <div>Samples: {results.webgpu?.samples ?? '-'}</div>
+                    <div>Requested: {results.webgpu?.requestedMode ?? '-'}</div>
                     <div>Backend: {results.webgpu?.backend ?? '-'}</div>
+                    <div>Mismatch: {results.webgpu?.backendMismatch ? 'yes' : 'no'}</div>
+                    <div>Storage: {results.webgpu?.storageBufferActive ? 'on' : 'off'}</div>
+                    <div>Fallback: {results.webgpu?.fallbackReason ?? '-'}</div>
                     <div>Preset: {results.webgpu?.cameraPreset ?? '-'}</div>
                     <div>Quality: {results.webgpu?.quality ?? '-'}</div>
                   </div>
@@ -309,7 +325,10 @@ export default function BenchmarkPage() {
                     <div>AVG FPS: {results.webgl2?.avgFps.toFixed(1) ?? '-'}</div>
                     <div>P95(ms): {results.webgl2?.p95FrameTime.toFixed(1) ?? '-'}</div>
                     <div>Samples: {results.webgl2?.samples ?? '-'}</div>
+                    <div>Requested: {results.webgl2?.requestedMode ?? '-'}</div>
                     <div>Backend: {results.webgl2?.backend ?? '-'}</div>
+                    <div>Storage: {results.webgl2?.storageBufferActive ? 'on' : 'off'}</div>
+                    <div>Fallback: {results.webgl2?.fallbackReason ?? '-'}</div>
                     <div>Preset: {results.webgl2?.cameraPreset ?? '-'}</div>
                     <div>Quality: {results.webgl2?.quality ?? '-'}</div>
                   </div>
@@ -320,7 +339,11 @@ export default function BenchmarkPage() {
                     <div>AVG FPS: {results.webgpu?.avgFps.toFixed(1) ?? '-'}</div>
                     <div>P95(ms): {results.webgpu?.p95FrameTime.toFixed(1) ?? '-'}</div>
                     <div>Samples: {results.webgpu?.samples ?? '-'}</div>
+                    <div>Requested: {results.webgpu?.requestedMode ?? '-'}</div>
                     <div>Backend: {results.webgpu?.backend ?? '-'}</div>
+                    <div>Mismatch: {results.webgpu?.backendMismatch ? 'yes' : 'no'}</div>
+                    <div>Storage: {results.webgpu?.storageBufferActive ? 'on' : 'off'}</div>
+                    <div>Fallback: {results.webgpu?.fallbackReason ?? '-'}</div>
                     <div>Preset: {results.webgpu?.cameraPreset ?? '-'}</div>
                     <div>Quality: {results.webgpu?.quality ?? '-'}</div>
                   </div>

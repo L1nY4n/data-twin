@@ -153,13 +153,6 @@ export function EditorToolbar({
       : selectionKind === 'entity'
         ? `${draftEntity?.type ?? '实体'} / ${draftEntity?.status ?? 'active'}`
         : '选择对象后进入编辑'
-  const selectionBadge = armedCatalogItem
-    ? 'Placement'
-    : selectionKind === 'static-asset'
-      ? 'Asset'
-      : selectionKind === 'entity'
-        ? 'Entity'
-        : 'Scene'
   const sessionBadge =
     activityStatus.phase === 'recovering'
       ? 'Recovering'
@@ -172,6 +165,7 @@ export function EditorToolbar({
             : activityStatus.phase === 'error'
               ? 'Attention'
         : 'Ready'
+  const showSessionBadge = sessionBadge !== 'Ready'
   const saveLabel = isSaving
     ? 'Saving changes'
     : hasSelection
@@ -230,11 +224,7 @@ export function EditorToolbar({
           )}
 
           <div className="min-w-0 flex-1">
-            <p className="editor-kicker">Context</p>
-            <div className="mt-0.5 flex min-w-0 items-center gap-1.5">
-              <p className="truncate text-[12px] font-semibold text-white">{heading}</p>
-              <span className="editor-pill">{selectionBadge}</span>
-            </div>
+            <p className="truncate text-[12px] font-semibold text-white">{heading}</p>
             <p className="truncate text-[11px] text-white/52">{subtitle}</p>
           </div>
         </div>
@@ -252,12 +242,13 @@ export function EditorToolbar({
             </div>
 
             <div className="flex min-w-0 flex-1 flex-col">
-              <span className="editor-kicker">Session</span>
               <span className="truncate text-[12px] font-semibold">{activityStatus.title}</span>
               <span className="truncate text-[11px] opacity-80">{activityStatus.detail}</span>
             </div>
 
-            <span className="editor-pill shrink-0 border-current/25 bg-black/10">{sessionBadge}</span>
+            {showSessionBadge ? (
+              <span className="editor-pill shrink-0 border-current/25 bg-black/10">{sessionBadge}</span>
+            ) : null}
           </div>
 
           <div
@@ -267,7 +258,6 @@ export function EditorToolbar({
             )}
           >
             <div className="flex min-w-0 flex-1 flex-col">
-              <span className="editor-kicker">Publish</span>
               <span className="truncate text-[12px] font-semibold">{publishBadge}</span>
               <span className="truncate text-[11px] opacity-80">{publishMeta}</span>
             </div>

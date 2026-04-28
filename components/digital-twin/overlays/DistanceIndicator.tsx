@@ -1,12 +1,12 @@
 'use client'
 
 import { useMemo } from 'react'
-import { Html } from '@react-three/drei'
 import * as THREE from 'three'
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
 import { calculateDistance, formatDistance } from '@/lib/digital-twin/spatial-utils'
 import type { Entity } from '@/lib/digital-twin/types'
 import { SceneLine } from '@/components/digital-twin/scene/SceneLine'
+import { SpriteTextLabel } from '@/components/digital-twin/scene/SpriteTextLabel'
 import {
   OVERLAY_RENDER_ORDER,
   STABLE_TRANSPARENT_OVERLAY,
@@ -35,6 +35,10 @@ export function DistanceIndicator({
     Math.max(entityA.position.y, entityB.position.y) + 1,
     (entityA.position.z + entityB.position.z) / 2,
   ), [entityA.position, entityB.position])
+  const midpointPosition = useMemo(
+    () => [midpoint.x, midpoint.y, midpoint.z] as [number, number, number],
+    [midpoint]
+  )
 
   const points = useMemo(() => [
     new THREE.Vector3(entityA.position.x, entityA.position.y + 0.5, entityA.position.z),
@@ -57,11 +61,14 @@ export function DistanceIndicator({
         toneMapped={STABLE_TRANSPARENT_OVERLAY.toneMapped}
       />
       {showLabel && (
-        <Html position={midpoint} center style={{ pointerEvents: 'none' }}>
-          <div className="rounded-md bg-background/90 px-2 py-1 text-xs font-medium shadow-lg">
-            {formatDistance(distance)}
-          </div>
-        </Html>
+        <SpriteTextLabel
+          position={midpointPosition}
+          text={formatDistance(distance)}
+          color="#fde68a"
+          outlineColor="#0f172a"
+          fontSize={34}
+          scale={0.7}
+        />
       )}
     </group>
   )

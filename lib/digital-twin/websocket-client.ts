@@ -6,21 +6,55 @@ import type {
   IncidentMessage,
   Entity,
 } from './types'
+import { decodeRuntimePoseFrame } from './runtime-pose-frame'
 
 type MessageHandler = (message: WSMessage) => void
 
-interface WebSocketClientOptions {
+export interface WebSocketLike {
+  readyState: number
+  onopen: (() => void) | null
+  onclose: (() => void) | null
+  onerror: ((error: Event) => void) | null
+  onmessage: ((event: MessageEvent) => void) | null
+  binaryType?: BinaryType
+  close: () => void
+  send: (payload: string) => void
+}
+
+export interface WebSocketClientOptions {
   url: string
+  protocols?: string | string[] | (() => Promise<string | string[] | undefined>)
   reconnectInterval?: number
   maxReconnectAttempts?: number
   onConnect?: () => void
   onDisconnect?: () => void
   onError?: (error: Event) => void
   onMessage?: MessageHandler
+  socketFactory?: (url: string) => WebSocketLike
+}
+
+interface DisconnectOptions {
+  suppressDisconnectEvent?: boolean
+}
+
+function toConnectionErrorEvent(error: unknown): Event {
+  if (typeof Event !== 'undefined' && error instanceof Event) {
+    return error
+  }
+  if (typeof ErrorEvent !== 'undefined') {
+    return new ErrorEvent('error', {
+      error,
+      message: error instanceof Error ? error.message : String(error),
+    })
+  }
+  if (typeof Event !== 'undefined') {
+    return new Event('error')
+  }
+  return { type: 'error' } as Event
 }
 
 export class DigitalTwinWebSocket {
-  private ws: WebSocket | null = null
+  private ws: WebSocketLike | null = null
   private url: string
   private reconnectInterval: number
   private maxReconnectAttempts: number
@@ -29,34 +63,66 @@ export class DigitalTwinWebSocket {
   private handlers: Map<WSMessageType, Set<MessageHandler>> = new Map()
   private globalHandlers: Set<MessageHandler> = new Set()
   private options: WebSocketClientOptions
+  private socketFactory: (url: string) => WebSocketLike
+  private suppressDisconnectEvent = false
+  private connectionGeneration = 0
 
   constructor(options: WebSocketClientOptions) {
     this.options = options
     this.url = options.url
-    this.reconnectInterval = options.reconnectInterval || 3000
-    this.maxReconnectAttempts = options.maxReconnectAttempts || 10
+    this.reconnectInterval = options.reconnectInterval ?? 3000
+    this.maxReconnectAttempts = options.maxReconnectAttempts ?? 10
+    this.socketFactory =
+      options.socketFactory ??
+      ((url) => new WebSocket(url, this.resolveStaticProtocols()) as unknown as WebSocketLike)
 
     if (options.onMessage) {
       this.globalHandlers.add(options.onMessage)
     }
   }
 
-  connect(): void {
+  private resolveStaticProtocols(): string | string[] | undefined {
+    return typeof this.options.protocols === 'function' ? undefined : this.options.protocols
+  }
+
+  private async resolveProtocols(): Promise<string | string[] | undefined> {
+    return typeof this.options.protocols === 'function'
+      ? this.options.protocols()
+      : this.options.protocols
+  }
+
+  async connect(): Promise<void> {
     if (this.ws?.readyState === WebSocket.OPEN) {
       return
     }
 
+    const generation = this.connectionGeneration + 1
+    this.connectionGeneration = generation
+
     try {
-      this.ws = new WebSocket(this.url)
+      const protocols = await this.resolveProtocols()
+      if (generation !== this.connectionGeneration) {
+        return
+      }
+      this.ws =
+        this.options.socketFactory !== undefined
+          ? this.socketFactory(this.url)
+          : (new WebSocket(this.url, protocols) as unknown as WebSocketLike)
+      if ('binaryType' in this.ws) {
+        this.ws.binaryType = 'arraybuffer'
+      }
 
       this.ws.onopen = () => {
-        console.log('[v0] WebSocket connected')
         this.reconnectAttempts = 0
         this.options.onConnect?.()
       }
 
       this.ws.onclose = () => {
-        console.log('[v0] WebSocket disconnected')
+        const shouldSuppress = this.suppressDisconnectEvent
+        this.suppressDisconnectEvent = false
+        if (shouldSuppress) {
+          return
+        }
         this.options.onDisconnect?.()
         this.scheduleReconnect()
       }
@@ -66,29 +132,30 @@ export class DigitalTwinWebSocket {
         this.options.onError?.(error)
       }
 
-      this.ws.onmessage = (event) => {
-        try {
-          const message = JSON.parse(event.data) as WSMessage
-          this.handleMessage(message)
-        } catch (error) {
-          console.error('[v0] Failed to parse message:', error)
-        }
-      }
+      this.ws.onmessage = (event) => this.handleIncomingData(event.data)
     } catch (error) {
+      if (generation !== this.connectionGeneration) {
+        return
+      }
       console.error('[v0] Failed to create WebSocket:', error)
+      this.options.onError?.(toConnectionErrorEvent(error))
       this.scheduleReconnect()
     }
   }
 
-  disconnect(): void {
+  disconnect(options?: DisconnectOptions): void {
+    this.connectionGeneration += 1
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer)
       this.reconnectTimer = null
     }
-    
+
     if (this.ws) {
+      this.suppressDisconnectEvent = options?.suppressDisconnectEvent ?? false
       this.ws.close()
       this.ws = null
+    } else {
+      this.suppressDisconnectEvent = false
     }
   }
 
@@ -99,10 +166,9 @@ export class DigitalTwinWebSocket {
     }
 
     this.reconnectAttempts++
-    console.log(`[v0] Reconnecting in ${this.reconnectInterval}ms (attempt ${this.reconnectAttempts})`)
 
     this.reconnectTimer = setTimeout(() => {
-      this.connect()
+      void this.connect()
     }, this.reconnectInterval)
   }
 
@@ -114,6 +180,42 @@ export class DigitalTwinWebSocket {
     const typeHandlers = this.handlers.get(message.type)
     if (typeHandlers) {
       typeHandlers.forEach((handler) => handler(message))
+    }
+  }
+
+  private handleIncomingData(data: unknown): void {
+    try {
+      if (typeof data === 'string') {
+        this.handleMessage(JSON.parse(data) as WSMessage)
+        return
+      }
+
+      if (data instanceof ArrayBuffer || ArrayBuffer.isView(data)) {
+        const frame = decodeRuntimePoseFrame(data)
+        if (!frame) {
+          throw new Error('unsupported websocket binary frame')
+        }
+        this.handleMessage({
+          type: 'pose_frame',
+          payload: frame,
+          timestamp: frame.timestamp,
+        })
+        return
+      }
+
+      if (typeof Blob !== 'undefined' && data instanceof Blob) {
+        void data
+          .arrayBuffer()
+          .then((buffer) => this.handleIncomingData(buffer))
+          .catch((error) => {
+            console.error('[v0] Failed to parse message:', error)
+          })
+        return
+      }
+
+      throw new Error(`unsupported websocket message data: ${typeof data}`)
+    } catch (error) {
+      console.error('[v0] Failed to parse message:', error)
     }
   }
 
@@ -138,7 +240,6 @@ export class DigitalTwinWebSocket {
 
   send(message: Partial<WSMessage> & { type: WSMessageType }): void {
     if (this.ws?.readyState !== WebSocket.OPEN) {
-      console.warn('[v0] WebSocket not connected, cannot send message')
       return
     }
 
@@ -212,7 +313,7 @@ export function useWebSocketConnection(url?: string) {
 
   const connect = useCallback((wsUrl: string) => {
     if (wsRef.current) {
-      wsRef.current.disconnect()
+      wsRef.current.disconnect({ suppressDisconnectEvent: true })
     }
 
     wsRef.current = new DigitalTwinWebSocket({
@@ -266,7 +367,7 @@ export function useWebSocketConnection(url?: string) {
   }, [setConnectionStatus, updateEntityPosition, updateEntity, addAlarm, upsertIncident])
 
   const disconnect = useCallback(() => {
-    wsRef.current?.disconnect()
+    wsRef.current?.disconnect({ suppressDisconnectEvent: true })
     wsRef.current = null
     setIsConnected(false)
     setConnectionStatus(false)
@@ -282,7 +383,7 @@ export function useWebSocketConnection(url?: string) {
     }
 
     return () => {
-      wsRef.current?.disconnect()
+      wsRef.current?.disconnect({ suppressDisconnectEvent: true })
     }
   }, [url, connect])
 

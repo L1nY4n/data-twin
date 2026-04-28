@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import type { BootstrapPayload } from './bootstrap-client'
 import {
   buildEditorSceneSavePayload,
+  EDITOR_EMPTY_PUBLISHED_SCENE_PACKAGE,
   useEditorDigitalTwinStore,
 } from './editor-store'
 import { DEFAULT_PUBLISHED_SCENE_PACKAGE } from './publish'
@@ -65,7 +66,56 @@ function createStaticAsset(): StaticAssetInstance {
   }
 }
 
+function createVehicleEntity(): Entity {
+  const now = Date.now()
+
+  return {
+    id: 'vehicle-1',
+    type: 'vehicle',
+    name: '叉车 01',
+    position: { x: 4, y: 0, z: 6 },
+    rotation: { x: 0, y: 0, z: 0 },
+    scale: { x: 1, y: 1, z: 1 },
+    status: 'active',
+    visible: true,
+    metadata: {},
+    plateNumber: 'A1001',
+    vehicleType: 'forklift',
+    speed: 1,
+    heading: 0,
+    routeTrack: {
+      id: 'forklift-track-01',
+      loop: true,
+      points: [
+        { x: 0, y: 0, z: 0 },
+        { x: 10, y: 0, z: 0 },
+      ],
+    },
+    trackPosition: {
+      trackId: 'forklift-track-01',
+      segmentIndex: 0,
+      segmentProgress: 0.4,
+    },
+    createdAt: now,
+    updatedAt: now,
+  }
+}
+
 describe('editor store', () => {
+  test('starts from an empty editor workspace package until bootstrap hydration completes', () => {
+    useEditorDigitalTwinStore.getState().reset()
+
+    const state = useEditorDigitalTwinStore.getState()
+
+    expect(state.hasHydratedFromBootstrap).toBe(false)
+    expect(state.publishedScenePackage.sceneId).toBe(
+      EDITOR_EMPTY_PUBLISHED_SCENE_PACKAGE.sceneId
+    )
+    expect(state.sceneConfig).toEqual(EDITOR_EMPTY_PUBLISHED_SCENE_PACKAGE.sceneConfig)
+    expect(state.staticAssets.size).toBe(0)
+    expect(state.entities.size).toBe(0)
+  })
+
   test('hydrates entities and creates isolated editable draft selection', () => {
     useEditorDigitalTwinStore.getState().reset()
     const entity = createEntity()
@@ -77,6 +127,7 @@ describe('editor store', () => {
     const state = useEditorDigitalTwinStore.getState()
 
     expect(state.selectedEntityId).toBe(entity.id)
+    expect(state.hasHydratedFromBootstrap).toBe(true)
     expect(state.draftEntity?.position.x).toBe(10)
     expect(state.savedEntity?.position.x).toBe(10)
 
@@ -145,7 +196,7 @@ describe('editor store', () => {
     expect(after).toBe(before)
   })
 
-  test('keeps drag preview ephemeral and clears it when dragging stops', () => {
+  test('tracks transform dragging without mutating draft state', () => {
     useEditorDigitalTwinStore.getState().reset()
     const entity = createEntity()
 
@@ -153,19 +204,16 @@ describe('editor store', () => {
       .getState()
       .hydrateFromBootstrap(createBootstrapPayload(entity), DEFAULT_PUBLISHED_SCENE_PACKAGE)
     useEditorDigitalTwinStore.getState().selectEntity(entity.id)
+    const before = useEditorDigitalTwinStore.getState().draftEntity
     useEditorDigitalTwinStore.getState().setTransformDragging(true)
-    useEditorDigitalTwinStore.getState().setTransformPreview({
-      position: { x: 14, y: 0, z: 24 },
-      rotation: { x: 0, y: 0.2, z: 0 },
-      scale: { x: 1, y: 1, z: 1 },
-    })
 
-    expect(useEditorDigitalTwinStore.getState().transformPreview?.position.x).toBe(14)
+    expect(useEditorDigitalTwinStore.getState().isTransformDragging).toBe(true)
     expect(useEditorDigitalTwinStore.getState().isDirty).toBe(false)
+    expect(useEditorDigitalTwinStore.getState().draftEntity).toBe(before)
 
     useEditorDigitalTwinStore.getState().setTransformDragging(false)
 
-    expect(useEditorDigitalTwinStore.getState().transformPreview).toBeNull()
+    expect(useEditorDigitalTwinStore.getState().isTransformDragging).toBe(false)
   })
 
   test('supports direct inspector property edits on selected entity drafts', () => {
@@ -198,6 +246,36 @@ describe('editor store', () => {
     expect(useEditorDigitalTwinStore.getState().draftEntity?.rotation.y).toBe(0)
     expect(useEditorDigitalTwinStore.getState().draftEntity?.name).toBe('操作员 A / Shift B')
     expect(useEditorDigitalTwinStore.getState().draftEntity?.visible).toBe(false)
+  })
+
+  test('detaches routed vehicles from their route when manually transformed', () => {
+    useEditorDigitalTwinStore.getState().reset()
+    const vehicle = createVehicleEntity()
+    const store = useEditorDigitalTwinStore.getState()
+
+    store.hydrateFromBootstrap(
+      createBootstrapPayload(vehicle),
+      DEFAULT_PUBLISHED_SCENE_PACKAGE
+    )
+    store.selectEntity(vehicle.id)
+    store.beginTransformSession()
+    store.updateDraftTransform({
+      position: { x: 8, y: 1.5, z: 9 },
+      rotation: { x: 0.2, y: 0.4, z: 0.1 },
+      scale: { x: 1, y: 1, z: 1 },
+    })
+    store.commitTransformSession()
+
+    const draft = useEditorDigitalTwinStore.getState().draftEntity
+    expect(draft?.type).toBe('vehicle')
+    if (!draft || draft.type !== 'vehicle') {
+      throw new Error('expected vehicle draft')
+    }
+    expect(draft.routeTrack).toBeUndefined()
+    expect(draft.trackPosition).toBeUndefined()
+    expect(draft.position.y).toBe(1.5)
+    expect(draft.rotation.x).toBe(0.2)
+    expect(draft.rotation.z).toBe(0.1)
   })
 
   test('hydrates and edits authored static asset selections independently from entities', () => {
@@ -447,6 +525,60 @@ describe('editor store', () => {
     expect(useEditorDigitalTwinStore.getState().hasSceneChanges).toBe(true)
     expect(useEditorDigitalTwinStore.getState().hasSelectionChanges).toBe(false)
     expect(useEditorDigitalTwinStore.getState().isDirty).toBe(true)
+  })
+
+  test('stores floor plan reference controls in the editor ui slice only', () => {
+    useEditorDigitalTwinStore.getState().reset()
+    const store = useEditorDigitalTwinStore.getState()
+
+    store.setFloorPlanReference({
+      src: 'blob:floor-plan',
+      label: 'office-plan.png',
+      position: { x: 12, y: 0, z: -8 },
+      scaleMeters: 18,
+      opacity: 0.8,
+      visible: true,
+    })
+    store.updateFloorPlanReference({
+      scaleMeters: 24,
+      opacity: 2,
+      visible: false,
+    })
+
+    const state = useEditorDigitalTwinStore.getState()
+    expect(state.floorPlanReference).toEqual({
+      src: 'blob:floor-plan',
+      label: 'office-plan.png',
+      position: { x: 12, y: 0, z: -8 },
+      scaleMeters: 24,
+      opacity: 1,
+      visible: false,
+    })
+    expect(state.hasSceneChanges).toBe(false)
+    expect(state.hasSelectionChanges).toBe(false)
+    expect(state.isDirty).toBe(false)
+  })
+
+  test('clears floor plan reference when bootstrap state rehydrates', () => {
+    useEditorDigitalTwinStore.getState().reset()
+    const entity = createEntity()
+    const store = useEditorDigitalTwinStore.getState()
+
+    store.setFloorPlanReference({
+      src: 'blob:floor-plan',
+      label: 'office-plan.png',
+      position: { x: 0, y: 0, z: 0 },
+      scaleMeters: 12,
+      opacity: 0.72,
+      visible: true,
+    })
+
+    store.hydrateFromBootstrap(
+      createBootstrapPayload(entity),
+      DEFAULT_PUBLISHED_SCENE_PACKAGE
+    )
+
+    expect(useEditorDigitalTwinStore.getState().floorPlanReference).toBeNull()
   })
 
   test('tracks unsaved scene configuration changes across selection transitions', () => {

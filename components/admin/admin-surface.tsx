@@ -1,7 +1,7 @@
 import type * as React from 'react'
 import { ShieldAlert, Workflow } from 'lucide-react'
 import type { AdminSection } from '@/lib/digital-twin/admin'
-import { ADMIN_SECTION_META } from '@/components/admin/admin-meta'
+import { getAdminSectionMeta } from '@/components/admin/admin-meta'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -266,7 +266,11 @@ export function AdminSectionFrame({
   showSummaryCards?: boolean
   showLiveWarning?: boolean
 }>) {
-  const meta = ADMIN_SECTION_META[section]
+  const meta = getAdminSectionMeta(section) ?? {
+    title: '未知模块',
+    shortTitle: 'Unknown',
+    icon: Workflow,
+  }
   const resolvedRailCards =
     railCards.length > 0
       ? railCards

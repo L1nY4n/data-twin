@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, memo, useEffect, useMemo, useRef } from 'react'
+import { Suspense, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, useFrame, useThree, addAfterEffect } from '@react-three/fiber'
 import {
   OrbitControls,
@@ -14,10 +14,13 @@ import type * as THREE from 'three'
 import type { OrbitControls as OrbitControlsType } from 'three-stdlib'
 import type { Entity } from '@/lib/digital-twin/types'
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
-import { createPreferredRenderer } from '@/lib/digital-twin/renderer/createPreferredRenderer'
+import {
+  createPreferredRenderer,
+  type PreferredRendererDiagnostics,
+} from '@/lib/digital-twin/renderer/createPreferredRenderer'
 import { getFrameDrawCallSample } from '@/lib/digital-twin/performance-runtime'
-import { runtimeVehicleSnapshotRegistry } from '@/lib/digital-twin/runtime-vehicle-snapshot-registry'
-import { resolveVehiclePoseFromSnapshots } from '@/lib/digital-twin/vehicle-snapshot-interpolation'
+import { runtimeVehiclePoseBuffer } from '@/lib/digital-twin/runtime-vehicle-pose-buffer'
+import { stabilizeCameraPreset } from '@/lib/digital-twin/camera-presets'
 import { SpaceGrid } from './SpaceGrid'
 import { ChemicalPlantEnvironment } from './ChemicalPlantEnvironment'
 import { EntityMarkers } from '../entities/EntityMarkers'
@@ -29,6 +32,11 @@ import { IncidentEffects } from '../overlays/IncidentEffects'
 import { SceneLoading } from './SceneLoading'
 import { ScenePicking } from './ScenePicking'
 import { PublishedStaticFeaturePickingLayer } from './PublishedStaticFeaturePickingLayer'
+import {
+  useDigitalTwinRuntimePlugin,
+  useDigitalTwinViewerRuntime,
+  ViewerRuntimeBridge,
+} from './ViewerRuntimeBridge'
 
 interface DigitalTwinCanvasProps {
   showStats?: boolean
@@ -53,9 +61,28 @@ const FOLLOW_DISTANCE = 9
 const FOLLOW_HEIGHT = 4.8
 const FIRSTPERSON_FORWARD_DISTANCE = 6
 const FIRSTPERSON_EYE_HEIGHT = 1.55
+const FOLLOW_CAMERA_RESPONSE = 12
+const FIRSTPERSON_CAMERA_RESPONSE = 16
+const MAX_TRACKED_CAMERA_DELTA = 1 / 30
+const MIN_ORBIT_POLAR_ANGLE = 0.08
+const MAX_ORBIT_POLAR_ANGLE = Math.PI / 2.05
+const RENDERER_TRANSITION_FALLBACK_MS = 2500
+
+type RendererMode = 'auto' | 'webgpu' | 'webgl2'
+type RendererBackend = 'webgpu' | 'webgl2' | 'unknown'
+
+function hasNavigatorWebGpu() {
+  return typeof navigator !== 'undefined' && 'gpu' in navigator
+}
 
 function isTrackedViewMode(viewMode: 'orbit' | 'topdown' | 'follow' | 'firstperson') {
   return viewMode === 'follow' || viewMode === 'firstperson'
+}
+
+function shouldRecreateRendererForMode(mode: RendererMode, currentBackend: RendererBackend) {
+  if (currentBackend === 'unknown') return true
+  if (mode === 'webgl2') return currentBackend !== 'webgl2'
+  return currentBackend !== 'webgpu'
 }
 
 function resolveEntityAnchorHeight(entity: Entity) {
@@ -84,34 +111,17 @@ function forwardVectorFromYaw(yaw: number) {
   }
 }
 
-function resolveTrackedEntityPose(entity: Entity, nowMs: number): TrackedEntityPose {
+function resolveTrackedEntityPose(entity: Entity): TrackedEntityPose {
   const snapshot = useDigitalTwinStore.getState().getEcsSnapshotById(entity.id)
-
-  if (entity.type === 'vehicle') {
-    const interpolatedPose = resolveVehiclePoseFromSnapshots(
-      runtimeVehicleSnapshotRegistry.get(entity.id),
-      nowMs,
-      120,
-      220
-    )
-    return {
-      position: {
-        x: interpolatedPose?.x ?? snapshot?.position.x ?? entity.position.x,
-        y: interpolatedPose?.y ?? snapshot?.position.y ?? entity.position.y,
-        z: interpolatedPose?.z ?? snapshot?.position.z ?? entity.position.z,
-      },
-      yaw: interpolatedPose?.yaw ?? snapshot?.rotation.y ?? entity.rotation.y,
-      anchorHeight: resolveEntityAnchorHeight(entity),
-    }
-  }
+  const interpolatedPose = entity.type !== 'zone' ? runtimeVehiclePoseBuffer.get(entity.id) : null
 
   return {
     position: {
-      x: snapshot?.position.x ?? entity.position.x,
-      y: snapshot?.position.y ?? entity.position.y,
-      z: snapshot?.position.z ?? entity.position.z,
+      x: interpolatedPose?.x ?? snapshot?.position.x ?? entity.position.x,
+      y: interpolatedPose?.y ?? snapshot?.position.y ?? entity.position.y,
+      z: interpolatedPose?.z ?? snapshot?.position.z ?? entity.position.z,
     },
-    yaw: snapshot?.rotation.y ?? entity.rotation.y,
+    yaw: interpolatedPose?.yaw ?? snapshot?.rotation.y ?? entity.rotation.y,
     anchorHeight: resolveEntityAnchorHeight(entity),
   }
 }
@@ -153,7 +163,8 @@ function applySmoothedCameraPose(
   camera: THREE.Camera,
   controls: OrbitControlsType,
   desiredPose: CameraPose,
-  smoothing: number
+  smoothing: number,
+  options: { syncOrbitControls?: boolean } = {}
 ) {
   camera.position.x += (desiredPose.position.x - camera.position.x) * smoothing
   camera.position.y += (desiredPose.position.y - camera.position.y) * smoothing
@@ -162,7 +173,36 @@ function applySmoothedCameraPose(
   controls.target.x += (desiredPose.target.x - controls.target.x) * smoothing
   controls.target.y += (desiredPose.target.y - controls.target.y) * smoothing
   controls.target.z += (desiredPose.target.z - controls.target.z) * smoothing
+
+  if (options.syncOrbitControls ?? true) {
+    controls.update()
+  } else {
+    camera.lookAt(controls.target)
+    camera.updateMatrixWorld()
+  }
+}
+
+function flushOrbitControlsDamping(controls: OrbitControlsType) {
+  const position = controls.object.position.clone()
+  const target = controls.target.clone()
+  const dampingEnabled = controls.enableDamping
+
+  controls.enableDamping = false
   controls.update()
+  controls.object.position.copy(position)
+  controls.target.copy(target)
+  controls.object.lookAt(target)
+  controls.object.updateMatrixWorld()
+  controls.enableDamping = dampingEnabled
+}
+
+function resolveTrackedCameraSmoothing(
+  viewMode: 'follow' | 'firstperson',
+  delta: number
+) {
+  const response =
+    viewMode === 'firstperson' ? FIRSTPERSON_CAMERA_RESPONSE : FOLLOW_CAMERA_RESPONSE
+  return 1 - Math.exp(-Math.min(delta, MAX_TRACKED_CAMERA_DELTA) * response)
 }
 
 const SceneContent = memo(function SceneContent({ backgroundColor }: SceneContentProps) {
@@ -175,17 +215,19 @@ const SceneContent = memo(function SceneContent({ backgroundColor }: SceneConten
   const { resolvedTheme } = useTheme()
   const gl = useThree((state) => state.gl)
   const sceneConfig = useDigitalTwinStore((state) => state.sceneConfig)
+  const publishedScenePackage = useDigitalTwinStore((state) => state.publishedScenePackage)
+  const authoredStaticAssetCount = useDigitalTwinStore((state) => state.authoredStaticAssets.size)
   const viewMode = useDigitalTwinStore((state) => state.viewMode)
   const activeCameraPreset = useDigitalTwinStore((state) => state.activeCameraPreset)
   const cameraFocusRequest = useDigitalTwinStore((state) => state.cameraFocusRequest)
   const cameraPresets = useDigitalTwinStore((state) => state.cameraPresets)
   const selectedEntityId = useDigitalTwinStore((state) => state.selectedEntityId)
-  const entities = useDigitalTwinStore((state) => state.entities)
   const setSceneReady = useDigitalTwinStore((state) => state.setSceneReady)
   const setViewMode = useDigitalTwinStore((state) => state.setViewMode)
   const measurementMode = useDigitalTwinStore((state) => state.measurementMode)
   const advanceRuntime = useDigitalTwinStore((state) => state.advanceRuntime)
   const qualityProfile = useDigitalTwinStore((state) => state.qualityProfile)
+  const viewerRuntime = useDigitalTwinViewerRuntime()
   const focusAnimationRef = useRef<{
     position: { x: number; y: number; z: number }
     target: { x: number; y: number; z: number }
@@ -194,6 +236,46 @@ const SceneContent = memo(function SceneContent({ backgroundColor }: SceneConten
   const environmentFile = isDark
     ? '/hdr/dikhololo_night_1k.hdr'
     : '/hdr/potsdamer_platz_1k.hdr'
+  const hasPublishedStaticGeometry = useMemo(
+    () =>
+      publishedScenePackage.staticChunks.some(
+        (chunk) =>
+          chunk.featureCount > 0 ||
+          chunk.renderRecipe.detailed.length > 0 ||
+          (chunk.renderRecipe.proxy?.length ?? 0) > 0
+      ),
+    [publishedScenePackage.staticChunks]
+  )
+  const hasModelBackedRuntimeSurface =
+    hasPublishedStaticGeometry || authoredStaticAssetCount > 0
+  const runtimeStoreBridgePlugin = useMemo(
+    () => ({
+      id: 'store-runtime-bridge',
+      order: 20,
+      onFixedUpdatePre: (tick: { nowMs: number }) => {
+        runtimeVehiclePoseBuffer.solve(tick.nowMs)
+      },
+      onRender: (frame: {
+        nowMs: number
+        deltaMs: number
+        cameraPosition?: { x: number; y: number; z: number }
+        cameraTarget?: { x: number; y: number; z: number } | null
+        drawCalls?: number
+      }) => {
+        if (!frame.cameraPosition) return
+        advanceRuntime(
+          frame.nowMs,
+          frame.deltaMs,
+          frame.cameraPosition,
+          frame.drawCalls ?? 0,
+          frame.cameraTarget ?? undefined
+        )
+      },
+    }),
+    [advanceRuntime]
+  )
+
+  useDigitalTwinRuntimePlugin(runtimeStoreBridgePlugin, 'store-runtime-bridge')
 
   useEffect(() => {
     setSceneReady(true)
@@ -224,10 +306,15 @@ const SceneContent = memo(function SceneContent({ backgroundColor }: SceneConten
     if (!controls) return
 
     const trackedMode = isTrackedViewMode(viewMode)
+    if (trackedMode) {
+      flushOrbitControlsDamping(controls)
+    }
+
     controls.enabled = !trackedMode
     controls.enablePan = !trackedMode
     controls.enableRotate = !trackedMode
     controls.enableZoom = !trackedMode
+    controls.enableDamping = !trackedMode
 
     if (trackedMode) {
       focusAnimationRef.current = null
@@ -235,11 +322,13 @@ const SceneContent = memo(function SceneContent({ backgroundColor }: SceneConten
   }, [viewMode])
 
   useEffect(() => {
-    const selectedEntity = selectedEntityId ? entities.get(selectedEntityId) ?? null : null
+    const selectedEntity = selectedEntityId
+      ? useDigitalTwinStore.getState().getEntityById(selectedEntityId) ?? null
+      : null
     if (isTrackedViewMode(viewMode) && (!selectedEntity || selectedEntity.type === 'zone')) {
       setViewMode('orbit')
     }
-  }, [entities, selectedEntityId, setViewMode, viewMode])
+  }, [selectedEntityId, setViewMode, viewMode])
 
   // 应用相机预设
   useEffect(() => {
@@ -254,7 +343,8 @@ const SceneContent = memo(function SceneContent({ backgroundColor }: SceneConten
       return
     }
 
-    const preset = cameraPresets.find((p) => p.id === activeCameraPreset)
+    const presetCandidate = cameraPresets.find((p) => p.id === activeCameraPreset)
+    const preset = presetCandidate ? stabilizeCameraPreset(presetCandidate) : null
     if (!preset) return
 
     const shouldAnimatePreset =
@@ -287,19 +377,24 @@ const SceneContent = memo(function SceneContent({ backgroundColor }: SceneConten
     }
   }, [cameraFocusRequest, viewMode])
 
-  useFrame(({ clock, camera }, delta) => {
+  useFrame(({ camera }, delta) => {
+    const nowMs = Date.now()
     const controls = controlsRef.current
-    const selectedEntity = selectedEntityId ? entities.get(selectedEntityId) ?? null : null
+    const selectedEntity = selectedEntityId
+      ? useDigitalTwinStore.getState().getEntityById(selectedEntityId) ?? null
+      : null
 
     if (isTrackedViewMode(viewMode) && controls && selectedEntity && selectedEntity.type !== 'zone') {
-      const trackedPose = resolveTrackedEntityPose(selectedEntity, Date.now())
+      const trackedPose = resolveTrackedEntityPose(selectedEntity)
       const desiredPose =
         viewMode === 'follow'
           ? resolveFollowCameraPose(trackedPose)
           : resolveFirstPersonCameraPose(trackedPose)
-      const smoothing = 1 - Math.exp(-delta * (viewMode === 'firstperson' ? 10 : 8))
+      const smoothing = resolveTrackedCameraSmoothing(viewMode, delta)
 
-      applySmoothedCameraPose(camera, controls, desiredPose, smoothing)
+      applySmoothedCameraPose(camera, controls, desiredPose, smoothing, {
+        syncOrbitControls: false,
+      })
     } else if (controlsRef.current && focusAnimationRef.current) {
       const { position, target } = focusAnimationRef.current
       const smoothing = 1 - Math.exp(-delta * 8)
@@ -333,13 +428,26 @@ const SceneContent = memo(function SceneContent({ backgroundColor }: SceneConten
         }
       : sceneConfig.cameraTarget
 
-    advanceRuntime(
-      clock.elapsedTime * 1000,
-      delta * 1000,
-      { x: camera.position.x, y: camera.position.y, z: camera.position.z },
-      sampledDrawCallsRef.current,
-      runtimeCameraTarget
-    )
+    const runtimeFrame = {
+      nowMs,
+      deltaMs: delta * 1000,
+      cameraPosition: { x: camera.position.x, y: camera.position.y, z: camera.position.z },
+      drawCalls: sampledDrawCallsRef.current,
+      cameraTarget: runtimeCameraTarget,
+    }
+
+    if (viewerRuntime) {
+      viewerRuntime.advance(runtimeFrame)
+    } else {
+      runtimeVehiclePoseBuffer.solve(nowMs)
+      advanceRuntime(
+        runtimeFrame.nowMs,
+        runtimeFrame.deltaMs,
+        runtimeFrame.cameraPosition,
+        runtimeFrame.drawCalls,
+        runtimeFrame.cameraTarget
+      )
+    }
   })
 
   return (
@@ -386,7 +494,8 @@ const SceneContent = memo(function SceneContent({ backgroundColor }: SceneConten
         dampingFactor={0.05}
         minDistance={5}
         maxDistance={280}
-        maxPolarAngle={Math.PI / 2.1}
+        minPolarAngle={MIN_ORBIT_POLAR_ANGLE}
+        maxPolarAngle={MAX_ORBIT_POLAR_ANGLE}
         target={[sceneConfig.cameraTarget.x, sceneConfig.cameraTarget.y, sceneConfig.cameraTarget.z]}
       />
       <ScenePicking pickRootRef={pickRootRef} />
@@ -396,7 +505,8 @@ const SceneContent = memo(function SceneContent({ backgroundColor }: SceneConten
         size={sceneConfig.gridSize}
         divisions={sceneConfig.gridDivisions}
         showAxes={sceneConfig.showAxes}
-        showGrid={sceneConfig.showGrid}
+        showGrid={sceneConfig.showGrid && !hasModelBackedRuntimeSurface}
+        showGround={!hasPublishedStaticGeometry}
         isDark={isDark}
       />
 
@@ -429,6 +539,18 @@ const SceneContent = memo(function SceneContent({ backgroundColor }: SceneConten
   )
 })
 
+function RendererReadySignal({ onReady }: { onReady: () => void }) {
+  const readyRef = useRef(false)
+
+  useFrame(() => {
+    if (readyRef.current) return
+    readyRef.current = true
+    onReady()
+  })
+
+  return null
+}
+
 const PerformanceHud = memo(function PerformanceHud({
   qualityProfile,
   rendererBackend,
@@ -438,16 +560,40 @@ const PerformanceHud = memo(function PerformanceHud({
   rendererBackend: string
   rendererMode: string
 }) {
-  const metrics = useDigitalTwinStore((state) => state.performanceMetrics)
+  const fps = useDigitalTwinStore((state) => state.performanceMetrics.fps)
+  const frameTimeP95 = useDigitalTwinStore((state) => state.performanceMetrics.frameTimeP95)
+  const drawCalls = useDigitalTwinStore((state) => state.performanceMetrics.drawCalls)
+  const visibleLabels = useDigitalTwinStore((state) => state.performanceMetrics.visibleLabels)
+  const poolHitRate = useDigitalTwinStore((state) => state.performanceMetrics.poolHitRate)
+  const poolRequests = useDigitalTwinStore((state) => state.performanceMetrics.poolRequests)
+  const rendererDiagnostics = useDigitalTwinStore((state) => state.rendererDiagnostics)
+  const webGpuAvailability =
+    rendererDiagnostics.webgpuAvailable === null
+      ? 'unknown'
+      : rendererDiagnostics.webgpuAvailable
+        ? 'available'
+        : 'unavailable'
+  const fallbackSummary = rendererDiagnostics.fallbackReason
+    ? rendererDiagnostics.message
+      ? `${rendererDiagnostics.fallbackReason}: ${rendererDiagnostics.message}`
+      : rendererDiagnostics.fallbackReason
+    : null
 
   return (
-    <div className="pointer-events-none absolute bottom-3 left-3 z-20 rounded-md border bg-background/40 px-2.5 py-1.5 text-[10px] backdrop-blur-sm">
-      <div>FPS {metrics.fps.toFixed(0)} | P95 {metrics.frameTimeP95.toFixed(1)}ms</div>
-      <div>Draw {metrics.drawCalls} | Labels {metrics.visibleLabels}</div>
+    <div
+      data-performance-hud="runtime"
+      className="pointer-events-none absolute bottom-3 left-3 z-20 rounded-md border bg-background/40 px-2.5 py-1.5 text-[10px] backdrop-blur-sm"
+    >
+      <div>FPS {fps.toFixed(0)} | P95 {frameTimeP95.toFixed(1)}ms</div>
+      <div>Draw {drawCalls} | Labels {visibleLabels}</div>
       <div>
-        {metrics.poolRequests > 0 ? `Pool ${(metrics.poolHitRate * 100).toFixed(0)}%` : 'Pool idle'} | {qualityProfile}
+        {poolRequests > 0 ? `Pool ${(poolHitRate * 100).toFixed(0)}%` : 'Pool idle'} | {qualityProfile}
       </div>
       <div>Renderer {rendererBackend} ({rendererMode})</div>
+      <div>
+        WebGPU {webGpuAvailability} | Storage {rendererDiagnostics.storageBufferActive ? 'on' : 'off'}
+      </div>
+      {fallbackSummary && <div>Fallback {fallbackSummary}</div>}
     </div>
   )
 })
@@ -459,9 +605,15 @@ export function DigitalTwinCanvas({ showStats = false }: DigitalTwinCanvasProps)
   const rendererMode = useDigitalTwinStore((state) => state.rendererMode)
   const rendererBackend = useDigitalTwinStore((state) => state.rendererBackend)
   const setRendererBackend = useDigitalTwinStore((state) => state.setRendererBackend)
+  const setRendererDiagnostics = useDigitalTwinStore((state) => state.setRendererDiagnostics)
   const isDark = resolvedTheme === 'dark'
   const canvasBackground = isDark ? sceneConfig.backgroundColor : '#eaf1fb'
   const dprRange: [number, number] = qualityProfile === 'performance' ? [1, 1.2] : [1, 1.35]
+  const [rendererRevision, setRendererRevision] = useState(0)
+  const [rendererTransitioning, setRendererTransitioning] = useState(true)
+  const previousRendererModeRef = useRef<RendererMode>(rendererMode)
+  const transitionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const transitionFrameRef = useRef<number | null>(null)
   const createRenderer = useMemo(
     () =>
       async (defaults: { canvas: HTMLCanvasElement | OffscreenCanvas }) =>
@@ -472,11 +624,68 @@ export function DigitalTwinCanvas({ showStats = false }: DigitalTwinCanvasProps)
         }),
     [qualityProfile, rendererMode]
   )
+  const clearTransitionTimers = useCallback(() => {
+    if (transitionTimeoutRef.current) {
+      clearTimeout(transitionTimeoutRef.current)
+      transitionTimeoutRef.current = null
+    }
+    if (transitionFrameRef.current !== null) {
+      window.cancelAnimationFrame(transitionFrameRef.current)
+      transitionFrameRef.current = null
+    }
+  }, [])
+  const beginRendererTransition = useCallback(() => {
+    clearTransitionTimers()
+    setRendererTransitioning(true)
+    transitionTimeoutRef.current = setTimeout(() => {
+      transitionTimeoutRef.current = null
+      setRendererTransitioning(false)
+    }, RENDERER_TRANSITION_FALLBACK_MS)
+  }, [clearTransitionTimers])
+  const finishRendererTransition = useCallback(() => {
+    clearTransitionTimers()
+    transitionFrameRef.current = window.requestAnimationFrame(() => {
+      transitionFrameRef.current = null
+      setRendererTransitioning(false)
+    })
+  }, [clearTransitionTimers])
+
+  useEffect(() => {
+    transitionTimeoutRef.current = setTimeout(() => {
+      transitionTimeoutRef.current = null
+      setRendererTransitioning(false)
+    }, RENDERER_TRANSITION_FALLBACK_MS)
+
+    return () => clearTransitionTimers()
+  }, [clearTransitionTimers])
+
+  useEffect(() => {
+    if (previousRendererModeRef.current === rendererMode) return
+
+    previousRendererModeRef.current = rendererMode
+
+    if (!shouldRecreateRendererForMode(rendererMode, rendererBackend)) {
+      return
+    }
+
+    beginRendererTransition()
+    setRendererBackend('unknown')
+    setRendererDiagnostics({
+      requestedMode: rendererMode,
+      backend: 'unknown',
+      webgpuAvailable: hasNavigatorWebGpu(),
+      fallbackReason: null,
+      message: 'renderer recreating',
+      storageBufferActive: false,
+    })
+    setRendererRevision((revision) => revision + 1)
+  }, [beginRendererTransition, rendererBackend, rendererMode, setRendererBackend, setRendererDiagnostics])
 
   return (
-    <div className="relative h-full w-full">
+    <div className="relative h-full w-full" style={{ background: canvasBackground }}>
       <Canvas
-        key={`renderer-${rendererMode}`}
+        key={`renderer-${rendererRevision}`}
+        frameloop="always"
         shadows={qualityProfile !== 'performance'}
         dpr={dprRange}
         resize={{ debounce: 100 }}
@@ -486,18 +695,48 @@ export function DigitalTwinCanvas({ showStats = false }: DigitalTwinCanvasProps)
           const unknownRenderer = gl as unknown as {
             setClearColor?: (color: string) => void
             __backend?: 'webgpu' | 'webgl2'
+            __diagnostics?: PreferredRendererDiagnostics
           }
           if (typeof unknownRenderer.setClearColor === 'function') {
             unknownRenderer.setClearColor(canvasBackground)
           }
-          setRendererBackend(unknownRenderer.__backend ?? 'unknown')
+          const glRenderer = gl as unknown as { setPixelRatio?: (value: number) => void }
+          if (typeof glRenderer.setPixelRatio === 'function') {
+            glRenderer.setPixelRatio(window.devicePixelRatio <= 1.5 ? window.devicePixelRatio : dprRange[1])
+          }
+          const backend = unknownRenderer.__backend ?? unknownRenderer.__diagnostics?.backend ?? 'unknown'
+          setRendererBackend(backend)
+          setRendererDiagnostics({
+            requestedMode: rendererMode,
+            backend,
+            webgpuAvailable: unknownRenderer.__diagnostics?.webgpuAvailable ?? hasNavigatorWebGpu(),
+            fallbackReason:
+              unknownRenderer.__diagnostics?.fallbackReason ??
+              (rendererMode !== 'webgl2' && backend !== 'webgpu'
+                ? 'unknown-webgpu-fallback'
+                : null),
+            message: unknownRenderer.__diagnostics?.message ?? null,
+            storageBufferActive: backend === 'webgpu',
+          })
         }}
       >
         <Suspense fallback={<SceneLoading />}>
-          <SceneContent backgroundColor={canvasBackground} />
+          <ViewerRuntimeBridge>
+            <SceneContent backgroundColor={canvasBackground} />
+            <RendererReadySignal onReady={finishRendererTransition} />
+          </ViewerRuntimeBridge>
         </Suspense>
         {showStats && <Stats />}
       </Canvas>
+
+      {rendererTransitioning && (
+        <div
+          aria-hidden="true"
+          data-renderer-transition="active"
+          className="pointer-events-none absolute inset-0 z-10 transition-opacity duration-150"
+          style={{ background: canvasBackground }}
+        />
+      )}
 
       <PerformanceHud
         qualityProfile={qualityProfile}

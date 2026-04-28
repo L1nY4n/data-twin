@@ -1,14 +1,21 @@
 'use client'
 
-import { memo, useLayoutEffect, useMemo, useRef } from 'react'
+import { memo, useCallback, useLayoutEffect, useMemo, useRef } from 'react'
 import * as THREE from 'three'
-import { createInstancedInteractionBounds } from '@/lib/digital-twin/renderer/instanced-bounds'
+import {
+  createInstancedInteractionBounds,
+  type InstancedInteractionBounds,
+} from '@/lib/digital-twin/renderer/instanced-bounds'
 import {
   OVERLAY_RENDER_ORDER,
   STABLE_DOUBLE_SIDED_OVERLAY,
   STABLE_TRANSPARENT_OVERLAY,
 } from '@/lib/digital-twin/renderer/material-stability'
 import type { EquipmentEntity } from '@/lib/digital-twin/types'
+import {
+  DigitalTwinRaySpherePickGrid,
+} from '@/lib/digital-twin/viewer-runtime/pick-index'
+import { usePickGroupRegistration } from '../scene/ViewerRuntimeBridge'
 
 interface EquipmentInstancesProps {
   entities: EquipmentEntity[]
@@ -59,24 +66,19 @@ function getBodyColor(
   return '#374151'
 }
 
-function applyInteractionBounds(mesh: THREE.InstancedMesh | null, entities: EquipmentEntity[]) {
-  if (!mesh) return
-  const { sphere, box } = createInstancedInteractionBounds(
-    entities.map((entity) => entity.position),
-    {
-      paddingXz: 18,
-      paddingTop: 7,
-      paddingBottom: 2,
-    }
-  )
-  mesh.frustumCulled = true
-  mesh.boundingSphere = sphere
-  mesh.boundingBox = box
-}
-
 function ensureInstanceColor(mesh: THREE.InstancedMesh | null) {
   if (!mesh || mesh.instanceColor) return
   mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(mesh.count * 3), 3)
+}
+
+function applyInteractionBounds(
+  mesh: THREE.InstancedMesh | null,
+  interactionBounds: InstancedInteractionBounds
+) {
+  if (!mesh) return
+  mesh.frustumCulled = true
+  mesh.boundingSphere = interactionBounds.sphere.clone()
+  mesh.boundingBox = interactionBounds.box.clone()
 }
 
 function setVentMatrix(
@@ -119,8 +121,24 @@ export const EquipmentInstances = memo(function EquipmentInstances({
     body: new THREE.Color(),
     status: new THREE.Color(),
   })
+  const pickRefs = useMemo(
+    () => [bodyRef, baseRef, panelRef, glowRef, haloRef, ringRef, ventRef],
+    []
+  )
   const entityIds = useMemo(() => entities.map((entity) => entity.id), [entities])
   const entityIdSignature = useMemo(() => entityIds.join('|'), [entityIds])
+  const interactionBounds = useMemo(
+    () =>
+      createInstancedInteractionBounds(
+        entities.map((entity) => entity.position),
+        {
+          paddingXz: 18,
+          paddingTop: 7,
+          paddingBottom: 2,
+        }
+      ),
+    [entities]
+  )
   const bodyInstanceColors = useMemo(() => new Float32Array(entities.length * 3), [entities.length])
   const glowInstanceColors = useMemo(() => new Float32Array(entities.length * 3), [entities.length])
   const haloInstanceColors = useMemo(() => new Float32Array(entities.length * 3), [entities.length])
@@ -129,6 +147,28 @@ export const EquipmentInstances = memo(function EquipmentInstances({
     () => entities.flatMap((entity) => [entity.id, entity.id, entity.id, entity.id]),
     [entities]
   )
+  const pickGrid = useMemo(() => {
+    const grid = new DigitalTwinRaySpherePickGrid({ cellSize: 6 })
+    for (const entity of entities) {
+      grid.upsertEntity(entity.id, entity.position.x, entity.position.y + 1.65, entity.position.z, 2.25)
+    }
+    return grid
+  }, [entities])
+  const collectPickCandidates = useCallback(
+    (raycaster: THREE.Raycaster) => pickGrid.collect(raycaster),
+    [pickGrid]
+  )
+
+  usePickGroupRegistration({
+    id: `equipment:${entityIdSignature}`,
+    refs: pickRefs,
+    bounds: interactionBounds.sphere,
+    priority: 'entity',
+    enabled: entities.length > 0,
+    dependencyKey: `${entityIdSignature}:${selectedEntityId ?? ''}:${hoveredEntityId ?? ''}`,
+    pickCandidates: collectPickCandidates,
+    exactRaycast: false,
+  })
 
   useLayoutEffect(() => {
     const nextIds = new Set(entityIdSignature ? entityIdSignature.split('|') : [])
@@ -155,7 +195,7 @@ export const EquipmentInstances = memo(function EquipmentInstances({
       if (!mesh) return
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
       mesh.instanceColor?.setUsage(THREE.DynamicDrawUsage)
-      applyInteractionBounds(mesh, entities)
+      applyInteractionBounds(mesh, interactionBounds)
     })
 
     ensureInstanceColor(bodyRef.current)
@@ -167,7 +207,7 @@ export const EquipmentInstances = memo(function EquipmentInstances({
     glowRef.current?.instanceColor?.setUsage(THREE.DynamicDrawUsage)
     haloRef.current?.instanceColor?.setUsage(THREE.DynamicDrawUsage)
     ringRef.current?.instanceColor?.setUsage(THREE.DynamicDrawUsage)
-  }, [entities])
+  }, [entities, interactionBounds])
 
   useLayoutEffect(() => {
     if (

@@ -1,6 +1,6 @@
 'use client'
 
-import { memo, useRef } from 'react'
+import { memo, useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import type * as THREE from 'three'
 import type { PersonEntity } from '@/lib/digital-twin/types'
@@ -15,12 +15,16 @@ import {
 } from '@/components/digital-twin/scene/SpriteInfoCard'
 import { SpriteTextLabel } from '@/components/digital-twin/scene/SpriteTextLabel'
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
+import { runtimeVehiclePoseBuffer } from '@/lib/digital-twin/runtime-vehicle-pose-buffer'
+import { resolveRenderablePosition, resolveRenderableRotation } from './render-transform'
+import { usePickGroupRegistration } from '../scene/ViewerRuntimeBridge'
 
 interface PersonMarkerProps {
   entity: PersonEntity
   isSelected: boolean
   isHovered: boolean
   showModel?: boolean
+  fullTransform?: boolean
 }
 
 const STATUS_COLORS = {
@@ -35,27 +39,40 @@ export const PersonMarker = memo(function PersonMarker({
   isSelected,
   isHovered,
   showModel = true,
+  fullTransform = false,
 }: PersonMarkerProps) {
   const groupRef = useRef<THREE.Group>(null)
+  const pickRefs = useMemo(() => [groupRef], [])
   const statusColor = STATUS_COLORS[entity.status]
   const labelMode = entity.labelMode ?? 'html'
   const showLabel = isSelected || isHovered || labelMode !== 'hidden'
 
+  usePickGroupRegistration({
+    id: `person-marker:${entity.id}`,
+    refs: pickRefs,
+    priority: 'entity',
+    dependencyKey: `${entity.id}:${showModel}:${fullTransform}`,
+  })
+
   useFrame(() => {
+    if (fullTransform) return
     if (!groupRef.current || (!isSelected && !isHovered)) return
+    const pose = runtimeVehiclePoseBuffer.get(entity.id)
     const snapshot = useDigitalTwinStore.getState().getEcsSnapshotById(entity.id)
-    const position = snapshot?.position ?? entity.position
+    const position = pose
+      ? { x: pose.x, y: pose.y, z: pose.z }
+      : snapshot?.position ?? entity.position
     groupRef.current.position.set(position.x, position.y, position.z)
   })
 
   return (
     <group
       ref={groupRef}
-      position={[entity.position.x, entity.position.y, entity.position.z]}
+      position={resolveRenderablePosition(entity.position, { fullTransform })}
       userData={{ pickable: true, entityId: entity.id }}
     >
       {showModel && (
-        <group rotation={[0, entity.rotation.y, 0]}>
+        <group rotation={resolveRenderableRotation(entity.rotation, { fullTransform })}>
           <mesh position={[0, 0.5, 0]} castShadow>
             <cylinderGeometry args={[0.25, 0.3, 1, 16]} />
             <meshStandardMaterial

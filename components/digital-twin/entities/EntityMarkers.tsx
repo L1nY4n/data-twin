@@ -21,6 +21,10 @@ import { CameraMarker } from './CameraMarker'
 import { PersonInstances } from './PersonInstances'
 import { VehicleInstances } from './VehicleInstances'
 import { EquipmentInstances } from './EquipmentInstances'
+import {
+  DynamicEntityInstances,
+  type DynamicEntityRenderItem,
+} from './DynamicEntityInstances'
 import { DynamicEntityMarker } from './DynamicEntityMarker'
 
 interface SectorEntityBatch<T> {
@@ -66,6 +70,14 @@ function createSectorEntityBatches<T extends { position: Vector3 }>(
   })).filter((batch) => batch.entities.length > 0)
 }
 
+function isDetailedVehicleModelType(entity: VehicleEntity) {
+  return entity.vehicleType === 'truck' || entity.vehicleType === 'forklift'
+}
+
+function shouldRenderDetailedVehicleModel(entity: VehicleEntity) {
+  return isDetailedVehicleModelType(entity)
+}
+
 export function createVehicleEntityBatches(
   vehicles: VehicleEntity[],
   sectors: PublishedSceneSector[]
@@ -93,6 +105,26 @@ export function createVehicleEntityBatches(
   }))
 }
 
+export function createDynamicEntityBatches(
+  items: DynamicEntityRenderItem[],
+  sectors: PublishedSceneSector[]
+): SectorEntityBatch<DynamicEntityRenderItem>[] {
+  const sectorBuckets = new Map<string, DynamicEntityRenderItem[]>()
+  sectors.forEach((sector) => {
+    sectorBuckets.set(sector.id, [])
+  })
+
+  items.forEach((item) => {
+    const sectorId = resolveNearestSectorId(item.entity.position, sectors)
+    sectorBuckets.get(sectorId)?.push(item)
+  })
+
+  return sectors.map((sector) => ({
+    sectorId: sector.id,
+    entities: sectorBuckets.get(sector.id) ?? [],
+  })).filter((batch) => batch.entities.length > 0)
+}
+
 export function EntityMarkers() {
   const persons = useDigitalTwinStore((state) => state.entityBuckets.persons)
   const vehicles = useDigitalTwinStore((state) => state.entityBuckets.vehicles)
@@ -100,8 +132,9 @@ export function EntityMarkers() {
   const sensors = useDigitalTwinStore((state) => state.entityBuckets.sensors)
   const cameras = useDigitalTwinStore((state) => state.entityBuckets.cameras)
   const dynamicEntities = useDigitalTwinStore((state) => state.entityBuckets.dynamic)
-  const entityCategories = useDigitalTwinStore((state) => state.entityCategories)
-  const entityArchetypes = useDigitalTwinStore((state) => state.entityArchetypes)
+  const getDynamicEntityPresentation = useDigitalTwinStore(
+    (state) => state.getDynamicEntityPresentation
+  )
   const entityFilters = useDigitalTwinStore((state) => state.entityFilters)
   const selectedEntityId = useDigitalTwinStore((state) => state.selectedEntityId)
   const hoveredEntityId = useDigitalTwinStore((state) => state.hoveredEntityId)
@@ -110,12 +143,18 @@ export function EntityMarkers() {
   const searchQuery = entityFilters.searchQuery.toLowerCase()
   const {
     filteredPersons,
-    filteredModelVehicles,
-    filteredInstancedVehicles,
+    filteredVehicles,
     filteredEquipment,
     filteredSensors,
     filteredCameras,
     filteredDynamic,
+    detailPersons,
+    detailedModelVehicles,
+    detailVehicles,
+    detailEquipment,
+    detailDynamic,
+    suppressedVehicleDetailIds,
+    suppressedDynamicModelIds,
   } = useMemo(() => {
     const matchesBaseFilter = (
       entity:
@@ -133,22 +172,121 @@ export function EntityMarkers() {
       return entity.name.toLowerCase().includes(searchQuery)
     }
 
-    const nextVehicles = vehicles.filter((entity) => matchesBaseFilter(entity))
+    const nextFilteredPersons: PersonEntity[] = []
+    const nextFilteredVehicles: VehicleEntity[] = []
+    const nextFilteredEquipment: EquipmentEntity[] = []
+    const nextFilteredSensors: SensorEntity[] = []
+    const nextFilteredCameras: CameraEntity[] = []
+    const nextFilteredDynamic: DynamicEntityRenderItem[] = []
+    const nextDetailPersons: PersonEntity[] = []
+    const nextDetailedModelVehicles: VehicleEntity[] = []
+    const nextDetailVehicles: VehicleEntity[] = []
+    const nextDetailEquipment: EquipmentEntity[] = []
+    const nextDetailDynamic: DynamicEntityRenderItem[] = []
+
+    persons.forEach((entity) => {
+      if (!matchesBaseFilter(entity)) return
+      nextFilteredPersons.push(entity)
+      if (
+        entity.id === selectedEntityId ||
+        entity.id === hoveredEntityId ||
+        entity.labelMode === 'html'
+      ) {
+        nextDetailPersons.push(entity)
+      }
+    })
+
+    vehicles.forEach((entity) => {
+      if (!matchesBaseFilter(entity)) return
+      nextFilteredVehicles.push(entity)
+
+      if (shouldRenderDetailedVehicleModel(entity)) {
+        nextDetailedModelVehicles.push(entity)
+        return
+      }
+
+      if (
+        entity.id === selectedEntityId ||
+        entity.id === hoveredEntityId ||
+        entity.labelMode === 'html'
+      ) {
+        nextDetailVehicles.push(entity)
+      }
+    })
+
+    equipment.forEach((entity) => {
+      if (!matchesBaseFilter(entity)) return
+      nextFilteredEquipment.push(entity)
+      if (
+        entity.id === selectedEntityId ||
+        entity.id === hoveredEntityId ||
+        entity.labelMode !== 'hidden'
+      ) {
+        nextDetailEquipment.push(entity)
+      }
+    })
+
+    sensors.forEach((entity) => {
+      if (matchesBaseFilter(entity)) nextFilteredSensors.push(entity)
+    })
+
+    cameras.forEach((entity) => {
+      if (matchesBaseFilter(entity)) nextFilteredCameras.push(entity)
+    })
+
+    dynamicEntities.forEach((entity) => {
+      if (!matchesBaseFilter(entity)) return
+      const item = {
+        entity,
+        presentation: getDynamicEntityPresentation(entity),
+      }
+      nextFilteredDynamic.push(item)
+
+      if (
+        entity.id === selectedEntityId ||
+        entity.id === hoveredEntityId ||
+        entity.labelMode !== 'hidden'
+      ) {
+        nextDetailDynamic.push(item)
+      }
+    })
+
     return {
-      filteredPersons: persons.filter((entity) => matchesBaseFilter(entity)),
-      filteredVehicles: nextVehicles,
-      filteredModelVehicles: nextVehicles.filter(
-        (entity) => entity.vehicleType === 'truck' || entity.vehicleType === 'forklift'
+      filteredPersons: nextFilteredPersons,
+      filteredVehicles: nextFilteredVehicles,
+      filteredEquipment: nextFilteredEquipment,
+      filteredSensors: nextFilteredSensors,
+      filteredCameras: nextFilteredCameras,
+      filteredDynamic: nextFilteredDynamic,
+      detailPersons: nextDetailPersons,
+      detailedModelVehicles: nextDetailedModelVehicles,
+      detailVehicles: nextDetailVehicles,
+      detailEquipment: nextDetailEquipment,
+      detailDynamic: nextDetailDynamic,
+      suppressedVehicleDetailIds: new Set(nextDetailedModelVehicles.map((entity) => entity.id)),
+      suppressedDynamicModelIds: new Set(
+        nextDetailDynamic
+          .filter(
+            ({ entity, presentation }) =>
+              !!presentation.modelAsset &&
+              (entity.id === selectedEntityId || entity.id === hoveredEntityId)
+          )
+          .map(({ entity }) => entity.id)
       ),
-      filteredInstancedVehicles: nextVehicles.filter(
-        (entity) => entity.vehicleType !== 'truck' && entity.vehicleType !== 'forklift'
-      ),
-      filteredEquipment: equipment.filter((entity) => matchesBaseFilter(entity)),
-      filteredSensors: sensors.filter((entity) => matchesBaseFilter(entity)),
-      filteredCameras: cameras.filter((entity) => matchesBaseFilter(entity)),
-      filteredDynamic: dynamicEntities.filter((entity) => matchesBaseFilter(entity)),
     }
-  }, [persons, vehicles, equipment, sensors, cameras, dynamicEntities, entityFilters, searchQuery])
+  }, [
+    persons,
+    vehicles,
+    equipment,
+    sensors,
+    cameras,
+    dynamicEntities,
+    entityFilters,
+    getDynamicEntityPresentation,
+    hoveredEntityId,
+    searchQuery,
+    selectedEntityId,
+  ])
   const personBatches = useMemo(
     () => createSectorEntityBatches(filteredPersons, publishedSectors),
     [filteredPersons, publishedSectors]
@@ -156,43 +294,16 @@ export function EntityMarkers() {
   const vehicleBatches = useMemo(
     // Keep moving vehicles in stable route batches so they do not remount every
     // time their position crosses the nearest-sector boundary.
-    () => createVehicleEntityBatches(filteredInstancedVehicles, publishedSectors),
-    [filteredInstancedVehicles, publishedSectors]
+    () => createVehicleEntityBatches(filteredVehicles, publishedSectors),
+    [filteredVehicles, publishedSectors]
   )
   const equipmentBatches = useMemo(
     () => createSectorEntityBatches(filteredEquipment, publishedSectors),
     [filteredEquipment, publishedSectors]
   )
-
-  const detailPersons = useMemo(
-    () =>
-      filteredPersons.filter(
-        (entity) =>
-          entity.id === selectedEntityId ||
-          entity.id === hoveredEntityId ||
-          entity.labelMode === 'html'
-      ),
-    [filteredPersons, hoveredEntityId, selectedEntityId]
-  )
-  const detailVehicles = useMemo(
-    () =>
-      filteredInstancedVehicles.filter(
-        (entity) =>
-          entity.id === selectedEntityId ||
-          entity.id === hoveredEntityId ||
-          entity.labelMode === 'html'
-      ),
-    [filteredInstancedVehicles, hoveredEntityId, selectedEntityId]
-  )
-  const detailEquipment = useMemo(
-    () =>
-      filteredEquipment.filter(
-        (entity) =>
-          entity.id === selectedEntityId ||
-          entity.id === hoveredEntityId ||
-          entity.labelMode !== 'hidden'
-      ),
-    [filteredEquipment, hoveredEntityId, selectedEntityId]
+  const dynamicBatches = useMemo(
+    () => createDynamicEntityBatches(filteredDynamic, publishedSectors),
+    [filteredDynamic, publishedSectors]
   )
 
   return (
@@ -211,9 +322,13 @@ export function EntityMarkers() {
       ))}
 
       {vehicleBatches.map((batch) => (
-        <VehicleInstances key={`vehicle-${batch.sectorId}`} entities={batch.entities} />
+        <VehicleInstances
+          key={`vehicle-${batch.sectorId}`}
+          entities={batch.entities}
+          suppressedEntityIds={suppressedVehicleDetailIds}
+        />
       ))}
-      {filteredModelVehicles.map((vehicle) => (
+      {detailedModelVehicles.map((vehicle) => (
         <VehicleMarker
           key={vehicle.id}
           entity={vehicle}
@@ -270,16 +385,33 @@ export function EntityMarkers() {
         />
       ))}
 
-      {filteredDynamic.map((entity) => (
-        <DynamicEntityMarker
-          key={entity.id}
-          entity={entity}
-          archetype={entityArchetypes.get(entity.archetypeId)}
-          category={entityCategories.get(entity.categoryKey)}
-          isSelected={selectedEntityId === entity.id}
-          isHovered={hoveredEntityId === entity.id}
+      {dynamicBatches.map((batch) => (
+        <DynamicEntityInstances
+          key={`dynamic-${batch.sectorId}`}
+          items={batch.entities}
+          selectedEntityId={selectedEntityId}
+          hoveredEntityId={hoveredEntityId}
+          suppressedEntityIds={suppressedDynamicModelIds}
         />
       ))}
+      {detailDynamic.map(({ entity, presentation }) => {
+        const isSelected = selectedEntityId === entity.id
+        const isHovered = hoveredEntityId === entity.id
+        const shouldShowFocusedModel = !!presentation.modelAsset && (isSelected || isHovered)
+
+        return (
+          <DynamicEntityMarker
+            key={entity.id}
+            entity={entity}
+            presentation={presentation}
+            isSelected={isSelected}
+            isHovered={isHovered}
+            showModel={shouldShowFocusedModel}
+            showBaseProxy={false}
+            showStatusRing={isSelected || shouldShowFocusedModel}
+          />
+        )
+      })}
     </group>
   )
 }

@@ -8,7 +8,7 @@ import type {
   WorkspaceRecord,
 } from './types'
 
-export type AdminSection =
+export type BuiltInAdminSection =
   | 'overview'
   | 'workspaces'
   | 'scene'
@@ -20,9 +20,11 @@ export type AdminSection =
   | 'alarms'
   | 'audit'
 
+export type AdminSection = BuiltInAdminSection | `module:${string}`
+
 export interface AdminNavItem {
   title: string
-  href: `/admin/${AdminSection}`
+  href: `/admin/${string}`
   section: AdminSection
 }
 
@@ -31,7 +33,7 @@ export interface AdminNavGroup {
   items: AdminNavItem[]
 }
 
-export const ADMIN_SECTIONS: AdminSection[] = [
+export const ADMIN_SECTIONS: BuiltInAdminSection[] = [
   'overview',
   'workspaces',
   'scene',
@@ -43,6 +45,10 @@ export const ADMIN_SECTIONS: AdminSection[] = [
   'alarms',
   'audit',
 ]
+
+export function isBuiltInAdminSection(value: string): value is BuiltInAdminSection {
+  return ADMIN_SECTIONS.includes(value as BuiltInAdminSection)
+}
 
 export interface AdminOverview {
   sceneVersion: number

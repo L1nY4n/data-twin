@@ -12,6 +12,7 @@ import type {
   StaticAssetInstance,
   WorkspaceRecord,
 } from './types'
+import type { EventTypeRegistration, PlatformModuleManifest } from './module-registry'
 import {
   getAdminApiBaseUrl,
   getBackendHttpBaseUrl,
@@ -33,6 +34,8 @@ export interface BootstrapPayload {
   entityArchetypes: EntityArchetype[]
   rules: RuleConfig[]
   alarms: Alarm[]
+  moduleManifests?: PlatformModuleManifest[]
+  eventTypeRegistry?: EventTypeRegistration[]
   publishedScene?: PublishedSceneRuntimeDescriptor | null
   issuedAt: number
 }
@@ -186,6 +189,17 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
 
   if (!response.ok) {
     const payload = await response.text()
+    if (
+      typeof window !== 'undefined' &&
+      response.status === 401 &&
+      payload.includes('frontend access is required')
+    ) {
+      window.location.assign(
+        `/access?next=${encodeURIComponent(
+          `${window.location.pathname}${window.location.search}`
+        )}`
+      )
+    }
     throw new AdminApiError(buildAdminApiErrorMessage(response, payload), {
       status: response.status,
       payload,

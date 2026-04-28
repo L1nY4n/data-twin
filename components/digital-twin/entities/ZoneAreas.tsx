@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import * as THREE from 'three'
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
 import type { ZoneEntity } from '@/lib/digital-twin/types'
@@ -12,6 +12,7 @@ import {
   OVERLAY_RENDER_ORDER,
   STABLE_DOUBLE_SIDED_OVERLAY,
 } from '@/lib/digital-twin/renderer/material-stability'
+import { usePickGroupRegistration } from '../scene/ViewerRuntimeBridge'
 
 function zoneTypeLabel(zoneType: ZoneEntity['zoneType']) {
   return zoneType === 'work'
@@ -50,6 +51,8 @@ interface ZoneAreaProps {
 }
 
 function ZoneArea({ zone }: ZoneAreaProps) {
+  const groupRef = useRef<THREE.Group>(null)
+  const pickRefs = useMemo(() => [groupRef], [])
   const selectedEntityId = useDigitalTwinStore((state) => state.selectedEntityId)
   const hoveredEntityId = useDigitalTwinStore((state) => state.hoveredEntityId)
 
@@ -69,9 +72,37 @@ function ZoneArea({ zone }: ZoneAreaProps) {
     s.closePath()
     return s
   }, [zone.boundary])
+  const fillGeometry = useMemo(() => {
+    if (!shape) return null
+    const geometry = new THREE.ShapeGeometry(shape)
+    if (!geometry.index) return geometry
+
+    const nonIndexedGeometry = geometry.toNonIndexed()
+    geometry.dispose()
+    return nonIndexedGeometry
+  }, [shape])
+
+  useEffect(() => () => fillGeometry?.dispose(), [fillGeometry])
 
   // 区域中心点
   const center = useMemo(() => calculatePolygonCenter(zone.boundary), [zone.boundary])
+  const pickBounds = useMemo(() => {
+    let maxDistance = 1
+    for (const point of zone.boundary) {
+      const distance = Math.hypot(point.x - center.x, point.z - center.z)
+      if (distance > maxDistance) maxDistance = distance
+    }
+    return new THREE.Sphere(new THREE.Vector3(center.x, 0.25, center.z), maxDistance + 1)
+  }, [center.x, center.z, zone.boundary])
+
+  usePickGroupRegistration({
+    id: `zone:${zone.id}`,
+    refs: pickRefs,
+    bounds: pickBounds,
+    priority: 'entity',
+    enabled: Boolean(shape),
+    dependencyKey: `${zone.id}:${zone.boundary.length}`,
+  })
 
   // 边界线点
   const boundaryPoints = useMemo(() => {
@@ -93,28 +124,19 @@ function ZoneArea({ zone }: ZoneAreaProps) {
   if (!shape) return null
 
   return (
-    <group userData={{ pickable: true, entityId: zone.id }}>
+    <group ref={groupRef} userData={{ pickable: true, entityId: zone.id }}>
       {/* 区域填充 */}
       {/* Selected zones rely on boundary/label overlays because WebGPU is unstable with
           the translucent shape fill on this interaction path. */}
-      {!isSelected && (
+      {!isSelected && fillGeometry && (
         <mesh 
           rotation={[-Math.PI / 2, 0, 0]} 
           position={[0, 0.05, 0]}
           renderOrder={OVERLAY_RENDER_ORDER.zoneFill}
         >
-          <shapeGeometry
-            args={[shape]}
-            onUpdate={(geometry) => {
-              if (geometry.index) geometry.setDrawRange(0, geometry.index.count)
-            }}
-          />
-          <meshStandardMaterial
+          <primitive object={fillGeometry} attach="geometry" />
+          <meshBasicMaterial
             color={zone.color}
-            emissive={zone.color}
-            emissiveIntensity={0.05}
-            metalness={0.02}
-            roughness={0.96}
             opacity={0.18}
             {...STABLE_DOUBLE_SIDED_OVERLAY}
           />

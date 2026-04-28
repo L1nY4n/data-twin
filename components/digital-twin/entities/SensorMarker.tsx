@@ -1,6 +1,7 @@
 'use client'
 
-import { memo } from 'react'
+import { memo, useMemo, useRef } from 'react'
+import * as THREE from 'three'
 import type { SensorEntity } from '@/lib/digital-twin/types'
 import {
   OVERLAY_RENDER_ORDER,
@@ -13,11 +14,14 @@ import {
   SpriteInfoCard,
 } from '@/components/digital-twin/scene/SpriteInfoCard'
 import { SpriteTextLabel } from '@/components/digital-twin/scene/SpriteTextLabel'
+import { resolveRenderablePosition, resolveRenderableRotation } from './render-transform'
+import { usePickGroupRegistration } from '../scene/ViewerRuntimeBridge'
 
 interface SensorMarkerProps {
   entity: SensorEntity
   isSelected: boolean
   isHovered: boolean
+  fullTransform?: boolean
 }
 
 const STATUS_COLORS = {
@@ -51,41 +55,63 @@ export const SensorMarker = memo(function SensorMarker({
   entity,
   isSelected,
   isHovered,
+  fullTransform = false,
 }: SensorMarkerProps) {
+  const groupRef = useRef<THREE.Group>(null)
+  const pickRefs = useMemo(() => [groupRef], [])
+  const pickBounds = useMemo(
+    () =>
+      new THREE.Sphere(
+        new THREE.Vector3(entity.position.x, entity.position.y + 0.8, entity.position.z),
+        2.2
+      ),
+    [entity.position.x, entity.position.y, entity.position.z]
+  )
   const statusColor = STATUS_COLORS[entity.status]
   const bodyColor = SENSOR_COLORS[entity.sensorType]
   const labelMode = entity.labelMode ?? 'html'
   const showLabel = isSelected || isHovered || labelMode !== 'hidden'
 
+  usePickGroupRegistration({
+    id: `sensor-marker:${entity.id}`,
+    refs: pickRefs,
+    bounds: pickBounds,
+    priority: 'entity',
+    dependencyKey: `${entity.id}:${fullTransform}`,
+  })
+
   return (
     <group
-      position={[entity.position.x, entity.position.y, entity.position.z]}
+      ref={groupRef}
+      position={resolveRenderablePosition(entity.position, { fullTransform })}
       userData={{ pickable: true, entityId: entity.id }}
     >
-      <mesh position={[0, 0.6, 0]} castShadow>
-        <cylinderGeometry args={[0.05, 0.05, 1.2, 12]} />
-        <meshStandardMaterial color="#64748b" metalness={0.3} roughness={0.7} />
-      </mesh>
+      <group rotation={resolveRenderableRotation(entity.rotation, { fullTransform })}>
+        <mesh position={[0, 0.6, 0]} castShadow>
+          <cylinderGeometry args={[0.05, 0.05, 1.2, 12]} />
+          <meshStandardMaterial color="#64748b" metalness={0.3} roughness={0.7} />
+        </mesh>
 
-      <mesh position={[0, 1.3, 0]} castShadow>
-        <boxGeometry args={[0.42, 0.32, 0.24]} />
-        <meshStandardMaterial
-          color={isSelected ? '#60a5fa' : isHovered ? '#cbd5e1' : bodyColor}
-          metalness={0.25}
-          roughness={0.55}
-        />
-      </mesh>
+        <mesh position={[0, 1.3, 0]} castShadow>
+          <boxGeometry args={[0.42, 0.32, 0.24]} />
+          <meshStandardMaterial
+            color={isSelected ? '#60a5fa' : isHovered ? '#cbd5e1' : bodyColor}
+            metalness={0.25}
+            roughness={0.55}
+          />
+        </mesh>
 
-      <mesh position={[0, 1.3, 0.14]}>
-        <sphereGeometry args={[0.06, 16, 16]} />
-        <meshStandardMaterial
-          color={statusColor}
-          emissive={statusColor}
-          emissiveIntensity={0.8}
-          opacity={0.9}
-          {...STABLE_TRANSPARENT_OVERLAY}
-        />
-      </mesh>
+        <mesh position={[0, 1.3, 0.14]}>
+          <sphereGeometry args={[0.06, 16, 16]} />
+          <meshStandardMaterial
+            color={statusColor}
+            emissive={statusColor}
+            emissiveIntensity={0.8}
+            opacity={0.9}
+            {...STABLE_TRANSPARENT_OVERLAY}
+          />
+        </mesh>
+      </group>
 
       <mesh
         position={[0, 0.02, 0]}

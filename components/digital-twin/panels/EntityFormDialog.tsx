@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { useForm } from 'react-hook-form'
+import { useForm, type FieldValues, type Path, type UseFormReturn } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { Plus, User, Car, Cog, Radar, Camera, Map } from 'lucide-react'
@@ -88,6 +88,12 @@ const zoneSchema = baseSchema.extend({
   depth: z.coerce.number().min(1, '深度必须大于0'),
   color: z.string(),
 })
+
+type PositionFormValues = FieldValues & {
+  posX: number
+  posY: number
+  posZ: number
+}
 
 export function EntityFormDialog() {
   const [open, setOpen] = useState(false)
@@ -825,15 +831,18 @@ export function EntityFormDialog() {
   )
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function PositionFields({ form }: { form: any }) {
+function PositionFields<TFormValues extends PositionFormValues>({
+  form,
+}: {
+  form: UseFormReturn<TFormValues>
+}) {
   return (
     <div>
       <FormLabel className="text-xs text-muted-foreground">位置 (米)</FormLabel>
       <div className="mt-1.5 grid grid-cols-3 gap-2">
         <FormField
           control={form.control}
-          name="posX"
+          name={'posX' as Path<TFormValues>}
           render={({ field }) => (
             <FormItem>
               <FormControl>
@@ -844,7 +853,7 @@ function PositionFields({ form }: { form: any }) {
         />
         <FormField
           control={form.control}
-          name="posY"
+          name={'posY' as Path<TFormValues>}
           render={({ field }) => (
             <FormItem>
               <FormControl>
@@ -855,7 +864,7 @@ function PositionFields({ form }: { form: any }) {
         />
         <FormField
           control={form.control}
-          name="posZ"
+          name={'posZ' as Path<TFormValues>}
           render={({ field }) => (
             <FormItem>
               <FormControl>

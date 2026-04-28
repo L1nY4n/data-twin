@@ -28,6 +28,8 @@ use tower::ServiceExt;
 use std::os::unix::fs::PermissionsExt;
 
 type TestSocket = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
+const ADMIN_API_TOKEN: &str = "test-admin-api-token";
+const REALTIME_ACCESS_TOKEN: &str = "test-realtime-access-token";
 
 #[tokio::test]
 async fn admin_write_pushes_config_changed_event() {
@@ -62,6 +64,7 @@ async fn admin_write_pushes_config_changed_event() {
                 .method(Method::PUT)
                 .uri("/api/v1/admin/scene")
                 .header(CONTENT_TYPE, "application/json")
+                .header("x-admin-api-token", ADMIN_API_TOKEN)
                 .body(Body::from(payload.to_string()))
                 .unwrap(),
         )
@@ -121,6 +124,7 @@ async fn static_asset_write_pushes_config_changed_event() {
                 .method(Method::POST)
                 .uri("/api/v1/admin/static-assets")
                 .header(CONTENT_TYPE, "application/json")
+                .header("x-admin-api-token", ADMIN_API_TOKEN)
                 .body(Body::from(payload.to_string()))
                 .unwrap(),
         )
@@ -158,6 +162,7 @@ async fn publish_pushes_publish_scoped_config_changed_event() {
                 .method(Method::POST)
                 .uri("/api/v1/admin/static-assets")
                 .header(CONTENT_TYPE, "application/json")
+                .header("x-admin-api-token", ADMIN_API_TOKEN)
                 .body(Body::from(
                     json!({
                       "id": "static-asset-ws-publish-01",
@@ -191,6 +196,7 @@ async fn publish_pushes_publish_scoped_config_changed_event() {
             Request::builder()
                 .method(Method::POST)
                 .uri("/api/v1/admin/publish")
+                .header("x-admin-api-token", ADMIN_API_TOKEN)
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -245,6 +251,12 @@ fn websocket_request(ws_url: &str, origin: &str) -> Request<()> {
             .parse()
             .expect("origin should be a valid header value"),
     );
+    request.headers_mut().insert(
+        "Authorization",
+        format!("Bearer {REALTIME_ACCESS_TOKEN}")
+            .parse()
+            .expect("token should be a valid header value"),
+    );
     request
 }
 
@@ -266,6 +278,8 @@ async fn spawn_app(app: Router) -> (String, JoinHandle<()>) {
 
 fn init_test_database_url() {
     std::env::set_var("DATABASE_URL", "sqlite::memory:");
+    std::env::set_var("BACKEND_ADMIN_API_TOKEN", ADMIN_API_TOKEN);
+    std::env::set_var("BACKEND_REALTIME_ACCESS_TOKEN", REALTIME_ACCESS_TOKEN);
 }
 
 struct PublishTestHarness {

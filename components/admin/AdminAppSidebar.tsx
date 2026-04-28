@@ -39,7 +39,7 @@ export function AdminAppSidebar({
 
   return (
     <Sidebar collapsible="icon" className="border-r border-white/8">
-      <SidebarHeader className="border-b px-2 py-2">
+      <SidebarHeader className="border-b px-2 py-2 md:min-h-[var(--admin-section-header-height)] md:justify-center md:py-0">
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton
@@ -74,7 +74,7 @@ export function AdminAppSidebar({
 
                   return (
                     <SidebarMenuItem key={item.href}>
-                      <SidebarMenuButton
+                    <SidebarMenuButton
                         asChild
                         isActive={isActive}
                         tooltip={item.title}

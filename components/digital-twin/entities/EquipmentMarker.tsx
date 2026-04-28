@@ -1,6 +1,7 @@
 'use client'
 
-import { memo } from 'react'
+import { memo, useMemo, useRef } from 'react'
+import * as THREE from 'three'
 import type { EquipmentEntity } from '@/lib/digital-twin/types'
 import {
   OVERLAY_RENDER_ORDER,
@@ -9,6 +10,8 @@ import {
 } from '@/lib/digital-twin/renderer/material-stability'
 import { createStatusSpriteInfoBadge, SpriteInfoCard } from '@/components/digital-twin/scene/SpriteInfoCard'
 import { SpriteTextLabel } from '@/components/digital-twin/scene/SpriteTextLabel'
+import { resolveRenderablePosition, resolveRenderableRotation } from './render-transform'
+import { usePickGroupRegistration } from '../scene/ViewerRuntimeBridge'
 
 interface EquipmentMarkerProps {
   entity: EquipmentEntity
@@ -16,6 +19,7 @@ interface EquipmentMarkerProps {
   isHovered: boolean
   showModel?: boolean
   showStatusRing?: boolean
+  fullTransform?: boolean
 }
 
 const STATUS_COLORS = {
@@ -31,18 +35,41 @@ export const EquipmentMarker = memo(function EquipmentMarker({
   isHovered,
   showModel = true,
   showStatusRing = true,
+  fullTransform = false,
 }: EquipmentMarkerProps) {
+  const groupRef = useRef<THREE.Group>(null)
+  const pickRefs = useMemo(() => [groupRef], [])
+  const pickBounds = useMemo(
+    () =>
+      new THREE.Sphere(
+        new THREE.Vector3(entity.position.x, entity.position.y + 1.8, entity.position.z),
+        4.2
+      ),
+    [entity.position.x, entity.position.y, entity.position.z]
+  )
   const statusColor = STATUS_COLORS[entity.status]
   const labelMode = entity.labelMode ?? 'html'
   const showLabel = isSelected || isHovered || labelMode !== 'hidden'
 
+  usePickGroupRegistration({
+    id: `equipment-marker:${entity.id}`,
+    refs: pickRefs,
+    bounds: pickBounds,
+    priority: 'entity',
+    dependencyKey: `${entity.id}:${showModel}:${showStatusRing}:${fullTransform}`,
+  })
+
   return (
     <group
-      position={[entity.position.x, 0, entity.position.z]}
+      ref={groupRef}
+      position={resolveRenderablePosition(entity.position, {
+        fullTransform,
+        clampYToGround: true,
+      })}
       userData={{ pickable: true, entityId: entity.id }}
     >
       {showModel && (
-        <group rotation={[0, entity.rotation.y, 0]}>
+        <group rotation={resolveRenderableRotation(entity.rotation, { fullTransform })}>
           {/* 设备主体 - 工业风格 */}
           <mesh position={[0, 1.5, 0]} castShadow>
             <boxGeometry args={[2, 3, 2]} />

@@ -1,28 +1,66 @@
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
-    env, fs,
-    path::Path,
+    env,
+    str::FromStr,
     sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
+    time::Duration,
 };
 
 use sqlx::{
-    postgres::PgPoolOptions, sqlite::SqlitePoolOptions, Executor, PgConnection, PgPool,
-    Postgres, Row, Sqlite, SqliteConnection, SqlitePool, Transaction,
+    postgres::PgPoolOptions,
+    sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous},
+    Executor, PgPool, Postgres, Row, Sqlite, SqlitePool, Transaction,
 };
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
+mod global_facade;
+mod helpers;
+mod persistence;
+mod rewrite;
+mod workspace_admin;
+mod workspace_entities;
+mod workspace_state;
+
 use crate::{
     contracts::{
-        Alarm, ArchetypeModelAsset, AuditEventRecord, BootstrapResponse, ContractValue,
-        DataConnector, EditorSaveMode, EditorSaveRequest, EditorSaveResponse, Entity,
-        EntityArchetype, EntityBinding, EntityCategory, EntityStatus, ModelAssetFileType,
-        PublishedSceneDescriptor, RuleConfig, RuleValidationResponse, SceneConfig,
-        SceneResponse, StaticAssetInstance, Vector3, WorkspaceRecord,
+        Alarm, AuditEventRecord, BootstrapResponse, DataConnector, EditorSaveMode,
+        EditorSaveRequest, EditorSaveResponse, Entity, EntityArchetype, EntityBinding,
+        EntityCategory, PublishedSceneDescriptor, RuleConfig, RuleValidationResponse, SceneConfig,
+        SceneResponse, StaticAssetInstance, WorkspaceRecord,
     },
+    module_registry::{built_in_event_type_registrations, built_in_platform_module_manifests},
     published_scene::load_published_scene_descriptor,
     seed_scene,
+};
+use helpers::{
+    ensure_entity_archetype_create_defaults, ensure_entity_archetype_update_defaults,
+    ensure_entity_category_create_defaults, ensure_entity_category_update_defaults,
+    ensure_entity_create_defaults, ensure_entity_update_defaults, ensure_sqlite_parent_dir,
+    ensure_static_asset_create_defaults, ensure_static_asset_update_defaults,
+    ensure_workspace_create_defaults, ensure_workspace_update_defaults, is_memory_backend_url,
+    is_sqlite_url, map_memory_audit_event, now_millis, set_entity_created_at, set_entity_id,
+    sort_entities, sort_entity_archetypes, sort_entity_categories, sort_static_assets,
+    sort_workspaces, static_asset_kind_to_str, status_to_str, validate_entity_archetype,
+    validate_entity_category, validate_workspace,
+};
+use persistence::{
+    bump_scene_version_sqlite, bump_scene_version_tx, insert_audit_event,
+    insert_audit_event_sqlite, persist_entity_archetype, persist_entity_archetype_sqlite,
+    persist_rule, persist_rule_sqlite, sync_live_entity_roster_postgres,
+    sync_live_entity_roster_sqlite, upsert_published_state_postgres, upsert_published_state_sqlite,
+};
+use rewrite::{
+    cascade_category_key_update_memory, cascade_category_key_update_postgres,
+    cascade_category_key_update_sqlite, count_dynamic_entity_refs_postgres,
+    count_dynamic_entity_refs_sqlite, normalize_dynamic_entity_registry_refs_memory,
+    normalize_dynamic_entity_registry_refs_postgres, normalize_dynamic_entity_registry_refs_sqlite,
+    rewrite_dynamic_entity_archetype_refs, rewrite_dynamic_entity_archetype_refs_postgres,
+    rewrite_dynamic_entity_archetype_refs_sqlite,
+};
+use workspace_state::{
+    backfill_workspace_states_postgres, backfill_workspace_states_sqlite,
+    load_workspace_state_postgres, load_workspace_state_sqlite,
 };
 
 const DEFAULT_SQLITE_URL: &str = "sqlite://./data/digital-twin.db?mode=rwc";
@@ -93,24 +131,8 @@ struct SqliteStore {
 #[derive(Debug, Clone)]
 struct MemoryStore {
     scene_version: u64,
-    scene_config: SceneConfig,
     entities: BTreeMap<String, Entity>,
     static_assets: BTreeMap<String, StaticAssetInstance>,
-    published_scene_version: u64,
-    published_scene_config: SceneConfig,
-    published_entities: Vec<Entity>,
-    published_static_assets: Vec<StaticAssetInstance>,
-    published_scene: Option<PublishedSceneDescriptor>,
-    published_compiler_source: String,
-    published_updated_at: u64,
-    active_publish_token: Option<String>,
-    active_publish_started_at: Option<u64>,
-    active_publish_heartbeat_at: Option<u64>,
-    last_published_at: Option<u64>,
-    last_published_version: Option<String>,
-    last_publish_error: Option<String>,
-    last_failure_scene_version: Option<u64>,
-    last_failure_at: Option<u64>,
     rules: BTreeMap<String, RuleConfig>,
     alarms: Vec<Alarm>,
     connectors: BTreeMap<String, DataConnector>,
@@ -182,7 +204,6 @@ pub struct PublishedStateRecord {
 impl MemoryStore {
     fn seeded() -> Self {
         let snapshot = seed_scene::seed_snapshot();
-        let published_scene = load_published_scene_descriptor();
         let now = now_millis();
         let default_workspace = WorkspaceRecord {
             id: snapshot.scene_config.id.clone(),
@@ -193,38 +214,16 @@ impl MemoryStore {
             created_at: now,
             updated_at: now,
         };
-        let mut published_entities = snapshot.entities.clone();
-        let mut published_static_assets = Vec::new();
-        sort_entities(&mut published_entities);
-        sort_static_assets(&mut published_static_assets);
         let workspace_state = create_seed_workspace_state(&default_workspace);
 
         Self {
             scene_version: snapshot.scene_version,
-            scene_config: snapshot.scene_config.clone(),
             entities: snapshot
                 .entities
                 .into_iter()
                 .map(|entity| (entity.id().to_string(), entity))
                 .collect(),
             static_assets: BTreeMap::new(),
-            published_scene_version: snapshot.scene_version,
-            published_scene_config: snapshot.scene_config,
-            published_entities,
-            published_static_assets,
-            published_scene: published_scene.clone(),
-            published_compiler_source: "campus-layout".to_string(),
-            published_updated_at: now,
-            active_publish_token: None,
-            active_publish_started_at: None,
-            active_publish_heartbeat_at: None,
-            last_published_at: Some(now),
-            last_published_version: published_scene
-                .as_ref()
-                .map(|descriptor| descriptor.package_version.clone()),
-            last_publish_error: None,
-            last_failure_scene_version: None,
-            last_failure_at: None,
             rules: snapshot
                 .rules
                 .into_iter()
@@ -316,9 +315,13 @@ impl Store {
 
         if is_sqlite_url(url) {
             ensure_sqlite_parent_dir(url)?;
+            let options = SqliteConnectOptions::from_str(url)?
+                .journal_mode(SqliteJournalMode::Wal)
+                .synchronous(SqliteSynchronous::Normal)
+                .busy_timeout(Duration::from_secs(10));
             let pool = SqlitePoolOptions::new()
-                .max_connections(1)
-                .connect(url)
+                .max_connections(8)
+                .connect_with(options)
                 .await?;
             setup_sqlite(&pool).await?;
 
@@ -485,6 +488,8 @@ impl Store {
             entity_archetypes,
             rules: state.rules.values().cloned().collect(),
             alarms: state.alarms.clone(),
+            module_manifests: built_in_platform_module_manifests(),
+            event_type_registry: built_in_event_type_registrations(),
             published_scene: state.published_scene.clone(),
             issued_at: now_millis(),
         })
@@ -511,6 +516,8 @@ impl Store {
             entity_archetypes,
             rules: state.rules.values().cloned().collect(),
             alarms: state.alarms.clone(),
+            module_manifests: built_in_platform_module_manifests(),
+            event_type_registry: built_in_event_type_registrations(),
             published_scene: state.published_scene.clone(),
             issued_at: now_millis(),
         })
@@ -621,12 +628,11 @@ impl Store {
                 Ok(())
             }
             StoreBackend::Sqlite(store) => {
-                let count: i64 = sqlx::query_scalar(
-                    r#"SELECT COUNT(*) FROM published_state WHERE site_id = ?"#,
-                )
-                .bind(seed_scene::SITE_ID)
-                .fetch_one(&store.pool)
-                .await?;
+                let count: i64 =
+                    sqlx::query_scalar(r#"SELECT COUNT(*) FROM published_state WHERE site_id = ?"#)
+                        .bind(seed_scene::SITE_ID)
+                        .fetch_one(&store.pool)
+                        .await?;
                 if count > 0 {
                     return Ok(());
                 }
@@ -661,6 +667,24 @@ impl Store {
     ) -> Result<bool, StoreError> {
         let (_, state) = self.ensure_workspace_state(workspace_id).await?;
         Ok(state.entities.contains_key(entity_id))
+    }
+
+    pub async fn workspace_missing_entities(
+        &self,
+        workspace_id: &str,
+        entity_ids: &[String],
+    ) -> Result<Vec<String>, StoreError> {
+        let (_, state) = self.ensure_workspace_state(workspace_id).await?;
+        let mut seen = HashSet::new();
+        let mut missing = Vec::new();
+
+        for entity_id in entity_ids {
+            if seen.insert(entity_id.as_str()) && !state.entities.contains_key(entity_id) {
+                missing.push(entity_id.clone());
+            }
+        }
+
+        Ok(missing)
     }
 
     pub async fn workspace_save_editor_changes(
@@ -892,577 +916,6 @@ impl Store {
         self.persist_workspace_state(workspace_id, &state).await
     }
 
-    pub async fn workspace_list_entities(
-        &self,
-        workspace_id: &str,
-    ) -> Result<Vec<Entity>, StoreError> {
-        let (_, state) = self.ensure_workspace_state(workspace_id).await?;
-        let mut entities: Vec<Entity> = state.entities.values().cloned().collect();
-        sort_entities(&mut entities);
-        Ok(entities)
-    }
-
-    pub async fn workspace_get_entity(
-        &self,
-        workspace_id: &str,
-        id: &str,
-    ) -> Result<Option<Entity>, StoreError> {
-        let (_, state) = self.ensure_workspace_state(workspace_id).await?;
-        Ok(state.entities.get(id).cloned())
-    }
-
-    pub async fn workspace_create_entity(
-        &self,
-        workspace_id: &str,
-        mut entity: Entity,
-    ) -> Result<Entity, StoreError> {
-        let (_, mut state) = self.ensure_workspace_state(workspace_id).await?;
-        let archetypes = self
-            .list_entity_archetypes()
-            .await?
-            .into_iter()
-            .map(|archetype| (archetype.id.clone(), archetype))
-            .collect::<BTreeMap<_, _>>();
-        ensure_entity_create_defaults(&mut entity, now_millis());
-        normalize_dynamic_entity_registry_refs_memory(&mut entity, &archetypes)?;
-        if state.entities.contains_key(entity.id()) {
-            return Err(StoreError::Validation(format!(
-                "entity {} already exists",
-                entity.id()
-            )));
-        }
-        state.entities.insert(entity.id().to_string(), entity.clone());
-        state.scene_version += 1;
-        state.audit_events.push(serde_json::json!({
-            "action": "entity.create",
-            "resourceType": "entity",
-            "resourceId": entity.id(),
-            "actor": "system",
-            "timestamp": now_millis()
-        }));
-        sync_workspace_live_entity_roster(&mut state);
-        self.persist_workspace_state(workspace_id, &state).await?;
-        Ok(entity)
-    }
-
-    pub async fn workspace_update_entity(
-        &self,
-        workspace_id: &str,
-        id: &str,
-        mut entity: Entity,
-    ) -> Result<Entity, StoreError> {
-        let (_, mut state) = self.ensure_workspace_state(workspace_id).await?;
-        let archetypes = self
-            .list_entity_archetypes()
-            .await?
-            .into_iter()
-            .map(|archetype| (archetype.id.clone(), archetype))
-            .collect::<BTreeMap<_, _>>();
-        let Some(existing) = state.entities.get(id) else {
-            return Err(StoreError::NotFound(format!("entity {id}")));
-        };
-        set_entity_id(&mut entity, id);
-        ensure_entity_update_defaults(&mut entity, now_millis());
-        normalize_dynamic_entity_registry_refs_memory(&mut entity, &archetypes)?;
-        set_entity_created_at(&mut entity, existing.created_at());
-        state.entities.insert(id.to_string(), entity.clone());
-        state.scene_version += 1;
-        state.audit_events.push(serde_json::json!({
-            "action": "entity.update",
-            "resourceType": "entity",
-            "resourceId": id,
-            "actor": "system",
-            "timestamp": now_millis()
-        }));
-        sync_workspace_live_entity_roster(&mut state);
-        self.persist_workspace_state(workspace_id, &state).await?;
-        Ok(entity)
-    }
-
-    pub async fn workspace_delete_entity(
-        &self,
-        workspace_id: &str,
-        id: &str,
-    ) -> Result<bool, StoreError> {
-        let (_, mut state) = self.ensure_workspace_state(workspace_id).await?;
-        let removed = state.entities.remove(id).is_some();
-        if removed {
-            state.bindings.remove(id);
-            state.scene_version += 1;
-            state.audit_events.push(serde_json::json!({
-                "action": "entity.delete",
-                "resourceType": "entity",
-                "resourceId": id,
-                "actor": "system",
-                "timestamp": now_millis()
-            }));
-            sync_workspace_live_entity_roster(&mut state);
-            self.persist_workspace_state(workspace_id, &state).await?;
-        }
-        Ok(removed)
-    }
-
-    pub async fn workspace_list_static_assets(
-        &self,
-        workspace_id: &str,
-    ) -> Result<Vec<StaticAssetInstance>, StoreError> {
-        let (_, state) = self.ensure_workspace_state(workspace_id).await?;
-        let mut assets: Vec<StaticAssetInstance> = state.static_assets.values().cloned().collect();
-        sort_static_assets(&mut assets);
-        Ok(assets)
-    }
-
-    pub async fn workspace_get_static_asset(
-        &self,
-        workspace_id: &str,
-        id: &str,
-    ) -> Result<Option<StaticAssetInstance>, StoreError> {
-        let (_, state) = self.ensure_workspace_state(workspace_id).await?;
-        Ok(state.static_assets.get(id).cloned())
-    }
-
-    pub async fn workspace_create_static_asset(
-        &self,
-        workspace_id: &str,
-        mut asset: StaticAssetInstance,
-    ) -> Result<StaticAssetInstance, StoreError> {
-        let (_, mut state) = self.ensure_workspace_state(workspace_id).await?;
-        ensure_static_asset_create_defaults(&mut asset, now_millis());
-        if state.static_assets.contains_key(&asset.id) {
-            return Err(StoreError::Validation(format!(
-                "static asset {} already exists",
-                asset.id
-            )));
-        }
-        state.static_assets.insert(asset.id.clone(), asset.clone());
-        state.scene_version += 1;
-        state.audit_events.push(serde_json::json!({
-            "action": "static_asset.create",
-            "resourceType": "static_asset",
-            "resourceId": asset.id.clone(),
-            "actor": "system",
-            "timestamp": now_millis()
-        }));
-        self.persist_workspace_state(workspace_id, &state).await?;
-        Ok(asset)
-    }
-
-    pub async fn workspace_update_static_asset(
-        &self,
-        workspace_id: &str,
-        id: &str,
-        mut asset: StaticAssetInstance,
-    ) -> Result<StaticAssetInstance, StoreError> {
-        let (_, mut state) = self.ensure_workspace_state(workspace_id).await?;
-        let Some(existing) = state.static_assets.get(id) else {
-            return Err(StoreError::NotFound(format!("static asset {id}")));
-        };
-        ensure_static_asset_update_defaults(&mut asset, now_millis());
-        asset.id = id.to_string();
-        asset.created_at = existing.created_at;
-        state.static_assets.insert(id.to_string(), asset.clone());
-        state.scene_version += 1;
-        state.audit_events.push(serde_json::json!({
-            "action": "static_asset.update",
-            "resourceType": "static_asset",
-            "resourceId": id,
-            "actor": "system",
-            "timestamp": now_millis()
-        }));
-        self.persist_workspace_state(workspace_id, &state).await?;
-        Ok(asset)
-    }
-
-    pub async fn workspace_delete_static_asset(
-        &self,
-        workspace_id: &str,
-        id: &str,
-    ) -> Result<bool, StoreError> {
-        let (_, mut state) = self.ensure_workspace_state(workspace_id).await?;
-        let removed = state.static_assets.remove(id).is_some();
-        if removed {
-            state.scene_version += 1;
-            state.audit_events.push(serde_json::json!({
-                "action": "static_asset.delete",
-                "resourceType": "static_asset",
-                "resourceId": id,
-                "actor": "system",
-                "timestamp": now_millis()
-            }));
-            self.persist_workspace_state(workspace_id, &state).await?;
-        }
-        Ok(removed)
-    }
-
-    pub async fn workspace_list_connectors(
-        &self,
-        workspace_id: &str,
-    ) -> Result<Vec<DataConnector>, StoreError> {
-        let (_, state) = self.ensure_workspace_state(workspace_id).await?;
-        Ok(state.connectors.values().cloned().collect())
-    }
-
-    pub async fn workspace_create_connector(
-        &self,
-        workspace_id: &str,
-        mut connector: DataConnector,
-    ) -> Result<DataConnector, StoreError> {
-        let (_, mut state) = self.ensure_workspace_state(workspace_id).await?;
-        if connector.id.trim().is_empty() {
-            connector.id = Uuid::new_v4().to_string();
-        }
-        let now = now_millis();
-        connector.created_at = now;
-        connector.updated_at = now;
-        if state.connectors.contains_key(&connector.id) {
-            return Err(StoreError::Validation(format!(
-                "connector {} already exists",
-                connector.id
-            )));
-        }
-        state.connectors.insert(connector.id.clone(), connector.clone());
-        state.scene_version += 1;
-        state.audit_events.push(serde_json::json!({
-            "action": "connector.create",
-            "resourceType": "connector",
-            "resourceId": connector.id.clone(),
-            "actor": "system",
-            "timestamp": now_millis()
-        }));
-        self.persist_workspace_state(workspace_id, &state).await?;
-        Ok(connector)
-    }
-
-    pub async fn workspace_update_connector(
-        &self,
-        workspace_id: &str,
-        id: &str,
-        mut connector: DataConnector,
-    ) -> Result<DataConnector, StoreError> {
-        let (_, mut state) = self.ensure_workspace_state(workspace_id).await?;
-        let Some(existing) = state.connectors.get(id) else {
-            return Err(StoreError::NotFound(format!("connector {id}")));
-        };
-        connector.id = id.to_string();
-        if connector.name.trim().is_empty() {
-            connector.name = existing.name.clone();
-        }
-        connector.created_at = existing.created_at;
-        connector.updated_at = now_millis();
-        connector.created_at = existing.created_at;
-        state.connectors.insert(id.to_string(), connector.clone());
-        state.scene_version += 1;
-        state.audit_events.push(serde_json::json!({
-            "action": "connector.update",
-            "resourceType": "connector",
-            "resourceId": id,
-            "actor": "system",
-            "timestamp": now_millis()
-        }));
-        self.persist_workspace_state(workspace_id, &state).await?;
-        Ok(connector)
-    }
-
-    pub async fn workspace_delete_connector(
-        &self,
-        workspace_id: &str,
-        id: &str,
-    ) -> Result<bool, StoreError> {
-        let (_, mut state) = self.ensure_workspace_state(workspace_id).await?;
-        let removed = state.connectors.remove(id).is_some();
-        if removed {
-            for bindings in state.bindings.values_mut() {
-                bindings.retain(|binding| binding.connector_id != id);
-            }
-            state.scene_version += 1;
-            state.audit_events.push(serde_json::json!({
-                "action": "connector.delete",
-                "resourceType": "connector",
-                "resourceId": id,
-                "actor": "system",
-                "timestamp": now_millis()
-            }));
-            self.persist_workspace_state(workspace_id, &state).await?;
-        }
-        Ok(removed)
-    }
-
-    pub async fn workspace_list_bindings_by_entity(
-        &self,
-        workspace_id: &str,
-        entity_id: &str,
-    ) -> Result<Vec<EntityBinding>, StoreError> {
-        let (_, state) = self.ensure_workspace_state(workspace_id).await?;
-        Ok(state.bindings.get(entity_id).cloned().unwrap_or_default())
-    }
-
-    pub async fn workspace_replace_entity_bindings(
-        &self,
-        workspace_id: &str,
-        entity_id: &str,
-        mut bindings: Vec<EntityBinding>,
-    ) -> Result<Vec<EntityBinding>, StoreError> {
-        let (_, mut state) = self.ensure_workspace_state(workspace_id).await?;
-        if !state.entities.contains_key(entity_id) {
-            return Err(StoreError::NotFound(format!("entity {entity_id}")));
-        }
-
-        let now = now_millis();
-        let mut seen_connector_ids = HashSet::new();
-        for binding in &bindings {
-            if !seen_connector_ids.insert(binding.connector_id.clone()) {
-                return Err(StoreError::Validation(format!(
-                    "duplicate connector {} in bindings",
-                    binding.connector_id
-                )));
-            }
-            if !state.connectors.contains_key(&binding.connector_id) {
-                return Err(StoreError::Validation(format!(
-                    "connector {} does not exist",
-                    binding.connector_id
-                )));
-            }
-        }
-
-        for binding in &mut bindings {
-            binding.entity_id = entity_id.to_string();
-            if binding.binding_id.trim().is_empty() {
-                binding.binding_id = Uuid::new_v4().to_string();
-            }
-            binding.created_at = now;
-            binding.updated_at = now;
-        }
-
-        state.bindings.insert(entity_id.to_string(), bindings.clone());
-        state.scene_version += 1;
-        state.audit_events.push(serde_json::json!({
-            "action": "binding.replace",
-            "resourceType": "binding",
-            "resourceId": entity_id,
-            "actor": "system",
-            "timestamp": now_millis()
-        }));
-        self.persist_workspace_state(workspace_id, &state).await?;
-        Ok(bindings)
-    }
-
-    pub async fn workspace_list_rules(
-        &self,
-        workspace_id: &str,
-    ) -> Result<Vec<RuleConfig>, StoreError> {
-        let (_, state) = self.ensure_workspace_state(workspace_id).await?;
-        Ok(state.rules.values().cloned().collect())
-    }
-
-    pub async fn workspace_get_rule(
-        &self,
-        workspace_id: &str,
-        id: &str,
-    ) -> Result<Option<RuleConfig>, StoreError> {
-        let (_, state) = self.ensure_workspace_state(workspace_id).await?;
-        Ok(state.rules.get(id).cloned())
-    }
-
-    pub async fn workspace_create_rule(
-        &self,
-        workspace_id: &str,
-        mut rule: RuleConfig,
-    ) -> Result<RuleConfig, StoreError> {
-        let (_, mut state) = self.ensure_workspace_state(workspace_id).await?;
-        if rule.id.trim().is_empty() {
-            rule.id = Uuid::new_v4().to_string();
-        }
-        let now = now_millis();
-        rule.created_at = now;
-        rule.updated_at = now;
-        if state.rules.contains_key(&rule.id) {
-            return Err(StoreError::Validation(format!("rule {} already exists", rule.id)));
-        }
-        state.rules.insert(rule.id.clone(), rule.clone());
-        state.scene_version += 1;
-        state.audit_events.push(serde_json::json!({
-            "action": "rule.create",
-            "resourceType": "rule",
-            "resourceId": rule.id.clone(),
-            "actor": "system",
-            "timestamp": now_millis()
-        }));
-        self.persist_workspace_state(workspace_id, &state).await?;
-        Ok(rule)
-    }
-
-    pub async fn workspace_update_rule(
-        &self,
-        workspace_id: &str,
-        id: &str,
-        mut rule: RuleConfig,
-    ) -> Result<RuleConfig, StoreError> {
-        let (_, mut state) = self.ensure_workspace_state(workspace_id).await?;
-        let Some(existing) = state.rules.get(id) else {
-            return Err(StoreError::NotFound(format!("rule {id}")));
-        };
-        rule.id = id.to_string();
-        if rule.name.trim().is_empty() {
-            rule.name = existing.name.clone();
-        }
-        rule.created_at = existing.created_at;
-        rule.updated_at = now_millis();
-        state.rules.insert(id.to_string(), rule.clone());
-        state.scene_version += 1;
-        state.audit_events.push(serde_json::json!({
-            "action": "rule.update",
-            "resourceType": "rule",
-            "resourceId": id,
-            "actor": "system",
-            "timestamp": now_millis()
-        }));
-        self.persist_workspace_state(workspace_id, &state).await?;
-        Ok(rule)
-    }
-
-    pub async fn workspace_delete_rule(
-        &self,
-        workspace_id: &str,
-        id: &str,
-    ) -> Result<bool, StoreError> {
-        let (_, mut state) = self.ensure_workspace_state(workspace_id).await?;
-        let removed = state.rules.remove(id).is_some();
-        if removed {
-            state.scene_version += 1;
-            state.audit_events.push(serde_json::json!({
-                "action": "rule.delete",
-                "resourceType": "rule",
-                "resourceId": id,
-                "actor": "system",
-                "timestamp": now_millis()
-            }));
-            self.persist_workspace_state(workspace_id, &state).await?;
-        }
-        Ok(removed)
-    }
-
-    pub async fn workspace_list_alarms(
-        &self,
-        workspace_id: &str,
-    ) -> Result<Vec<Alarm>, StoreError> {
-        let (_, state) = self.ensure_workspace_state(workspace_id).await?;
-        Ok(state.alarms)
-    }
-
-    pub async fn workspace_binding_count(&self, workspace_id: &str) -> Result<u64, StoreError> {
-        let (_, state) = self.ensure_workspace_state(workspace_id).await?;
-        Ok(state.bindings.values().map(|items| items.len() as u64).sum())
-    }
-
-    pub async fn workspace_list_audit_events(
-        &self,
-        workspace_id: &str,
-        limit: usize,
-    ) -> Result<Vec<AuditEventRecord>, StoreError> {
-        let (_, state) = self.ensure_workspace_state(workspace_id).await?;
-        let mut events = state
-            .audit_events
-            .iter()
-            .enumerate()
-            .rev()
-            .take(limit)
-            .map(|(index, value)| map_memory_audit_event(index, value))
-            .collect::<Vec<_>>();
-        events.sort_by(|left, right| right.created_at.cmp(&left.created_at));
-        Ok(events)
-    }
-
-    pub async fn bootstrap(&self) -> Result<BootstrapResponse, StoreError> {
-        let workspace_id = self.get_homepage_workspace().await?.id;
-        self.workspace_bootstrap(&workspace_id).await
-    }
-
-    pub async fn editor_bootstrap(&self) -> Result<BootstrapResponse, StoreError> {
-        let workspace_id = self.get_homepage_workspace().await?.id;
-        self.workspace_editor_bootstrap(&workspace_id).await
-    }
-
-    pub async fn load_working_snapshot(&self) -> Result<WorkingSnapshot, StoreError> {
-        let workspace_id = self.get_homepage_workspace().await?.id;
-        self.workspace_load_working_snapshot(&workspace_id).await
-    }
-
-    pub async fn published_state(&self) -> Result<PublishedStateRecord, StoreError> {
-        let workspace_id = self.get_homepage_workspace().await?.id;
-        self.workspace_published_state(&workspace_id).await
-    }
-
-    pub async fn published_scene_descriptor(
-        &self,
-    ) -> Result<Option<PublishedSceneDescriptor>, StoreError> {
-        Ok(self.published_state().await?.published_scene)
-    }
-
-    pub async fn promote_working_snapshot(
-        &self,
-        snapshot: &WorkingSnapshot,
-        published_scene: Option<PublishedSceneDescriptor>,
-        compiler_source: &str,
-    ) -> Result<PublishedStateRecord, StoreError> {
-        let workspace_id = self.get_homepage_workspace().await?.id;
-        self.workspace_promote_working_snapshot(
-            &workspace_id,
-            snapshot,
-            published_scene,
-            compiler_source,
-        )
-        .await
-    }
-
-    pub async fn record_publish_failure(
-        &self,
-        scene_version: u64,
-        error_message: &str,
-    ) -> Result<(), StoreError> {
-        let workspace_id = self.get_homepage_workspace().await?.id;
-        self.workspace_record_publish_failure(&workspace_id, scene_version, error_message)
-            .await
-    }
-
-    pub async fn try_begin_publish(
-        &self,
-        publish_token: &str,
-        started_at: u64,
-        stale_after: u64,
-    ) -> Result<bool, StoreError> {
-        let workspace_id = self.get_homepage_workspace().await?.id;
-        self.workspace_try_begin_publish(&workspace_id, publish_token, started_at, stale_after)
-            .await
-    }
-
-    pub async fn refresh_publish_heartbeat(
-        &self,
-        publish_token: &str,
-        heartbeat_at: u64,
-    ) -> Result<bool, StoreError> {
-        let workspace_id = self.get_homepage_workspace().await?.id;
-        self.workspace_refresh_publish_heartbeat(&workspace_id, publish_token, heartbeat_at)
-            .await
-    }
-
-    pub async fn get_scene(&self) -> Result<SceneResponse, StoreError> {
-        let workspace_id = self.get_homepage_workspace().await?.id;
-        self.workspace_get_scene(&workspace_id).await
-    }
-
-    pub async fn update_scene(&self, config: SceneConfig) -> Result<SceneResponse, StoreError> {
-        let workspace_id = self.get_homepage_workspace().await?.id;
-        self.workspace_update_scene(&workspace_id, config).await
-    }
-
-    pub async fn save_editor_changes(
-        &self,
-        request: EditorSaveRequest,
-    ) -> Result<EditorSaveResponse, StoreError> {
-        let workspace_id = self.get_homepage_workspace().await?.id;
-        self.workspace_save_editor_changes(&workspace_id, request).await
-    }
-
     pub async fn list_entities(&self) -> Result<Vec<Entity>, StoreError> {
         match &self.backend {
             StoreBackend::Memory(store) => {
@@ -1549,7 +1002,10 @@ impl Store {
         match &self.backend {
             StoreBackend::Memory(store) => {
                 let mut snapshot = store.write().await;
-                normalize_dynamic_entity_registry_refs_memory(&mut entity, &snapshot.entity_archetypes)?;
+                normalize_dynamic_entity_registry_refs_memory(
+                    &mut entity,
+                    &snapshot.entity_archetypes,
+                )?;
                 if snapshot.entities.contains_key(entity.id()) {
                     return Err(StoreError::Validation(format!(
                         "entity {} already exists",
@@ -1566,10 +1022,6 @@ impl Store {
                     "actor": "system",
                     "timestamp": now
                 }));
-                snapshot.published_scene_version = snapshot.scene_version;
-                snapshot.published_entities = snapshot.entities.values().cloned().collect();
-                sort_entities(&mut snapshot.published_entities);
-                snapshot.published_updated_at = now;
                 Ok(entity)
             }
             StoreBackend::Postgres(store) => {
@@ -1616,7 +1068,10 @@ impl Store {
         match &self.backend {
             StoreBackend::Memory(store) => {
                 let mut snapshot = store.write().await;
-                normalize_dynamic_entity_registry_refs_memory(&mut entity, &snapshot.entity_archetypes)?;
+                normalize_dynamic_entity_registry_refs_memory(
+                    &mut entity,
+                    &snapshot.entity_archetypes,
+                )?;
                 let Some(existing) = snapshot.entities.get(id) else {
                     return Err(StoreError::NotFound(format!("entity {id}")));
                 };
@@ -1631,10 +1086,6 @@ impl Store {
                     "actor": "system",
                     "timestamp": now_millis()
                 }));
-                snapshot.published_scene_version = snapshot.scene_version;
-                snapshot.published_entities = snapshot.entities.values().cloned().collect();
-                sort_entities(&mut snapshot.published_entities);
-                snapshot.published_updated_at = now_millis();
                 Ok(entity)
             }
             StoreBackend::Postgres(store) => {
@@ -1712,10 +1163,6 @@ impl Store {
                     "actor": "system",
                     "timestamp": now_millis()
                 }));
-                snapshot.published_scene_version = snapshot.scene_version;
-                snapshot.published_entities = snapshot.entities.values().cloned().collect();
-                sort_entities(&mut snapshot.published_entities);
-                snapshot.published_updated_at = now_millis();
                 Ok(true)
             }
             StoreBackend::Postgres(store) => {
@@ -2888,7 +2335,9 @@ impl Store {
                         entry.is_homepage = false;
                     }
                 }
-                snapshot.workspaces.insert(id.to_string(), workspace.clone());
+                snapshot
+                    .workspaces
+                    .insert(id.to_string(), workspace.clone());
                 snapshot.audit_events.push(serde_json::json!({
                     "action": "workspace.update",
                     "resourceId": id,
@@ -2899,10 +2348,11 @@ impl Store {
             }
             StoreBackend::Postgres(store) => {
                 let mut tx = store.pool.begin().await?;
-                let existing_row = sqlx::query(r#"SELECT workspace_data FROM workspaces WHERE id = $1"#)
-                    .bind(id)
-                    .fetch_optional(&mut *tx)
-                    .await?;
+                let existing_row =
+                    sqlx::query(r#"SELECT workspace_data FROM workspaces WHERE id = $1"#)
+                        .bind(id)
+                        .fetch_optional(&mut *tx)
+                        .await?;
                 let Some(existing_row) = existing_row else {
                     return Err(StoreError::NotFound(format!("workspace {id}")));
                 };
@@ -2941,10 +2391,11 @@ impl Store {
             }
             StoreBackend::Sqlite(store) => {
                 let mut tx = store.pool.begin().await?;
-                let existing_row = sqlx::query(r#"SELECT workspace_data FROM workspaces WHERE id = ?"#)
-                    .bind(id)
-                    .fetch_optional(&mut *tx)
-                    .await?;
+                let existing_row =
+                    sqlx::query(r#"SELECT workspace_data FROM workspaces WHERE id = ?"#)
+                        .bind(id)
+                        .fetch_optional(&mut *tx)
+                        .await?;
                 let Some(existing_row) = existing_row else {
                     return Err(StoreError::NotFound(format!("workspace {id}")));
                 };
@@ -3054,7 +2505,8 @@ impl Store {
                         .fetch_optional(&mut *tx)
                         .await?;
                     if let Some(promote_row) = promote_row {
-                        let mut workspace: WorkspaceRecord = serde_json::from_value(promote_row.get("workspace_data"))?;
+                        let mut workspace: WorkspaceRecord =
+                            serde_json::from_value(promote_row.get("workspace_data"))?;
                         workspace.is_homepage = true;
                         persist_workspace(&mut tx, &workspace, true).await?;
                     }
@@ -3179,12 +2631,15 @@ impl Store {
         id: &str,
     ) -> Result<Option<EntityCategory>, StoreError> {
         match &self.backend {
-            StoreBackend::Memory(store) => Ok(store.read().await.entity_categories.get(id).cloned()),
+            StoreBackend::Memory(store) => {
+                Ok(store.read().await.entity_categories.get(id).cloned())
+            }
             StoreBackend::Postgres(store) => {
-                let row = sqlx::query(r#"SELECT category_data FROM entity_categories WHERE id = $1"#)
-                    .bind(id)
-                    .fetch_optional(&store.pool)
-                    .await?;
+                let row =
+                    sqlx::query(r#"SELECT category_data FROM entity_categories WHERE id = $1"#)
+                        .bind(id)
+                        .fetch_optional(&store.pool)
+                        .await?;
 
                 match row {
                     Some(row) => {
@@ -3195,10 +2650,11 @@ impl Store {
                 }
             }
             StoreBackend::Sqlite(store) => {
-                let row = sqlx::query(r#"SELECT category_data FROM entity_categories WHERE id = ?"#)
-                    .bind(id)
-                    .fetch_optional(&store.pool)
-                    .await?;
+                let row =
+                    sqlx::query(r#"SELECT category_data FROM entity_categories WHERE id = ?"#)
+                        .bind(id)
+                        .fetch_optional(&store.pool)
+                        .await?;
 
                 match row {
                     Some(row) => {
@@ -3784,9 +3240,6 @@ impl Store {
                     "actor": "system",
                     "timestamp": now_millis()
                 }));
-                snapshot.published_entities = snapshot.entities.values().cloned().collect();
-                sort_entities(&mut snapshot.published_entities);
-                snapshot.published_updated_at = now_millis();
                 Ok::<EntityArchetype, StoreError>(archetype)
             }
             StoreBackend::Postgres(store) => {
@@ -3859,9 +3312,8 @@ impl Store {
                         archetype.key
                     )));
                 }
-                let existing: EntityArchetype = serde_json::from_str(
-                    existing_row.get::<String, _>("archetype_data").as_str(),
-                )?;
+                let existing: EntityArchetype =
+                    serde_json::from_str(existing_row.get::<String, _>("archetype_data").as_str())?;
                 archetype.created_at = existing.created_at;
                 persist_entity_archetype_sqlite(&mut tx, &archetype, true).await?;
                 rewrite_dynamic_entity_archetype_refs_sqlite(
@@ -4895,10 +4347,9 @@ async fn setup_postgres(pool: &PgPool) -> Result<(), StoreError> {
         .await?;
     }
 
-    let workspace_rows: i64 =
-        sqlx::query_scalar(r#"SELECT COUNT(*) FROM workspaces"#)
-            .fetch_one(&mut *tx)
-            .await?;
+    let workspace_rows: i64 = sqlx::query_scalar(r#"SELECT COUNT(*) FROM workspaces"#)
+        .fetch_one(&mut *tx)
+        .await?;
     if workspace_rows == 0 {
         let row = sqlx::query(r#"SELECT scene_config FROM scene_configs WHERE site_id = $1"#)
             .bind(seed_scene::SITE_ID)
@@ -5256,10 +4707,9 @@ async fn setup_sqlite(pool: &SqlitePool) -> Result<(), StoreError> {
         .await?;
     }
 
-    let workspace_rows: i64 =
-        sqlx::query_scalar(r#"SELECT COUNT(*) FROM workspaces"#)
-            .fetch_one(&mut *tx)
-            .await?;
+    let workspace_rows: i64 = sqlx::query_scalar(r#"SELECT COUNT(*) FROM workspaces"#)
+        .fetch_one(&mut *tx)
+        .await?;
     if workspace_rows == 0 {
         let row = sqlx::query(r#"SELECT scene_config FROM scene_configs WHERE site_id = ?"#)
             .bind(seed_scene::SITE_ID)
@@ -5655,42 +5105,6 @@ async fn persist_workspace_sqlite(
     Ok(())
 }
 
-async fn load_workspace_state_postgres(
-    pool: &PgPool,
-    workspace_id: &str,
-) -> Result<Option<WorkspaceState>, StoreError> {
-    let row = sqlx::query(r#"SELECT state_data FROM workspace_states WHERE workspace_id = $1"#)
-        .bind(workspace_id)
-        .fetch_optional(pool)
-        .await?;
-
-    match row {
-        Some(row) => {
-            let value: serde_json::Value = row.get("state_data");
-            Ok(Some(serde_json::from_value(value)?))
-        }
-        None => Ok(None),
-    }
-}
-
-async fn load_workspace_state_sqlite(
-    pool: &SqlitePool,
-    workspace_id: &str,
-) -> Result<Option<WorkspaceState>, StoreError> {
-    let row = sqlx::query(r#"SELECT state_data FROM workspace_states WHERE workspace_id = ?"#)
-        .bind(workspace_id)
-        .fetch_optional(pool)
-        .await?;
-
-    match row {
-        Some(row) => {
-            let value: String = row.get("state_data");
-            Ok(Some(serde_json::from_str(&value)?))
-        }
-        None => Ok(None),
-    }
-}
-
 async fn persist_workspace_state_postgres(
     tx: &mut Transaction<'_, Postgres>,
     workspace_id: &str,
@@ -5740,792 +5154,6 @@ async fn persist_workspace_state_sqlite(
     Ok(())
 }
 
-async fn backfill_workspace_states_postgres(
-    tx: &mut Transaction<'_, Postgres>,
-) -> Result<(), StoreError> {
-    let count: i64 = sqlx::query_scalar(r#"SELECT COUNT(*) FROM workspace_states"#)
-        .fetch_one(&mut **tx)
-        .await?;
-    if count > 0 {
-        return Ok(());
-    }
-
-    let workspace_row = sqlx::query(
-        r#"
-        SELECT workspace_data
-        FROM workspaces
-        WHERE is_homepage = true
-        ORDER BY created_at ASC, id ASC
-        LIMIT 1
-        "#,
-    )
-    .fetch_optional(&mut **tx)
-    .await?;
-
-    let Some(workspace_row) = workspace_row else {
-        return Ok(());
-    };
-
-    let workspace: WorkspaceRecord = serde_json::from_value(workspace_row.get("workspace_data"))?;
-    let state = load_legacy_workspace_state_postgres(&mut **tx, &workspace).await?;
-    persist_workspace_state_postgres(tx, &workspace.id, &state).await
-}
-
-async fn backfill_workspace_states_sqlite(
-    tx: &mut Transaction<'_, Sqlite>,
-) -> Result<(), StoreError> {
-    let count: i64 = sqlx::query_scalar(r#"SELECT COUNT(*) FROM workspace_states"#)
-        .fetch_one(&mut **tx)
-        .await?;
-    if count > 0 {
-        return Ok(());
-    }
-
-    let workspace_row = sqlx::query(
-        r#"
-        SELECT workspace_data
-        FROM workspaces
-        WHERE is_homepage = 1
-        ORDER BY created_at ASC, id ASC
-        LIMIT 1
-        "#,
-    )
-    .fetch_optional(&mut **tx)
-    .await?;
-
-    let Some(workspace_row) = workspace_row else {
-        return Ok(());
-    };
-
-    let workspace: WorkspaceRecord =
-        serde_json::from_str(workspace_row.get::<String, _>("workspace_data").as_str())?;
-    let state = load_legacy_workspace_state_sqlite(&mut **tx, &workspace).await?;
-    persist_workspace_state_sqlite(tx, &workspace.id, &state).await
-}
-
-async fn load_legacy_workspace_state_postgres(
-    tx: &mut PgConnection,
-    workspace: &WorkspaceRecord,
-) -> Result<WorkspaceState, StoreError> {
-    let scene_row = sqlx::query(
-        r#"SELECT scene_version, scene_config FROM scene_configs WHERE site_id = $1"#,
-    )
-    .bind(seed_scene::SITE_ID)
-    .fetch_one(&mut *tx)
-    .await?;
-    let scene_version = scene_row.get::<i64, _>("scene_version") as u64;
-    let mut scene_config: SceneConfig = serde_json::from_value(scene_row.get("scene_config"))?;
-    scene_config.id = workspace.id.clone();
-    if scene_config.name.trim().is_empty() {
-        scene_config.name = workspace.name.clone();
-    }
-
-    let mut entities: Vec<Entity> = sqlx::query(r#"SELECT entity_data FROM entities"#)
-        .fetch_all(&mut *tx)
-        .await?
-        .into_iter()
-        .map(|row| serde_json::from_value(row.get("entity_data")).map_err(StoreError::from))
-        .collect::<Result<Vec<_>, _>>()?;
-    let mut static_assets: Vec<StaticAssetInstance> =
-        sqlx::query(r#"SELECT asset_data FROM static_assets"#)
-            .fetch_all(&mut *tx)
-            .await?
-            .into_iter()
-            .map(|row| serde_json::from_value(row.get("asset_data")).map_err(StoreError::from))
-            .collect::<Result<Vec<_>, _>>()?;
-    let rules: Vec<RuleConfig> = sqlx::query(r#"SELECT rule_data FROM rules"#)
-        .fetch_all(&mut *tx)
-        .await?
-        .into_iter()
-        .map(|row| serde_json::from_value(row.get("rule_data")).map_err(StoreError::from))
-        .collect::<Result<Vec<_>, _>>()?;
-    let connectors: Vec<DataConnector> =
-        sqlx::query(r#"SELECT connector_data FROM data_connectors"#)
-            .fetch_all(&mut *tx)
-            .await?
-            .into_iter()
-            .map(|row| {
-                serde_json::from_value(row.get("connector_data")).map_err(StoreError::from)
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-    let bindings_list: Vec<EntityBinding> =
-        sqlx::query(r#"SELECT binding_data FROM entity_bindings"#)
-            .fetch_all(&mut *tx)
-            .await?
-            .into_iter()
-            .map(|row| serde_json::from_value(row.get("binding_data")).map_err(StoreError::from))
-            .collect::<Result<Vec<_>, _>>()?;
-    let published_row = sqlx::query(
-        r#"
-        SELECT published_scene_version, scene_config, entities, static_assets, published_scene,
-               compiler_source, updated_at, active_publish_token, active_publish_started_at,
-               active_publish_heartbeat_at, last_published_at, last_published_version,
-               last_publish_error, last_failure_scene_version, last_failure_at
-        FROM published_state
-        WHERE site_id = $1
-        "#,
-    )
-    .bind(seed_scene::SITE_ID)
-    .fetch_optional(&mut *tx)
-    .await?;
-
-    sort_entities(&mut entities);
-    sort_static_assets(&mut static_assets);
-    let bindings = bindings_list.into_iter().fold(
-        BTreeMap::<String, Vec<EntityBinding>>::new(),
-        |mut acc, binding| {
-            acc.entry(binding.entity_id.clone()).or_default().push(binding);
-            acc
-        },
-    );
-
-    let (
-        published_scene_version,
-        published_scene_config,
-        published_entities,
-        published_static_assets,
-        published_scene,
-        published_compiler_source,
-        published_updated_at,
-        active_publish_token,
-        active_publish_started_at,
-        active_publish_heartbeat_at,
-        last_published_at,
-        last_published_version,
-        last_publish_error,
-        last_failure_scene_version,
-        last_failure_at,
-    ) = if let Some(row) = published_row {
-        let mut published_scene_config: SceneConfig = serde_json::from_value(row.get("scene_config"))?;
-        published_scene_config.id = workspace.id.clone();
-        (
-            row.get::<i64, _>("published_scene_version") as u64,
-            published_scene_config,
-            serde_json::from_value::<Vec<Entity>>(row.get("entities"))?,
-            serde_json::from_value::<Vec<StaticAssetInstance>>(row.get("static_assets"))?,
-            row.get::<Option<serde_json::Value>, _>("published_scene")
-                .map(serde_json::from_value::<PublishedSceneDescriptor>)
-                .transpose()?,
-            row.get("compiler_source"),
-            row.get::<i64, _>("updated_at") as u64,
-            row.get("active_publish_token"),
-            row.get::<Option<i64>, _>("active_publish_started_at")
-                .map(|value| value as u64),
-            row.get::<Option<i64>, _>("active_publish_heartbeat_at")
-                .map(|value| value as u64),
-            row.get::<Option<i64>, _>("last_published_at")
-                .map(|value| value as u64),
-            row.get("last_published_version"),
-            row.get("last_publish_error"),
-            row.get::<Option<i64>, _>("last_failure_scene_version")
-                .map(|value| value as u64),
-            row.get::<Option<i64>, _>("last_failure_at")
-                .map(|value| value as u64),
-        )
-    } else {
-        (
-            scene_version,
-            scene_config.clone(),
-            entities.clone(),
-            static_assets.clone(),
-            None,
-            "legacy-backfill".to_string(),
-            now_millis(),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        )
-    };
-
-    Ok(WorkspaceState {
-        scene_version,
-        scene_config,
-        entities: entities
-            .into_iter()
-            .map(|entity| (entity.id().to_string(), entity))
-            .collect(),
-        static_assets: static_assets
-            .into_iter()
-            .map(|asset| (asset.id.clone(), asset))
-            .collect(),
-        published_scene_version,
-        published_scene_config,
-        published_entities,
-        published_static_assets,
-        published_scene,
-        published_compiler_source,
-        published_updated_at,
-        active_publish_token,
-        active_publish_started_at,
-        active_publish_heartbeat_at,
-        last_published_at,
-        last_published_version,
-        last_publish_error,
-        last_failure_scene_version,
-        last_failure_at,
-        rules: rules.into_iter().map(|rule| (rule.id.clone(), rule)).collect(),
-        alarms: Vec::new(),
-        connectors: connectors
-            .into_iter()
-            .map(|connector| (connector.id.clone(), connector))
-            .collect(),
-        bindings,
-        audit_events: Vec::new(),
-    })
-}
-
-async fn load_legacy_workspace_state_sqlite(
-    tx: &mut SqliteConnection,
-    workspace: &WorkspaceRecord,
-) -> Result<WorkspaceState, StoreError> {
-    let scene_row = sqlx::query(
-        r#"SELECT scene_version, scene_config FROM scene_configs WHERE site_id = ?"#,
-    )
-    .bind(seed_scene::SITE_ID)
-    .fetch_one(&mut *tx)
-    .await?;
-    let scene_version = scene_row.get::<i64, _>("scene_version") as u64;
-    let mut scene_config: SceneConfig =
-        serde_json::from_str(scene_row.get::<String, _>("scene_config").as_str())?;
-    scene_config.id = workspace.id.clone();
-    if scene_config.name.trim().is_empty() {
-        scene_config.name = workspace.name.clone();
-    }
-
-    let mut entities: Vec<Entity> = sqlx::query(r#"SELECT entity_data FROM entities"#)
-        .fetch_all(&mut *tx)
-        .await?
-        .into_iter()
-        .map(|row| {
-            serde_json::from_str(row.get::<String, _>("entity_data").as_str())
-                .map_err(StoreError::from)
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    let mut static_assets: Vec<StaticAssetInstance> =
-        sqlx::query(r#"SELECT asset_data FROM static_assets"#)
-            .fetch_all(&mut *tx)
-            .await?
-            .into_iter()
-            .map(|row| {
-                serde_json::from_str(row.get::<String, _>("asset_data").as_str())
-                    .map_err(StoreError::from)
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-    let rules: Vec<RuleConfig> = sqlx::query(r#"SELECT rule_data FROM rules"#)
-        .fetch_all(&mut *tx)
-        .await?
-        .into_iter()
-        .map(|row| {
-            serde_json::from_str(row.get::<String, _>("rule_data").as_str())
-                .map_err(StoreError::from)
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    let connectors: Vec<DataConnector> =
-        sqlx::query(r#"SELECT connector_data FROM data_connectors"#)
-            .fetch_all(&mut *tx)
-            .await?
-            .into_iter()
-            .map(|row| {
-                serde_json::from_str(row.get::<String, _>("connector_data").as_str())
-                    .map_err(StoreError::from)
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-    let bindings_list: Vec<EntityBinding> =
-        sqlx::query(r#"SELECT binding_data FROM entity_bindings"#)
-            .fetch_all(&mut *tx)
-            .await?
-            .into_iter()
-            .map(|row| {
-                serde_json::from_str(row.get::<String, _>("binding_data").as_str())
-                    .map_err(StoreError::from)
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-    let published_row = sqlx::query(
-        r#"
-        SELECT published_scene_version, scene_config, entities, static_assets, published_scene,
-               compiler_source, updated_at, active_publish_token, active_publish_started_at,
-               active_publish_heartbeat_at, last_published_at, last_published_version,
-               last_publish_error, last_failure_scene_version, last_failure_at
-        FROM published_state
-        WHERE site_id = ?
-        "#,
-    )
-    .bind(seed_scene::SITE_ID)
-    .fetch_optional(&mut *tx)
-    .await?;
-
-    sort_entities(&mut entities);
-    sort_static_assets(&mut static_assets);
-    let bindings = bindings_list.into_iter().fold(
-        BTreeMap::<String, Vec<EntityBinding>>::new(),
-        |mut acc, binding| {
-            acc.entry(binding.entity_id.clone()).or_default().push(binding);
-            acc
-        },
-    );
-
-    let (
-        published_scene_version,
-        published_scene_config,
-        published_entities,
-        published_static_assets,
-        published_scene,
-        published_compiler_source,
-        published_updated_at,
-        active_publish_token,
-        active_publish_started_at,
-        active_publish_heartbeat_at,
-        last_published_at,
-        last_published_version,
-        last_publish_error,
-        last_failure_scene_version,
-        last_failure_at,
-    ) = if let Some(row) = published_row {
-        let mut published_scene_config: SceneConfig =
-            serde_json::from_str(row.get::<String, _>("scene_config").as_str())?;
-        published_scene_config.id = workspace.id.clone();
-        (
-            row.get::<i64, _>("published_scene_version") as u64,
-            published_scene_config,
-            serde_json::from_str::<Vec<Entity>>(row.get::<String, _>("entities").as_str())?,
-            serde_json::from_str::<Vec<StaticAssetInstance>>(
-                row.get::<String, _>("static_assets").as_str(),
-            )?,
-            row.get::<Option<String>, _>("published_scene")
-                .map(|value| serde_json::from_str::<PublishedSceneDescriptor>(&value))
-                .transpose()?,
-            row.get("compiler_source"),
-            row.get::<i64, _>("updated_at") as u64,
-            row.get("active_publish_token"),
-            row.get::<Option<i64>, _>("active_publish_started_at")
-                .map(|value| value as u64),
-            row.get::<Option<i64>, _>("active_publish_heartbeat_at")
-                .map(|value| value as u64),
-            row.get::<Option<i64>, _>("last_published_at")
-                .map(|value| value as u64),
-            row.get("last_published_version"),
-            row.get("last_publish_error"),
-            row.get::<Option<i64>, _>("last_failure_scene_version")
-                .map(|value| value as u64),
-            row.get::<Option<i64>, _>("last_failure_at")
-                .map(|value| value as u64),
-        )
-    } else {
-        (
-            scene_version,
-            scene_config.clone(),
-            entities.clone(),
-            static_assets.clone(),
-            None,
-            "legacy-backfill".to_string(),
-            now_millis(),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        )
-    };
-
-    Ok(WorkspaceState {
-        scene_version,
-        scene_config,
-        entities: entities
-            .into_iter()
-            .map(|entity| (entity.id().to_string(), entity))
-            .collect(),
-        static_assets: static_assets
-            .into_iter()
-            .map(|asset| (asset.id.clone(), asset))
-            .collect(),
-        published_scene_version,
-        published_scene_config,
-        published_entities,
-        published_static_assets,
-        published_scene,
-        published_compiler_source,
-        published_updated_at,
-        active_publish_token,
-        active_publish_started_at,
-        active_publish_heartbeat_at,
-        last_published_at,
-        last_published_version,
-        last_publish_error,
-        last_failure_scene_version,
-        last_failure_at,
-        rules: rules.into_iter().map(|rule| (rule.id.clone(), rule)).collect(),
-        alarms: Vec::new(),
-        connectors: connectors
-            .into_iter()
-            .map(|connector| (connector.id.clone(), connector))
-            .collect(),
-        bindings,
-        audit_events: Vec::new(),
-    })
-}
-
-async fn persist_entity_archetype(
-    tx: &mut Transaction<'_, Postgres>,
-    archetype: &EntityArchetype,
-    replace: bool,
-) -> Result<(), StoreError> {
-    if replace {
-        sqlx::query(
-            r#"
-            UPDATE entity_archetypes
-            SET archetype_key = $1, category_id = $2, category_key = $3, archetype_data = $4, created_at = $5, updated_at = $6
-            WHERE id = $7
-            "#,
-        )
-        .bind(&archetype.key)
-        .bind(&archetype.category_id)
-        .bind(&archetype.category_key)
-        .bind(serde_json::to_value(archetype)?)
-        .bind(archetype.created_at as i64)
-        .bind(archetype.updated_at as i64)
-        .bind(&archetype.id)
-        .execute(&mut **tx)
-        .await?;
-    } else {
-        sqlx::query(
-            r#"
-            INSERT INTO entity_archetypes (id, archetype_key, category_id, category_key, archetype_data, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
-            "#,
-        )
-        .bind(&archetype.id)
-        .bind(&archetype.key)
-        .bind(&archetype.category_id)
-        .bind(&archetype.category_key)
-        .bind(serde_json::to_value(archetype)?)
-        .bind(archetype.created_at as i64)
-        .bind(archetype.updated_at as i64)
-        .execute(&mut **tx)
-        .await?;
-    }
-
-    Ok(())
-}
-
-async fn persist_entity_archetype_sqlite(
-    tx: &mut Transaction<'_, Sqlite>,
-    archetype: &EntityArchetype,
-    replace: bool,
-) -> Result<(), StoreError> {
-    if replace {
-        sqlx::query(
-            r#"
-            UPDATE entity_archetypes
-            SET archetype_key = ?, category_id = ?, category_key = ?, archetype_data = ?, created_at = ?, updated_at = ?
-            WHERE id = ?
-            "#,
-        )
-        .bind(&archetype.key)
-        .bind(&archetype.category_id)
-        .bind(&archetype.category_key)
-        .bind(serde_json::to_string(archetype)?)
-        .bind(archetype.created_at as i64)
-        .bind(archetype.updated_at as i64)
-        .bind(&archetype.id)
-        .execute(&mut **tx)
-        .await?;
-    } else {
-        sqlx::query(
-            r#"
-            INSERT INTO entity_archetypes (id, archetype_key, category_id, category_key, archetype_data, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            "#,
-        )
-        .bind(&archetype.id)
-        .bind(&archetype.key)
-        .bind(&archetype.category_id)
-        .bind(&archetype.category_key)
-        .bind(serde_json::to_string(archetype)?)
-        .bind(archetype.created_at as i64)
-        .bind(archetype.updated_at as i64)
-        .execute(&mut **tx)
-        .await?;
-    }
-
-    Ok(())
-}
-
-async fn persist_scene_config(
-    tx: &mut Transaction<'_, Postgres>,
-    scene_config: &SceneConfig,
-) -> Result<(), StoreError> {
-    sqlx::query(
-        r#"
-        UPDATE scene_configs
-        SET scene_config = $1, updated_at = $2
-        WHERE site_id = $3
-        "#,
-    )
-    .bind(serde_json::to_value(scene_config)?)
-    .bind(now_millis() as i64)
-    .bind(seed_scene::SITE_ID)
-    .execute(&mut **tx)
-    .await?;
-
-    Ok(())
-}
-
-async fn persist_scene_config_sqlite(
-    tx: &mut Transaction<'_, Sqlite>,
-    scene_config: &SceneConfig,
-) -> Result<(), StoreError> {
-    sqlx::query(
-        r#"
-        UPDATE scene_configs
-        SET scene_config = ?, updated_at = ?
-        WHERE site_id = ?
-        "#,
-    )
-    .bind(serde_json::to_string(scene_config)?)
-    .bind(now_millis() as i64)
-    .bind(seed_scene::SITE_ID)
-    .execute(&mut **tx)
-    .await?;
-
-    Ok(())
-}
-
-async fn persist_rule(
-    tx: &mut Transaction<'_, Postgres>,
-    rule: &RuleConfig,
-    replace: bool,
-) -> Result<(), StoreError> {
-    if replace {
-        sqlx::query(
-            r#"
-            UPDATE rules
-            SET enabled = $1, version = $2, rule_data = $3, created_at = $4, updated_at = $5
-            WHERE id = $6
-            "#,
-        )
-        .bind(rule.enabled)
-        .bind(rule.version as i32)
-        .bind(serde_json::to_value(rule)?)
-        .bind(rule.created_at as i64)
-        .bind(rule.updated_at as i64)
-        .bind(&rule.id)
-        .execute(&mut **tx)
-        .await?;
-
-        sqlx::query(r#"DELETE FROM rule_nodes WHERE rule_id = $1"#)
-            .bind(&rule.id)
-            .execute(&mut **tx)
-            .await?;
-        sqlx::query(r#"DELETE FROM rule_edges WHERE rule_id = $1"#)
-            .bind(&rule.id)
-            .execute(&mut **tx)
-            .await?;
-    } else {
-        sqlx::query(
-            r#"
-            INSERT INTO rules (id, enabled, version, rule_data, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            "#,
-        )
-        .bind(&rule.id)
-        .bind(rule.enabled)
-        .bind(rule.version as i32)
-        .bind(serde_json::to_value(rule)?)
-        .bind(rule.created_at as i64)
-        .bind(rule.updated_at as i64)
-        .execute(&mut **tx)
-        .await?;
-    }
-
-    for node in &rule.nodes {
-        sqlx::query(
-            r#"
-            INSERT INTO rule_nodes (id, rule_id, node_type, node_kind, position, data)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            "#,
-        )
-        .bind(&node.id)
-        .bind(&rule.id)
-        .bind(format!("{:?}", node.data.node_type))
-        .bind(&node.kind)
-        .bind(serde_json::to_value(node.position.clone())?)
-        .bind(serde_json::to_value(node.data.clone())?)
-        .execute(&mut **tx)
-        .await?;
-    }
-
-    for edge in &rule.edges {
-        sqlx::query(
-            r#"
-            INSERT INTO rule_edges (id, rule_id, source_node_id, target_node_id, source_handle, target_handle)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            "#,
-        )
-        .bind(&edge.id)
-        .bind(&rule.id)
-        .bind(&edge.source)
-        .bind(&edge.target)
-        .bind(&edge.source_handle)
-        .bind(&edge.target_handle)
-        .execute(&mut **tx)
-        .await?;
-    }
-
-    Ok(())
-}
-
-async fn persist_rule_sqlite(
-    tx: &mut Transaction<'_, Sqlite>,
-    rule: &RuleConfig,
-    replace: bool,
-) -> Result<(), StoreError> {
-    if replace {
-        sqlx::query(
-            r#"
-            UPDATE rules
-            SET enabled = ?, version = ?, rule_data = ?, created_at = ?, updated_at = ?
-            WHERE id = ?
-            "#,
-        )
-        .bind(rule.enabled)
-        .bind(rule.version as i32)
-        .bind(serde_json::to_string(rule)?)
-        .bind(rule.created_at as i64)
-        .bind(rule.updated_at as i64)
-        .bind(&rule.id)
-        .execute(&mut **tx)
-        .await?;
-
-        sqlx::query(r#"DELETE FROM rule_nodes WHERE rule_id = ?"#)
-            .bind(&rule.id)
-            .execute(&mut **tx)
-            .await?;
-        sqlx::query(r#"DELETE FROM rule_edges WHERE rule_id = ?"#)
-            .bind(&rule.id)
-            .execute(&mut **tx)
-            .await?;
-    } else {
-        sqlx::query(
-            r#"
-            INSERT INTO rules (id, enabled, version, rule_data, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-            "#,
-        )
-        .bind(&rule.id)
-        .bind(rule.enabled)
-        .bind(rule.version as i32)
-        .bind(serde_json::to_string(rule)?)
-        .bind(rule.created_at as i64)
-        .bind(rule.updated_at as i64)
-        .execute(&mut **tx)
-        .await?;
-    }
-
-    for node in &rule.nodes {
-        sqlx::query(
-            r#"
-            INSERT INTO rule_nodes (id, rule_id, node_type, node_kind, position, data)
-            VALUES (?, ?, ?, ?, ?, ?)
-            "#,
-        )
-        .bind(&node.id)
-        .bind(&rule.id)
-        .bind(format!("{:?}", node.data.node_type))
-        .bind(&node.kind)
-        .bind(serde_json::to_string(&node.position)?)
-        .bind(serde_json::to_string(&node.data)?)
-        .execute(&mut **tx)
-        .await?;
-    }
-
-    for edge in &rule.edges {
-        sqlx::query(
-            r#"
-            INSERT INTO rule_edges (id, rule_id, source_node_id, target_node_id, source_handle, target_handle)
-            VALUES (?, ?, ?, ?, ?, ?)
-            "#,
-        )
-        .bind(&edge.id)
-        .bind(&rule.id)
-        .bind(&edge.source)
-        .bind(&edge.target)
-        .bind(&edge.source_handle)
-        .bind(&edge.target_handle)
-        .execute(&mut **tx)
-        .await?;
-    }
-
-    Ok(())
-}
-
-async fn bump_scene_version_tx(tx: &mut Transaction<'_, Postgres>) -> Result<u64, StoreError> {
-    let row = sqlx::query(
-        r#"
-        UPDATE scene_configs
-        SET scene_version = scene_version + 1, updated_at = $1
-        WHERE site_id = $2
-        RETURNING scene_version
-        "#,
-    )
-    .bind(now_millis() as i64)
-    .bind(seed_scene::SITE_ID)
-    .fetch_one(&mut **tx)
-    .await?;
-
-    let scene_version: i64 = row.get("scene_version");
-    Ok(scene_version as u64)
-}
-
-async fn bump_scene_version_sqlite(tx: &mut Transaction<'_, Sqlite>) -> Result<u64, StoreError> {
-    sqlx::query(
-        r#"
-        UPDATE scene_configs
-        SET scene_version = scene_version + 1, updated_at = ?
-        WHERE site_id = ?
-        "#,
-    )
-    .bind(now_millis() as i64)
-    .bind(seed_scene::SITE_ID)
-    .execute(&mut **tx)
-    .await?;
-
-    let scene_version: i64 =
-        sqlx::query_scalar(r#"SELECT scene_version FROM scene_configs WHERE site_id = ?"#)
-            .bind(seed_scene::SITE_ID)
-            .fetch_one(&mut **tx)
-            .await?;
-
-    Ok(scene_version as u64)
-}
-
-async fn current_scene_version_tx(tx: &mut Transaction<'_, Postgres>) -> Result<u64, StoreError> {
-    let scene_version: i64 =
-        sqlx::query_scalar(r#"SELECT scene_version FROM scene_configs WHERE site_id = $1"#)
-            .bind(seed_scene::SITE_ID)
-            .fetch_one(&mut **tx)
-            .await?;
-
-    Ok(scene_version as u64)
-}
-
-async fn current_scene_version_sqlite(tx: &mut Transaction<'_, Sqlite>) -> Result<u64, StoreError> {
-    let scene_version: i64 =
-        sqlx::query_scalar(r#"SELECT scene_version FROM scene_configs WHERE site_id = ?"#)
-            .bind(seed_scene::SITE_ID)
-            .fetch_one(&mut **tx)
-            .await?;
-
-    Ok(scene_version as u64)
-}
-
 fn ensure_expected_scene_version(expected: u64, actual: u64) -> Result<(), StoreError> {
     if expected == actual {
         return Ok(());
@@ -6550,1079 +5178,6 @@ fn validate_editor_save_request(request: &EditorSaveRequest) -> Result<(), Store
     }
 
     Ok(())
-}
-
-async fn insert_audit_event(
-    tx: &mut Transaction<'_, Postgres>,
-    action: &str,
-    resource_type: &str,
-    resource_id: &str,
-    payload: serde_json::Value,
-) -> Result<(), StoreError> {
-    sqlx::query(
-        r#"
-        INSERT INTO audit_events (id, actor, action, resource_type, resource_id, payload, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-        "#,
-    )
-    .bind(Uuid::new_v4().to_string())
-    .bind("system")
-    .bind(action)
-    .bind(resource_type)
-    .bind(resource_id)
-    .bind(payload)
-    .bind(now_millis() as i64)
-    .execute(&mut **tx)
-    .await?;
-
-    Ok(())
-}
-
-async fn insert_audit_event_sqlite(
-    tx: &mut Transaction<'_, Sqlite>,
-    action: &str,
-    resource_type: &str,
-    resource_id: &str,
-    payload: serde_json::Value,
-) -> Result<(), StoreError> {
-    sqlx::query(
-        r#"
-        INSERT INTO audit_events (id, actor, action, resource_type, resource_id, payload, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-        "#,
-    )
-    .bind(Uuid::new_v4().to_string())
-    .bind("system")
-    .bind(action)
-    .bind(resource_type)
-    .bind(resource_id)
-    .bind(serde_json::to_string(&payload)?)
-    .bind(now_millis() as i64)
-    .execute(&mut **tx)
-    .await?;
-
-    Ok(())
-}
-
-async fn upsert_published_state_postgres(
-    tx: &mut Transaction<'_, Postgres>,
-    snapshot: &WorkingSnapshot,
-    published_scene: Option<&PublishedSceneDescriptor>,
-    compiler_source: &str,
-    updated_at: u64,
-) -> Result<(), StoreError> {
-    sqlx::query(
-        r#"
-        INSERT INTO published_state (
-            site_id,
-            published_scene_version,
-            scene_config,
-            entities,
-            static_assets,
-            published_scene,
-            compiler_source,
-            updated_at,
-            active_publish_token,
-            active_publish_started_at,
-            active_publish_heartbeat_at,
-            last_published_at,
-            last_published_version,
-            last_publish_error,
-            last_failure_scene_version,
-            last_failure_at
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULL, NULL, NULL, $8, $9, $10, $11, $12)
-        ON CONFLICT (site_id) DO UPDATE
-        SET
-            published_scene_version = EXCLUDED.published_scene_version,
-            scene_config = EXCLUDED.scene_config,
-            entities = EXCLUDED.entities,
-            static_assets = EXCLUDED.static_assets,
-            published_scene = EXCLUDED.published_scene,
-            compiler_source = EXCLUDED.compiler_source,
-            updated_at = EXCLUDED.updated_at,
-            active_publish_token = EXCLUDED.active_publish_token,
-            active_publish_started_at = EXCLUDED.active_publish_started_at,
-            active_publish_heartbeat_at = EXCLUDED.active_publish_heartbeat_at,
-            last_published_at = EXCLUDED.last_published_at,
-            last_published_version = EXCLUDED.last_published_version,
-            last_publish_error = EXCLUDED.last_publish_error,
-            last_failure_scene_version = EXCLUDED.last_failure_scene_version,
-            last_failure_at = EXCLUDED.last_failure_at
-        "#,
-    )
-    .bind(seed_scene::SITE_ID)
-    .bind(snapshot.scene_version as i64)
-    .bind(serde_json::to_value(&snapshot.scene_config)?)
-    .bind(serde_json::to_value(&snapshot.entities)?)
-    .bind(serde_json::to_value(&snapshot.static_assets)?)
-    .bind(published_scene.map(serde_json::to_value).transpose()?)
-    .bind(compiler_source)
-    .bind(updated_at as i64)
-    .bind(published_scene.map(|descriptor| descriptor.package_version.clone()))
-    .bind(Option::<String>::None)
-    .bind(Option::<i64>::None)
-    .bind(Option::<i64>::None)
-    .execute(&mut **tx)
-    .await?;
-
-    Ok(())
-}
-
-async fn upsert_published_state_sqlite(
-    tx: &mut Transaction<'_, Sqlite>,
-    snapshot: &WorkingSnapshot,
-    published_scene: Option<&PublishedSceneDescriptor>,
-    compiler_source: &str,
-    updated_at: u64,
-) -> Result<(), StoreError> {
-    sqlx::query(
-        r#"
-        INSERT INTO published_state (
-            site_id,
-            published_scene_version,
-            scene_config,
-            entities,
-            static_assets,
-            published_scene,
-            compiler_source,
-            updated_at,
-            active_publish_token,
-            active_publish_started_at,
-            active_publish_heartbeat_at,
-            last_published_at,
-            last_published_version,
-            last_publish_error,
-            last_failure_scene_version,
-            last_failure_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?, ?, ?)
-        ON CONFLICT(site_id) DO UPDATE SET
-            published_scene_version = excluded.published_scene_version,
-            scene_config = excluded.scene_config,
-            entities = excluded.entities,
-            static_assets = excluded.static_assets,
-            published_scene = excluded.published_scene,
-            compiler_source = excluded.compiler_source,
-            updated_at = excluded.updated_at,
-            active_publish_token = excluded.active_publish_token,
-            active_publish_started_at = excluded.active_publish_started_at,
-            active_publish_heartbeat_at = excluded.active_publish_heartbeat_at,
-            last_published_at = excluded.last_published_at,
-            last_published_version = excluded.last_published_version,
-            last_publish_error = excluded.last_publish_error,
-            last_failure_scene_version = excluded.last_failure_scene_version,
-            last_failure_at = excluded.last_failure_at
-        "#,
-    )
-    .bind(seed_scene::SITE_ID)
-    .bind(snapshot.scene_version as i64)
-    .bind(serde_json::to_string(&snapshot.scene_config)?)
-    .bind(serde_json::to_string(&snapshot.entities)?)
-    .bind(serde_json::to_string(&snapshot.static_assets)?)
-    .bind(published_scene.map(serde_json::to_string).transpose()?)
-    .bind(compiler_source)
-    .bind(updated_at as i64)
-    .bind(updated_at as i64)
-    .bind(published_scene.map(|descriptor| descriptor.package_version.clone()))
-    .bind(Option::<String>::None)
-    .bind(Option::<i64>::None)
-    .bind(Option::<i64>::None)
-    .execute(&mut **tx)
-    .await?;
-
-    Ok(())
-}
-
-async fn sync_live_entity_roster_postgres(
-    tx: &mut Transaction<'_, Postgres>,
-    updated_at: u64,
-) -> Result<(), StoreError> {
-    let rows = sqlx::query(r#"SELECT entity_data FROM entities ORDER BY created_at ASC, id ASC"#)
-        .fetch_all(&mut **tx)
-        .await?;
-    let mut entities: Vec<Entity> = rows
-        .into_iter()
-        .map(|row| {
-            let value: serde_json::Value = row.get("entity_data");
-            serde_json::from_value(value).map_err(StoreError::from)
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    sort_entities(&mut entities);
-
-    let scene_version = sqlx::query_scalar::<_, i64>(
-        r#"SELECT scene_version FROM scene_configs WHERE site_id = $1"#,
-    )
-    .bind(seed_scene::SITE_ID)
-    .fetch_one(&mut **tx)
-    .await?;
-
-    sqlx::query(
-        r#"
-        UPDATE published_state
-        SET entities = $1, published_scene_version = $2, updated_at = $3
-        WHERE site_id = $4
-        "#,
-    )
-    .bind(serde_json::to_value(&entities)?)
-    .bind(scene_version)
-    .bind(updated_at as i64)
-    .bind(seed_scene::SITE_ID)
-    .execute(&mut **tx)
-    .await?;
-
-    Ok(())
-}
-
-async fn sync_live_entity_roster_sqlite(
-    tx: &mut Transaction<'_, Sqlite>,
-    updated_at: u64,
-) -> Result<(), StoreError> {
-    let rows = sqlx::query(r#"SELECT entity_data FROM entities ORDER BY created_at ASC, id ASC"#)
-        .fetch_all(&mut **tx)
-        .await?;
-    let mut entities: Vec<Entity> = rows
-        .into_iter()
-        .map(|row| {
-            let value: String = row.get("entity_data");
-            serde_json::from_str(&value).map_err(StoreError::from)
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    sort_entities(&mut entities);
-
-    let scene_version = sqlx::query_scalar::<_, i64>(
-        r#"SELECT scene_version FROM scene_configs WHERE site_id = ?"#,
-    )
-    .bind(seed_scene::SITE_ID)
-    .fetch_one(&mut **tx)
-    .await?;
-
-    sqlx::query(
-        r#"
-        UPDATE published_state
-        SET entities = ?, published_scene_version = ?, updated_at = ?
-        WHERE site_id = ?
-        "#,
-    )
-    .bind(serde_json::to_string(&entities)?)
-    .bind(scene_version)
-    .bind(updated_at as i64)
-    .bind(seed_scene::SITE_ID)
-    .execute(&mut **tx)
-    .await?;
-
-    Ok(())
-}
-
-fn cascade_category_key_update_memory(
-    snapshot: &mut MemoryStore,
-    category_id: &str,
-    category_key: &str,
-) {
-    let mut affected_archetypes = Vec::new();
-    for archetype in snapshot.entity_archetypes.values_mut() {
-        if archetype.category_id != category_id {
-            continue;
-        }
-        archetype.category_key = category_key.to_string();
-        affected_archetypes.push((
-            archetype.id.clone(),
-            archetype.key.clone(),
-            archetype.display_name.clone(),
-        ));
-    }
-
-    if affected_archetypes.is_empty() {
-        return;
-    }
-
-    rewrite_dynamic_entity_archetype_refs_workspace_states_memory(
-        &mut snapshot.workspace_states,
-        &affected_archetypes,
-        category_key,
-    );
-}
-
-fn normalize_dynamic_entity_registry_refs_memory(
-    entity: &mut Entity,
-    entity_archetypes: &BTreeMap<String, EntityArchetype>,
-) -> Result<(), StoreError> {
-    let Entity::Dynamic(dynamic) = entity else {
-        return Ok(());
-    };
-    if dynamic.archetype_id.trim().is_empty() {
-        return Err(StoreError::Validation(
-            "dynamic entity archetypeId must be non-empty".to_string(),
-        ));
-    }
-    let Some(archetype) = entity_archetypes.get(&dynamic.archetype_id) else {
-        return Err(StoreError::Validation(format!(
-            "dynamic entity archetype {} does not exist",
-            dynamic.archetype_id
-        )));
-    };
-    dynamic.category_key = archetype.category_key.clone();
-    Ok(())
-}
-
-async fn normalize_dynamic_entity_registry_refs_postgres(
-    tx: &mut Transaction<'_, Postgres>,
-    entity: &mut Entity,
-) -> Result<(), StoreError> {
-    let Entity::Dynamic(dynamic) = entity else {
-        return Ok(());
-    };
-    if dynamic.archetype_id.trim().is_empty() {
-        return Err(StoreError::Validation(
-            "dynamic entity archetypeId must be non-empty".to_string(),
-        ));
-    }
-    let row = sqlx::query(
-        r#"SELECT archetype_data FROM entity_archetypes WHERE id = $1 FOR UPDATE"#,
-    )
-    .bind(&dynamic.archetype_id)
-    .fetch_optional(&mut **tx)
-    .await?;
-    let Some(row) = row else {
-        return Err(StoreError::Validation(format!(
-            "dynamic entity archetype {} does not exist",
-            dynamic.archetype_id
-        )));
-    };
-    let archetype: EntityArchetype = serde_json::from_value(row.get("archetype_data"))?;
-    dynamic.category_key = archetype.category_key;
-    Ok(())
-}
-
-async fn normalize_dynamic_entity_registry_refs_sqlite(
-    tx: &mut Transaction<'_, Sqlite>,
-    entity: &mut Entity,
-) -> Result<(), StoreError> {
-    let Entity::Dynamic(dynamic) = entity else {
-        return Ok(());
-    };
-    if dynamic.archetype_id.trim().is_empty() {
-        return Err(StoreError::Validation(
-            "dynamic entity archetypeId must be non-empty".to_string(),
-        ));
-    }
-    let row = sqlx::query(r#"SELECT archetype_data FROM entity_archetypes WHERE id = ?"#)
-        .bind(&dynamic.archetype_id)
-        .fetch_optional(&mut **tx)
-        .await?;
-    let Some(row) = row else {
-        return Err(StoreError::Validation(format!(
-            "dynamic entity archetype {} does not exist",
-            dynamic.archetype_id
-        )));
-    };
-    let archetype: EntityArchetype =
-        serde_json::from_str(row.get::<String, _>("archetype_data").as_str())?;
-    dynamic.category_key = archetype.category_key;
-    Ok(())
-}
-
-fn rewrite_dynamic_entity_archetype_refs(
-    entity: &mut Entity,
-    archetype_id: &str,
-    archetype_key: &str,
-    category_key: &str,
-    display_name: &str,
-) -> bool {
-    let Entity::Dynamic(dynamic) = entity else {
-        return false;
-    };
-    if dynamic.archetype_id != archetype_id {
-        return false;
-    }
-
-    dynamic.category_key = category_key.to_string();
-    dynamic.attributes.insert(
-        "archetypeKey".to_string(),
-        ContractValue::String(archetype_key.to_string()),
-    );
-    dynamic.display_attributes.insert(
-        "category".to_string(),
-        ContractValue::String(category_key.to_string()),
-    );
-    dynamic.display_attributes.insert(
-        "archetype".to_string(),
-        ContractValue::String(display_name.to_string()),
-    );
-    dynamic.base.metadata.insert(
-        "archetypeDisplayName".to_string(),
-        ContractValue::String(display_name.to_string()),
-    );
-    true
-}
-
-fn sync_workspace_live_entity_roster(state: &mut WorkspaceState) {
-    state.published_scene_version = state.scene_version;
-    state.published_entities = state.entities.values().cloned().collect();
-    sort_entities(&mut state.published_entities);
-    state.published_updated_at = now_millis();
-}
-
-fn rewrite_dynamic_entity_archetype_refs_workspace_states_memory(
-    workspace_states: &mut BTreeMap<String, WorkspaceState>,
-    affected_archetypes: &[(String, String, String)],
-    category_key: &str,
-) {
-    for state in workspace_states.values_mut() {
-        let mut changed = false;
-        for entity in state.entities.values_mut() {
-            for (archetype_id, archetype_key, display_name) in affected_archetypes {
-                changed |= rewrite_dynamic_entity_archetype_refs(
-                    entity,
-                    archetype_id,
-                    archetype_key,
-                    category_key,
-                    display_name,
-                );
-            }
-        }
-        if changed {
-            sync_workspace_live_entity_roster(state);
-        }
-    }
-}
-
-async fn rewrite_dynamic_entity_archetype_refs_postgres(
-    tx: &mut Transaction<'_, Postgres>,
-    archetype_id: &str,
-    archetype_key: &str,
-    category_key: &str,
-    display_name: &str,
-) -> Result<(), StoreError> {
-    let rows = sqlx::query(
-        r#"SELECT id, entity_data FROM entities WHERE entity_type = 'dynamic'"#,
-    )
-    .fetch_all(&mut **tx)
-    .await?;
-
-    for row in rows {
-        let value: serde_json::Value = row.get("entity_data");
-        let mut entity: Entity = serde_json::from_value(value)?;
-        if !rewrite_dynamic_entity_archetype_refs(
-            &mut entity,
-            archetype_id,
-            archetype_key,
-            category_key,
-            display_name,
-        ) {
-            continue;
-        }
-        persist_entity(tx, &entity, true).await?;
-    }
-
-    let rows = sqlx::query(r#"SELECT workspace_id, state_data FROM workspace_states"#)
-        .fetch_all(&mut **tx)
-        .await?;
-    for row in rows {
-        let workspace_id: String = row.get("workspace_id");
-        let value: serde_json::Value = row.get("state_data");
-        let mut state: WorkspaceState = serde_json::from_value(value)?;
-        let mut changed = false;
-        for entity in state.entities.values_mut() {
-            changed |= rewrite_dynamic_entity_archetype_refs(
-                entity,
-                archetype_id,
-                archetype_key,
-                category_key,
-                display_name,
-            );
-        }
-        if changed {
-            sync_workspace_live_entity_roster(&mut state);
-            persist_workspace_state_postgres(tx, &workspace_id, &state).await?;
-        }
-    }
-
-    Ok(())
-}
-
-async fn rewrite_dynamic_entity_archetype_refs_sqlite(
-    tx: &mut Transaction<'_, Sqlite>,
-    archetype_id: &str,
-    archetype_key: &str,
-    category_key: &str,
-    display_name: &str,
-) -> Result<(), StoreError> {
-    let rows = sqlx::query(
-        r#"SELECT id, entity_data FROM entities WHERE entity_type = 'dynamic'"#,
-    )
-    .fetch_all(&mut **tx)
-    .await?;
-
-    for row in rows {
-        let value: String = row.get("entity_data");
-        let mut entity: Entity = serde_json::from_str(&value)?;
-        if !rewrite_dynamic_entity_archetype_refs(
-            &mut entity,
-            archetype_id,
-            archetype_key,
-            category_key,
-            display_name,
-        ) {
-            continue;
-        }
-        persist_entity_sqlite(tx, &entity, true).await?;
-    }
-
-    let rows = sqlx::query(r#"SELECT workspace_id, state_data FROM workspace_states"#)
-        .fetch_all(&mut **tx)
-        .await?;
-    for row in rows {
-        let workspace_id: String = row.get("workspace_id");
-        let value: String = row.get("state_data");
-        let mut state: WorkspaceState = serde_json::from_str(&value)?;
-        let mut changed = false;
-        for entity in state.entities.values_mut() {
-            changed |= rewrite_dynamic_entity_archetype_refs(
-                entity,
-                archetype_id,
-                archetype_key,
-                category_key,
-                display_name,
-            );
-        }
-        if changed {
-            sync_workspace_live_entity_roster(&mut state);
-            persist_workspace_state_sqlite(tx, &workspace_id, &state).await?;
-        }
-    }
-
-    Ok(())
-}
-
-async fn cascade_category_key_update_postgres(
-    tx: &mut Transaction<'_, Postgres>,
-    category_id: &str,
-    category_key: &str,
-) -> Result<(), StoreError> {
-    let rows = sqlx::query(
-        r#"SELECT archetype_data FROM entity_archetypes WHERE category_id = $1 ORDER BY created_at ASC, id ASC"#,
-    )
-    .bind(category_id)
-    .fetch_all(&mut **tx)
-    .await?;
-
-    for row in rows {
-        let value: serde_json::Value = row.get("archetype_data");
-        let mut archetype: EntityArchetype = serde_json::from_value(value)?;
-        archetype.category_key = category_key.to_string();
-        persist_entity_archetype(tx, &archetype, true).await?;
-        rewrite_dynamic_entity_archetype_refs_postgres(
-            tx,
-            &archetype.id,
-            &archetype.key,
-            category_key,
-            &archetype.display_name,
-        )
-        .await?;
-    }
-
-    Ok(())
-}
-
-async fn cascade_category_key_update_sqlite(
-    tx: &mut Transaction<'_, Sqlite>,
-    category_id: &str,
-    category_key: &str,
-) -> Result<(), StoreError> {
-    let rows = sqlx::query(
-        r#"SELECT archetype_data FROM entity_archetypes WHERE category_id = ? ORDER BY created_at ASC, id ASC"#,
-    )
-    .bind(category_id)
-    .fetch_all(&mut **tx)
-    .await?;
-
-    for row in rows {
-        let value: String = row.get("archetype_data");
-        let mut archetype: EntityArchetype = serde_json::from_str(&value)?;
-        archetype.category_key = category_key.to_string();
-        persist_entity_archetype_sqlite(tx, &archetype, true).await?;
-        rewrite_dynamic_entity_archetype_refs_sqlite(
-            tx,
-            &archetype.id,
-            &archetype.key,
-            category_key,
-            &archetype.display_name,
-        )
-        .await?;
-    }
-
-    Ok(())
-}
-
-async fn count_dynamic_entity_refs_postgres(
-    tx: &mut Transaction<'_, Postgres>,
-    archetype_id: &str,
-) -> Result<i64, StoreError> {
-    let rows = sqlx::query(r#"SELECT state_data FROM workspace_states"#)
-        .fetch_all(&mut **tx)
-        .await?;
-    let mut count = 0_i64;
-    for row in rows {
-        let value: serde_json::Value = row.get("state_data");
-        let state: WorkspaceState = serde_json::from_value(value)?;
-        count += state
-            .entities
-            .values()
-            .filter(|entity| matches!(entity, Entity::Dynamic(dynamic) if dynamic.archetype_id == archetype_id))
-            .count() as i64;
-    }
-    Ok(count)
-}
-
-async fn count_dynamic_entity_refs_sqlite(
-    tx: &mut Transaction<'_, Sqlite>,
-    archetype_id: &str,
-) -> Result<i64, StoreError> {
-    let rows = sqlx::query(r#"SELECT state_data FROM workspace_states"#)
-        .fetch_all(&mut **tx)
-        .await?;
-    let mut count = 0_i64;
-    for row in rows {
-        let value: String = row.get("state_data");
-        let state: WorkspaceState = serde_json::from_str(&value)?;
-        count += state
-            .entities
-            .values()
-            .filter(|entity| matches!(entity, Entity::Dynamic(dynamic) if dynamic.archetype_id == archetype_id))
-            .count() as i64;
-    }
-    Ok(count)
-}
-
-fn map_memory_audit_event(index: usize, value: &serde_json::Value) -> AuditEventRecord {
-    let action = value
-        .get("action")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("unknown");
-    let resource_type = value
-        .get("resourceType")
-        .and_then(serde_json::Value::as_str)
-        .map(str::to_string)
-        .or_else(|| action.split('.').next().map(str::to_string))
-        .unwrap_or_else(|| "system".to_string());
-    let resource_id = value
-        .get("resourceId")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("unknown")
-        .to_string();
-    let created_at = value
-        .get("timestamp")
-        .and_then(serde_json::Value::as_u64)
-        .unwrap_or_default();
-
-    AuditEventRecord {
-        id: value
-            .get("id")
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_string)
-            .unwrap_or_else(|| format!("memory-audit-{index}")),
-        actor: value
-            .get("actor")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or("system")
-            .to_string(),
-        action: action.to_string(),
-        resource_type,
-        resource_id,
-        payload: value.clone(),
-        created_at,
-    }
-}
-
-fn is_sqlite_url(url: &str) -> bool {
-    let normalized = url.trim().to_ascii_lowercase();
-    normalized.starts_with("sqlite:") || normalized.starts_with("file:")
-}
-
-fn is_memory_backend_url(url: &str) -> bool {
-    matches!(
-        url.trim().to_ascii_lowercase().as_str(),
-        "memory" | "memory://" | "in-memory"
-    )
-}
-
-fn ensure_sqlite_parent_dir(url: &str) -> Result<(), StoreError> {
-    let Some(path) = sqlite_file_path_from_url(url) else {
-        return Ok(());
-    };
-
-    let Some(parent) = Path::new(&path).parent() else {
-        return Ok(());
-    };
-    if parent.as_os_str().is_empty() {
-        return Ok(());
-    }
-
-    fs::create_dir_all(parent).map_err(|error| {
-        StoreError::Validation(format!(
-            "failed to create sqlite parent directory {}: {}",
-            parent.display(),
-            error
-        ))
-    })?;
-
-    Ok(())
-}
-
-fn sqlite_file_path_from_url(url: &str) -> Option<String> {
-    if !is_sqlite_url(url) {
-        return None;
-    }
-
-    let without_prefix = &url.trim()["sqlite:".len()..];
-    let without_query = without_prefix
-        .split_once('?')
-        .map(|(value, _)| value)
-        .unwrap_or(without_prefix)
-        .trim();
-    if without_query.is_empty() || without_query.eq_ignore_ascii_case(":memory:") {
-        return None;
-    }
-
-    if let Some(rest) = without_query.strip_prefix("//") {
-        if rest.is_empty() || rest.eq_ignore_ascii_case(":memory:") {
-            return None;
-        }
-        return Some(rest.to_string());
-    }
-
-    Some(without_query.to_string())
-}
-
-fn status_to_str(status: &EntityStatus) -> &'static str {
-    match status {
-        EntityStatus::Active => "active",
-        EntityStatus::Inactive => "inactive",
-        EntityStatus::Warning => "warning",
-        EntityStatus::Error => "error",
-    }
-}
-
-fn static_asset_kind_to_str(asset: &StaticAssetInstance) -> &'static str {
-    match asset.asset_kind {
-        crate::contracts::StaticAssetKind::ProcessTrain => "process-train",
-        crate::contracts::StaticAssetKind::PipeRack => "pipe-rack",
-        crate::contracts::StaticAssetKind::VerticalTank => "vertical-tank",
-        crate::contracts::StaticAssetKind::SphereTank => "sphere-tank",
-        crate::contracts::StaticAssetKind::PumpManifold => "pump-manifold",
-        crate::contracts::StaticAssetKind::ServiceBuilding => "service-building",
-        crate::contracts::StaticAssetKind::WallSystem => "wall-system",
-        crate::contracts::StaticAssetKind::DoorSystem => "door-system",
-        crate::contracts::StaticAssetKind::WindowSystem => "window-system",
-        crate::contracts::StaticAssetKind::SecurityDevice => "security-device",
-        crate::contracts::StaticAssetKind::SmartSensor => "smart-sensor",
-        crate::contracts::StaticAssetKind::SmartControl => "smart-control",
-    }
-}
-
-fn sort_entities(entities: &mut [Entity]) {
-    entities.sort_by(|left, right| {
-        entity_sort_rank(left)
-            .cmp(&entity_sort_rank(right))
-            .then_with(|| left.id().cmp(right.id()))
-    });
-}
-
-fn sort_static_assets(static_assets: &mut [StaticAssetInstance]) {
-    static_assets.sort_by(|left, right| {
-        left.created_at
-            .cmp(&right.created_at)
-            .then_with(|| left.id.cmp(&right.id))
-    });
-}
-
-fn entity_sort_rank(entity: &Entity) -> u8 {
-    match entity {
-        Entity::Zone(_) => 0,
-        Entity::Person(_) => 1,
-        Entity::Vehicle(_) => 2,
-        Entity::Equipment(_) => 3,
-        Entity::Sensor(_) => 4,
-        Entity::Camera(_) => 5,
-        Entity::Dynamic(_) => 6,
-    }
-}
-
-fn ensure_entity_create_defaults(entity: &mut Entity, now: u64) {
-    if entity.id().trim().is_empty() {
-        set_entity_id(entity, &Uuid::new_v4().to_string());
-    }
-    set_entity_created_at(entity, now);
-    set_entity_updated_at(entity, now);
-}
-
-fn ensure_entity_update_defaults(entity: &mut Entity, now: u64) {
-    set_entity_updated_at(entity, now);
-    if entity.created_at() == 0 {
-        set_entity_created_at(entity, now);
-    }
-}
-
-fn ensure_static_asset_create_defaults(asset: &mut StaticAssetInstance, now: u64) {
-    if asset.id.trim().is_empty() {
-        asset.id = Uuid::new_v4().to_string();
-    }
-    if asset.name.trim().is_empty() {
-        asset.name = asset.id.clone();
-    }
-    if asset.scale.x == 0.0 {
-        asset.scale.x = 1.0;
-    }
-    if asset.scale.y == 0.0 {
-        asset.scale.y = 1.0;
-    }
-    if asset.scale.z == 0.0 {
-        asset.scale.z = 1.0;
-    }
-    asset.created_at = now;
-    asset.updated_at = now;
-}
-
-fn ensure_static_asset_update_defaults(asset: &mut StaticAssetInstance, now: u64) {
-    if asset.name.trim().is_empty() {
-        asset.name = asset.id.clone();
-    }
-    if asset.scale.x == 0.0 {
-        asset.scale.x = 1.0;
-    }
-    if asset.scale.y == 0.0 {
-        asset.scale.y = 1.0;
-    }
-    if asset.scale.z == 0.0 {
-        asset.scale.z = 1.0;
-    }
-    if asset.created_at == 0 {
-        asset.created_at = now;
-    }
-    asset.updated_at = now;
-}
-
-fn set_entity_id(entity: &mut Entity, id: &str) {
-    match entity {
-        Entity::Person(item) => item.base.id = id.to_string(),
-        Entity::Vehicle(item) => item.base.id = id.to_string(),
-        Entity::Equipment(item) => item.base.id = id.to_string(),
-        Entity::Sensor(item) => item.base.id = id.to_string(),
-        Entity::Camera(item) => item.base.id = id.to_string(),
-        Entity::Zone(item) => item.base.id = id.to_string(),
-        Entity::Dynamic(item) => item.base.id = id.to_string(),
-    }
-}
-
-fn set_entity_created_at(entity: &mut Entity, created_at: u64) {
-    match entity {
-        Entity::Person(item) => item.base.created_at = created_at,
-        Entity::Vehicle(item) => item.base.created_at = created_at,
-        Entity::Equipment(item) => item.base.created_at = created_at,
-        Entity::Sensor(item) => item.base.created_at = created_at,
-        Entity::Camera(item) => item.base.created_at = created_at,
-        Entity::Zone(item) => item.base.created_at = created_at,
-        Entity::Dynamic(item) => item.base.created_at = created_at,
-    }
-}
-
-fn set_entity_updated_at(entity: &mut Entity, updated_at: u64) {
-    match entity {
-        Entity::Person(item) => item.base.updated_at = updated_at,
-        Entity::Vehicle(item) => item.base.updated_at = updated_at,
-        Entity::Equipment(item) => item.base.updated_at = updated_at,
-        Entity::Sensor(item) => item.base.updated_at = updated_at,
-        Entity::Camera(item) => item.base.updated_at = updated_at,
-        Entity::Zone(item) => item.base.updated_at = updated_at,
-        Entity::Dynamic(item) => item.base.updated_at = updated_at,
-    }
-}
-
-fn sort_entity_categories(categories: &mut [EntityCategory]) {
-    categories.sort_by(|left, right| {
-        left.sort_order
-            .cmp(&right.sort_order)
-            .then_with(|| left.display_name.cmp(&right.display_name))
-            .then_with(|| left.id.cmp(&right.id))
-    });
-}
-
-fn sort_workspaces(workspaces: &mut [WorkspaceRecord]) {
-    workspaces.sort_by(|left, right| {
-        right
-            .is_homepage
-            .cmp(&left.is_homepage)
-            .then_with(|| left.name.cmp(&right.name))
-            .then_with(|| left.id.cmp(&right.id))
-    });
-}
-
-fn ensure_workspace_create_defaults(workspace: &mut WorkspaceRecord, now: u64) {
-    if workspace.id.trim().is_empty() {
-        workspace.id = Uuid::new_v4().to_string();
-    }
-    if workspace.slug.trim().is_empty() {
-        workspace.slug = workspace.id.clone();
-    }
-    if workspace.name.trim().is_empty() {
-        workspace.name = workspace.slug.clone();
-    }
-    workspace.created_at = now;
-    workspace.updated_at = now;
-}
-
-fn ensure_workspace_update_defaults(workspace: &mut WorkspaceRecord, now: u64) {
-    if workspace.slug.trim().is_empty() {
-        workspace.slug = workspace.id.clone();
-    }
-    if workspace.name.trim().is_empty() {
-        workspace.name = workspace.slug.clone();
-    }
-    if workspace.created_at == 0 {
-        workspace.created_at = now;
-    }
-    workspace.updated_at = now;
-}
-
-fn validate_workspace(workspace: &WorkspaceRecord) -> Result<(), StoreError> {
-    if workspace.slug.trim().is_empty() {
-        return Err(StoreError::Validation(
-            "workspace slug must be non-empty".to_string(),
-        ));
-    }
-    if workspace.name.trim().is_empty() {
-        return Err(StoreError::Validation(
-            "workspace name must be non-empty".to_string(),
-        ));
-    }
-    Ok(())
-}
-
-fn sort_entity_archetypes(archetypes: &mut [EntityArchetype]) {
-    archetypes.sort_by(|left, right| {
-        left.category_key
-            .cmp(&right.category_key)
-            .then_with(|| left.display_name.cmp(&right.display_name))
-            .then_with(|| left.id.cmp(&right.id))
-    });
-}
-
-fn ensure_entity_category_create_defaults(category: &mut EntityCategory, now: u64) {
-    if category.id.trim().is_empty() {
-        category.id = Uuid::new_v4().to_string();
-    }
-    if category.display_name.trim().is_empty() {
-        category.display_name = category.key.clone();
-    }
-    category.created_at = now;
-    category.updated_at = now;
-}
-
-fn ensure_entity_category_update_defaults(category: &mut EntityCategory, now: u64) {
-    if category.display_name.trim().is_empty() {
-        category.display_name = category.key.clone();
-    }
-    if category.created_at == 0 {
-        category.created_at = now;
-    }
-    category.updated_at = now;
-}
-
-fn validate_entity_category(category: &EntityCategory) -> Result<(), StoreError> {
-    if category.key.trim().is_empty() {
-        return Err(StoreError::Validation(
-            "entity category key must be non-empty".to_string(),
-        ));
-    }
-    if category.display_name.trim().is_empty() {
-        return Err(StoreError::Validation(
-            "entity category displayName must be non-empty".to_string(),
-        ));
-    }
-    Ok(())
-}
-
-fn ensure_entity_archetype_create_defaults(archetype: &mut EntityArchetype, now: u64) {
-    if archetype.id.trim().is_empty() {
-        archetype.id = Uuid::new_v4().to_string();
-    }
-    if archetype.display_name.trim().is_empty() {
-        archetype.display_name = archetype.key.clone();
-    }
-    archetype.capabilities.has_model = archetype.model.is_some();
-    archetype.created_at = now;
-    archetype.updated_at = now;
-}
-
-fn ensure_entity_archetype_update_defaults(archetype: &mut EntityArchetype, now: u64) {
-    if archetype.display_name.trim().is_empty() {
-        archetype.display_name = archetype.key.clone();
-    }
-    archetype.capabilities.has_model = archetype.model.is_some();
-    if archetype.created_at == 0 {
-        archetype.created_at = now;
-    }
-    archetype.updated_at = now;
-}
-
-fn validate_entity_archetype(archetype: &EntityArchetype) -> Result<(), StoreError> {
-    if archetype.key.trim().is_empty() {
-        return Err(StoreError::Validation(
-            "entity archetype key must be non-empty".to_string(),
-        ));
-    }
-    if archetype.display_name.trim().is_empty() {
-        return Err(StoreError::Validation(
-            "entity archetype displayName must be non-empty".to_string(),
-        ));
-    }
-    if archetype.category_id.trim().is_empty() {
-        return Err(StoreError::Validation(
-            "entity archetype categoryId must be non-empty".to_string(),
-        ));
-    }
-    if let Some(model) = &archetype.model {
-        validate_managed_archetype_model_asset(model)?;
-    }
-    Ok(())
-}
-
-fn validate_managed_archetype_model_asset(model: &ArchetypeModelAsset) -> Result<(), StoreError> {
-    if !model.asset_url.starts_with(MANAGED_ARCHETYPE_ASSET_PREFIX) {
-        return Err(StoreError::Validation(
-            "entity archetype model assetUrl must stay within the managed /assets/entity-archetypes/ path".to_string(),
-        ));
-    }
-    if model.asset_url.contains("..") || model.asset_url.contains("://") || model.asset_url.contains('\\') {
-        return Err(StoreError::Validation(
-            "entity archetype model assetUrl must be a normalized managed local path".to_string(),
-        ));
-    }
-
-    let expected_suffix = match model.file_type {
-        ModelAssetFileType::Glb => ".glb",
-        ModelAssetFileType::Fbx => ".fbx",
-    };
-    if !model.asset_url.ends_with(expected_suffix) {
-        return Err(StoreError::Validation(format!(
-            "entity archetype model assetUrl must end with {expected_suffix}"
-        )));
-    }
-
-    Ok(())
-}
-
-fn now_millis() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system clock should be after unix epoch")
-        .as_millis() as u64
-}
-
-#[allow(dead_code)]
-fn _vector_to_json(point: Vector3) -> serde_json::Value {
-    serde_json::json!({ "x": point.x, "y": point.y, "z": point.z })
 }
 
 #[cfg(test)]

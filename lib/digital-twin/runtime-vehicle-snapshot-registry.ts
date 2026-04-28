@@ -1,7 +1,4 @@
-import {
-  appendVehicleSnapshot,
-  type VehicleSnapshotSample,
-} from './vehicle-snapshot-interpolation'
+import type { VehicleSnapshotSample } from './vehicle-snapshot-interpolation'
 
 const EMPTY_SNAPSHOTS = Object.freeze([]) as readonly VehicleSnapshotSample[]
 
@@ -32,21 +29,72 @@ export function createRuntimeTimestampProjector(options?: {
   const historyLimit = Math.max(4, options?.historyLimit ?? 48)
   const percentile = options?.percentile ?? 0.15
   const offsets: number[] = []
+  let lastReceivedAt: number | null = null
+  let lastEstimatedOffset = 0
 
   return {
     project(serverTimestamp, receivedAt = Date.now()) {
-      const observedOffset = receivedAt - serverTimestamp
-      offsets.push(observedOffset)
-      if (offsets.length > historyLimit) {
-        offsets.shift()
+      if (lastReceivedAt !== receivedAt) {
+        const observedOffset = receivedAt - serverTimestamp
+        offsets.push(observedOffset)
+        if (offsets.length > historyLimit) {
+          offsets.shift()
+        }
+        lastEstimatedOffset = resolvePercentile(offsets, percentile)
+        lastReceivedAt = receivedAt
       }
-      const estimatedOffset = resolvePercentile(offsets, percentile)
-      return serverTimestamp + estimatedOffset
+      return serverTimestamp + lastEstimatedOffset
     },
     reset() {
       offsets.length = 0
+      lastReceivedAt = null
+      lastEstimatedOffset = 0
     },
   }
+}
+
+function isDuplicateSnapshot(
+  existing: VehicleSnapshotSample,
+  sample: VehicleSnapshotSample
+) {
+  if (
+    sample.sourceTimestamp !== undefined &&
+    existing.sourceTimestamp !== undefined &&
+    existing.sourceTimestamp === sample.sourceTimestamp
+  ) {
+    return true
+  }
+
+  return (
+    existing.timestamp === sample.timestamp &&
+    existing.position.x === sample.position.x &&
+    existing.position.y === sample.position.y &&
+    existing.position.z === sample.position.z &&
+    existing.yaw === sample.yaw
+  )
+}
+
+function appendSnapshotInPlace(
+  samples: VehicleSnapshotSample[],
+  sample: VehicleSnapshotSample,
+  maxSamples: number
+) {
+  if (samples.some((existing) => isDuplicateSnapshot(existing, sample))) {
+    return samples
+  }
+
+  const insertIndex = samples.findIndex((existing) => existing.timestamp > sample.timestamp)
+  if (insertIndex === -1) {
+    samples.push(sample)
+  } else {
+    samples.splice(insertIndex, 0, sample)
+  }
+
+  const overflow = samples.length - maxSamples
+  if (overflow > 0) {
+    samples.splice(0, overflow)
+  }
+  return samples
 }
 
 export interface RuntimeVehicleSnapshotRegistry {
@@ -67,13 +115,14 @@ export function createRuntimeVehicleSnapshotRegistry(options?: {
 
   return {
     append(entityId, sample) {
-      const nextSamples = appendVehicleSnapshot(
-        snapshotsByEntityId.get(entityId) ?? [],
-        sample,
-        maxSamplesPerEntity
-      )
-      snapshotsByEntityId.set(entityId, nextSamples)
-      return nextSamples
+      const existingSamples = snapshotsByEntityId.get(entityId)
+      if (existingSamples) {
+        return appendSnapshotInPlace(existingSamples, sample, maxSamplesPerEntity)
+      }
+
+      const samples = [sample]
+      snapshotsByEntityId.set(entityId, samples)
+      return samples
     },
     get(entityId) {
       return snapshotsByEntityId.get(entityId) ?? EMPTY_SNAPSHOTS
