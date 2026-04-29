@@ -664,8 +664,9 @@ describe('performance guards', () => {
       join(process.cwd(), 'lib/digital-twin/campus-layout.ts'),
       'utf8'
     )
-    expect(layout.includes('persons: 80 * CAMPUS_SECTORS.length')).toBe(true)
-    expect(layout.includes('vehicles: 45 * CAMPUS_SECTORS.length')).toBe(true)
+    expect(layout.includes('persons: 40 * CAMPUS_SECTORS.length')).toBe(true)
+    expect(layout.includes('vehicles: 24 * CAMPUS_SECTORS.length')).toBe(true)
+    expect(layout.includes('sector-far-southeast')).toBe(true)
   })
 
   test('canvas should use BVH wrapper to accelerate raycasting on scene meshes', () => {

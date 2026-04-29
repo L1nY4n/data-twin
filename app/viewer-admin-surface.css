@@ -271,49 +271,97 @@
     background: rgba(255, 255, 255, 0.08) !important;
   }
 
-  .viewer-admin-surface .viewer-edge-toggle {
-    overflow: visible;
-    border-color: rgba(168, 198, 255, 0.16) !important;
-    background:
-      radial-gradient(circle at 50% 4px, rgba(144, 180, 255, 0.18), transparent 56%),
-      linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.038)) !important;
-    box-shadow:
-      0 14px 30px rgba(8, 12, 20, 0.22),
-      inset 0 1px 0 rgba(255, 255, 255, 0.09),
-      inset 0 0 0 1px rgba(255, 255, 255, 0.03);
-  }
-
-  .viewer-admin-surface .viewer-edge-toggle::after {
-    content: '';
-    position: absolute;
-    top: 7px;
-    bottom: 7px;
-    width: 3px;
+  .viewer-admin-surface .viewer-panel-switchboard {
+    max-width: calc(100% - 40px);
+    padding: 4px;
+    border: 1px solid rgba(171, 199, 255, 0.16);
     border-radius: 999px;
     background:
-      linear-gradient(180deg, rgba(193, 219, 255, 0.96), rgba(123, 165, 255, 0.24));
-    box-shadow: 0 0 12px rgba(119, 167, 255, 0.34);
-    opacity: 0.86;
-    transition:
-      opacity 180ms ease,
-      transform 240ms cubic-bezier(0.22, 1, 0.36, 1);
+      radial-gradient(circle at 12% 0%, rgba(122, 164, 255, 0.18), transparent 38%),
+      linear-gradient(180deg, rgba(17, 22, 31, 0.84), rgba(10, 14, 20, 0.7));
+    box-shadow:
+      0 18px 48px rgba(6, 10, 16, 0.34),
+      inset 0 1px 0 rgba(255, 255, 255, 0.08),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.025);
+    -webkit-backdrop-filter: blur(22px);
+    backdrop-filter: blur(22px);
   }
 
-  .viewer-admin-surface .viewer-edge-toggle:hover:enabled::after {
-    opacity: 1;
-    transform: scaleY(1.06);
+  .viewer-admin-surface .viewer-panel-switchboard__metrics,
+  .viewer-admin-surface .viewer-panel-switchboard__actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
   }
 
-  .viewer-admin-surface .viewer-edge-toggle--left::after {
-    right: -5px;
+  .viewer-admin-surface .viewer-panel-switchboard__metrics {
+    padding: 0 8px 0 10px;
+    border-right: 1px solid rgba(255, 255, 255, 0.08);
+    color: var(--viewer-admin-text-muted);
+    font-size: 10px;
+    line-height: 1;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    white-space: nowrap;
   }
 
-  .viewer-admin-surface .viewer-edge-toggle--right::after {
-    left: -5px;
+  .viewer-admin-surface .viewer-panel-switchboard__metrics span + span::before {
+    content: '•';
+    margin-right: 4px;
+    color: rgba(255, 255, 255, 0.24);
   }
 
-  .viewer-admin-surface .viewer-edge-toggle :is(svg, img) {
-    filter: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.2));
+  .viewer-admin-surface .viewer-panel-switchboard__button {
+    min-height: 28px !important;
+    gap: 5px !important;
+    padding: 0 9px !important;
+    border-color: transparent !important;
+    background: transparent !important;
+    color: var(--viewer-admin-text-secondary) !important;
+    font-size: 11px !important;
+    letter-spacing: 0.03em;
+  }
+
+  .viewer-admin-surface .viewer-panel-switchboard__button:hover:enabled,
+  .viewer-admin-surface .viewer-panel-switchboard__button[aria-pressed='true'] {
+    border-color: var(--viewer-admin-accent-border) !important;
+    background:
+      radial-gradient(circle at top, rgba(125, 167, 255, 0.2), transparent 62%),
+      var(--viewer-admin-accent-soft) !important;
+    color: var(--viewer-admin-text-primary) !important;
+  }
+
+  .viewer-admin-surface .viewer-panel-switchboard__meta {
+    margin-left: 1px;
+    padding: 1px 5px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.075);
+    color: var(--viewer-admin-text-muted);
+    font-size: 10px;
+    line-height: 14px;
+  }
+
+  @media (max-width: 1023px) {
+    .viewer-admin-surface .viewer-panel-switchboard__metrics {
+      display: none;
+    }
+  }
+
+  @media (max-width: 767px) {
+    .viewer-admin-surface .viewer-panel-switchboard {
+      gap: 2px;
+      padding: 3px;
+    }
+
+    .viewer-admin-surface .viewer-panel-switchboard__button {
+      min-height: 26px !important;
+      padding: 0 7px !important;
+    }
+
+    .viewer-admin-surface .viewer-panel-switchboard__meta {
+      display: none;
+    }
   }
 
   .viewer-admin-surface [data-slot='input'],
@@ -451,6 +499,7 @@
 
   .viewer-admin-surface .viewer-admin-entity-search,
   .viewer-admin-surface .viewer-admin-entity-filter-toggle,
+  .viewer-admin-surface .viewer-admin-entity-filter-chip,
   .viewer-admin-surface .viewer-admin-entity-group-trigger,
   .viewer-admin-surface .viewer-admin-entity-row-main {
     min-height: 32px;
@@ -460,7 +509,8 @@
   }
 
   .viewer-admin-surface .viewer-admin-entity-search,
-  .viewer-admin-surface .viewer-admin-entity-filter-toggle {
+  .viewer-admin-surface .viewer-admin-entity-filter-toggle,
+  .viewer-admin-surface .viewer-admin-entity-filter-chip {
     background: var(--viewer-admin-surface-4) !important;
   }
 
@@ -473,6 +523,7 @@
   }
 
   .viewer-admin-surface .viewer-admin-entity-filter-toggle,
+  .viewer-admin-surface .viewer-admin-entity-filter-chip,
   .viewer-admin-surface .viewer-admin-entity-group-trigger,
   .viewer-admin-surface .viewer-admin-entity-row-main {
     padding: 6px 8px !important;
@@ -480,10 +531,32 @@
   }
 
   .viewer-admin-surface .viewer-admin-entity-filter-toggle:hover:enabled,
+  .viewer-admin-surface .viewer-admin-entity-filter-chip:hover:enabled,
   .viewer-admin-surface .viewer-admin-entity-group-trigger:hover:enabled,
   .viewer-admin-surface .viewer-admin-entity-row-main:hover {
     background: var(--viewer-admin-surface-4) !important;
     color: var(--viewer-admin-text-primary) !important;
+  }
+
+  .viewer-admin-surface .viewer-admin-entity-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px;
+    border: 1px solid var(--viewer-admin-border-subtle);
+    border-radius: 14px;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.02)),
+      var(--viewer-admin-surface-3);
+  }
+
+  .viewer-admin-surface .viewer-admin-entity-filter-chip {
+    min-height: 26px !important;
+    border-radius: 999px !important;
+    border-color: rgba(255, 255, 255, 0.08) !important;
+    padding: 4px 8px !important;
+    font-size: 10px !important;
   }
 
   .viewer-admin-surface .viewer-admin-entity-group-trigger {

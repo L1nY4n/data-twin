@@ -31,6 +31,9 @@ import {
 import { cn } from '@/lib/utils'
 import type { EntityDirectoryEntry } from '@/lib/digital-twin/store'
 
+const ENTITY_TYPES = ['person', 'vehicle', 'equipment', 'sensor', 'camera', 'zone', 'dynamic'] as const
+const ENTITY_STATUSES = ['active', 'inactive', 'warning', 'error'] as const
+
 const ENTITY_TYPE_CONFIG: Record<EntityType, { icon: typeof User; label: string; color: string }> = {
   person: { icon: User, label: '人员', color: '#3b82f6' },
   vehicle: { icon: Car, label: '车辆', color: '#f59e0b' },
@@ -56,14 +59,10 @@ export function EntityListPanel() {
   const setSelectedEntity = useDigitalTwinStore((state) => state.setSelectedEntity)
   const focusCameraOnEntity = useDigitalTwinStore((state) => state.focusCameraOnEntity)
 
-  const [expandedTypes, setExpandedTypes] = useState<EntityType[]>([
+  const [expandedSections, setExpandedSections] = useState<string[]>([
     'person',
     'vehicle',
-    'equipment',
-    'sensor',
-    'camera',
     'zone',
-    'dynamic',
   ])
   const [showFilters, setShowFilters] = useState(false)
 
@@ -117,9 +116,11 @@ export function EntityListPanel() {
     return result
   }, [entityDirectory])
 
-  const toggleType = (type: EntityType) => {
-    setExpandedTypes((prev) =>
-      prev.includes(type) ? prev.filter((t) => t !== type) : [...prev, type]
+  const toggleSection = (sectionKey: string) => {
+    setExpandedSections((prev) =>
+      prev.includes(sectionKey)
+        ? prev.filter((key) => key !== sectionKey)
+        : [...prev, sectionKey]
     )
   }
 
@@ -149,7 +150,7 @@ export function EntityListPanel() {
       errorCount: number
     }> = []
 
-    ;(Object.keys(ENTITY_TYPE_CONFIG) as EntityType[]).forEach((type) => {
+    ENTITY_TYPES.forEach((type) => {
       if (type !== 'dynamic') {
         const config = ENTITY_TYPE_CONFIG[type]
         sections.push({
@@ -220,10 +221,31 @@ export function EntityListPanel() {
     return sections
   }, [counts, groupedEntities])
 
+  const filteredEntityCount = groupedSections.reduce(
+    (total, section) => total + section.entities.length,
+    0
+  )
+  const totalEntityCount = entityDirectory.size
+  const hasActiveFilters =
+    entityFilters.searchQuery.trim().length > 0 ||
+    entityFilters.types.length !== ENTITY_TYPES.length ||
+    entityFilters.statuses.length !== ENTITY_STATUSES.length
+
+  const expandAllSections = () => setExpandedSections(groupedSections.map((section) => section.key))
+  const collapseAllSections = () => setExpandedSections([])
+  const resetFilters = () =>
+    setEntityFilters({
+      types: [...ENTITY_TYPES],
+      statuses: [...ENTITY_STATUSES],
+      searchQuery: '',
+    })
+  const showOnlyExceptions = () => setEntityFilters({ statuses: ['warning', 'error'] })
+
   return (
     <ViewerAdminSidePanelBody>
       <ViewerAdminPanelHeader
-        title="实体列表"
+        title="对象索引"
+        description={`${filteredEntityCount}/${totalEntityCount} 可见对象`}
         trailing={<span className="viewer-admin-kicker text-[11px]">运行态只读</span>}
         className="viewer-admin-entity-panel-header px-3 py-2"
       />
@@ -233,20 +255,71 @@ export function EntityListPanel() {
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
-            placeholder="搜索实体..."
+            placeholder="搜索对象 / 编号 / 区域..."
             value={entityFilters.searchQuery}
             onChange={(e) => setEntityFilters({ searchQuery: e.target.value })}
             className="viewer-admin-entity-search"
           />
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="viewer-admin-entity-filter-toggle mt-2 w-full"
-          onClick={() => setShowFilters(!showFilters)}
-        >
-          {showFilters ? '隐藏筛选' : '显示筛选'}
-        </Button>
+
+        <div className="viewer-admin-entity-summary mt-2">
+          <div>
+            <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">当前筛选</span>
+            <p className="text-xs text-white">{filteredEntityCount} 项 · {groupedSections.length} 组</p>
+          </div>
+          <div className="flex items-center gap-1">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="viewer-admin-entity-filter-chip"
+              onClick={expandAllSections}
+            >
+              展开
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="viewer-admin-entity-filter-chip"
+              onClick={collapseAllSections}
+            >
+              收起
+            </Button>
+          </div>
+        </div>
+
+        <div className="mt-2 flex items-center gap-1">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="viewer-admin-entity-filter-chip flex-1"
+            onClick={() => setShowFilters(!showFilters)}
+          >
+            {showFilters ? '隐藏筛选' : '高级筛选'}
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="viewer-admin-entity-filter-chip"
+            onClick={showOnlyExceptions}
+          >
+            异常
+          </Button>
+          {hasActiveFilters && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="viewer-admin-entity-filter-chip"
+              onClick={resetFilters}
+            >
+              清除
+            </Button>
+          )}
+        </div>
 
         {/* 筛选选项 */}
         {showFilters && (
@@ -254,7 +327,7 @@ export function EntityListPanel() {
             <div>
               <span className="text-xs text-muted-foreground">类型</span>
               <div className="mt-1 flex flex-wrap gap-1">
-                {(Object.keys(ENTITY_TYPE_CONFIG) as EntityType[]).map((type) => (
+                {ENTITY_TYPES.map((type) => (
                   <label key={type} className="flex items-center gap-1 text-xs">
                     <Checkbox
                       checked={entityFilters.types.includes(type)}
@@ -269,7 +342,7 @@ export function EntityListPanel() {
             <div>
               <span className="text-xs text-muted-foreground">状态</span>
               <div className="mt-1 flex flex-wrap gap-1">
-                {(Object.keys(STATUS_CONFIG) as EntityStatus[]).map((status) => (
+                {ENTITY_STATUSES.map((status) => (
                   <label key={status} className="flex items-center gap-1 text-xs">
                     <Checkbox
                       checked={entityFilters.statuses.includes(status)}
@@ -290,13 +363,13 @@ export function EntityListPanel() {
         <div className="px-2 py-1.5">
           {groupedSections.map((section) => {
             const Icon = section.icon
-            const isExpanded = expandedTypes.includes(section.type)
+            const isExpanded = expandedSections.includes(section.key)
 
             return (
               <Collapsible
                 key={section.key}
                 open={isExpanded}
-                onOpenChange={() => toggleType(section.type)}
+                onOpenChange={() => toggleSection(section.key)}
                 className="mb-1"
               >
                 <CollapsibleTrigger asChild>

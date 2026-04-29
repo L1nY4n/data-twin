@@ -15,6 +15,7 @@ import {
   VEHICLE_ANCHORS,
   VEHICLE_LANE_RECTS,
   VEHICLE_ROUTE_GOALS,
+  VEHICLE_ROUTE_LOOPS,
   VEHICLE_TYPES,
   type LaneRect,
   type PlantMobilityType,
@@ -422,55 +423,7 @@ function createDirectTargetMetadata(
   }
 }
 
-const VEHICLE_PATROL_LOOPS: Vector3[][] = [
-  [
-    { x: -92, y: 0, z: 54 },
-    { x: -28, y: 0, z: 54 },
-    { x: 36, y: 0, z: 54 },
-    { x: 96, y: 0, z: 54 },
-    { x: 86, y: 0, z: 30 },
-    { x: 86, y: 0, z: 2 },
-    { x: 86, y: 0, z: -72 },
-    { x: 0, y: 0, z: -72 },
-    { x: -88, y: 0, z: -72 },
-    { x: -88, y: 0, z: 2 },
-    { x: -88, y: 0, z: 30 },
-  ],
-  [
-    { x: -68, y: 0, z: 72 },
-    { x: 68, y: 0, z: 72 },
-    { x: 96, y: 0, z: 54 },
-    { x: 68, y: 0, z: 54 },
-    { x: 4, y: 0, z: 54 },
-    { x: -60, y: 0, z: 54 },
-    { x: -92, y: 0, z: 54 },
-    { x: -88, y: 0, z: 30 },
-    { x: -88, y: 0, z: 2 },
-  ],
-  [
-    { x: -84, y: 0, z: -4 },
-    { x: -36, y: 0, z: -4 },
-    { x: 32, y: 0, z: -4 },
-    { x: 86, y: 0, z: -4 },
-    { x: 86, y: 0, z: -26 },
-    { x: 86, y: 0, z: -72 },
-    { x: 0, y: 0, z: -72 },
-    { x: -88, y: 0, z: -72 },
-    { x: -88, y: 0, z: -26 },
-  ],
-  [
-    { x: 0, y: 0, z: 32 },
-    { x: 0, y: 0, z: 4 },
-    { x: 0, y: 0, z: -24 },
-    { x: 0, y: 0, z: -72 },
-    { x: 86, y: 0, z: -72 },
-    { x: 86, y: 0, z: 2 },
-    { x: 68, y: 0, z: 54 },
-    { x: 4, y: 0, z: 54 },
-    { x: -60, y: 0, z: 54 },
-    { x: -88, y: 0, z: 30 },
-  ],
-]
+const VEHICLE_PATROL_LOOPS: Vector3[][] = VEHICLE_ROUTE_LOOPS
 
 function cloneRouteLoop(loop: Vector3[]): Vector3[] {
   return loop.map((point) => ({ x: point.x, y: point.y, z: point.z }))

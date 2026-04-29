@@ -1,8 +1,164 @@
 {
   "schemaVersion": 1,
   "sceneId": "chemical-plant-campus",
-  "generatedAt": "2026-04-11T19:05:45.625Z",
+  "generatedAt": "2026-04-28T19:51:07.675Z",
   "chunks": {
+    "chunk:sector-northwest-frontier:static": {
+      "chunkId": "chunk:sector-northwest-frontier:static",
+      "detailed": {
+        "url": "/generated/published-static/chunk-sector-northwest-frontier-static.detailed.glb",
+        "format": "glb",
+        "compression": "none"
+      },
+      "proxy": {
+        "url": "/generated/published-static/chunk-sector-northwest-frontier-static.proxy.glb",
+        "format": "glb",
+        "compression": "none"
+      }
+    },
+    "chunk:sector-north-frontier:static": {
+      "chunkId": "chunk:sector-north-frontier:static",
+      "detailed": {
+        "url": "/generated/published-static/chunk-sector-north-frontier-static.detailed.glb",
+        "format": "glb",
+        "compression": "none"
+      },
+      "proxy": {
+        "url": "/generated/published-static/chunk-sector-north-frontier-static.proxy.glb",
+        "format": "glb",
+        "compression": "none"
+      }
+    },
+    "chunk:sector-far-north:static": {
+      "chunkId": "chunk:sector-far-north:static",
+      "detailed": {
+        "url": "/generated/published-static/chunk-sector-far-north-static.detailed.glb",
+        "format": "glb",
+        "compression": "none"
+      },
+      "proxy": {
+        "url": "/generated/published-static/chunk-sector-far-north-static.proxy.glb",
+        "format": "glb",
+        "compression": "none"
+      }
+    },
+    "chunk:sector-northeast-frontier:static": {
+      "chunkId": "chunk:sector-northeast-frontier:static",
+      "detailed": {
+        "url": "/generated/published-static/chunk-sector-northeast-frontier-static.detailed.glb",
+        "format": "glb",
+        "compression": "none"
+      },
+      "proxy": {
+        "url": "/generated/published-static/chunk-sector-northeast-frontier-static.proxy.glb",
+        "format": "glb",
+        "compression": "none"
+      }
+    },
+    "chunk:sector-far-northeast:static": {
+      "chunkId": "chunk:sector-far-northeast:static",
+      "detailed": {
+        "url": "/generated/published-static/chunk-sector-far-northeast-static.detailed.glb",
+        "format": "glb",
+        "compression": "none"
+      },
+      "proxy": {
+        "url": "/generated/published-static/chunk-sector-far-northeast-static.proxy.glb",
+        "format": "glb",
+        "compression": "none"
+      }
+    },
+    "chunk:sector-west-north:static": {
+      "chunkId": "chunk:sector-west-north:static",
+      "detailed": {
+        "url": "/generated/published-static/chunk-sector-west-north-static.detailed.glb",
+        "format": "glb",
+        "compression": "none"
+      },
+      "proxy": {
+        "url": "/generated/published-static/chunk-sector-west-north-static.proxy.glb",
+        "format": "glb",
+        "compression": "none"
+      }
+    },
+    "chunk:sector-northwest:static": {
+      "chunkId": "chunk:sector-northwest:static",
+      "detailed": {
+        "url": "/generated/published-static/chunk-sector-northwest-static.detailed.glb",
+        "format": "glb",
+        "compression": "none"
+      },
+      "proxy": {
+        "url": "/generated/published-static/chunk-sector-northwest-static.proxy.glb",
+        "format": "glb",
+        "compression": "none"
+      }
+    },
+    "chunk:sector-north:static": {
+      "chunkId": "chunk:sector-north:static",
+      "detailed": {
+        "url": "/generated/published-static/chunk-sector-north-static.detailed.glb",
+        "format": "glb",
+        "compression": "none"
+      },
+      "proxy": {
+        "url": "/generated/published-static/chunk-sector-north-static.proxy.glb",
+        "format": "glb",
+        "compression": "none"
+      }
+    },
+    "chunk:sector-northeast:static": {
+      "chunkId": "chunk:sector-northeast:static",
+      "detailed": {
+        "url": "/generated/published-static/chunk-sector-northeast-static.detailed.glb",
+        "format": "glb",
+        "compression": "none"
+      },
+      "proxy": {
+        "url": "/generated/published-static/chunk-sector-northeast-static.proxy.glb",
+        "format": "glb",
+        "compression": "none"
+      }
+    },
+    "chunk:sector-east-north:static": {
+      "chunkId": "chunk:sector-east-north:static",
+      "detailed": {
+        "url": "/generated/published-static/chunk-sector-east-north-static.detailed.glb",
+        "format": "glb",
+        "compression": "none"
+      },
+      "proxy": {
+        "url": "/generated/published-static/chunk-sector-east-north-static.proxy.glb",
+        "format": "glb",
+        "compression": "none"
+      }
+    },
+    "chunk:sector-far-west:static": {
+      "chunkId": "chunk:sector-far-west:static",
+      "detailed": {
+        "url": "/generated/published-static/chunk-sector-far-west-static.detailed.glb",
+        "format": "glb",
+        "compression": "none"
+      },
+      "proxy": {
+        "url": "/generated/published-static/chunk-sector-far-west-static.proxy.glb",
+        "format": "glb",
+        "compression": "none"
+      }
+    },
+    "chunk:sector-west:static": {
+      "chunkId": "chunk:sector-west:static",
+      "detailed": {
+        "url": "/generated/published-static/chunk-sector-west-static.detailed.glb",
+        "format": "glb",
+        "compression": "none"
+      },
+      "proxy": {
+        "url": "/generated/published-static/chunk-sector-west-static.proxy.glb",
+        "format": "glb",
+        "compression": "none"
+      }
+    },
     "chunk:sector-core:static": {
       "chunkId": "chunk:sector-core:static",
       "detailed": {
@@ -29,15 +185,41 @@
         "compression": "none"
       }
     },
-    "chunk:sector-west:static": {
-      "chunkId": "chunk:sector-west:static",
+    "chunk:sector-far-east:static": {
+      "chunkId": "chunk:sector-far-east:static",
       "detailed": {
-        "url": "/generated/published-static/chunk-sector-west-static.detailed.glb",
+        "url": "/generated/published-static/chunk-sector-far-east-static.detailed.glb",
         "format": "glb",
         "compression": "none"
       },
       "proxy": {
-        "url": "/generated/published-static/chunk-sector-west-static.proxy.glb",
+        "url": "/generated/published-static/chunk-sector-far-east-static.proxy.glb",
+        "format": "glb",
+        "compression": "none"
+      }
+    },
+    "chunk:sector-west-south:static": {
+      "chunkId": "chunk:sector-west-south:static",
+      "detailed": {
+        "url": "/generated/published-static/chunk-sector-west-south-static.detailed.glb",
+        "format": "glb",
+        "compression": "none"
+      },
+      "proxy": {
+        "url": "/generated/published-static/chunk-sector-west-south-static.proxy.glb",
+        "format": "glb",
+        "compression": "none"
+      }
+    },
+    "chunk:sector-southwest:static": {
+      "chunkId": "chunk:sector-southwest:static",
+      "detailed": {
+        "url": "/generated/published-static/chunk-sector-southwest-static.detailed.glb",
+        "format": "glb",
+        "compression": "none"
+      },
+      "proxy": {
+        "url": "/generated/published-static/chunk-sector-southwest-static.proxy.glb",
         "format": "glb",
         "compression": "none"
       }
@@ -51,6 +233,97 @@
       },
       "proxy": {
         "url": "/generated/published-static/chunk-sector-south-static.proxy.glb",
+        "format": "glb",
+        "compression": "none"
+      }
+    },
+    "chunk:sector-southeast:static": {
+      "chunkId": "chunk:sector-southeast:static",
+      "detailed": {
+        "url": "/generated/published-static/chunk-sector-southeast-static.detailed.glb",
+        "format": "glb",
+        "compression": "none"
+      },
+      "proxy": {
+        "url": "/generated/published-static/chunk-sector-southeast-static.proxy.glb",
+        "format": "glb",
+        "compression": "none"
+      }
+    },
+    "chunk:sector-east-south:static": {
+      "chunkId": "chunk:sector-east-south:static",
+      "detailed": {
+        "url": "/generated/published-static/chunk-sector-east-south-static.detailed.glb",
+        "format": "glb",
+        "compression": "none"
+      },
+      "proxy": {
+        "url": "/generated/published-static/chunk-sector-east-south-static.proxy.glb",
+        "format": "glb",
+        "compression": "none"
+      }
+    },
+    "chunk:sector-far-southwest:static": {
+      "chunkId": "chunk:sector-far-southwest:static",
+      "detailed": {
+        "url": "/generated/published-static/chunk-sector-far-southwest-static.detailed.glb",
+        "format": "glb",
+        "compression": "none"
+      },
+      "proxy": {
+        "url": "/generated/published-static/chunk-sector-far-southwest-static.proxy.glb",
+        "format": "glb",
+        "compression": "none"
+      }
+    },
+    "chunk:sector-south-frontier:static": {
+      "chunkId": "chunk:sector-south-frontier:static",
+      "detailed": {
+        "url": "/generated/published-static/chunk-sector-south-frontier-static.detailed.glb",
+        "format": "glb",
+        "compression": "none"
+      },
+      "proxy": {
+        "url": "/generated/published-static/chunk-sector-south-frontier-static.proxy.glb",
+        "format": "glb",
+        "compression": "none"
+      }
+    },
+    "chunk:sector-far-south:static": {
+      "chunkId": "chunk:sector-far-south:static",
+      "detailed": {
+        "url": "/generated/published-static/chunk-sector-far-south-static.detailed.glb",
+        "format": "glb",
+        "compression": "none"
+      },
+      "proxy": {
+        "url": "/generated/published-static/chunk-sector-far-south-static.proxy.glb",
+        "format": "glb",
+        "compression": "none"
+      }
+    },
+    "chunk:sector-southeast-frontier:static": {
+      "chunkId": "chunk:sector-southeast-frontier:static",
+      "detailed": {
+        "url": "/generated/published-static/chunk-sector-southeast-frontier-static.detailed.glb",
+        "format": "glb",
+        "compression": "none"
+      },
+      "proxy": {
+        "url": "/generated/published-static/chunk-sector-southeast-frontier-static.proxy.glb",
+        "format": "glb",
+        "compression": "none"
+      }
+    },
+    "chunk:sector-far-southeast:static": {
+      "chunkId": "chunk:sector-far-southeast:static",
+      "detailed": {
+        "url": "/generated/published-static/chunk-sector-far-southeast-static.detailed.glb",
+        "format": "glb",
+        "compression": "none"
+      },
+      "proxy": {
+        "url": "/generated/published-static/chunk-sector-far-southeast-static.proxy.glb",
         "format": "glb",
         "compression": "none"
       }

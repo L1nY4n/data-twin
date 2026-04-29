@@ -8,7 +8,8 @@ describe('rules panel dock layout', () => {
     const source = readFileSync(pagePath, 'utf8')
 
     expect(source.includes('absolute inset-y-2 right-2 z-20')).toBe(true)
-    expect(source.includes("bottomPanelOpen ? 'w-[420px]' : 'w-0'")).toBe(true)
+    expect(source.includes("bottomPanelOpen ? 'w-[460px]' : 'w-0'")).toBe(true)
+    expect(source.includes("rightPanelOpen ? 'right-[328px]' : 'right-2'")).toBe(true)
   })
 
   test('does not reserve fixed bottom height for rules panel anymore', () => {
@@ -18,14 +19,14 @@ describe('rules panel dock layout', () => {
     expect(source.includes("bottomPanelOpen ? 'h-72' : 'h-0'")).toBe(false)
   })
 
-  test('keeps left and right side panels at fixed non-shrinking widths', () => {
+  test('keeps left and right side panels at fixed non-shrinking widths without edge toggles', () => {
     const pagePath = join(process.cwd(), 'components/digital-twin/DigitalTwinViewerPage.tsx')
     const source = readFileSync(pagePath, 'utf8')
 
     expect(source.includes('ViewerAdminEdgePanel')).toBe(true)
-    expect(source.includes("leftPanelOpen ? 'w-[230px]' : 'w-0'")).toBe(true)
-    expect(source.includes("rightPanelOpen ? 'w-64' : 'w-0'")).toBe(true)
-    expect(source.includes("leftPanelOpen ? 'left-[226px]' : 'left-4'")).toBe(true)
+    expect(source.includes("leftPanelOpen ? 'w-[300px]' : 'w-0'")).toBe(true)
+    expect(source.includes("rightPanelOpen ? 'w-[320px]' : 'w-0'")).toBe(true)
+    expect(source.includes('viewer-edge-toggle')).toBe(false)
   })
 
   test('keeps incident video dialog in the page shell without the old mock citation hook', () => {

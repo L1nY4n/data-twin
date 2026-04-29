@@ -21,16 +21,19 @@ describe('viewer/admin shared style primitives', () => {
     expect(primitives.includes('export function ViewerAdminStatGrid')).toBe(true)
   })
 
-  test('viewer page uses the shared edge panel primitive for both side rails', () => {
+  test('viewer page uses shared edge panels without extra side-rail toggle buttons', () => {
     const page = readFileSync(
       join(process.cwd(), 'components/digital-twin/DigitalTwinViewerPage.tsx'),
       'utf8'
     )
 
     expect(page.includes('ViewerAdminEdgePanel')).toBe(true)
-    expect(page.includes("widthClass={leftPanelOpen ? 'w-[230px]' : 'w-0'}")).toBe(true)
-    expect(page.includes("widthClass={rightPanelOpen ? 'w-64' : 'w-0'}")).toBe(true)
-    expect(page.includes("leftPanelOpen ? 'left-[226px]' : 'left-4'")).toBe(true)
+    expect(page.includes("widthClass={leftPanelOpen ? 'w-[300px]' : 'w-0'}")).toBe(true)
+    expect(page.includes("widthClass={rightPanelOpen ? 'w-[320px]' : 'w-0'}")).toBe(true)
+    expect(page.includes('viewer-edge-toggle')).toBe(false)
+    expect(page.includes('viewer-panel-switchboard')).toBe(true)
+    expect(page.includes('viewer-panel-switchboard__metrics')).toBe(true)
+    expect(page.includes('viewer-panel-switchboard__button')).toBe(true)
     expect(page.includes('variant="soft"')).toBe(true)
   })
 
@@ -166,12 +169,23 @@ describe('viewer/admin shared style primitives', () => {
     )
 
     expect(entityList.includes('viewer-admin-entity-search')).toBe(true)
+    expect(entityList.includes('viewer-admin-entity-summary')).toBe(true)
+    expect(entityList.includes('viewer-admin-entity-filter-chip')).toBe(true)
     expect(entityList.includes('viewer-admin-entity-group-trigger')).toBe(true)
     expect(entityList.includes('viewer-admin-entity-row-main')).toBe(true)
     expect(entityList.includes('viewer-admin-entity-focus')).toBe(true)
+    expect(entityList.includes('const ENTITY_TYPES')).toBe(true)
+    expect(entityList.includes('const ENTITY_STATUSES')).toBe(true)
     expect(entityList.includes('entity.secondaryLabel')).toBe(true)
     expect(entityList.includes('entity.archetypeLabel')).toBe(false)
+    expect(styles.includes('.viewer-admin-surface .viewer-panel-switchboard')).toBe(true)
+    expect(styles.includes('.viewer-admin-surface .viewer-panel-switchboard__metrics')).toBe(true)
+    expect(styles.includes('.viewer-admin-surface .viewer-panel-switchboard__button')).toBe(true)
+    expect(styles.includes('.viewer-admin-surface .viewer-panel-switchboard__meta')).toBe(true)
+    expect(styles.includes('.viewer-admin-surface .viewer-edge-toggle')).toBe(false)
     expect(styles.includes('.viewer-admin-surface .viewer-admin-entity-search')).toBe(true)
+    expect(styles.includes('.viewer-admin-surface .viewer-admin-entity-summary')).toBe(true)
+    expect(styles.includes('.viewer-admin-surface .viewer-admin-entity-filter-chip')).toBe(true)
     expect(styles.includes('.viewer-admin-surface .viewer-admin-entity-group-trigger')).toBe(true)
     expect(styles.includes('.viewer-admin-surface .viewer-admin-entity-row-main')).toBe(true)
     expect(styles.includes('min-height: 32px;')).toBe(true)

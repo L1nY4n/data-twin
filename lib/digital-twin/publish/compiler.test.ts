@@ -56,13 +56,13 @@ describe('buildPublishedScenePackage', () => {
       generatedAt: '2026-04-03T06:26:12.000Z',
     })
 
-    expect(CAMPUS_SECTORS.length).toBeGreaterThanOrEqual(6)
+    expect(CAMPUS_SECTORS.length).toBeGreaterThanOrEqual(24)
     expect(
       published.staticChunks
         .filter((chunk) => chunk.kind === 'sector')
         .every((chunk) => chunk.featureCount === CAMPUS_LAYOUT_BLUEPRINTS.length)
     ).toBe(true)
-    expect(CAMPUS_LAYOUT_BLUEPRINTS.length).toBeGreaterThanOrEqual(24)
+    expect(CAMPUS_SECTORS.length * CAMPUS_LAYOUT_BLUEPRINTS.length).toBeGreaterThanOrEqual(960)
     expect(published.cameraPresets.map((preset) => preset.id)).toEqual(
       CAMPUS_CAMERA_PRESETS.map((preset) => preset.id)
     )
