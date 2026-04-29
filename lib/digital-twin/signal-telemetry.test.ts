@@ -127,4 +127,55 @@ describe('entity signal telemetry', () => {
     expect(summary.degradedSignals).toBe(3)
     expect(summary.lastUpdatedAt).toBeNull()
   })
+
+  test('honors projected runtime signal metrics on directory entries', () => {
+    const summary = summarizeEntityDirectorySignalTelemetry([
+      {
+        id: 'sensor-1',
+        type: 'sensor',
+        status: 'active',
+        visible: true,
+        signalCount: 4,
+        degradedSignalCount: 1,
+        writableSignalCount: 2,
+        lastSignalUpdatedAt: 300,
+      },
+      { id: 'pump-hidden', type: 'equipment', status: 'error', visible: false, signalCount: 12 },
+    ])
+
+    expect(summary.totalSignals).toBe(4)
+    expect(summary.degradedSignals).toBe(1)
+    expect(summary.writableSignals).toBe(2)
+    expect(summary.lastUpdatedAt).toBe(300)
+  })
+
+  test('marks runtime-injected metadata signals as runtime source', () => {
+    const signals = collectEntitySignalSnapshots(
+      makeSensor({
+        updatedAt: 400,
+        metadata: {
+          realvirtual: {
+            signals: [
+              {
+                id: 'reactor-temp-pv',
+                name: 'ReactorTemperaturePV',
+                path: 'PLC/Line1/Reactor/TemperaturePV',
+                value: 71.2,
+                unit: 'C',
+                dataType: 'float',
+                source: 'runtime',
+                quality: 'uncertain',
+              },
+            ],
+          },
+        },
+      })
+    )
+
+    const runtimeSignal = signals.find((signal) => signal.descriptor.id.endsWith('reactor-temp-pv'))
+    expect(runtimeSignal?.source).toBe('runtime')
+    expect(runtimeSignal?.descriptor.dataType).toBe('float')
+    expect(runtimeSignal?.value).toBe(71.2)
+    expect(runtimeSignal?.quality).toBe('uncertain')
+  })
 })

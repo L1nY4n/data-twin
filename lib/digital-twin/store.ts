@@ -90,6 +90,7 @@ import type {
 } from './module-registry'
 import { runtimeVehicleSnapshotRegistry } from './runtime-vehicle-snapshot-registry'
 import { runtimeVehiclePoseBuffer } from './runtime-vehicle-pose-buffer'
+import { summarizeEntitySignalTelemetry } from './signal-telemetry'
 
 export type QualityProfile = 'balanced' | 'performance'
 export type RendererMode = 'auto' | 'webgpu' | 'webgl2'
@@ -142,6 +143,11 @@ export interface EntityDirectoryEntry {
   name: string
   status: EntityStatus
   visible: boolean
+  signalCount?: number
+  degradedSignalCount?: number
+  writableSignalCount?: number
+  lastSignalUpdatedAt?: number | null
+  signalRevision?: string
   categoryKey?: string
   categoryLabel?: string
   categoryColor?: string
@@ -1035,6 +1041,7 @@ function canReuseProjectedEntity(previous: Entity, snapshot: EcsEntitySnapshot):
   if (previous.name !== snapshot.name) return false
   if (previous.status !== snapshot.status) return false
   if (previous.visible !== snapshot.visible) return false
+  if (getRuntimeSignalRevision(previous.metadata) !== getRuntimeSignalRevision(snapshot.metadata)) return false
   if ((previous.labelMode ?? 'html') !== snapshot.labelMode) return false
   if (!vectorEquals(previous.position, snapshot.position)) return false
   if (!vectorEquals(previous.rotation, snapshot.rotation)) return false
@@ -1258,6 +1265,39 @@ function projectEntitySnapshot(
   return snapshotToEntity(snapshot)
 }
 
+function getRuntimeSignalMetadata(metadata: Record<string, unknown>) {
+  const realvirtual = metadata.realvirtual
+  return realvirtual && typeof realvirtual === 'object' && !Array.isArray(realvirtual)
+    ? (realvirtual as Record<string, unknown>)
+    : null
+}
+
+function getRuntimeSignalRevision(metadata: Record<string, unknown>) {
+  const realvirtual = getRuntimeSignalMetadata(metadata)
+  const revision = realvirtual?.runtimeSignalsRevision
+  if (typeof revision === 'string' && revision.length > 0) return revision
+  const updatedAt = realvirtual?.runtimeSignalsUpdatedAt
+  return typeof updatedAt === 'number' ? String(updatedAt) : undefined
+}
+
+function hasProjectedSignalMetadata(metadata: Record<string, unknown>) {
+  const realvirtual = getRuntimeSignalMetadata(metadata)
+  return Boolean(realvirtual && realvirtual.signals !== undefined)
+}
+
+function projectSignalDirectoryFields(snapshot: EcsEntitySnapshot) {
+  if (!hasProjectedSignalMetadata(snapshot.metadata)) return {}
+
+  const summary = summarizeEntitySignalTelemetry([snapshotToEntity(snapshot)])
+  return {
+    signalCount: summary.totalSignals,
+    degradedSignalCount: summary.degradedSignals,
+    writableSignalCount: summary.writableSignals,
+    lastSignalUpdatedAt: summary.lastUpdatedAt,
+    signalRevision: getRuntimeSignalRevision(snapshot.metadata),
+  }
+}
+
 function projectEntityDirectoryEntry(
   snapshot: EcsEntitySnapshot,
   getCategoryPresentation?: (key: string) => EntityCategoryPresentation,
@@ -1279,6 +1319,7 @@ function projectEntityDirectoryEntry(
     name: snapshot.name,
     status: snapshot.status,
     visible: snapshot.visible,
+    ...projectSignalDirectoryFields(snapshot),
     ...(snapshot.categoryKey ? { categoryKey: snapshot.categoryKey } : {}),
     ...(snapshot.categoryKey
       ? {
@@ -1315,13 +1356,28 @@ function canReuseEntityDirectoryEntry(
           categoryKey: snapshot.categoryKey,
         })
       : undefined
+  if (
+    !previousEntry ||
+    previousEntry.type !== snapshot.type ||
+    previousEntry.name !== snapshot.name ||
+    previousEntry.status !== snapshot.status ||
+    previousEntry.visible !== snapshot.visible ||
+    previousEntry.categoryKey !== snapshot.categoryKey
+  ) {
+    return false
+  }
+
+  const signalFields =
+    previousEntry.signalRevision === getRuntimeSignalRevision(snapshot.metadata)
+      ? previousEntry
+      : projectSignalDirectoryFields(snapshot)
+
   return (
-    !!previousEntry &&
-    previousEntry.type === snapshot.type &&
-    previousEntry.name === snapshot.name &&
-    previousEntry.status === snapshot.status &&
-    previousEntry.visible === snapshot.visible &&
-    previousEntry.categoryKey === snapshot.categoryKey &&
+    previousEntry.signalCount === signalFields.signalCount &&
+    previousEntry.degradedSignalCount === signalFields.degradedSignalCount &&
+    previousEntry.writableSignalCount === signalFields.writableSignalCount &&
+    previousEntry.lastSignalUpdatedAt === signalFields.lastSignalUpdatedAt &&
+    previousEntry.signalRevision === signalFields.signalRevision &&
     previousEntry.categoryLabel ===
       (snapshot.categoryKey ? categoryPresentation?.displayName ?? snapshot.categoryKey : undefined) &&
     previousEntry.categorySortOrder ===

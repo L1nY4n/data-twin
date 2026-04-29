@@ -20,6 +20,7 @@ import type {
   PositionUpdateMessage,
   RuntimeBatchMessage,
   RuntimeIncident,
+  SignalUpdateMessage,
   StatusUpdateMessage,
   VehicleEntity,
   WSMessage,
@@ -28,6 +29,7 @@ import { realtimeConnectionHub } from '@/lib/digital-twin/realtime-connection-hu
 import { createRuntimeMessageBatcher } from '@/lib/digital-twin/runtime-message-batcher'
 import {
   buildRuntimePositionEntityPatch,
+  buildRuntimeSignalEntityPatch,
   buildRuntimeStatusEntityPatch,
   resolveRuntimeIncident,
 } from '@/lib/digital-twin/runtime-ingest'
@@ -438,6 +440,16 @@ export function useLiveDigitalTwin(workspaceId: string) {
               data.entityId,
               buildRuntimeStatusEntityPatch(readEntity(data.entityId), data)
             )
+            break
+          }
+          case 'signal_update': {
+            const data = message.payload as SignalUpdateMessage
+            const patch = buildRuntimeSignalEntityPatch(readEntity(data.entityId), data, {
+              timestamp: message.timestamp,
+            })
+            if (Object.keys(patch).length > 0) {
+              mergeEntityPatch(data.entityId, patch)
+            }
             break
           }
           case 'alarm': {

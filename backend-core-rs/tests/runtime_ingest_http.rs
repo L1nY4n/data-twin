@@ -91,6 +91,28 @@ async fn runtime_ingest_relays_supported_events_to_websocket_clients() {
                                 }
                             },
                             {
+                                "type": "signal_update",
+                                "timestamp": 12345678915_u64,
+                                "payload": {
+                                    "entityId": "sensor-temp-reactor-01",
+                                    "source": "rust-test-simulator",
+                                    "connectorId": "simulated-plc-line-1",
+                                    "signals": [
+                                        {
+                                            "id": "reactor-temp-pv",
+                                            "name": "ReactorTemperaturePV",
+                                            "path": "PLC/Line1/Reactor/TemperaturePV",
+                                            "label": "反应釜温度 PV",
+                                            "unit": "C",
+                                            "dataType": "float",
+                                            "direction": "input",
+                                            "value": 88.5,
+                                            "quality": "uncertain"
+                                        }
+                                    ]
+                                }
+                            },
+                            {
                                 "type": "alarm",
                                 "timestamp": 1234567892_u64,
                                 "payload": {
@@ -136,7 +158,7 @@ async fn runtime_ingest_relays_supported_events_to_websocket_clients() {
 
     let body = parse_json(response).await;
     assert_eq!(body["source"], json!("python-simulator"));
-    assert_eq!(body["acceptedCount"], json!(4));
+    assert_eq!(body["acceptedCount"], json!(5));
 
     assert_eq!(
         next_realtime_message(&mut socket).await,
@@ -183,6 +205,31 @@ async fn runtime_ingest_relays_supported_events_to_websocket_clients() {
                     "thresholdMax": 68.0,
                     "simulated": true
                 }
+            }
+        })
+    );
+    assert_eq!(
+        next_realtime_message(&mut socket).await,
+        json!({
+            "type": "signal_update",
+            "timestamp": 12345678915_u64,
+            "payload": {
+                "entityId": "sensor-temp-reactor-01",
+                "source": "rust-test-simulator",
+                "connectorId": "simulated-plc-line-1",
+                "signals": [
+                    {
+                        "id": "reactor-temp-pv",
+                        "name": "ReactorTemperaturePV",
+                        "path": "PLC/Line1/Reactor/TemperaturePV",
+                        "label": "反应釜温度 PV",
+                        "unit": "C",
+                        "dataType": "float",
+                        "direction": "input",
+                        "value": 88.5,
+                        "quality": "uncertain"
+                    }
+                ]
             }
         })
     );

@@ -381,6 +381,28 @@ def build_events(
             },
         },
         {
+            "type": "signal_update",
+            "timestamp": timestamp_ms,
+            "payload": {
+                "entityId": "sensor-temp-reactor-01",
+                "source": "python-simulator",
+                "connectorId": "simulated-plc-line-1",
+                "signals": [
+                    {
+                        "id": "reactor-temp-pv",
+                        "name": "ReactorTemperaturePV",
+                        "path": "PLC/Line1/Reactor/TemperaturePV",
+                        "label": "反应釜温度 PV",
+                        "unit": "C",
+                        "dataType": "float",
+                        "direction": "input",
+                        "value": round(reactor_temp, 2),
+                        "quality": "uncertain" if temp_warning else "good",
+                    }
+                ],
+            },
+        },
+        {
             "type": "status_update",
             "timestamp": timestamp_ms,
             "payload": {
@@ -396,6 +418,28 @@ def build_events(
             },
         },
         {
+            "type": "signal_update",
+            "timestamp": timestamp_ms,
+            "payload": {
+                "entityId": "sensor-gas-loading-01",
+                "source": "python-simulator",
+                "connectorId": "simulated-plc-line-1",
+                "signals": [
+                    {
+                        "id": "gas-ppm-pv",
+                        "name": "LoadingGasPPM",
+                        "path": "PLC/Loading/GasPPM",
+                        "label": "装卸区气体浓度",
+                        "unit": "ppm",
+                        "dataType": "float",
+                        "direction": "input",
+                        "value": round(gas_ppm, 2),
+                        "quality": "uncertain" if gas_warning else "good",
+                    }
+                ],
+            },
+        },
+        {
             "type": "status_update",
             "timestamp": timestamp_ms,
             "payload": {
@@ -408,6 +452,28 @@ def build_events(
                     "thresholdMax": 6.4,
                     "simulated": True,
                 },
+            },
+        },
+        {
+            "type": "signal_update",
+            "timestamp": timestamp_ms,
+            "payload": {
+                "entityId": "sensor-pressure-pump-01",
+                "source": "python-simulator",
+                "connectorId": "simulated-plc-line-1",
+                "signals": [
+                    {
+                        "id": "pump-pressure-pv",
+                        "name": "PumpPressurePV",
+                        "path": "PLC/Pump/PressurePV",
+                        "label": "泵出口压力",
+                        "unit": "bar",
+                        "dataType": "float",
+                        "direction": "input",
+                        "value": round(pressure_bar, 3),
+                        "quality": "uncertain" if pressure_warning else "good",
+                    }
+                ],
             },
         },
     ]

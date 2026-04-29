@@ -71,6 +71,8 @@ describe('backend runtime guards', () => {
     expect(source.includes('createRuntimeMessageBatcher')).toBe(true)
     expect(source.includes('applySimulationTick')).toBe(true)
     expect(source.includes('batchUpsertIncidents')).toBe(true)
+    expect(source.includes('buildRuntimeSignalEntityPatch')).toBe(true)
+    expect(source.includes("case 'signal_update'")).toBe(true)
     expect(source.includes("case 'config_changed'")) .toBe(true)
     expect(source.includes('hydrateBootstrapState')).toBe(true)
     expect(source.includes('new DigitalTwinWebSocket')).toBe(false)
@@ -142,6 +144,8 @@ describe('backend runtime guards', () => {
     expect(simulator.includes('vehicle-truck-01')).toBe(true)
     expect(simulator.includes('vehicle-truck-02')).toBe(true)
     expect(simulator.includes('vehicle-truck-03')).toBe(true)
+    expect(simulator.includes('"type": "signal_update"')).toBe(true)
+    expect(simulator.includes('simulated-plc-line-1')).toBe(true)
   })
 
   test('dev browser/runtime verification should support the standard 127.0.0.1 local stack', () => {

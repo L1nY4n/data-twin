@@ -425,6 +425,7 @@ export type WSMessageType =
   | 'pose_frame'
   | 'position_update'
   | 'status_update'
+  | 'signal_update'
   | 'alarm'
   | 'incident'
   | 'config_changed'
@@ -504,6 +505,30 @@ export interface StatusUpdateMessage {
   entityId: string
   status: EntityStatus
   parameters?: Record<string, unknown>
+}
+
+export type RuntimeSignalPrimitiveValue = string | number | boolean | null
+export type RuntimeSignalDirection = 'input' | 'output' | 'internal'
+
+export interface RuntimeSignalUpdate {
+  id?: string
+  name?: string
+  path?: string
+  label?: string
+  unit?: string
+  dataType?: string
+  connectorId?: string
+  direction?: RuntimeSignalDirection | string
+  writable?: boolean
+  value: RuntimeSignalPrimitiveValue
+  quality?: string
+}
+
+export interface SignalUpdateMessage {
+  entityId: string
+  signals: RuntimeSignalUpdate[]
+  source?: string
+  connectorId?: string
 }
 
 export interface IncidentMessage {

@@ -8,6 +8,7 @@ import type {
 } from './types'
 import {
   buildRuntimePositionEntityPatch,
+  buildRuntimeSignalEntityPatch,
   buildRuntimeStatusEntityPatch,
   resolveRuntimeIncident,
 } from './runtime-ingest'
@@ -312,6 +313,91 @@ describe('runtime ingest helpers', () => {
         healthy: true,
       },
     })
+  })
+
+  test('merges runtime signal updates into realvirtual metadata without dropping authored context', () => {
+    const sensor = createSensor()
+    sensor.metadata = {
+      realvirtual: {
+        documents: [{ title: 'Manual', href: '/manual.pdf' }],
+        signals: [
+          {
+            id: 'reactor-temp-pv',
+            name: 'ReactorTemperaturePV',
+            path: 'PLC/Line1/Reactor/TemperaturePV',
+            value: 62,
+            unit: 'C',
+            direction: 'input',
+          },
+        ],
+      },
+    }
+
+    const patch = buildRuntimeSignalEntityPatch(
+      sensor,
+      {
+        entityId: sensor.id,
+        source: 'python-simulator',
+        connectorId: 'simulated-plc-line-1',
+        signals: [
+          {
+            id: 'reactor-temp-pv',
+            name: 'ReactorTemperaturePV',
+            path: 'PLC/Line1/Reactor/TemperaturePV',
+            label: '反应釜温度 PV',
+            unit: 'C',
+            dataType: 'float',
+            direction: 'input',
+            value: 71.25,
+            quality: 'uncertain',
+          },
+          {
+            id: 'reactor-enable-cmd',
+            name: 'ReactorEnable',
+            path: 'PLC/Line1/Reactor/Enable',
+            direction: 'output',
+            writable: true,
+            value: true,
+            quality: 'good',
+          },
+        ],
+      },
+      { timestamp: 500 }
+    )
+
+    expect(patch.updatedAt).toBe(500)
+    const realvirtual = patch.metadata?.realvirtual as {
+      documents: unknown[]
+      signals: Array<Record<string, unknown>>
+      runtimeSignalsUpdatedAt: number
+      runtimeSignalsRevision: string
+      runtimeSignalsSource: string
+      runtimeSignalsConnectorId: string
+    }
+
+    expect(realvirtual.documents).toEqual([{ title: 'Manual', href: '/manual.pdf' }])
+    expect(realvirtual.runtimeSignalsUpdatedAt).toBe(500)
+    expect(realvirtual.runtimeSignalsRevision).toContain('reactor-temp-pv')
+    expect(realvirtual.runtimeSignalsSource).toBe('python-simulator')
+    expect(realvirtual.runtimeSignalsConnectorId).toBe('simulated-plc-line-1')
+    expect(realvirtual.signals).toHaveLength(2)
+    expect(realvirtual.signals[0]).toEqual(
+      expect.objectContaining({
+        id: 'reactor-temp-pv',
+        value: 71.25,
+        quality: 'uncertain',
+        source: 'runtime',
+        connectorId: 'simulated-plc-line-1',
+      })
+    )
+    expect(realvirtual.signals[1]).toEqual(
+      expect.objectContaining({
+        id: 'reactor-enable-cmd',
+        direction: 'output',
+        writable: true,
+        value: true,
+      })
+    )
   })
 
   test('rejects malformed incident payloads before they reach the viewer', () => {

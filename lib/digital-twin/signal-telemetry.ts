@@ -32,6 +32,10 @@ export interface EntitySignalDirectoryEntry {
   type: Entity['type']
   status: Entity['status']
   visible: boolean
+  signalCount?: number
+  degradedSignalCount?: number
+  writableSignalCount?: number
+  lastSignalUpdatedAt?: number | null
 }
 
 type NativeSignalDraft = {
@@ -78,12 +82,14 @@ function toDescriptorFromMetadata(
     path: signal.path || signal.name || signalKey,
     label: signal.label ?? signal.name,
     unit: signal.unit,
+    dataType: signal.dataType,
     direction: signal.direction,
     writable: signal.writable,
     metadata: {
       entityId: entity.id,
-      source: 'metadata',
+      source: signal.source === 'runtime' || signal.source === 'status' ? signal.source : 'metadata',
       originalSignalId: signal.id,
+      ...(signal.connectorId ? { connectorId: signal.connectorId } : {}),
     },
   }
 }
@@ -271,24 +277,36 @@ export function summarizeEntityDirectorySignalTelemetry(
 ): EntitySignalTelemetrySummary {
   let totalSignals = 0
   let degradedSignals = 0
+  let writableSignals = 0
   let entityCountWithSignals = 0
+  let lastUpdatedAt: number | null = null
 
   for (const entry of entries) {
     if (!entry.visible) continue
-    const signalCount = estimateSignalCountForDirectoryEntry(entry)
+    const signalCount =
+      typeof entry.signalCount === 'number'
+        ? Math.max(0, entry.signalCount)
+        : estimateSignalCountForDirectoryEntry(entry)
     totalSignals += signalCount
     entityCountWithSignals += 1
-    if (entry.status === 'warning' || entry.status === 'error') {
-      degradedSignals += signalCount
+    degradedSignals +=
+      typeof entry.degradedSignalCount === 'number'
+        ? Math.max(0, entry.degradedSignalCount)
+        : entry.status === 'warning' || entry.status === 'error'
+          ? signalCount
+          : 0
+    writableSignals += Math.max(0, entry.writableSignalCount ?? 0)
+    if (typeof entry.lastSignalUpdatedAt === 'number') {
+      lastUpdatedAt = Math.max(lastUpdatedAt ?? 0, entry.lastSignalUpdatedAt)
     }
   }
 
   return {
     totalSignals,
     degradedSignals,
-    writableSignals: 0,
+    writableSignals,
     entityCountWithSignals,
-    lastUpdatedAt: null,
+    lastUpdatedAt,
   }
 }
 

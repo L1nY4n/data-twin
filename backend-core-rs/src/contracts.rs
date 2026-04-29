@@ -844,6 +844,10 @@ pub enum RealtimeEvent {
         timestamp: u64,
         payload: StatusUpdatePayload,
     },
+    SignalUpdate {
+        timestamp: u64,
+        payload: SignalUpdatePayload,
+    },
     Alarm {
         timestamp: u64,
         payload: AlarmEventPayload,
@@ -891,6 +895,51 @@ pub struct StatusUpdatePayload {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SignalDirection {
+    Input,
+    Output,
+    Internal,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SignalUpdateEntry {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unit: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub direction: Option<SignalDirection>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub writable: Option<bool>,
+    pub value: ContractValue,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quality: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connector_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SignalUpdatePayload {
+    pub entity_id: String,
+    pub signals: Vec<SignalUpdateEntry>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connector_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AlarmEventPayload {
     pub id: String,
@@ -923,6 +972,11 @@ pub enum RuntimeIngestEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         timestamp: Option<u64>,
         payload: StatusUpdatePayload,
+    },
+    SignalUpdate {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        timestamp: Option<u64>,
+        payload: SignalUpdatePayload,
     },
     Alarm {
         #[serde(default, skip_serializing_if = "Option::is_none")]

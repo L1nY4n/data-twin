@@ -2,11 +2,13 @@ import type {
   WSMessage, 
   WSMessageType, 
   PositionUpdateMessage, 
+  SignalUpdateMessage,
   StatusUpdateMessage,
   IncidentMessage,
   Entity,
 } from './types'
 import { decodeRuntimePoseFrame } from './runtime-pose-frame'
+import { buildRuntimeSignalEntityPatch } from './runtime-ingest'
 
 type MessageHandler = (message: WSMessage) => void
 
@@ -298,6 +300,22 @@ export function createStatusUpdateMessage(
   }
 }
 
+export function createSignalUpdateMessage(
+  entityId: string,
+  signals: SignalUpdateMessage['signals'],
+  source?: string
+): WSMessage {
+  return {
+    type: 'signal_update',
+    payload: {
+      entityId,
+      signals,
+      ...(source ? { source } : {}),
+    } satisfies SignalUpdateMessage,
+    timestamp: Date.now(),
+  }
+}
+
 // Hook for using WebSocket in React components
 import { useEffect, useRef, useCallback, useState } from 'react'
 import { useDigitalTwinStore } from './store'
@@ -339,6 +357,17 @@ export function useWebSocketConnection(url?: string) {
               status: data.status,
               ...(data.parameters && { parameters: data.parameters as Record<string, string | number | boolean> }),
             })
+            break
+          }
+          case 'signal_update': {
+            const data = message.payload as SignalUpdateMessage
+            const entity = useDigitalTwinStore.getState().getEntityById(data.entityId)
+            const patch = buildRuntimeSignalEntityPatch(entity, data, {
+              timestamp: message.timestamp,
+            })
+            if (Object.keys(patch).length > 0) {
+              updateEntity(data.entityId, patch)
+            }
             break
           }
           case 'alarm': {

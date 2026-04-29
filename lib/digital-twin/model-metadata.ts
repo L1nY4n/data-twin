@@ -9,6 +9,9 @@ export interface DigitalTwinSignalBinding {
   writable: boolean
   label?: string
   unit?: string
+  dataType?: string
+  source?: string
+  connectorId?: string
   value?: DigitalTwinMetadataScalar
   quality?: string
 }
@@ -133,6 +136,9 @@ function normalizeSignalBinding(value: unknown, index: number): DigitalTwinSigna
   const writable = typeof value.writable === 'boolean' ? value.writable : direction === 'output'
   const unit = readString(value, ['unit', 'units'])
   const label = readString(value, ['label', 'displayName', 'title'])
+  const dataType = readString(value, ['dataType', 'type'])
+  const source = readString(value, ['source', 'runtimeSource'])
+  const connectorId = readString(value, ['connectorId', 'connector'])
   const quality = readString(value, ['quality'])
   const scalarValue = readScalar(value, ['value', 'initialValue', 'currentValue'])
 
@@ -144,6 +150,9 @@ function normalizeSignalBinding(value: unknown, index: number): DigitalTwinSigna
     writable,
     ...(label ? { label } : {}),
     ...(unit ? { unit } : {}),
+    ...(dataType ? { dataType } : {}),
+    ...(source ? { source } : {}),
+    ...(connectorId ? { connectorId } : {}),
     ...(quality ? { quality } : {}),
     ...(scalarValue !== undefined ? { value: scalarValue } : {}),
   }

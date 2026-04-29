@@ -3,11 +3,16 @@ import type {
   IncidentMessage,
   PositionUpdateMessage,
   RuntimeIncident,
+  RuntimeSignalDirection,
+  RuntimeSignalPrimitiveValue,
+  RuntimeSignalUpdate,
+  SignalUpdateMessage,
   StatusUpdateMessage,
   VehicleRouteContract,
   VehicleTrackContract,
   Vector3,
 } from './types'
+import type { DigitalTwinSignalBinding } from './model-metadata'
 import { resolveRuntimeEventType } from './module-registry'
 import { degreesToRadians } from './spatial-utils'
 import { resolveVehicleRoutePose } from './vehicle-route-motion'
@@ -67,6 +72,121 @@ function asRuntimeParameters(
     }
   }
   return normalized
+}
+
+function isRuntimeSignalPrimitiveValue(value: unknown): value is RuntimeSignalPrimitiveValue {
+  return (
+    value === null ||
+    typeof value === 'string' ||
+    (typeof value === 'number' && Number.isFinite(value)) ||
+    typeof value === 'boolean'
+  )
+}
+
+function normalizeRuntimeSignalDirection(
+  value: unknown,
+  writable: unknown
+): RuntimeSignalDirection {
+  if (typeof value === 'string') {
+    const normalized = value.toLowerCase()
+    if (normalized === 'input' || normalized === 'in' || normalized === 'read') return 'input'
+    if (
+      normalized === 'output' ||
+      normalized === 'out' ||
+      normalized === 'write' ||
+      normalized === 'command'
+    ) {
+      return 'output'
+    }
+    if (normalized === 'internal') return 'internal'
+  }
+
+  return writable === true ? 'output' : 'input'
+}
+
+function runtimeSignalIdentity(signal: RuntimeSignalUpdate, index: number) {
+  const id = asString(signal.id) ?? asString(signal.path) ?? asString(signal.name)
+  const name = asString(signal.name) ?? asString(signal.label) ?? id ?? `runtime-signal-${index}`
+  const path = asString(signal.path) ?? id ?? name
+
+  return {
+    id: id ?? path,
+    name,
+    path,
+  }
+}
+
+function normalizeRuntimeSignalUpdate(
+  signal: RuntimeSignalUpdate,
+  index: number,
+  source?: string,
+  connectorId?: string
+): DigitalTwinSignalBinding | null {
+  if (!signal || typeof signal !== 'object') return null
+  if (!isRuntimeSignalPrimitiveValue(signal.value)) return null
+
+  const identity = runtimeSignalIdentity(signal, index)
+  const direction = normalizeRuntimeSignalDirection(signal.direction, signal.writable)
+  const writable = typeof signal.writable === 'boolean' ? signal.writable : direction === 'output'
+  const quality = asString(signal.quality)
+  const label = asString(signal.label)
+  const unit = asString(signal.unit)
+  const dataType = asString(signal.dataType)
+  const runtimeSource = asString(source)
+  const runtimeConnectorId = asString(signal.connectorId) ?? asString(connectorId)
+
+  return {
+    ...identity,
+    direction,
+    writable,
+    value: signal.value,
+    source: 'runtime',
+    ...(label ? { label } : {}),
+    ...(unit ? { unit } : {}),
+    ...(dataType ? { dataType } : {}),
+    ...(runtimeSource ? { runtimeSource } : {}),
+    ...(runtimeConnectorId ? { connectorId: runtimeConnectorId } : {}),
+    ...(quality ? { quality } : {}),
+  } as DigitalTwinSignalBinding & { runtimeSource?: string }
+}
+
+function signalEntryKeys(value: unknown): string[] {
+  if (typeof value === 'string') {
+    const key = value.trim()
+    return key ? [key] : []
+  }
+  const record = asObject(value)
+  if (!record) return []
+  return [
+    asString(record.id),
+    asString(record.path),
+    asString(record.name),
+    asString(record.label),
+  ].filter((key): key is string => typeof key === 'string' && key.length > 0)
+}
+
+function signalEntryToObject(value: unknown): Record<string, unknown> {
+  if (typeof value === 'string') {
+    return {
+      id: value,
+      name: value,
+      path: value,
+    }
+  }
+  return { ...(asObject(value) ?? {}) }
+}
+
+function runtimeSignalRevision(timestamp: number, signals: DigitalTwinSignalBinding[]) {
+  return `${timestamp}:${signals
+    .map((signal) =>
+      [
+        signal.id,
+        signal.path,
+        signal.quality ?? '',
+        typeof signal.value === 'string' ? signal.value : JSON.stringify(signal.value),
+      ].join('=')
+    )
+    .join('|')}`
 }
 
 function serializeVector3(value: Vector3) {
@@ -373,6 +493,82 @@ export function buildRuntimeStatusEntityPatch(
   }
 
   return patch as Partial<Entity>
+}
+
+export function buildRuntimeSignalEntityPatch(
+  entity: Entity | undefined,
+  message: SignalUpdateMessage,
+  options?: { timestamp?: number }
+): Partial<Entity> {
+  if (!entity || !Array.isArray(message.signals)) {
+    return {}
+  }
+
+  const timestamp = options?.timestamp ?? Date.now()
+  const runtimeSignals = message.signals
+    .map((signal, index) =>
+      normalizeRuntimeSignalUpdate(signal, index, message.source, message.connectorId)
+    )
+    .filter((signal): signal is DigitalTwinSignalBinding => signal !== null)
+
+  if (runtimeSignals.length === 0) {
+    return {}
+  }
+
+  const currentMetadata = entity.metadata ?? {}
+  const currentRealvirtual = asObject(currentMetadata.realvirtual) ?? {}
+  const currentSignalEntries = Array.isArray(currentRealvirtual.signals)
+    ? currentRealvirtual.signals
+    : currentRealvirtual.signals !== undefined
+      ? [currentRealvirtual.signals]
+      : []
+  const nextSignalEntries = currentSignalEntries.slice()
+  const existingIndexByKey = new Map<string, number>()
+
+  nextSignalEntries.forEach((entry, index) => {
+    for (const key of signalEntryKeys(entry)) {
+      existingIndexByKey.set(key, index)
+    }
+  })
+
+  for (const signal of runtimeSignals) {
+    const keys = [signal.id, signal.path, signal.name].filter(Boolean)
+    const existingIndex = keys
+      .map((key) => existingIndexByKey.get(key))
+      .find((index): index is number => index !== undefined)
+
+    if (existingIndex === undefined) {
+      existingIndexByKey.set(signal.id, nextSignalEntries.length)
+      existingIndexByKey.set(signal.path, nextSignalEntries.length)
+      existingIndexByKey.set(signal.name, nextSignalEntries.length)
+      nextSignalEntries.push(signal)
+      continue
+    }
+
+    const previous = signalEntryToObject(nextSignalEntries[existingIndex])
+    nextSignalEntries[existingIndex] = {
+      ...previous,
+      ...signal,
+    }
+  }
+
+  const source = asString(message.source)
+  const connectorId = asString(message.connectorId)
+
+  return {
+    metadata: {
+      ...currentMetadata,
+      realvirtual: {
+        ...currentRealvirtual,
+        signals: nextSignalEntries,
+        runtimeSignalsUpdatedAt: timestamp,
+        runtimeSignalsRevision: runtimeSignalRevision(timestamp, runtimeSignals),
+        ...(source ? { runtimeSignalsSource: source } : {}),
+        ...(connectorId ? { runtimeSignalsConnectorId: connectorId } : {}),
+      },
+    },
+    updatedAt: timestamp,
+  } as Partial<Entity>
 }
 
 function normalizeIncidentCitations(value: unknown) {

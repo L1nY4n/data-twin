@@ -13,7 +13,10 @@ use tokio::sync::Mutex;
 
 use crate::{
     app::AppState,
-    contracts::{RealtimeEvent, RuntimeIngestEvent, RuntimeIngestRequest, RuntimeIngestResponse},
+    contracts::{
+        ContractValue, RealtimeEvent, RuntimeIngestEvent, RuntimeIngestRequest,
+        RuntimeIngestResponse, SignalUpdatePayload,
+    },
     realtime::now_millis,
 };
 
@@ -230,6 +233,61 @@ fn validate_incident_payload(
     Ok(())
 }
 
+fn validate_signal_update_payload(
+    payload: &SignalUpdatePayload,
+) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
+    if payload.entity_id.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": "signal_update.entityId must be a non-empty string"
+            })),
+        ));
+    }
+
+    if payload.signals.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": "signal_update.signals must contain at least one signal"
+            })),
+        ));
+    }
+
+    for signal in &payload.signals {
+        let has_identity = signal
+            .id
+            .as_ref()
+            .or(signal.path.as_ref())
+            .or(signal.name.as_ref())
+            .is_some_and(|value| !value.trim().is_empty());
+        if !has_identity {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": "signal_update signals require id, path, or name"
+                })),
+            ));
+        }
+        if !matches!(
+            &signal.value,
+            ContractValue::Null
+                | ContractValue::String(_)
+                | ContractValue::Number(_)
+                | ContractValue::Boolean(_)
+        ) {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": "signal_update signal values must be scalar"
+                })),
+            ));
+        }
+    }
+
+    Ok(())
+}
+
 fn fingerprint_runtime_event(
     event: &RuntimeIngestEvent,
 ) -> Result<u64, (StatusCode, Json<serde_json::Value>)> {
@@ -261,6 +319,13 @@ fn normalize_runtime_event(
             timestamp: timestamp.unwrap_or(received_at),
             payload,
         },
+        RuntimeIngestEvent::SignalUpdate { timestamp, payload } => {
+            validate_signal_update_payload(&payload)?;
+            RealtimeEvent::SignalUpdate {
+                timestamp: timestamp.unwrap_or(received_at),
+                payload,
+            }
+        }
         RuntimeIngestEvent::Alarm { timestamp, payload } => RealtimeEvent::Alarm {
             timestamp: timestamp.unwrap_or(received_at),
             payload,
@@ -301,6 +366,7 @@ fn runtime_event_entity_id(event: &RuntimeIngestEvent) -> Option<&str> {
     match event {
         RuntimeIngestEvent::PositionUpdate { payload, .. } => Some(payload.entity_id.as_str()),
         RuntimeIngestEvent::StatusUpdate { payload, .. } => Some(payload.entity_id.as_str()),
+        RuntimeIngestEvent::SignalUpdate { payload, .. } => Some(payload.entity_id.as_str()),
         _ => None,
     }
 }

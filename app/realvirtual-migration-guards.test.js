@@ -78,6 +78,18 @@ describe('realvirtual-WEB migration guardrails', () => {
       join(process.cwd(), 'lib/digital-twin/model-metadata.ts'),
       'utf8'
     )
+    const runtimeIngest = readFileSync(
+      join(process.cwd(), 'lib/digital-twin/runtime-ingest.ts'),
+      'utf8'
+    )
+    const liveHook = readFileSync(
+      join(process.cwd(), 'hooks/use-live-digital-twin.ts'),
+      'utf8'
+    )
+    const backendContracts = readFileSync(
+      join(process.cwd(), 'backend-core-rs/src/contracts.rs'),
+      'utf8'
+    )
 
     expect(signalStore.includes('export class DigitalTwinSignalStore')).toBe(true)
     expect(signalStore.includes('createDigitalTwinSignalStore')).toBe(true)
@@ -91,6 +103,11 @@ describe('realvirtual-WEB migration guardrails', () => {
     expect(metadataParser.includes('extractDigitalTwinMetadata')).toBe(true)
     expect(metadataParser.includes('rv_extras')).toBe(true)
     expect(metadataParser.includes('realvirtual')).toBe(true)
+    expect(runtimeIngest.includes('buildRuntimeSignalEntityPatch')).toBe(true)
+    expect(runtimeIngest.includes('runtimeSignalsRevision')).toBe(true)
+    expect(liveHook.includes("case 'signal_update'")).toBe(true)
+    expect(backendContracts.includes('SignalUpdatePayload')).toBe(true)
+    expect(backendContracts.includes('SignalUpdate {')).toBe(true)
     expect(signalStore.includes('game4automation')).toBe(false)
     expect(signalTelemetry.includes('game4automation')).toBe(false)
     expect(metadataParser.includes('game4automation')).toBe(false)
