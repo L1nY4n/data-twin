@@ -203,18 +203,6 @@ export function DigitalTwinViewerPage({
             {leftPanelOpen && <EntityListPanel />}
           </ViewerAdminEdgePanel>
 
-          <Button
-            variant="ghost"
-            size="icon"
-            className={cn(
-              'viewer-header-icon viewer-edge-toggle viewer-edge-toggle--left absolute top-4 z-30 size-8 rounded-[12px] transition-all duration-300',
-              leftPanelOpen ? 'left-[296px]' : 'left-4'
-            )}
-            onClick={toggleLeftPanel}
-          >
-            <PanelLeft className="h-4 w-4" />
-          </Button>
-
           <ViewerAdminEdgePanel
             variant="soft"
             widthClass={rightPanelOpen ? 'w-[320px]' : 'w-0'}
@@ -227,18 +215,6 @@ export function DigitalTwinViewerPage({
           >
             {rightPanelOpen && <EntityDetailPanel />}
           </ViewerAdminEdgePanel>
-
-          <Button
-            variant="ghost"
-            size="icon"
-            className={cn(
-              'viewer-header-icon viewer-edge-toggle viewer-edge-toggle--right absolute top-4 z-30 size-8 rounded-[12px] transition-all duration-300',
-              rightPanelOpen ? 'right-[316px]' : 'right-4'
-            )}
-            onClick={toggleRightPanel}
-          >
-            <PanelRight className="h-4 w-4" />
-          </Button>
         </div>
       </div>
 

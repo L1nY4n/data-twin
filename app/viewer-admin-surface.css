@@ -271,51 +271,6 @@
     background: rgba(255, 255, 255, 0.08) !important;
   }
 
-  .viewer-admin-surface .viewer-edge-toggle {
-    overflow: visible;
-    border-color: rgba(168, 198, 255, 0.16) !important;
-    background:
-      radial-gradient(circle at 50% 4px, rgba(144, 180, 255, 0.18), transparent 56%),
-      linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.038)) !important;
-    box-shadow:
-      0 14px 30px rgba(8, 12, 20, 0.22),
-      inset 0 1px 0 rgba(255, 255, 255, 0.09),
-      inset 0 0 0 1px rgba(255, 255, 255, 0.03);
-  }
-
-  .viewer-admin-surface .viewer-edge-toggle::after {
-    content: '';
-    position: absolute;
-    top: 7px;
-    bottom: 7px;
-    width: 3px;
-    border-radius: 999px;
-    background:
-      linear-gradient(180deg, rgba(193, 219, 255, 0.96), rgba(123, 165, 255, 0.24));
-    box-shadow: 0 0 12px rgba(119, 167, 255, 0.34);
-    opacity: 0.86;
-    transition:
-      opacity 180ms ease,
-      transform 240ms cubic-bezier(0.22, 1, 0.36, 1);
-  }
-
-  .viewer-admin-surface .viewer-edge-toggle:hover:enabled::after {
-    opacity: 1;
-    transform: scaleY(1.06);
-  }
-
-  .viewer-admin-surface .viewer-edge-toggle--left::after {
-    right: -5px;
-  }
-
-  .viewer-admin-surface .viewer-edge-toggle--right::after {
-    left: -5px;
-  }
-
-  .viewer-admin-surface .viewer-edge-toggle :is(svg, img) {
-    filter: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.2));
-  }
-
   .viewer-admin-surface .viewer-panel-switchboard {
     max-width: calc(100% - 40px);
     padding: 4px;

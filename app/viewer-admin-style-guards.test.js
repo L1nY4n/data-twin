@@ -21,7 +21,7 @@ describe('viewer/admin shared style primitives', () => {
     expect(primitives.includes('export function ViewerAdminStatGrid')).toBe(true)
   })
 
-  test('viewer page uses the shared edge panel primitive for both side rails', () => {
+  test('viewer page uses shared edge panels without extra side-rail toggle buttons', () => {
     const page = readFileSync(
       join(process.cwd(), 'components/digital-twin/DigitalTwinViewerPage.tsx'),
       'utf8'
@@ -30,8 +30,7 @@ describe('viewer/admin shared style primitives', () => {
     expect(page.includes('ViewerAdminEdgePanel')).toBe(true)
     expect(page.includes("widthClass={leftPanelOpen ? 'w-[300px]' : 'w-0'}")).toBe(true)
     expect(page.includes("widthClass={rightPanelOpen ? 'w-[320px]' : 'w-0'}")).toBe(true)
-    expect(page.includes("leftPanelOpen ? 'left-[296px]' : 'left-4'")).toBe(true)
-    expect(page.includes("rightPanelOpen ? 'right-[316px]' : 'right-4'")).toBe(true)
+    expect(page.includes('viewer-edge-toggle')).toBe(false)
     expect(page.includes('viewer-panel-switchboard')).toBe(true)
     expect(page.includes('viewer-panel-switchboard__metrics')).toBe(true)
     expect(page.includes('viewer-panel-switchboard__button')).toBe(true)
@@ -183,6 +182,7 @@ describe('viewer/admin shared style primitives', () => {
     expect(styles.includes('.viewer-admin-surface .viewer-panel-switchboard__metrics')).toBe(true)
     expect(styles.includes('.viewer-admin-surface .viewer-panel-switchboard__button')).toBe(true)
     expect(styles.includes('.viewer-admin-surface .viewer-panel-switchboard__meta')).toBe(true)
+    expect(styles.includes('.viewer-admin-surface .viewer-edge-toggle')).toBe(false)
     expect(styles.includes('.viewer-admin-surface .viewer-admin-entity-search')).toBe(true)
     expect(styles.includes('.viewer-admin-surface .viewer-admin-entity-summary')).toBe(true)
     expect(styles.includes('.viewer-admin-surface .viewer-admin-entity-filter-chip')).toBe(true)
