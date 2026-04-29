@@ -12,6 +12,7 @@ import { EntityListPanel } from '@/components/digital-twin/panels/EntityListPane
 import { EntityDetailPanel } from '@/components/digital-twin/panels/EntityDetailPanel'
 import { IncidentVideoDialog } from '@/components/digital-twin/panels/IncidentVideoDialog'
 import { Toolbar } from '@/components/digital-twin/panels/Toolbar'
+import { ViewerHmiOverlay } from '@/components/digital-twin/panels/ViewerHmiOverlay'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { Badge } from '@/components/ui/badge'
@@ -136,6 +137,10 @@ export function DigitalTwinViewerPage({
                 </ViewerAdminPanel>
               </div>
             )}
+
+            <ViewerHmiOverlay
+              className={cn(leftPanelOpen ? 'left-[356px]' : 'left-4')}
+            />
 
             <div
               data-viewer-ui-panel="panel-launcher"

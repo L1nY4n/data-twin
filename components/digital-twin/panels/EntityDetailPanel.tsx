@@ -19,6 +19,9 @@ import {
   Boxes,
   Sparkles,
   MonitorPlay,
+  FileText,
+  Network,
+  Wrench,
 } from 'lucide-react'
 import { useDigitalTwinStore, useSelectedEntity, useSelectedStaticFeature } from '@/lib/digital-twin/store'
 import type { 
@@ -37,6 +40,10 @@ import type { DynamicEntityPresentation } from '@/lib/digital-twin/entity-schema
 import type { RuntimePublishedStaticFeature } from '@/lib/digital-twin/runtime/static/features'
 import { createDetailRendererRegistry } from '@/lib/digital-twin/detail-renderer-registry'
 import { resolveRuntimeEventType } from '@/lib/digital-twin/module-registry'
+import {
+  extractDigitalTwinMetadata,
+  type DigitalTwinSemanticMetadata,
+} from '@/lib/digital-twin/model-metadata'
 import { formatAngle, calculatePolygonArea } from '@/lib/digital-twin/spatial-utils'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -213,6 +220,7 @@ export function EntityDetailPanel() {
   const dynamicPresentation =
     entity.type === 'dynamic' ? getDynamicEntityPresentation(entity) : null
   const detailRenderer = ENTITY_DETAIL_RENDERERS.resolve(entity.type)
+  const modelMetadata = extractDigitalTwinMetadata({ metadata: entity.metadata })
 
   return (
     <ViewerAdminSidePanelBody>
@@ -267,6 +275,8 @@ export function EntityDetailPanel() {
             entity,
             dynamicPresentation,
           }) ?? null}
+
+          <DigitalTwinMetadataDetails metadata={modelMetadata} />
 
           <EntityIncidentDetails
             entityId={entity.id}
@@ -543,6 +553,126 @@ function CameraDetails({ entity }: { entity: CameraEntity }) {
         )}
       </ViewerAdminInfoList>
     </ViewerAdminSection>
+  )
+}
+
+function DigitalTwinMetadataDetails({
+  metadata,
+}: {
+  metadata: DigitalTwinSemanticMetadata
+}) {
+  const hasMetadata =
+    metadata.capabilities.length > 0 ||
+    metadata.components.length > 0 ||
+    metadata.signals.length > 0 ||
+    metadata.documents.length > 0 ||
+    metadata.maintenance.length > 0
+
+  if (!hasMetadata) return null
+
+  return (
+    <div className="space-y-3" data-digital-twin-metadata-section="root">
+      {(metadata.capabilities.length > 0 || metadata.components.length > 0) && (
+        <ViewerAdminSection icon={Boxes} title="组件能力" data-digital-twin-metadata-section="components">
+          <ViewerAdminSoftCard className="space-y-2 p-2.5">
+            {metadata.capabilities.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5">
+                {metadata.capabilities.map((capability) => (
+                  <Badge key={capability} variant="secondary" className="text-[10px]">
+                    {capability}
+                  </Badge>
+                ))}
+              </div>
+            ) : null}
+            {metadata.components.slice(0, 4).map((component) => (
+              <div key={component.id} className="rounded-lg border border-white/8 p-2 text-xs">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-medium text-white/90">{component.name}</span>
+                  {component.type ? <Badge variant="outline">{component.type}</Badge> : null}
+                </div>
+                {component.capabilities.length > 0 ? (
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {component.capabilities.map((capability) => (
+                      <span key={capability} className="text-muted-foreground">
+                        #{capability}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ))}
+          </ViewerAdminSoftCard>
+        </ViewerAdminSection>
+      )}
+
+      {metadata.signals.length > 0 && (
+        <ViewerAdminSection icon={Network} title="信号绑定" data-digital-twin-metadata-section="signals">
+          <ViewerAdminInfoList className="space-y-2 text-xs">
+            {metadata.signals.slice(0, 6).map((signal) => (
+              <div key={`${signal.id}-${signal.path}`} className="space-y-1">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-medium text-white/90">{signal.label ?? signal.name}</span>
+                  <Badge variant={signal.direction === 'output' ? 'secondary' : 'outline'}>
+                    {signal.direction === 'output' ? '写入' : signal.direction === 'input' ? '读取' : '内部'}
+                  </Badge>
+                </div>
+                <div className="flex items-center justify-between gap-2 text-muted-foreground">
+                  <span className="truncate font-mono">{signal.path}</span>
+                  {signal.unit ? <span>{signal.unit}</span> : null}
+                </div>
+              </div>
+            ))}
+          </ViewerAdminInfoList>
+        </ViewerAdminSection>
+      )}
+
+      {metadata.documents.length > 0 && (
+        <ViewerAdminSection icon={FileText} title="文档链接" data-digital-twin-metadata-section="documents">
+          <div className="space-y-2">
+            {metadata.documents.slice(0, 5).map((document) => (
+              <a
+                key={`${document.id}-${document.href}`}
+                href={document.href}
+                target="_blank"
+                rel="noreferrer"
+                className="viewer-admin-soft-card block rounded-xl p-2.5 text-xs transition hover:border-white/20"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-medium text-white/90">{document.title}</span>
+                  <Badge variant="outline">{document.kind.toUpperCase()}</Badge>
+                </div>
+                {document.description ? (
+                  <p className="mt-1 text-muted-foreground">{document.description}</p>
+                ) : null}
+              </a>
+            ))}
+          </div>
+        </ViewerAdminSection>
+      )}
+
+      {metadata.maintenance.length > 0 && (
+        <ViewerAdminSection icon={Wrench} title="维护上下文" data-digital-twin-metadata-section="maintenance">
+          <ViewerAdminInfoList className="space-y-2 text-xs">
+            {metadata.maintenance.slice(0, 4).map((hint) => (
+              <div key={`${hint.id}-${hint.title}`}>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-medium text-white/90">{hint.title}</span>
+                  {hint.priority ? <Badge variant="outline">{hint.priority}</Badge> : null}
+                </div>
+                {hint.description ? (
+                  <p className="mt-1 text-muted-foreground">{hint.description}</p>
+                ) : null}
+                <div className="mt-1 flex flex-wrap gap-2 text-muted-foreground">
+                  {hint.interval ? <span>周期 {hint.interval}</span> : null}
+                  {hint.dueAt ? <span>到期 {hint.dueAt}</span> : null}
+                  {hint.status ? <span>状态 {hint.status}</span> : null}
+                </div>
+              </div>
+            ))}
+          </ViewerAdminInfoList>
+        </ViewerAdminSection>
+      )}
+    </div>
   )
 }
 
