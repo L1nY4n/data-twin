@@ -13,6 +13,16 @@ import { useDigitalTwinPickIndex } from './ViewerRuntimeBridge'
 const POINTER = new THREE.Vector2()
 const HOVER_PICK_MIN_INTERVAL_MS = 50
 
+export function isViewerUiPanelEventTarget(target: EventTarget | null) {
+  return target instanceof Element && target.closest('[data-viewer-ui-panel]') !== null
+}
+
+function isViewerUiPanelPointerEvent(event: Event) {
+  if (isViewerUiPanelEventTarget(event.target)) return true
+  const eventPath = typeof event.composedPath === 'function' ? event.composedPath() : []
+  return eventPath.some((target) => isViewerUiPanelEventTarget(target))
+}
+
 interface PointerSample {
   offsetX: number
   offsetY: number
@@ -100,6 +110,12 @@ export function ScenePicking({ pickRootRef }: ScenePickingProps) {
       }
     }
 
+    const clearHoverState = () => {
+      setHoveredEntity(null)
+      setHoveredStaticFeature(null)
+      domElement.style.cursor = 'auto'
+    }
+
     const resolveHoverPick = () => {
       rafRef.current = null
       if (measurementModeRef.current !== 'none') return
@@ -139,6 +155,12 @@ export function ScenePicking({ pickRootRef }: ScenePickingProps) {
 
     const handlePointerMove = (event: PointerEvent) => {
       if (measurementModeRef.current !== 'none') return
+      if (isViewerUiPanelPointerEvent(event)) {
+        cancelScheduledHoverPick()
+        lastPointerRef.current = null
+        clearHoverState()
+        return
+      }
       lastPointerRef.current = { offsetX: event.offsetX, offsetY: event.offsetY }
       scheduleHoverPick()
     }
@@ -146,13 +168,12 @@ export function ScenePicking({ pickRootRef }: ScenePickingProps) {
     const handlePointerLeave = () => {
       cancelScheduledHoverPick()
       lastPointerRef.current = null
-      setHoveredEntity(null)
-      setHoveredStaticFeature(null)
-      domElement.style.cursor = 'auto'
+      clearHoverState()
     }
 
     const handleClick = (event: MouseEvent) => {
       if (measurementModeRef.current !== 'none') return
+      if (isViewerUiPanelPointerEvent(event)) return
       const target = resolve({ offsetX: event.offsetX, offsetY: event.offsetY })
       if (!target) {
         setSelectedEntity(null)

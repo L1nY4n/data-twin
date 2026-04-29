@@ -106,7 +106,10 @@ export function Toolbar({ workspaceSlug }: { workspaceSlug: string }) {
 
   return (
     <TooltipProvider delayDuration={300}>
-      <ViewerAdminToolbarBar className="editor-toolbar mx-2 mt-2 flex min-h-12 flex-wrap items-center gap-y-2 rounded-[22px] px-4 py-2">
+      <ViewerAdminToolbarBar
+        data-viewer-ui-panel="top-toolbar"
+        className="editor-toolbar mx-2 mt-2 flex min-h-12 flex-wrap items-center gap-y-2 rounded-[22px] px-4 py-2"
+      >
         {/* 左侧：视图控制 */}
         <div className="flex items-center gap-1">
           {/* 网格开关 */}

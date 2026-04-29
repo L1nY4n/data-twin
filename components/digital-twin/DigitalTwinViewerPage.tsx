@@ -27,7 +27,10 @@ const DigitalTwinCanvas = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="flex h-full w-full items-center justify-center bg-[#0a0a0f]">
+      <div
+        data-viewer-ui-panel="canvas-loading"
+        className="flex h-full w-full items-center justify-center bg-[#0a0a0f]"
+      >
         <div className="flex flex-col items-center gap-3">
           <Spinner className="h-8 w-8 text-primary" />
           <span className="text-sm text-muted-foreground">加载3D引擎...</span>
@@ -113,7 +116,10 @@ export function DigitalTwinViewerPage({
             <DigitalTwinCanvas />
 
             {runtimeNotice && (
-              <div className="pointer-events-none absolute left-3 top-3 z-30 md:hidden">
+              <div
+                data-viewer-ui-panel="runtime-notice"
+                className="pointer-events-none absolute left-3 top-3 z-30 md:hidden"
+              >
                 <Badge className="border border-amber-300/40 bg-amber-500/10 text-amber-50 shadow-lg">
                   {runtimeNotice}
                 </Badge>
@@ -121,14 +127,20 @@ export function DigitalTwinViewerPage({
             )}
 
             {(isLoading || error) && (
-              <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-background/60 backdrop-blur-sm">
+              <div
+                data-viewer-ui-panel="connection-overlay"
+                className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-background/60 backdrop-blur-sm"
+              >
                 <ViewerAdminPanel className="rounded-2xl px-4 py-3 text-sm shadow-sm">
                   {error ? `后端连接失败: ${error}` : '正在连接后端数据...'}
                 </ViewerAdminPanel>
               </div>
             )}
 
-            <div className="viewer-panel-launcher absolute left-1/2 top-4 z-30 flex -translate-x-1/2 items-stretch gap-2">
+            <div
+              data-viewer-ui-panel="panel-launcher"
+              className="viewer-panel-launcher absolute left-1/2 top-4 z-30 flex -translate-x-1/2 items-stretch gap-2"
+            >
               <div className="viewer-panel-launcher__metrics" aria-label="当前3D场景规模">
                 <span><strong>{sectorCount}</strong>区</span>
                 <span><strong>{staticFeatureCount}</strong>设施</span>
@@ -181,6 +193,7 @@ export function DigitalTwinViewerPage({
             </div>
 
             <div
+              data-viewer-ui-panel="bottom-panel-dock"
               className={cn(
                 'pointer-events-none absolute inset-y-2 z-20 overflow-hidden transition-all duration-300',
                 rightPanelOpen ? 'right-[328px]' : 'right-2',
@@ -199,6 +212,7 @@ export function DigitalTwinViewerPage({
           </div>
 
           <ViewerAdminEdgePanel
+            data-viewer-ui-panel="left-entity-panel"
             variant="soft"
             widthClass={leftPanelOpen ? 'w-[340px]' : 'w-0'}
             className={cn(
@@ -212,6 +226,7 @@ export function DigitalTwinViewerPage({
           </ViewerAdminEdgePanel>
 
           <ViewerAdminEdgePanel
+            data-viewer-ui-panel="right-detail-panel"
             variant="soft"
             widthClass={rightPanelOpen ? 'w-[320px]' : 'w-0'}
             className={cn(

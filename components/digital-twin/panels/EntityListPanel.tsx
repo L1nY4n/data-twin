@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   User,
   Car,
@@ -34,6 +34,63 @@ import type { EntityDirectoryEntry } from '@/lib/digital-twin/store'
 const ENTITY_TYPES = ['person', 'vehicle', 'equipment', 'sensor', 'camera', 'zone', 'dynamic'] as const
 const ENTITY_STATUSES = ['active', 'inactive', 'warning', 'error'] as const
 
+const DEFAULT_EXPANDED_ENTITY_SECTIONS = ['person', 'vehicle', 'zone'] as const
+const ENTITY_LIST_EXPANDED_STORAGE_KEY = 'data-t.viewer.entityList.expandedSections'
+const ENTITY_LIST_FILTER_DRAWER_STORAGE_KEY = 'data-t.viewer.entityList.filterDrawerOpen'
+const KNOWN_ENTITY_SECTION_KEYS = new Set<string>(ENTITY_TYPES)
+
+function isPersistedEntitySectionKey(value: string) {
+  return KNOWN_ENTITY_SECTION_KEYS.has(value) || value.startsWith('dynamic:')
+}
+
+function parseStoredStringArray(raw: string | null): string[] | null {
+  if (raw === null) return null
+
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return null
+    return parsed.filter(
+      (entry): entry is string => typeof entry === 'string' && isPersistedEntitySectionKey(entry)
+    )
+  } catch {
+    return null
+  }
+}
+
+function readStoredExpandedSections() {
+  if (typeof window === 'undefined') return [...DEFAULT_EXPANDED_ENTITY_SECTIONS]
+
+  try {
+    return parseStoredStringArray(window.localStorage.getItem(ENTITY_LIST_EXPANDED_STORAGE_KEY)) ?? [
+      ...DEFAULT_EXPANDED_ENTITY_SECTIONS,
+    ]
+  } catch {
+    return [...DEFAULT_EXPANDED_ENTITY_SECTIONS]
+  }
+}
+
+function readStoredFilterDrawerOpen() {
+  if (typeof window === 'undefined') return false
+
+  try {
+    const raw = window.localStorage.getItem(ENTITY_LIST_FILTER_DRAWER_STORAGE_KEY)
+    if (raw === null) return false
+    return raw === 'true'
+  } catch {
+    return false
+  }
+}
+
+function persistEntityListPreference(key: string, value: unknown) {
+  if (typeof window === 'undefined') return
+
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value))
+  } catch {
+    // Ignore storage quota/private-mode failures; UI preferences are best-effort only.
+  }
+}
+
 const ENTITY_TYPE_CONFIG: Record<EntityType, { icon: typeof User; label: string; color: string }> = {
   person: { icon: User, label: '人员', color: '#3b82f6' },
   vehicle: { icon: Car, label: '车辆', color: '#f59e0b' },
@@ -59,12 +116,8 @@ export function EntityListPanel() {
   const setSelectedEntity = useDigitalTwinStore((state) => state.setSelectedEntity)
   const focusCameraOnEntity = useDigitalTwinStore((state) => state.focusCameraOnEntity)
 
-  const [expandedSections, setExpandedSections] = useState<string[]>([
-    'person',
-    'vehicle',
-    'zone',
-  ])
-  const [showFilters, setShowFilters] = useState(false)
+  const [expandedSections, setExpandedSections] = useState<string[]>(readStoredExpandedSections)
+  const [showFilters, setShowFilters] = useState(readStoredFilterDrawerOpen)
 
   // 按类型分组实体
   const groupedEntities = useMemo(() => {
@@ -221,17 +274,32 @@ export function EntityListPanel() {
     return sections
   }, [counts, groupedEntities])
 
+  const sectionKeys = useMemo(() => groupedSections.map((section) => section.key), [groupedSections])
+  const flatResultEntities = useMemo(
+    () => groupedSections.flatMap((section) => section.entities),
+    [groupedSections]
+  )
   const filteredEntityCount = groupedSections.reduce(
     (total, section) => total + section.entities.length,
     0
   )
   const totalEntityCount = entityDirectory.size
+  const normalizedSearchQuery = entityFilters.searchQuery.trim()
+  const isFlatSearchMode = normalizedSearchQuery.length > 0
   const hasActiveFilters =
-    entityFilters.searchQuery.trim().length > 0 ||
+    isFlatSearchMode ||
     entityFilters.types.length !== ENTITY_TYPES.length ||
     entityFilters.statuses.length !== ENTITY_STATUSES.length
 
-  const expandAllSections = () => setExpandedSections(groupedSections.map((section) => section.key))
+  useEffect(() => {
+    persistEntityListPreference(ENTITY_LIST_EXPANDED_STORAGE_KEY, expandedSections)
+  }, [expandedSections])
+
+  useEffect(() => {
+    persistEntityListPreference(ENTITY_LIST_FILTER_DRAWER_STORAGE_KEY, showFilters)
+  }, [showFilters])
+
+  const expandAllSections = () => setExpandedSections([...sectionKeys])
   const collapseAllSections = () => setExpandedSections([])
   const resetFilters = () =>
     setEntityFilters({
@@ -359,70 +427,95 @@ export function EntityListPanel() {
       {/* 实体列表 */}
       <ScrollArea className="flex-1">
         <div className="viewer-admin-entity-section-list px-2.5 py-2">
-          {groupedSections.map((section) => {
-            const Icon = section.icon
-            const isExpanded = expandedSections.includes(section.key)
-
-            return (
-              <Collapsible
-                key={section.key}
-                open={isExpanded}
-                onOpenChange={() => toggleSection(section.key)}
-                className="viewer-admin-entity-section-card mb-2"
-              >
-                <CollapsibleTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    className="viewer-admin-entity-group-trigger viewer-admin-entity-section-trigger w-full justify-between"
-                  >
-                    <div className="flex min-w-0 items-center gap-2">
-                      <ChevronRight
-                        className={cn(
-                          'h-3.5 w-3.5 transition-transform',
-                          isExpanded && 'rotate-90'
-                        )}
-                      />
-                      <span className="viewer-admin-entity-type-icon">
-                        <Icon className="h-3.5 w-3.5" style={{ color: section.color }} />
-                      </span>
-                      <span className="truncate">{section.label}</span>
-                    </div>
-                    <div className="viewer-admin-entity-group-meta flex items-center gap-1.5">
-                      <span>{section.entities.length}</span>
-                      {section.warningCount > 0 && (
-                        <span className="text-amber-400/90">
-                          {section.warningCount}
-                        </span>
-                      )}
-                      {section.errorCount > 0 && (
-                        <span className="text-red-400/90">
-                          {section.errorCount}
-                        </span>
-                      )}
-                    </div>
-                  </Button>
-                </CollapsibleTrigger>
-                <CollapsibleContent>
-                  <div className="viewer-admin-entity-row-stack space-y-1.5 px-1 py-1.5">
-                    {section.entities.map((entity) => (
-                      <EntityListItem
-                        key={entity.id}
-                        entity={entity}
-                        isSelected={selectedEntityId === entity.id}
-                        onSelect={() => setSelectedEntity(entity.id)}
-                        onFocus={() => focusCameraOnEntity(entity.id)}
-                      />
-                    ))}
-                    {section.entities.length === 0 && (
-                      <div className="viewer-admin-empty py-3 text-center text-xs text-muted-foreground">
-                        暂无数据
-                      </div>
-                    )}
+          {isFlatSearchMode ? (
+            <div className="viewer-admin-entity-section-card mb-2">
+              <div className="viewer-admin-entity-flat-results-header">
+                <span>搜索结果</span>
+                <span>{flatResultEntities.length} 项匹配</span>
+              </div>
+              <div className="viewer-admin-entity-row-stack space-y-1.5 px-1 py-1.5">
+                {flatResultEntities.map((entity) => (
+                  <EntityListItem
+                    key={entity.id}
+                    entity={entity}
+                    isSelected={selectedEntityId === entity.id}
+                    onSelect={() => setSelectedEntity(entity.id)}
+                    onFocus={() => focusCameraOnEntity(entity.id)}
+                  />
+                ))}
+                {flatResultEntities.length === 0 && (
+                  <div className="viewer-admin-empty py-3 text-center text-xs text-muted-foreground">
+                    未找到匹配对象
                   </div>
-                </CollapsibleContent>
-              </Collapsible>
-            )
-          })}
+                )}
+              </div>
+            </div>
+          ) : (
+            groupedSections.map((section) => {
+              const Icon = section.icon
+              const isExpanded = expandedSections.includes(section.key)
+
+              return (
+                <Collapsible
+                  key={section.key}
+                  open={isExpanded}
+                  onOpenChange={() => toggleSection(section.key)}
+                  className="viewer-admin-entity-section-card mb-2"
+                >
+                  <CollapsibleTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      className="viewer-admin-entity-group-trigger viewer-admin-entity-section-trigger w-full justify-between"
+                    >
+                      <div className="flex min-w-0 items-center gap-2">
+                        <ChevronRight
+                          className={cn(
+                            'h-3.5 w-3.5 transition-transform',
+                            isExpanded && 'rotate-90'
+                          )}
+                        />
+                        <span className="viewer-admin-entity-type-icon">
+                          <Icon className="h-3.5 w-3.5" style={{ color: section.color }} />
+                        </span>
+                        <span className="truncate">{section.label}</span>
+                      </div>
+                      <div className="viewer-admin-entity-group-meta flex items-center gap-1.5">
+                        <span>{section.entities.length}</span>
+                        {section.warningCount > 0 && (
+                          <span className="text-amber-400/90">
+                            {section.warningCount}
+                          </span>
+                        )}
+                        {section.errorCount > 0 && (
+                          <span className="text-red-400/90">
+                            {section.errorCount}
+                          </span>
+                        )}
+                      </div>
+                    </Button>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent>
+                    <div className="viewer-admin-entity-row-stack space-y-1.5 px-1 py-1.5">
+                      {section.entities.map((entity) => (
+                        <EntityListItem
+                          key={entity.id}
+                          entity={entity}
+                          isSelected={selectedEntityId === entity.id}
+                          onSelect={() => setSelectedEntity(entity.id)}
+                          onFocus={() => focusCameraOnEntity(entity.id)}
+                        />
+                      ))}
+                      {section.entities.length === 0 && (
+                        <div className="viewer-admin-empty py-3 text-center text-xs text-muted-foreground">
+                          暂无数据
+                        </div>
+                      )}
+                    </div>
+                  </CollapsibleContent>
+                </Collapsible>
+              )
+            })
+          )}
         </div>
       </ScrollArea>
     </ViewerAdminSidePanelBody>
