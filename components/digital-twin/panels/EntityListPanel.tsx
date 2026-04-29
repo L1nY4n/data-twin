@@ -267,34 +267,32 @@ export function EntityListPanel() {
             <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">当前筛选</span>
             <p className="text-xs text-white">{filteredEntityCount} 项 · {groupedSections.length} 组</p>
           </div>
-          <div className="flex items-center gap-1">
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="viewer-admin-entity-filter-chip"
-              onClick={expandAllSections}
-            >
-              展开
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="viewer-admin-entity-filter-chip"
-              onClick={collapseAllSections}
-            >
-              收起
-            </Button>
-          </div>
         </div>
 
-        <div className="mt-2 flex items-center gap-1">
+        <div className="viewer-admin-entity-command-grid mt-2">
           <Button
             type="button"
             variant="ghost"
             size="sm"
-            className="viewer-admin-entity-filter-chip flex-1"
+            className="viewer-admin-entity-action-button"
+            onClick={expandAllSections}
+          >
+            全部展开
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="viewer-admin-entity-action-button"
+            onClick={collapseAllSections}
+          >
+            全部收起
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="viewer-admin-entity-action-button"
             onClick={() => setShowFilters(!showFilters)}
           >
             {showFilters ? '隐藏筛选' : '高级筛选'}
@@ -303,17 +301,17 @@ export function EntityListPanel() {
             type="button"
             variant="ghost"
             size="sm"
-            className="viewer-admin-entity-filter-chip"
+            className="viewer-admin-entity-action-button"
             onClick={showOnlyExceptions}
           >
-            异常
+            仅异常
           </Button>
           {hasActiveFilters && (
             <Button
               type="button"
               variant="ghost"
               size="sm"
-              className="viewer-admin-entity-filter-chip"
+              className="viewer-admin-entity-action-button"
               onClick={resetFilters}
             >
               清除
@@ -360,7 +358,7 @@ export function EntityListPanel() {
 
       {/* 实体列表 */}
       <ScrollArea className="flex-1">
-        <div className="px-2 py-1.5">
+        <div className="viewer-admin-entity-section-list px-2.5 py-2">
           {groupedSections.map((section) => {
             const Icon = section.icon
             const isExpanded = expandedSections.includes(section.key)
@@ -370,22 +368,24 @@ export function EntityListPanel() {
                 key={section.key}
                 open={isExpanded}
                 onOpenChange={() => toggleSection(section.key)}
-                className="mb-1"
+                className="viewer-admin-entity-section-card mb-2"
               >
                 <CollapsibleTrigger asChild>
                   <Button
                     variant="ghost"
-                    className="viewer-admin-entity-group-trigger w-full justify-between"
+                    className="viewer-admin-entity-group-trigger viewer-admin-entity-section-trigger w-full justify-between"
                   >
-                    <div className="flex items-center gap-2">
+                    <div className="flex min-w-0 items-center gap-2">
                       <ChevronRight
                         className={cn(
                           'h-3.5 w-3.5 transition-transform',
                           isExpanded && 'rotate-90'
                         )}
                       />
-                      <Icon className="h-3.5 w-3.5" style={{ color: section.color }} />
-                      <span>{section.label}</span>
+                      <span className="viewer-admin-entity-type-icon">
+                        <Icon className="h-3.5 w-3.5" style={{ color: section.color }} />
+                      </span>
+                      <span className="truncate">{section.label}</span>
                     </div>
                     <div className="viewer-admin-entity-group-meta flex items-center gap-1.5">
                       <span>{section.entities.length}</span>
@@ -403,7 +403,7 @@ export function EntityListPanel() {
                   </Button>
                 </CollapsibleTrigger>
                 <CollapsibleContent>
-                  <div className="ml-4 space-y-0 py-1">
+                  <div className="viewer-admin-entity-row-stack space-y-1.5 px-1 py-1.5">
                     {section.entities.map((entity) => (
                       <EntityListItem
                         key={entity.id}
@@ -414,7 +414,7 @@ export function EntityListPanel() {
                       />
                     ))}
                     {section.entities.length === 0 && (
-                      <div className="py-2 text-center text-xs text-muted-foreground">
+                      <div className="viewer-admin-empty py-3 text-center text-xs text-muted-foreground">
                         暂无数据
                       </div>
                     )}
@@ -438,12 +438,17 @@ interface EntityListItemProps {
 
 function EntityListItem({ entity, isSelected, onSelect, onFocus }: EntityListItemProps) {
   const statusConfig = STATUS_CONFIG[entity.status]
+  const typeConfig = ENTITY_TYPE_CONFIG[entity.type]
   const StatusIcon = statusConfig.icon
+  const secondaryLabel =
+    entity.type === 'dynamic' && entity.secondaryLabel
+      ? entity.secondaryLabel
+      : typeConfig.label
 
   return (
     <div
       className={cn(
-        'viewer-admin-list-item flex items-center gap-1 transition-colors',
+        'viewer-admin-list-item viewer-admin-entity-row-card flex items-center gap-1.5 transition-colors',
         isSelected && 'is-active'
       )}
     >
@@ -455,23 +460,26 @@ function EntityListItem({ entity, isSelected, onSelect, onFocus }: EntityListIte
           !isSelected && 'hover:bg-transparent'
         )}
       >
-        <StatusIcon
-          className="h-2.5 w-2.5 flex-shrink-0"
-          style={{ color: statusConfig.color }}
-          fill={statusConfig.color}
-        />
+        <span className="viewer-admin-entity-status-dot" aria-hidden>
+          <StatusIcon
+            className="h-2.5 w-2.5"
+            style={{ color: statusConfig.color }}
+            fill={statusConfig.color}
+          />
+        </span>
         <div className="min-w-0 flex-1">
-          <div className="truncate">{entity.name}</div>
-          {entity.type === 'dynamic' && entity.secondaryLabel ? (
-            <div className="truncate text-[10px] text-muted-foreground">{entity.secondaryLabel}</div>
-          ) : null}
+          <div className="flex min-w-0 items-center gap-1.5">
+            <span className="truncate">{entity.name}</span>
+            <span className="viewer-admin-entity-status-chip">{statusConfig.label}</span>
+          </div>
+          <div className="truncate text-[10px] text-muted-foreground">{secondaryLabel}</div>
         </div>
       </button>
       <Button
         type="button"
         variant="ghost"
         size="sm"
-        className="viewer-admin-entity-focus h-6 w-6 rounded-lg p-0"
+        className="viewer-admin-entity-focus h-7 w-7 rounded-xl p-0"
         onClick={onFocus}
         title={`定位到 ${entity.name}`}
         aria-label={`定位到 ${entity.name}`}

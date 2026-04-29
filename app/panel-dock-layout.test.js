@@ -24,7 +24,7 @@ describe('rules panel dock layout', () => {
     const source = readFileSync(pagePath, 'utf8')
 
     expect(source.includes('ViewerAdminEdgePanel')).toBe(true)
-    expect(source.includes("leftPanelOpen ? 'w-[300px]' : 'w-0'")).toBe(true)
+    expect(source.includes("leftPanelOpen ? 'w-[340px]' : 'w-0'")).toBe(true)
     expect(source.includes("rightPanelOpen ? 'w-[320px]' : 'w-0'")).toBe(true)
     expect(source.includes('viewer-edge-toggle')).toBe(false)
   })

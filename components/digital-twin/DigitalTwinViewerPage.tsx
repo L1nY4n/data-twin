@@ -128,46 +128,54 @@ export function DigitalTwinViewerPage({
               </div>
             )}
 
-            <div className="viewer-panel-switchboard absolute left-1/2 top-4 z-30 flex -translate-x-1/2 items-center gap-2">
-              <div className="viewer-panel-switchboard__metrics" aria-label="当前3D场景规模">
-                <span>{sectorCount}区</span>
-                <span>{staticFeatureCount}设施</span>
-                <span>{visibleEntityCount}对象</span>
+            <div className="viewer-panel-launcher absolute left-1/2 top-4 z-30 flex -translate-x-1/2 items-stretch gap-2">
+              <div className="viewer-panel-launcher__metrics" aria-label="当前3D场景规模">
+                <span><strong>{sectorCount}</strong>区</span>
+                <span><strong>{staticFeatureCount}</strong>设施</span>
+                <span><strong>{visibleEntityCount}</strong>对象</span>
               </div>
-              <div className="viewer-panel-switchboard__actions" aria-label="3D viewer 面板控件">
+              <div className="viewer-panel-launcher__actions" aria-label="3D viewer 面板控件">
                 <Button
                   type="button"
                   variant={leftPanelOpen ? 'secondary' : 'ghost'}
                   size="sm"
-                  className="viewer-panel-switchboard__button"
+                  className="viewer-panel-launcher__button"
                   aria-pressed={leftPanelOpen}
                   onClick={toggleLeftPanel}
                 >
-                  <PanelLeft className="h-3.5 w-3.5" />
-                  对象
+                  <PanelLeft className="h-4 w-4" />
+                  <span className="viewer-panel-launcher__copy">
+                    <span>对象索引</span>
+                    <span className="viewer-panel-launcher__meta">{visibleEntityCount} 可见</span>
+                  </span>
                 </Button>
                 <Button
                   type="button"
                   variant={rightPanelOpen ? 'secondary' : 'ghost'}
                   size="sm"
-                  className="viewer-panel-switchboard__button"
+                  className="viewer-panel-launcher__button"
                   aria-pressed={rightPanelOpen}
                   onClick={toggleRightPanel}
                 >
-                  <PanelRight className="h-3.5 w-3.5" />
-                  详情
-                  <span className="viewer-panel-switchboard__meta">{activeSelectionLabel}</span>
+                  <PanelRight className="h-4 w-4" />
+                  <span className="viewer-panel-launcher__copy">
+                    <span>详情面板</span>
+                    <span className="viewer-panel-launcher__meta">{activeSelectionLabel}</span>
+                  </span>
                 </Button>
                 <Button
                   type="button"
                   variant={bottomPanelOpen ? 'secondary' : 'ghost'}
                   size="sm"
-                  className="viewer-panel-switchboard__button"
+                  className="viewer-panel-launcher__button"
                   aria-pressed={bottomPanelOpen}
                   onClick={toggleBottomPanel}
                 >
-                  <Bell className="h-3.5 w-3.5" />
-                  事件
+                  <Bell className="h-4 w-4" />
+                  <span className="viewer-panel-launcher__copy">
+                    <span>事件中心</span>
+                    <span className="viewer-panel-launcher__meta">{bottomPanelOpen ? '已展开' : '实时'}</span>
+                  </span>
                 </Button>
               </div>
             </div>
@@ -192,7 +200,7 @@ export function DigitalTwinViewerPage({
 
           <ViewerAdminEdgePanel
             variant="soft"
-            widthClass={leftPanelOpen ? 'w-[300px]' : 'w-0'}
+            widthClass={leftPanelOpen ? 'w-[340px]' : 'w-0'}
             className={cn(
               'absolute inset-y-2 left-2 z-20 mt-0',
               leftPanelOpen
