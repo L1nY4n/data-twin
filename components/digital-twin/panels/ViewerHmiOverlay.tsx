@@ -1,16 +1,18 @@
 'use client'
 
+import { useMemo } from 'react'
 import {
   Activity,
   AlertTriangle,
   Bell,
   Gauge,
   ListTree,
+  Network,
   PanelLeft,
   PanelRight,
-  RadioTower,
 } from 'lucide-react'
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
+import { summarizeEntityDirectorySignalTelemetry } from '@/lib/digital-twin/signal-telemetry'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
@@ -42,6 +44,10 @@ export function ViewerHmiOverlay({ className }: ViewerHmiOverlayProps) {
   const setBottomPanelTab = useDigitalTwinStore((state) => state.setBottomPanelTab)
 
   const visibleEntities = Array.from(entityDirectory.values()).filter((entity) => entity.visible).length
+  const signalSummary = useMemo(
+    () => summarizeEntityDirectorySignalTelemetry(entityDirectory.values()),
+    [entityDirectory]
+  )
   const activeIncidents = incidents.filter((incident) => !incident.acknowledged).slice(0, 3)
   const activeAlarms = alarms.filter((alarm) => !alarm.acknowledged).length
   const connectionLabel = isConnected ? 'LIVE' : runtimeDataSource === 'mock' ? 'MOCK' : 'OFFLINE'
@@ -65,7 +71,9 @@ export function ViewerHmiOverlay({ className }: ViewerHmiOverlayProps) {
         className="viewer-hmi-slot viewer-hmi-slot--kpi pointer-events-auto"
         aria-label="运行 KPI"
       >
-        <div className="viewer-hmi-kicker">Runtime HMI</div>
+        <div className="viewer-hmi-kicker">
+          Runtime HMI · {connectionLabel} · {rendererLabel}
+        </div>
         <div className="viewer-hmi-kpi-grid">
           <div className="viewer-hmi-kpi-card">
             <Gauge className="h-3.5 w-3.5" />
@@ -78,14 +86,14 @@ export function ViewerHmiOverlay({ className }: ViewerHmiOverlayProps) {
             <strong>{visibleEntities}</strong>
           </div>
           <div className="viewer-hmi-kpi-card">
+            <Network className="h-3.5 w-3.5" />
+            <span>信号</span>
+            <strong>{signalSummary.totalSignals}</strong>
+          </div>
+          <div className="viewer-hmi-kpi-card">
             <AlertTriangle className="h-3.5 w-3.5" />
             <span>事件</span>
             <strong>{activeIncidents.length + activeAlarms}</strong>
-          </div>
-          <div className="viewer-hmi-kpi-card">
-            <RadioTower className="h-3.5 w-3.5" />
-            <span>{connectionLabel}</span>
-            <strong>{rendererLabel}</strong>
           </div>
         </div>
       </section>
@@ -138,7 +146,13 @@ export function ViewerHmiOverlay({ className }: ViewerHmiOverlayProps) {
         <div className="viewer-hmi-message-header">
           <ListTree className="h-3.5 w-3.5" />
           <span>Message Panel</span>
-          <Badge variant="outline">{runtimeNotice ? 'notice' : activeIncidents.length}</Badge>
+          <Badge variant={signalSummary.degradedSignals > 0 ? 'secondary' : 'outline'}>
+            {runtimeNotice
+              ? 'notice'
+              : signalSummary.degradedSignals > 0
+                ? `${signalSummary.degradedSignals} degraded`
+                : activeIncidents.length}
+          </Badge>
         </div>
         <div className="viewer-hmi-message-list">
           {runtimeNotice ? (

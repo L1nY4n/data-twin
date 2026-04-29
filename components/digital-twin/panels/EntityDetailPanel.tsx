@@ -44,6 +44,11 @@ import {
   extractDigitalTwinMetadata,
   type DigitalTwinSemanticMetadata,
 } from '@/lib/digital-twin/model-metadata'
+import {
+  collectEntitySignalSnapshots,
+  formatSignalValue,
+  type EntitySignalSnapshot,
+} from '@/lib/digital-twin/signal-telemetry'
 import { formatAngle, calculatePolygonArea } from '@/lib/digital-twin/spatial-utils'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -221,6 +226,7 @@ export function EntityDetailPanel() {
     entity.type === 'dynamic' ? getDynamicEntityPresentation(entity) : null
   const detailRenderer = ENTITY_DETAIL_RENDERERS.resolve(entity.type)
   const modelMetadata = extractDigitalTwinMetadata({ metadata: entity.metadata })
+  const signalSnapshots = collectEntitySignalSnapshots(entity, modelMetadata)
 
   return (
     <ViewerAdminSidePanelBody>
@@ -276,7 +282,7 @@ export function EntityDetailPanel() {
             dynamicPresentation,
           }) ?? null}
 
-          <DigitalTwinMetadataDetails metadata={modelMetadata} />
+          <DigitalTwinMetadataDetails metadata={modelMetadata} signalSnapshots={signalSnapshots} />
 
           <EntityIncidentDetails
             entityId={entity.id}
@@ -558,13 +564,15 @@ function CameraDetails({ entity }: { entity: CameraEntity }) {
 
 function DigitalTwinMetadataDetails({
   metadata,
+  signalSnapshots,
 }: {
   metadata: DigitalTwinSemanticMetadata
+  signalSnapshots: EntitySignalSnapshot[]
 }) {
   const hasMetadata =
     metadata.capabilities.length > 0 ||
     metadata.components.length > 0 ||
-    metadata.signals.length > 0 ||
+    signalSnapshots.length > 0 ||
     metadata.documents.length > 0 ||
     metadata.maintenance.length > 0
 
@@ -605,20 +613,35 @@ function DigitalTwinMetadataDetails({
         </ViewerAdminSection>
       )}
 
-      {metadata.signals.length > 0 && (
-        <ViewerAdminSection icon={Network} title="信号绑定" data-digital-twin-metadata-section="signals">
+      {signalSnapshots.length > 0 && (
+        <ViewerAdminSection icon={Network} title="实时信号" data-digital-twin-metadata-section="signals">
           <ViewerAdminInfoList className="space-y-2 text-xs">
-            {metadata.signals.slice(0, 6).map((signal) => (
-              <div key={`${signal.id}-${signal.path}`} className="space-y-1">
+            {signalSnapshots.slice(0, 8).map((signal) => (
+              <div key={signal.descriptor.id} className="space-y-1">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="font-medium text-white/90">{signal.label ?? signal.name}</span>
-                  <Badge variant={signal.direction === 'output' ? 'secondary' : 'outline'}>
-                    {signal.direction === 'output' ? '写入' : signal.direction === 'input' ? '读取' : '内部'}
+                  <span className="font-medium text-white/90">
+                    {signal.descriptor.label ?? signal.descriptor.name}
+                  </span>
+                  <Badge variant={signal.quality === 'good' ? 'outline' : 'secondary'}>
+                    {signal.quality === 'good' ? 'GOOD' : signal.quality.toUpperCase()}
                   </Badge>
                 </div>
                 <div className="flex items-center justify-between gap-2 text-muted-foreground">
-                  <span className="truncate font-mono">{signal.path}</span>
-                  {signal.unit ? <span>{signal.unit}</span> : null}
+                  <span className="truncate font-mono">{signal.descriptor.path}</span>
+                  <span className="shrink-0 font-medium text-white/80">
+                    {formatSignalValue(signal.value, signal.descriptor.unit)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-2 text-[10px] text-muted-foreground/80">
+                  <span>
+                    {signal.descriptor.direction === 'output'
+                      ? '写入'
+                      : signal.descriptor.direction === 'input'
+                        ? '读取'
+                        : '内部'}
+                    {signal.descriptor.writable ? ' · 可写' : ''}
+                  </span>
+                  <span>{signal.source === 'metadata' ? '模型绑定' : '运行态'}</span>
                 </div>
               </div>
             ))}

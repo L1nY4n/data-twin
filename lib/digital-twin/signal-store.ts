@@ -64,7 +64,12 @@ function normalizeDescriptor(descriptor: SignalDescriptor): SignalDescriptor {
 
 function cloneSnapshot(snapshot: SignalSnapshot): SignalSnapshot {
   return {
-    descriptor: snapshot.descriptor,
+    descriptor: {
+      ...snapshot.descriptor,
+      ...(snapshot.descriptor.metadata
+        ? { metadata: { ...snapshot.descriptor.metadata } }
+        : {}),
+    },
     value: snapshot.value,
     timestamp: snapshot.timestamp,
     quality: snapshot.quality,
@@ -143,6 +148,10 @@ export class DigitalTwinSignalStore {
 
   getValue(reference: SignalReference): SignalValue | undefined {
     return this.getSignal(reference)?.value
+  }
+
+  listSignals(): SignalSnapshot[] {
+    return [...this.snapshotsById.values()].map(cloneSnapshot)
   }
 
   resolveSignalId(reference: SignalReference): string | null {

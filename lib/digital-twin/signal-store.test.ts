@@ -37,6 +37,22 @@ describe('digital twin signal store', () => {
     expect(store.resolveSignalId({ name: 'ConveyorRunning' })).toBe('conveyor-running')
   })
 
+  test('lists immutable signal snapshots in registration order', () => {
+    const store = createDigitalTwinSignalStore([
+      { id: 'speed', name: 'Speed', direction: 'input' },
+      { id: 'enabled', name: 'Enabled', direction: 'output' },
+    ])
+
+    store.updateSignal({ id: 'speed', value: 5 })
+    const snapshots = store.listSignals()
+    snapshots[0]!.value = 99
+    snapshots[0]!.descriptor.name = 'Mutated'
+
+    expect(snapshots.map((snapshot) => snapshot.descriptor.id)).toEqual(['speed', 'enabled'])
+    expect(store.getValue('speed')).toBe(5)
+    expect(store.getSignal('speed')?.descriptor.name).toBe('Speed')
+  })
+
   test('keeps lookup indexes current when descriptors are re-registered', () => {
     const store = createDigitalTwinSignalStore([
       {

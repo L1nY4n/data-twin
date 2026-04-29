@@ -70,6 +70,10 @@ describe('realvirtual-WEB migration guardrails', () => {
       join(process.cwd(), 'lib/digital-twin/signal-store.ts'),
       'utf8'
     )
+    const signalTelemetry = readFileSync(
+      join(process.cwd(), 'lib/digital-twin/signal-telemetry.ts'),
+      'utf8'
+    )
     const metadataParser = readFileSync(
       join(process.cwd(), 'lib/digital-twin/model-metadata.ts'),
       'utf8'
@@ -79,10 +83,16 @@ describe('realvirtual-WEB migration guardrails', () => {
     expect(signalStore.includes('createDigitalTwinSignalStore')).toBe(true)
     expect(signalStore.includes('drainDirtyOutputSignals')).toBe(true)
     expect(signalStore.includes('subscribeSignal')).toBe(true)
+    expect(signalStore.includes('listSignals')).toBe(true)
+    expect(signalTelemetry.includes('collectEntitySignalSnapshots')).toBe(true)
+    expect(signalTelemetry.includes('summarizeEntitySignalTelemetry')).toBe(true)
+    expect(signalTelemetry.includes('summarizeEntityDirectorySignalTelemetry')).toBe(true)
+    expect(signalTelemetry.includes('formatSignalValue')).toBe(true)
     expect(metadataParser.includes('extractDigitalTwinMetadata')).toBe(true)
     expect(metadataParser.includes('rv_extras')).toBe(true)
     expect(metadataParser.includes('realvirtual')).toBe(true)
     expect(signalStore.includes('game4automation')).toBe(false)
+    expect(signalTelemetry.includes('game4automation')).toBe(false)
     expect(metadataParser.includes('game4automation')).toBe(false)
   })
 
@@ -105,6 +115,9 @@ describe('realvirtual-WEB migration guardrails', () => {
     expect(overlay.includes('data-hmi-slot="kpi"')).toBe(true)
     expect(overlay.includes('data-hmi-slot="operator-actions"')).toBe(true)
     expect(overlay.includes('data-hmi-slot="message-summary"')).toBe(true)
+    expect(overlay.includes('summarizeEntityDirectorySignalTelemetry')).toBe(true)
+    expect(overlay.includes('state.entities')).toBe(false)
+    expect(overlay.includes('signalSummary.degradedSignals')).toBe(true)
     expect(overlay.includes('pointer-events-none absolute')).toBe(true)
     expect(overlay.includes('pointer-events-auto')).toBe(true)
     expect(styles.includes('.viewer-admin-surface .viewer-hmi-overlay')).toBe(true)
@@ -112,13 +125,15 @@ describe('realvirtual-WEB migration guardrails', () => {
     expect(styles.includes('.viewer-admin-surface .viewer-hmi-message-list')).toBe(true)
   })
 
-  test('entity details render metadata-driven signals documents and maintenance only when present', () => {
+  test('entity details render live signals plus metadata documents and maintenance when present', () => {
     const entityDetail = readFileSync(
       join(process.cwd(), 'components/digital-twin/panels/EntityDetailPanel.tsx'),
       'utf8'
     )
 
     expect(entityDetail.includes('extractDigitalTwinMetadata({ metadata: entity.metadata })')).toBe(true)
+    expect(entityDetail.includes('collectEntitySignalSnapshots(entity, modelMetadata)')).toBe(true)
+    expect(entityDetail.includes('formatSignalValue(signal.value, signal.descriptor.unit)')).toBe(true)
     expect(entityDetail.includes('function DigitalTwinMetadataDetails')).toBe(true)
     expect(entityDetail.includes('data-digital-twin-metadata-section="signals"')).toBe(true)
     expect(entityDetail.includes('data-digital-twin-metadata-section="documents"')).toBe(true)
