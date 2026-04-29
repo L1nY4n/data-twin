@@ -191,6 +191,12 @@ export function EntityListPanel() {
     setEntityFilters({ statuses: newStatuses })
   }
 
+  const showAllEntityTypes = () => setEntityFilters({ types: [...ENTITY_TYPES] })
+  const showOnlyEntityType = (type: EntityType) => {
+    const isSoloActive = entityFilters.types.length === 1 && entityFilters.types[0] === type
+    setEntityFilters({ types: isSoloActive ? [...ENTITY_TYPES] : [type] })
+  }
+
   const groupedSections = useMemo(() => {
     const sections: Array<{
       key: string
@@ -286,9 +292,10 @@ export function EntityListPanel() {
   const totalEntityCount = entityDirectory.size
   const normalizedSearchQuery = entityFilters.searchQuery.trim()
   const isFlatSearchMode = normalizedSearchQuery.length > 0
+  const allEntityTypesActive = entityFilters.types.length === ENTITY_TYPES.length
   const hasActiveFilters =
     isFlatSearchMode ||
-    entityFilters.types.length !== ENTITY_TYPES.length ||
+    !allEntityTypesActive ||
     entityFilters.statuses.length !== ENTITY_STATUSES.length
 
   useEffect(() => {
@@ -335,6 +342,44 @@ export function EntityListPanel() {
             <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">当前筛选</span>
             <p className="text-xs text-white">{filteredEntityCount} 项 · {groupedSections.length} 组</p>
           </div>
+        </div>
+
+        <div className="viewer-admin-entity-type-filter-strip" aria-label="对象类型筛选">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className={cn('viewer-admin-entity-type-filter-chip', allEntityTypesActive && 'is-active')}
+            onClick={showAllEntityTypes}
+          >
+            全部
+          </Button>
+          {ENTITY_TYPES.map((type) => {
+            const config = ENTITY_TYPE_CONFIG[type]
+            const Icon = config.icon
+            const isSoloActive = entityFilters.types.length === 1 && entityFilters.types[0] === type
+            const isIncluded = entityFilters.types.includes(type)
+
+            return (
+              <Button
+                key={type}
+                type="button"
+                variant="ghost"
+                size="sm"
+                className={cn('viewer-admin-entity-type-filter-chip', isSoloActive && 'is-active')}
+                aria-pressed={isSoloActive}
+                onClick={() => showOnlyEntityType(type)}
+                title={`只看${config.label}`}
+              >
+                <Icon
+                  className="h-3 w-3"
+                  style={{ color: isIncluded ? config.color : undefined }}
+                />
+                <span>{config.label}</span>
+                <span className="viewer-admin-entity-type-filter-count">{counts[type].total}</span>
+              </Button>
+            )
+          })}
         </div>
 
         <div className="viewer-admin-entity-command-grid mt-2">
@@ -544,6 +589,7 @@ function EntityListItem({ entity, isSelected, onSelect, onFocus }: EntityListIte
         'viewer-admin-list-item viewer-admin-entity-row-card flex items-center gap-1.5 transition-colors',
         isSelected && 'is-active'
       )}
+      style={{ borderLeftColor: statusConfig.color }}
     >
       <button
         type="button"
@@ -562,10 +608,15 @@ function EntityListItem({ entity, isSelected, onSelect, onFocus }: EntityListIte
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-1.5">
+            <span className="viewer-admin-entity-type-badge" style={{ color: typeConfig.color }}>
+              {typeConfig.label}
+            </span>
             <span className="truncate">{entity.name}</span>
             <span className="viewer-admin-entity-status-chip">{statusConfig.label}</span>
           </div>
-          <div className="truncate text-[10px] text-muted-foreground">{secondaryLabel}</div>
+          <div className="truncate text-[10px] text-muted-foreground">
+            {secondaryLabel} · {entity.id}
+          </div>
         </div>
       </button>
       <Button

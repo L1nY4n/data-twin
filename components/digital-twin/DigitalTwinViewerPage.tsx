@@ -139,9 +139,12 @@ export function DigitalTwinViewerPage({
 
             <div
               data-viewer-ui-panel="panel-launcher"
-              className="viewer-panel-launcher absolute left-1/2 top-4 z-30 flex -translate-x-1/2 items-stretch gap-2"
+              className={cn(
+                'viewer-panel-launcher absolute top-4 z-30 flex items-center gap-1.5',
+                rightPanelOpen ? 'right-[336px]' : 'right-4'
+              )}
             >
-              <div className="viewer-panel-launcher__metrics" aria-label="当前3D场景规模">
+              <div className="viewer-panel-launcher__status-pill" aria-label="当前3D场景规模">
                 <span><strong>{sectorCount}</strong>区</span>
                 <span><strong>{staticFeatureCount}</strong>设施</span>
                 <span><strong>{visibleEntityCount}</strong>对象</span>
@@ -157,8 +160,8 @@ export function DigitalTwinViewerPage({
                 >
                   <PanelLeft className="h-4 w-4" />
                   <span className="viewer-panel-launcher__copy">
-                    <span>对象索引</span>
-                    <span className="viewer-panel-launcher__meta">{visibleEntityCount} 可见</span>
+                    <span>对象</span>
+                    <span className="viewer-panel-launcher__meta">{visibleEntityCount}</span>
                   </span>
                 </Button>
                 <Button
@@ -171,7 +174,7 @@ export function DigitalTwinViewerPage({
                 >
                   <PanelRight className="h-4 w-4" />
                   <span className="viewer-panel-launcher__copy">
-                    <span>详情面板</span>
+                    <span>详情</span>
                     <span className="viewer-panel-launcher__meta">{activeSelectionLabel}</span>
                   </span>
                 </Button>
@@ -185,8 +188,8 @@ export function DigitalTwinViewerPage({
                 >
                   <Bell className="h-4 w-4" />
                   <span className="viewer-panel-launcher__copy">
-                    <span>事件中心</span>
-                    <span className="viewer-panel-launcher__meta">{bottomPanelOpen ? '已展开' : '实时'}</span>
+                    <span>事件</span>
+                    <span className="viewer-panel-launcher__meta">{bottomPanelOpen ? '展开' : '实时'}</span>
                   </span>
                 </Button>
               </div>

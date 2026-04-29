@@ -34,6 +34,8 @@ describe('realvirtual-WEB migration guardrails', () => {
 
     expect(toolbar.includes('data-viewer-ui-panel="top-toolbar"')).toBe(true)
     expect(page.includes('data-viewer-ui-panel="panel-launcher"')).toBe(true)
+    expect(page.includes('viewer-panel-launcher__status-pill')).toBe(true)
+    expect(page.includes("rightPanelOpen ? 'right-[336px]' : 'right-4'")).toBe(true)
     expect(page.includes('data-viewer-ui-panel="left-entity-panel"')).toBe(true)
     expect(page.includes('data-viewer-ui-panel="right-detail-panel"')).toBe(true)
     expect(page.includes('data-viewer-ui-panel="bottom-panel-dock"')).toBe(true)
@@ -58,5 +60,8 @@ describe('realvirtual-WEB migration guardrails', () => {
     expect(entityList.includes('try {')).toBe(true)
     expect(entityList.includes('isFlatSearchMode')).toBe(true)
     expect(entityList.includes('viewer-admin-entity-flat-results-header')).toBe(true)
+    expect(entityList.includes('viewer-admin-entity-type-filter-strip')).toBe(true)
+    expect(entityList.includes('viewer-admin-entity-type-filter-chip')).toBe(true)
+    expect(entityList.includes('showOnlyEntityType')).toBe(true)
   })
 })
