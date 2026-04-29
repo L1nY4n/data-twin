@@ -2,10 +2,9 @@
 
 import dynamic from 'next/dynamic'
 import {
+  Bell,
   PanelLeft,
   PanelRight,
-  ChevronLeft,
-  ChevronRight,
 } from 'lucide-react'
 import { useLiveDigitalTwin } from '@/hooks/use-live-digital-twin'
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
@@ -48,6 +47,10 @@ function useDigitalTwinViewportState() {
   const rightPanelOpen = useDigitalTwinStore((state) => state.rightPanelOpen)
   const bottomPanelOpen = useDigitalTwinStore((state) => state.bottomPanelOpen)
   const runtimeNotice = useDigitalTwinStore((state) => state.runtimeNotice)
+  const publishedScenePackage = useDigitalTwinStore((state) => state.publishedScenePackage)
+  const entityDirectory = useDigitalTwinStore((state) => state.entityDirectory)
+  const selectedEntityId = useDigitalTwinStore((state) => state.selectedEntityId)
+  const selectedStaticFeatureId = useDigitalTwinStore((state) => state.selectedStaticFeatureId)
   const toggleLeftPanel = useDigitalTwinStore((state) => state.toggleLeftPanel)
   const toggleRightPanel = useDigitalTwinStore((state) => state.toggleRightPanel)
   const toggleBottomPanel = useDigitalTwinStore((state) => state.toggleBottomPanel)
@@ -57,6 +60,10 @@ function useDigitalTwinViewportState() {
     rightPanelOpen,
     bottomPanelOpen,
     runtimeNotice,
+    publishedScenePackage,
+    entityDirectory,
+    selectedEntityId,
+    selectedStaticFeatureId,
     toggleLeftPanel,
     toggleRightPanel,
     toggleBottomPanel,
@@ -76,10 +83,22 @@ export function DigitalTwinViewerPage({
     rightPanelOpen,
     bottomPanelOpen,
     runtimeNotice,
+    publishedScenePackage,
+    entityDirectory,
+    selectedEntityId,
+    selectedStaticFeatureId,
     toggleLeftPanel,
     toggleRightPanel,
     toggleBottomPanel,
   } = useDigitalTwinViewportState()
+
+  const sectorCount = publishedScenePackage.sectors.length
+  const staticFeatureCount = publishedScenePackage.staticChunks.reduce(
+    (count, chunk) => count + chunk.features.length,
+    0
+  )
+  const activeSelectionLabel = selectedEntityId || selectedStaticFeatureId ? '已选择' : '未选择'
+  const visibleEntityCount = Array.from(entityDirectory.values()).filter((entry) => entry.visible).length
 
   return (
     <ViewerAdminSurfaceShell
@@ -109,33 +128,55 @@ export function DigitalTwinViewerPage({
               </div>
             )}
 
-            <Button
-              variant="secondary"
-              size="sm"
-              className={cn(
-                'absolute top-4 z-30 gap-1.5 shadow-sm transition-all duration-300',
-                rightPanelOpen ? 'right-[266px]' : 'right-3'
-              )}
-              onClick={toggleBottomPanel}
-            >
-              {bottomPanelOpen ? (
-                <>
-                  <ChevronRight className="h-4 w-4" />
-                  <span className="text-xs">收起面板</span>
-                </>
-              ) : (
-                <>
-                  <ChevronLeft className="h-4 w-4" />
-                  <span className="text-xs">摘要与趋势</span>
-                </>
-              )}
-            </Button>
+            <div className="viewer-panel-switchboard absolute left-1/2 top-4 z-30 flex -translate-x-1/2 items-center gap-2">
+              <div className="viewer-panel-switchboard__metrics" aria-label="当前3D场景规模">
+                <span>{sectorCount}区</span>
+                <span>{staticFeatureCount}设施</span>
+                <span>{visibleEntityCount}对象</span>
+              </div>
+              <div className="viewer-panel-switchboard__actions" aria-label="3D viewer 面板控件">
+                <Button
+                  type="button"
+                  variant={leftPanelOpen ? 'secondary' : 'ghost'}
+                  size="sm"
+                  className="viewer-panel-switchboard__button"
+                  aria-pressed={leftPanelOpen}
+                  onClick={toggleLeftPanel}
+                >
+                  <PanelLeft className="h-3.5 w-3.5" />
+                  对象
+                </Button>
+                <Button
+                  type="button"
+                  variant={rightPanelOpen ? 'secondary' : 'ghost'}
+                  size="sm"
+                  className="viewer-panel-switchboard__button"
+                  aria-pressed={rightPanelOpen}
+                  onClick={toggleRightPanel}
+                >
+                  <PanelRight className="h-3.5 w-3.5" />
+                  详情
+                  <span className="viewer-panel-switchboard__meta">{activeSelectionLabel}</span>
+                </Button>
+                <Button
+                  type="button"
+                  variant={bottomPanelOpen ? 'secondary' : 'ghost'}
+                  size="sm"
+                  className="viewer-panel-switchboard__button"
+                  aria-pressed={bottomPanelOpen}
+                  onClick={toggleBottomPanel}
+                >
+                  <Bell className="h-3.5 w-3.5" />
+                  事件
+                </Button>
+              </div>
+            </div>
 
             <div
               className={cn(
                 'pointer-events-none absolute inset-y-2 z-20 overflow-hidden transition-all duration-300',
-                rightPanelOpen ? 'right-[264px]' : 'right-2',
-                bottomPanelOpen ? 'w-[420px]' : 'w-0'
+                rightPanelOpen ? 'right-[328px]' : 'right-2',
+                bottomPanelOpen ? 'w-[460px]' : 'w-0'
               )}
             >
               <div
@@ -151,7 +192,7 @@ export function DigitalTwinViewerPage({
 
           <ViewerAdminEdgePanel
             variant="soft"
-            widthClass={leftPanelOpen ? 'w-[230px]' : 'w-0'}
+            widthClass={leftPanelOpen ? 'w-[300px]' : 'w-0'}
             className={cn(
               'absolute inset-y-2 left-2 z-20 mt-0',
               leftPanelOpen
@@ -167,7 +208,7 @@ export function DigitalTwinViewerPage({
             size="icon"
             className={cn(
               'viewer-header-icon viewer-edge-toggle viewer-edge-toggle--left absolute top-4 z-30 size-8 rounded-[12px] transition-all duration-300',
-              leftPanelOpen ? 'left-[226px]' : 'left-4'
+              leftPanelOpen ? 'left-[296px]' : 'left-4'
             )}
             onClick={toggleLeftPanel}
           >
@@ -176,7 +217,7 @@ export function DigitalTwinViewerPage({
 
           <ViewerAdminEdgePanel
             variant="soft"
-            widthClass={rightPanelOpen ? 'w-64' : 'w-0'}
+            widthClass={rightPanelOpen ? 'w-[320px]' : 'w-0'}
             className={cn(
               'absolute inset-y-2 right-2 z-20 mt-0',
               rightPanelOpen
@@ -192,7 +233,7 @@ export function DigitalTwinViewerPage({
             size="icon"
             className={cn(
               'viewer-header-icon viewer-edge-toggle viewer-edge-toggle--right absolute top-4 z-30 size-8 rounded-[12px] transition-all duration-300',
-              rightPanelOpen ? 'right-[252px]' : 'right-4'
+              rightPanelOpen ? 'right-[316px]' : 'right-4'
             )}
             onClick={toggleRightPanel}
           >

@@ -18,3 +18,13 @@ backend-core-rs/target/
 backend-core-rs/data/
 backend-core-rs/.data/
 .omx/
+
+# Local verification / runtime artifacts
+.playwright-mcp/
+data/*.db
+data/*.db-*
+*-benchmark*.png
+runtime-benchmark*.png
+tmux-client-*.log
+__pycache__/
+*.pyc

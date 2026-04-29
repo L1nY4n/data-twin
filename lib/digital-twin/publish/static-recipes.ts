@@ -1,6 +1,8 @@
 import {
-  CAMPUS_BOUNDS,
   CAMPUS_DISTRICTS,
+  CAMPUS_INTER_SECTOR_INTERSECTIONS,
+  CAMPUS_INTER_SECTOR_ROAD_COLUMNS,
+  CAMPUS_INTER_SECTOR_ROAD_ROWS,
   CAMPUS_LAYOUT_BLUEPRINTS,
   LOGISTICS_SOUTH_LAYOUT_BLUEPRINTS,
   LOGISTICS_BAY_OFFSETS,
@@ -71,6 +73,15 @@ const PROCESS_CONTROL_ROOM_BLUEPRINT =
   PROCESS_WEST_LAYOUT_BLUEPRINTS.find((item) => item.kind === 'service-building') ?? null
 const PROCESS_PIPE_RACK_BLUEPRINT =
   PROCESS_WEST_LAYOUT_BLUEPRINTS.find((item) => item.kind === 'pipe-rack') ?? null
+const PROCESS_ASSEMBLY_HALL_BLUEPRINTS = PROCESS_WEST_LAYOUT_BLUEPRINTS.filter(
+  (item) => item.kind === 'assembly-hall'
+)
+const PROCESS_CONVEYOR_LINE_BLUEPRINTS = PROCESS_WEST_LAYOUT_BLUEPRINTS.filter(
+  (item) => item.kind === 'conveyor-line'
+)
+const PROCESS_ROBOT_CELL_BLUEPRINTS = PROCESS_WEST_LAYOUT_BLUEPRINTS.filter(
+  (item) => item.kind === 'robot-cell'
+)
 
 const TANK_BUND_BLUEPRINTS = TANK_EAST_LAYOUT_BLUEPRINTS.filter((item) => item.kind === 'bund')
 const TANK_VERTICAL_BLUEPRINTS = TANK_EAST_LAYOUT_BLUEPRINTS.filter(
@@ -86,6 +97,9 @@ const TANK_SENSOR_BLUEPRINTS = TANK_EAST_LAYOUT_BLUEPRINTS.filter(
 )
 const TANK_METERING_BLUEPRINT =
   TANK_EAST_LAYOUT_BLUEPRINTS.find((item) => item.kind === 'service-building') ?? null
+const TANK_SILO_YARD_BLUEPRINTS = TANK_EAST_LAYOUT_BLUEPRINTS.filter(
+  (item) => item.kind === 'silo-yard'
+)
 
 const LOGISTICS_WAREHOUSE_BLUEPRINTS = LOGISTICS_SOUTH_LAYOUT_BLUEPRINTS.filter(
   (item) => item.kind === 'logistics-warehouse'
@@ -116,6 +130,15 @@ const LOGISTICS_SERVICE_BLUEPRINTS = LOGISTICS_SOUTH_LAYOUT_BLUEPRINTS.filter(
 )
 const LOGISTICS_SMART_CONTROL_BLUEPRINTS = LOGISTICS_SOUTH_LAYOUT_BLUEPRINTS.filter(
   (item) => item.kind === 'smart-control'
+)
+const LOGISTICS_ASSEMBLY_HALL_BLUEPRINTS = LOGISTICS_SOUTH_LAYOUT_BLUEPRINTS.filter(
+  (item) => item.kind === 'assembly-hall'
+)
+const LOGISTICS_CONVEYOR_LINE_BLUEPRINTS = LOGISTICS_SOUTH_LAYOUT_BLUEPRINTS.filter(
+  (item) => item.kind === 'conveyor-line'
+)
+const LOGISTICS_ROBOT_CELL_BLUEPRINTS = LOGISTICS_SOUTH_LAYOUT_BLUEPRINTS.filter(
+  (item) => item.kind === 'robot-cell'
 )
 
 const UTILITIES_FIRE_WATER_BLUEPRINTS = UTILITIES_NORTH_LAYOUT_BLUEPRINTS.filter(
@@ -757,6 +780,308 @@ function createWarehouseNode(id: string, blueprint: LayoutBlueprint) {
           key: `${id}:vent-${offset}`,
           position: [offset, bodyHeight + roofHeight + ventHeight / 2, 0],
         }))
+      ),
+    ],
+    {
+      position: vec3(blueprint.center.x, 0, blueprint.center.z),
+    }
+  )
+}
+
+function createAssemblyHallNode(id: string, blueprint: LayoutBlueprint) {
+  const bodyHeight = Math.max(3.2, blueprint.height - 1.1)
+  const roofHeight = Math.min(1.1, blueprint.height * 0.22)
+  const halfWidth = blueprint.width / 2
+  const halfDepth = blueprint.depth / 2
+  const bayOffsets = [-0.3, 0, 0.3].map((ratio) => ratio * blueprint.width)
+  const workstationOffsets = [-0.34, -0.12, 0.12, 0.34].map((ratio) => ratio * blueprint.width)
+  const skylightOffsets = [-0.25, 0, 0.25].map((ratio) => ratio * blueprint.width)
+
+  return groupNode(
+    id,
+    [
+      meshNode(
+        `${id}:floor`,
+        boxGeometry([blueprint.width, 0.24, blueprint.depth]),
+        material('slabAlt', 0.05, 0.92),
+        {
+          position: vec3(0, 0.12, 0),
+          receiveShadow: true,
+        }
+      ),
+      meshNode(
+        `${id}:body`,
+        boxGeometry([blueprint.width, bodyHeight, blueprint.depth]),
+        material('building', 0.2, 0.64),
+        {
+          position: vec3(0, bodyHeight / 2, 0),
+        }
+      ),
+      meshNode(
+        `${id}:sawtooth-roof-a`,
+        boxGeometry([blueprint.width * 0.54, roofHeight, blueprint.depth]),
+        material('steelDark', 0.58, 0.36),
+        {
+          position: vec3(-blueprint.width * 0.13, bodyHeight + roofHeight / 2, 0),
+        }
+      ),
+      meshNode(
+        `${id}:sawtooth-roof-b`,
+        boxGeometry([blueprint.width * 0.54, roofHeight, blueprint.depth]),
+        material('steelDark', 0.58, 0.36),
+        {
+          position: vec3(blueprint.width * 0.13, bodyHeight + roofHeight / 2, 0),
+        }
+      ),
+      instancesNode(
+        `${id}:dock-doors`,
+        boxInstancesGeometry([Math.min(4.2, blueprint.width / 5), 2.8, 0.18]),
+        material('steelDark', 0.34, 0.42),
+        bayOffsets.map((offset) => ({
+          key: `${id}:door-${offset}`,
+          position: [offset, 1.55, -halfDepth + 0.09],
+        }))
+      ),
+      instancesNode(
+        `${id}:workstations`,
+        boxInstancesGeometry([Math.min(3.2, blueprint.width / 8), 1.05, 1.8]),
+        material('power', 0.18, 0.48),
+        workstationOffsets.map((offset) => ({
+          key: `${id}:station-${offset}`,
+          position: [offset, 0.78, halfDepth - 2.2],
+        }))
+      ),
+      instancesNode(
+        `${id}:skylights`,
+        boxInstancesGeometry([Math.min(3.6, blueprint.width / 8), 0.12, blueprint.depth * 0.46]),
+        material('water', 0.08, 0.12),
+        skylightOffsets.map((offset) => ({
+          key: `${id}:skylight-${offset}`,
+          position: [offset, blueprint.height - 0.06, 0],
+        }))
+      ),
+      meshNode(
+        `${id}:overhead-crane-rail`,
+        boxGeometry([blueprint.width - 3.2, 0.18, 0.24]),
+        material('warning', 0.24, 0.48),
+        {
+          position: vec3(0, Math.min(blueprint.height - 0.7, bodyHeight - 0.4), 0),
+        }
+      ),
+      meshNode(
+        `${id}:bridge-crane`,
+        boxGeometry([0.42, 0.34, blueprint.depth - 2.4]),
+        material('warning', 0.24, 0.48),
+        {
+          position: vec3(halfWidth * 0.12, Math.min(blueprint.height - 0.82, bodyHeight - 0.52), 0),
+        }
+      ),
+    ],
+    {
+      position: vec3(blueprint.center.x, 0, blueprint.center.z),
+    }
+  )
+}
+
+function createConveyorLineNode(id: string, blueprint: LayoutBlueprint) {
+  const halfWidth = blueprint.width / 2
+  const rollerCount = Math.max(6, Math.floor(blueprint.width / 3.2))
+  const rollerStart = -halfWidth + 1.4
+  const rollerStep = (blueprint.width - 2.8) / Math.max(1, rollerCount - 1)
+  const rollerInstances: StaticInstanceSpec[] = Array.from({ length: rollerCount }, (_value, index) => ({
+    key: `${id}:roller-${index}`,
+    position: [rollerStart + index * rollerStep, 0.84, 0],
+    rotation: [Math.PI / 2, 0, 0],
+  }))
+  const sensorInstances: StaticInstanceSpec[] = [-0.36, 0, 0.36].map((ratio, index) => ({
+    key: `${id}:sensor-${index}`,
+    position: [ratio * blueprint.width, 1.82, -blueprint.depth / 2 + 0.34],
+  }))
+
+  return groupNode(
+    id,
+    [
+      meshNode(
+        `${id}:belt-bed`,
+        boxGeometry([blueprint.width, 0.42, blueprint.depth]),
+        material('steelDark', 0.56, 0.38),
+        {
+          position: vec3(0, 0.62, 0),
+          receiveShadow: true,
+        }
+      ),
+      meshNode(
+        `${id}:belt`,
+        boxGeometry([blueprint.width - 1.2, 0.16, Math.max(0.8, blueprint.depth - 1.2)]),
+        material('road', 0.08, 0.7),
+        {
+          position: vec3(0, 0.92, 0),
+        }
+      ),
+      instancesNode(
+        `${id}:rollers`,
+        cylinderInstancesGeometry([0.14, 0.14, Math.max(0.8, blueprint.depth - 0.6), 10]),
+        material('steel', 0.62, 0.34),
+        rollerInstances
+      ),
+      instancesNode(
+        `${id}:photoeyes`,
+        boxInstancesGeometry([0.34, 0.62, 0.22]),
+        material('power', 0.08, 0.16),
+        sensorInstances
+      ),
+      ...[-blueprint.depth / 2 + 0.28, blueprint.depth / 2 - 0.28].map((zOffset) =>
+        meshNode(
+          `${id}:guard-rail-${zOffset}`,
+          boxGeometry([blueprint.width - 1, 0.18, 0.16]),
+          material('warning', 0.18, 0.48),
+          {
+            position: vec3(0, Math.min(blueprint.height - 0.2, 1.42), zOffset),
+          }
+        )
+      ),
+    ],
+    {
+      position: vec3(blueprint.center.x, 0, blueprint.center.z),
+    }
+  )
+}
+
+function createRobotCellNode(id: string, blueprint: LayoutBlueprint) {
+  const halfWidth = blueprint.width / 2
+  const halfDepth = blueprint.depth / 2
+  const postInstances: StaticInstanceSpec[] = [
+    [-halfWidth + 0.35, -halfDepth + 0.35],
+    [halfWidth - 0.35, -halfDepth + 0.35],
+    [-halfWidth + 0.35, halfDepth - 0.35],
+    [halfWidth - 0.35, halfDepth - 0.35],
+  ].map(([x, z], index) => ({
+    key: `${id}:post-${index}`,
+    position: [x, 1.5, z],
+  }))
+  const robotOffsets = [-blueprint.width * 0.22, blueprint.width * 0.22]
+
+  return groupNode(
+    id,
+    [
+      meshNode(
+        `${id}:base`,
+        boxGeometry([blueprint.width, 0.24, blueprint.depth]),
+        material('slab', 0.05, 0.92),
+        {
+          position: vec3(0, 0.12, 0),
+          receiveShadow: true,
+        }
+      ),
+      instancesNode(
+        `${id}:fence-posts`,
+        boxInstancesGeometry([0.22, 3, 0.22]),
+        material('warning', 0.16, 0.5),
+        postInstances
+      ),
+      meshNode(
+        `${id}:front-fence`,
+        boxGeometry([blueprint.width, 1.6, 0.12]),
+        material('warning', 0.18, 0.44),
+        {
+          position: vec3(0, 1.5, -halfDepth + 0.1),
+        }
+      ),
+      meshNode(
+        `${id}:rear-fence`,
+        boxGeometry([blueprint.width, 1.6, 0.12]),
+        material('warning', 0.18, 0.44),
+        {
+          position: vec3(0, 1.5, halfDepth - 0.1),
+        }
+      ),
+      ...robotOffsets.flatMap((offset, index) => [
+        meshNode(
+          `${id}:robot-base-${index}`,
+          cylinderGeometry([0.72, 0.84, 0.6, 16]),
+          material('steelDark', 0.52, 0.36),
+          {
+            position: vec3(offset, 0.52, 0),
+          }
+        ),
+        meshNode(
+          `${id}:robot-arm-a-${index}`,
+          cylinderGeometry([0.16, 0.18, 2.8, 12]),
+          material('warning', 0.22, 0.44),
+          {
+            position: vec3(offset + 0.75, 1.58, -0.32),
+            rotation: vec3(0, 0, Math.PI / 4),
+          }
+        ),
+        meshNode(
+          `${id}:robot-arm-b-${index}`,
+          cylinderGeometry([0.12, 0.14, 2.2, 12]),
+          material('warning', 0.22, 0.44),
+          {
+            position: vec3(offset + 1.8, 2.2, 0.36),
+            rotation: vec3(Math.PI / 2.6, 0, Math.PI / 2.2),
+          }
+        ),
+        meshNode(
+          `${id}:robot-tool-${index}`,
+          boxGeometry([0.52, 0.32, 0.52]),
+          material('power', 0.12, 0.32),
+          {
+            position: vec3(offset + 2.55, 2.02, 0.72),
+          }
+        ),
+      ]),
+    ],
+    {
+      position: vec3(blueprint.center.x, 0, blueprint.center.z),
+    }
+  )
+}
+
+function createSiloYardNode(id: string, blueprint: LayoutBlueprint) {
+  const siloOffsets = [-0.32, -0.1, 0.12, 0.34].map((ratio) => ratio * blueprint.depth)
+  const radius = Math.min(1.2, blueprint.width / 3)
+  const bodyHeight = Math.max(4, blueprint.height - 1.4)
+
+  return groupNode(
+    id,
+    [
+      meshNode(
+        `${id}:pad`,
+        boxGeometry([blueprint.width, 0.28, blueprint.depth]),
+        material('slabAlt', 0.05, 0.92),
+        {
+          position: vec3(0, 0.14, 0),
+          receiveShadow: true,
+        }
+      ),
+      ...siloOffsets.flatMap((zOffset, index) => [
+        meshNode(
+          `${id}:silo-${index}`,
+          cylinderGeometry([radius, radius, bodyHeight, 18]),
+          material('vessel', 0.52, 0.32),
+          {
+            position: vec3(0, bodyHeight / 2 + 0.28, zOffset),
+            castShadow: true,
+          }
+        ),
+        meshNode(
+          `${id}:cone-${index}`,
+          cylinderGeometry([0.16, radius, 1.1, 18]),
+          material('vessel', 0.52, 0.32),
+          {
+            position: vec3(0, bodyHeight + 0.52, zOffset),
+          }
+        ),
+      ]),
+      meshNode(
+        `${id}:service-pipe`,
+        cylinderGeometry([0.14, 0.14, blueprint.depth - 2, 12]),
+        material('pipe', 0.56, 0.36),
+        {
+          position: vec3(radius + 0.56, Math.min(blueprint.height - 0.4, 3.8), 0),
+          rotation: vec3(Math.PI / 2, 0, 0),
+        }
       ),
     ],
     {
@@ -2045,6 +2370,15 @@ function createProcessDistrictNode(id: string) {
     PROCESS_PIPE_RACK_BLUEPRINT
       ? createLinearPipeRackNode(`${id}:${PROCESS_PIPE_RACK_BLUEPRINT.id}`, PROCESS_PIPE_RACK_BLUEPRINT)
       : null,
+    ...PROCESS_ASSEMBLY_HALL_BLUEPRINTS.map((blueprint) =>
+      createAssemblyHallNode(`${id}:${blueprint.id}`, blueprint)
+    ),
+    ...PROCESS_CONVEYOR_LINE_BLUEPRINTS.map((blueprint) =>
+      createConveyorLineNode(`${id}:${blueprint.id}`, blueprint)
+    ),
+    ...PROCESS_ROBOT_CELL_BLUEPRINTS.map((blueprint) =>
+      createRobotCellNode(`${id}:${blueprint.id}`, blueprint)
+    ),
   ])
 }
 
@@ -2074,6 +2408,9 @@ function createTankDistrictNode(id: string) {
     TANK_METERING_BLUEPRINT
       ? createServiceBuildingNode(`${id}:${TANK_METERING_BLUEPRINT.id}`, TANK_METERING_BLUEPRINT)
       : null,
+    ...TANK_SILO_YARD_BLUEPRINTS.map((blueprint) =>
+      createSiloYardNode(`${id}:${blueprint.id}`, blueprint)
+    ),
     meshNode(
       `${id}:pipe-a`,
       cylinderGeometry([0.22, 0.22, 24, 16]),
@@ -2351,6 +2688,15 @@ function createLogisticsDistrictNode(id: string) {
     ...LOGISTICS_SERVICE_BLUEPRINTS.map((blueprint) =>
       createServiceBuildingNode(`${id}:${blueprint.id}`, blueprint)
     ),
+    ...LOGISTICS_ASSEMBLY_HALL_BLUEPRINTS.map((blueprint) =>
+      createAssemblyHallNode(`${id}:${blueprint.id}`, blueprint)
+    ),
+    ...LOGISTICS_CONVEYOR_LINE_BLUEPRINTS.map((blueprint) =>
+      createConveyorLineNode(`${id}:${blueprint.id}`, blueprint)
+    ),
+    ...LOGISTICS_ROBOT_CELL_BLUEPRINTS.map((blueprint) =>
+      createRobotCellNode(`${id}:${blueprint.id}`, blueprint)
+    ),
   ])
 }
 
@@ -2470,6 +2816,7 @@ function createSectorDetailedRoot(id: string) {
 function resolveProxyMaterialToken(blueprint: LayoutBlueprint): PublishedStaticMaterialToken {
   switch (blueprint.kind) {
     case 'admin-building':
+    case 'assembly-hall':
     case 'emergency-station':
     case 'gatehouse':
     case 'logistics-warehouse':
@@ -2489,7 +2836,12 @@ function resolveProxyMaterialToken(blueprint: LayoutBlueprint): PublishedStaticM
       return 'steelDark'
     case 'pipe-rack':
     case 'process-strip':
+    case 'conveyor-line':
       return 'pipe'
+    case 'robot-cell':
+      return 'power'
+    case 'silo-yard':
+      return 'vessel'
     case 'loading-rack':
     case 'solar-canopy':
       return 'canopy'
@@ -2550,164 +2902,166 @@ function createInterSectorRecipeDetailedNodes(id: string) {
 
     return offsets
   }
-  const corridorCenterX = (CAMPUS_BOUNDS.min.x + CAMPUS_BOUNDS.max.x) / 2
-  const corridorCenterZ = (CAMPUS_BOUNDS.min.z + CAMPUS_BOUNDS.max.z) / 2
-  const corridorWidth = CAMPUS_BOUNDS.max.x - CAMPUS_BOUNDS.min.x
-  const corridorDepth = CAMPUS_BOUNDS.max.z - CAMPUS_BOUNDS.min.z
+  const roadRowLength = CAMPUS_INTER_SECTOR_ROAD_ROWS[0]?.length ?? 0
+  const roadColumnLength = CAMPUS_INTER_SECTOR_ROAD_COLUMNS[0]?.length ?? 0
   const bridgeInset = 28
-  const southeastConnectorStartX = -8
-  const southeastConnectorEndX = CAMPUS_BOUNDS.max.x
-  const southeastConnectorCenterX = (southeastConnectorStartX + southeastConnectorEndX) / 2
-  const southeastConnectorWidth = southeastConnectorEndX - southeastConnectorStartX
-  const southeastConnectorZ = 260
-  const roadStripeXInstances: StaticInstanceSpec[] = createRoadStripeOffsets(
-    CAMPUS_BOUNDS.min.x,
-    CAMPUS_BOUNDS.max.x
-  ).map((offset) => ({
-    key: `${id}:road-x-${offset}`,
-    position: [offset, 0.14, 0],
-  }))
-  const southeastRoadStripeInstances: StaticInstanceSpec[] = createRoadStripeOffsets(
-    southeastConnectorStartX,
-    southeastConnectorEndX
-  ).map((offset) => ({
-    key: `${id}:road-southeast-${offset}`,
-    position: [offset, 0.14, southeastConnectorZ],
-  }))
-  const roadStripeZInstances: StaticInstanceSpec[] = createRoadStripeOffsets(
-    CAMPUS_BOUNDS.min.z,
-    CAMPUS_BOUNDS.max.z
-  ).map((offset) => ({
-    key: `${id}:road-z-${offset}`,
-    position: [0, 0.14, offset],
-  }))
-  const towerInstances: StaticInstanceSpec[] = [
-    [-10, -10],
-    [10, -10],
-    [-10, 10],
-    [10, 10],
-  ].map((offset, index) => ({
-    key: `${id}:tower-${index}`,
-    position: [offset[0], 12, offset[1]],
-  }))
+  const roadStripeXInstances: StaticInstanceSpec[] = CAMPUS_INTER_SECTOR_ROAD_ROWS.flatMap((row) =>
+    createRoadStripeOffsets(row.center.x - row.length / 2, row.center.x + row.length / 2).map(
+      (offset) => ({
+        key: `${id}:road-row-${row.id}-${offset}`,
+        position: [offset, 0.14, row.center.z],
+      })
+    )
+  )
+  const roadStripeZInstances: StaticInstanceSpec[] = CAMPUS_INTER_SECTOR_ROAD_COLUMNS.flatMap(
+    (column) =>
+      createRoadStripeOffsets(
+        column.center.z - column.length / 2,
+        column.center.z + column.length / 2
+      ).map((offset) => ({
+        key: `${id}:road-column-${column.id}-${offset}`,
+        position: [column.center.x, 0.14, offset],
+      }))
+  )
+  const rowSidewalkInstances: StaticInstanceSpec[] = CAMPUS_INTER_SECTOR_ROAD_ROWS.flatMap((row) => [
+    {
+      key: `${id}:walkway-${row.id}-north`,
+      position: [row.center.x, 0.08, row.center.z - row.width / 2 - 5],
+    },
+    {
+      key: `${id}:walkway-${row.id}-south`,
+      position: [row.center.x, 0.08, row.center.z + row.width / 2 + 5],
+    },
+  ])
+  const columnSidewalkInstances: StaticInstanceSpec[] = CAMPUS_INTER_SECTOR_ROAD_COLUMNS.flatMap(
+    (column) => [
+      {
+        key: `${id}:walkway-${column.id}-west`,
+        position: [column.center.x - column.width / 2 - 5, 0.08, column.center.z],
+      },
+      {
+        key: `${id}:walkway-${column.id}-east`,
+        position: [column.center.x + column.width / 2 + 5, 0.08, column.center.z],
+      },
+    ]
+  )
+  const hubBaseInstances: StaticInstanceSpec[] = CAMPUS_INTER_SECTOR_INTERSECTIONS.map(
+    (intersection) => ({
+      key: `${id}:hub-base-${intersection.x}-${intersection.z}`,
+      position: [intersection.x, 0.24, intersection.z],
+    })
+  )
+  const hubTowerInstances: StaticInstanceSpec[] = CAMPUS_INTER_SECTOR_INTERSECTIONS.flatMap(
+    (intersection) =>
+      [
+        [-5.2, -5.2],
+        [5.2, -5.2],
+        [-5.2, 5.2],
+        [5.2, 5.2],
+      ].map(([xOffset, zOffset], index) => ({
+        key: `${id}:hub-tower-${intersection.x}-${intersection.z}-${index}`,
+        position: [intersection.x + xOffset, 9.2, intersection.z + zOffset],
+      }))
+  )
+  const hubPipeInstances: StaticInstanceSpec[] = CAMPUS_INTER_SECTOR_INTERSECTIONS.flatMap(
+    (intersection) => [
+      {
+        key: `${id}:hub-pipe-x-${intersection.x}-${intersection.z}`,
+        position: [intersection.x, 12.2, intersection.z],
+        rotation: [0, 0, Math.PI / 2],
+      },
+      {
+        key: `${id}:hub-pipe-z-${intersection.x}-${intersection.z}`,
+        position: [intersection.x, 12.8, intersection.z],
+        rotation: [Math.PI / 2, 0, 0],
+      },
+    ]
+  )
 
   return [
-    meshNode(
-      `${id}:corridor-x`,
-      boxGeometry([corridorWidth, 0.12, 18]),
-      material('road', 0.05, 0.9),
-      {
-        position: vec3(corridorCenterX, 0.06, 0),
-        receiveShadow: true,
-      }
+    ...CAMPUS_INTER_SECTOR_ROAD_ROWS.map((row) =>
+      meshNode(
+        `${id}:corridor-row-${row.id}`,
+        boxGeometry([row.length, 0.12, row.width]),
+        material('road', 0.05, 0.9),
+        {
+          position: vec3(row.center.x, 0.06, row.center.z),
+          receiveShadow: true,
+        }
+      )
     ),
-    meshNode(
-      `${id}:corridor-z`,
-      boxGeometry([18, 0.12, corridorDepth]),
-      material('road', 0.05, 0.9),
-      {
-        position: vec3(0, 0.06, corridorCenterZ),
-        receiveShadow: true,
-      }
-    ),
-    meshNode(
-      `${id}:corridor-southeast`,
-      boxGeometry([southeastConnectorWidth, 0.12, 18]),
-      material('road', 0.05, 0.9),
-      {
-        position: vec3(southeastConnectorCenterX, 0.06, southeastConnectorZ),
-        receiveShadow: true,
-      }
-    ),
-    meshNode(
-      `${id}:walkway-southeast-north`,
-      boxGeometry([southeastConnectorWidth, 0.08, 4]),
-      material('curb', 0.06, 0.86),
-      {
-        position: vec3(southeastConnectorCenterX, 0.08, 246),
-        receiveShadow: true,
-      }
-    ),
-    meshNode(
-      `${id}:walkway-southeast-south`,
-      boxGeometry([southeastConnectorWidth, 0.08, 4]),
-      material('curb', 0.06, 0.86),
-      {
-        position: vec3(southeastConnectorCenterX, 0.08, 274),
-        receiveShadow: true,
-      }
+    ...CAMPUS_INTER_SECTOR_ROAD_COLUMNS.map((column) =>
+      meshNode(
+        `${id}:corridor-column-${column.id}`,
+        boxGeometry([column.width, 0.12, column.length]),
+        material('road', 0.05, 0.9),
+        {
+          position: vec3(column.center.x, 0.06, column.center.z),
+          receiveShadow: true,
+        }
+      )
     ),
     instancesNode(
-      `${id}:road-x-markers`,
+      `${id}:road-row-markers`,
       boxInstancesGeometry([4.2, 0.04, 0.32]),
       material('stripe', 0.02, 0.9),
       roadStripeXInstances
     ),
     instancesNode(
-      `${id}:road-z-markers`,
+      `${id}:road-column-markers`,
       boxInstancesGeometry([0.32, 0.04, 4.2]),
       material('stripe', 0.02, 0.9),
       roadStripeZInstances
     ),
     instancesNode(
-      `${id}:road-southeast-markers`,
-      boxInstancesGeometry([4.2, 0.04, 0.32]),
-      material('stripe', 0.02, 0.9),
-      southeastRoadStripeInstances
+      `${id}:row-walkways`,
+      boxInstancesGeometry([roadRowLength, 0.08, 4]),
+      material('curb', 0.06, 0.86),
+      rowSidewalkInstances,
+      { receiveShadow: true }
     ),
-    createPipeBridgeNode(
-      `${id}:bridge-east-west`,
-      [CAMPUS_BOUNDS.min.x + bridgeInset, 0, 0],
-      [CAMPUS_BOUNDS.max.x - bridgeInset, 0, 0],
-      9.2
+    instancesNode(
+      `${id}:column-walkways`,
+      boxInstancesGeometry([4, 0.08, roadColumnLength]),
+      material('curb', 0.06, 0.86),
+      columnSidewalkInstances,
+      { receiveShadow: true }
     ),
-    createPipeBridgeNode(
-      `${id}:bridge-south-north`,
-      [0, 0, CAMPUS_BOUNDS.min.z + bridgeInset],
-      [0, 0, CAMPUS_BOUNDS.max.z - bridgeInset],
-      9.6
+    ...CAMPUS_INTER_SECTOR_ROAD_ROWS.map((row) =>
+      createPipeBridgeNode(
+        `${id}:bridge-row-${row.id}`,
+        [row.center.x - row.length / 2 + bridgeInset, 0, row.center.z],
+        [row.center.x + row.length / 2 - bridgeInset, 0, row.center.z],
+        9.4
+      )
     ),
-    createPipeBridgeNode(
-      `${id}:bridge-southeast`,
-      [southeastConnectorStartX, 0, southeastConnectorZ],
-      [southeastConnectorEndX, 0, southeastConnectorZ],
-      9.8
+    ...CAMPUS_INTER_SECTOR_ROAD_COLUMNS.map((column) =>
+      createPipeBridgeNode(
+        `${id}:bridge-column-${column.id}`,
+        [column.center.x, 0, column.center.z - column.length / 2 + bridgeInset],
+        [column.center.x, 0, column.center.z + column.length / 2 - bridgeInset],
+        9.8
+      )
     ),
-    createPipeBridgeNode(`${id}:bridge-west-diagonal`, [-260, 0, 0], [0, 0, 260], 10.4),
-    createPipeBridgeNode(`${id}:bridge-east-diagonal`, [260, 0, 0], [0, 0, 260], 10.2),
-    groupNode(`${id}:hub`, [
-      meshNode(
-        `${id}:hub-base`,
-        boxGeometry([34, 0.48, 34]),
-        material('slab', 0.04, 0.92),
-        {
-          position: vec3(0, 0.24, 0),
-        }
-      ),
-      instancesNode(
-        `${id}:hub-towers`,
-        cylinderInstancesGeometry([1.3, 1.6, 24, 18]),
-        material('vessel', 0.56, 0.3),
-        towerInstances
-      ),
-      meshNode(
-        `${id}:hub-building`,
-        boxGeometry([24, 9.2, 8]),
-        material('building', 0.24, 0.62),
-        {
-          position: vec3(0, 4.6, 0),
-        }
-      ),
-      meshNode(
-        `${id}:hub-pipe`,
-        cylinderGeometry([0.3, 0.3, 28, 16]),
-        material('pipe', 0.6, 0.34),
-        {
-          position: vec3(0, 8.8, 0),
-          rotation: vec3(0, 0, Math.PI / 2),
-        }
-      ),
-    ]),
+    instancesNode(
+      `${id}:intersection-bases`,
+      boxInstancesGeometry([22, 0.48, 22]),
+      material('slab', 0.04, 0.92),
+      hubBaseInstances,
+      { receiveShadow: true }
+    ),
+    instancesNode(
+      `${id}:intersection-towers`,
+      cylinderInstancesGeometry([0.78, 0.94, 18.4, 16]),
+      material('vessel', 0.56, 0.3),
+      hubTowerInstances
+    ),
+    instancesNode(
+      `${id}:intersection-pipes`,
+      cylinderInstancesGeometry([0.22, 0.22, 13.2, 12]),
+      material('pipe', 0.6, 0.34),
+      hubPipeInstances
+    ),
   ].filter((node): node is PublishedStaticRenderNode => node !== null)
 }
 

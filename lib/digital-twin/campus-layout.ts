@@ -46,6 +46,8 @@ export interface SceneEntityCounts {
 
 export type LayoutBlueprintKind =
   | 'admin-building'
+  | 'assembly-hall'
+  | 'conveyor-line'
   | 'cooling-tower'
   | 'emergency-station'
   | 'flare-stack'
@@ -66,6 +68,8 @@ export type LayoutBlueprintKind =
   | 'vertical-tank'
   | 'weighbridge'
   | 'pump-manifold'
+  | 'robot-cell'
+  | 'silo-yard'
   | 'wall-system'
   | 'door-system'
   | 'window-system'
@@ -97,20 +101,48 @@ export interface CampusSector {
   offset: Vector3
 }
 
+export interface InterSectorRoadRibbon {
+  id: string
+  axis: 'x' | 'z'
+  center: Vector3
+  length: number
+  width: number
+}
+
 function point(x: number, z: number, y = 0): Vector3 {
   return { x, y, z }
 }
 
+export const CAMPUS_SECTOR_HALF_EXTENT = 118
+export const CAMPUS_SECTOR_SPACING = 260
+
 export const CAMPUS_SECTORS: CampusSector[] = [
+  { id: 'sector-northwest-frontier', name: '西北精细化工园', offset: point(-520, -520) },
+  { id: 'sector-north-frontier', name: '北部氢能装备园', offset: point(-260, -520) },
+  { id: 'sector-far-north', name: '远北能源储运园', offset: point(0, -520) },
+  { id: 'sector-northeast-frontier', name: '东北智能制造园', offset: point(260, -520) },
+  { id: 'sector-far-northeast', name: '远东北联合装置园', offset: point(520, -520) },
+  { id: 'sector-west-north', name: '西北仓配装配园', offset: point(-520, -260) },
+  { id: 'sector-northwest', name: '西北材料预处理园', offset: point(-260, -260) },
+  { id: 'sector-north', name: '北部能源环保园', offset: point(0, -260) },
+  { id: 'sector-northeast', name: '东北智能仓储园', offset: point(260, -260) },
+  { id: 'sector-east-north', name: '东北高架管廊园', offset: point(520, -260) },
+  { id: 'sector-far-west', name: '远西原料储备园', offset: point(-520, 0) },
+  { id: 'sector-west', name: '西部储运园', offset: point(-260, 0) },
   { id: 'sector-core', name: '核心炼化园', offset: point(0, 0) },
   { id: 'sector-east', name: '东部新材料园', offset: point(260, 0) },
-  { id: 'sector-west', name: '西部储运园', offset: point(-260, 0) },
-  { id: 'sector-north', name: '北部能源环保园', offset: point(0, -260) },
+  { id: 'sector-far-east', name: '远东精密装配园', offset: point(520, 0) },
+  { id: 'sector-west-south', name: '西南铁路发运园', offset: point(-520, 260) },
+  { id: 'sector-southwest', name: '西南罐区扩展园', offset: point(-260, 260) },
   { id: 'sector-south', name: '南部公辅园', offset: point(0, 260) },
   { id: 'sector-southeast', name: '东南研发仓储园', offset: point(260, 260) },
+  { id: 'sector-east-south', name: '东南成品包装园', offset: point(520, 260) },
+  { id: 'sector-far-southwest', name: '远西南综合物流园', offset: point(-520, 520) },
+  { id: 'sector-south-frontier', name: '南部自动化装配园', offset: point(-260, 520) },
+  { id: 'sector-far-south', name: '远南循环经济园', offset: point(0, 520) },
+  { id: 'sector-southeast-frontier', name: '东南高标仓园', offset: point(260, 520) },
+  { id: 'sector-far-southeast', name: '远东南港口联运园', offset: point(520, 520) },
 ]
-
-export const CAMPUS_SECTOR_HALF_EXTENT = 118
 
 function offsetPoint(value: Vector3, offset: Vector3): Vector3 {
   return {
@@ -134,15 +166,15 @@ function withSectorName(name: string, sector: CampusSector): string {
   return `${sector.name} · ${name}`
 }
 
-export const CAMPUS_GRID_SIZE = 860
-export const CAMPUS_GRID_DIVISIONS = 430
-export const CAMPUS_INTERACTION_RADIUS = 520
+export const CAMPUS_GRID_SIZE = 1360
+export const CAMPUS_GRID_DIVISIONS = 680
+export const CAMPUS_INTERACTION_RADIUS = 780
 export const CAMPUS_INTERACTION_HEIGHT = 28
 export const CAMPUS_SCENE_CONFIG = {
   gridSize: CAMPUS_GRID_SIZE,
   gridDivisions: CAMPUS_GRID_DIVISIONS,
-  cameraPosition: point(460, 430, 420),
-  cameraTarget: point(20, 72, 0),
+  cameraPosition: point(760, 710, 720),
+  cameraTarget: point(0, 96, 0),
 } as const
 
 export const CAMPUS_DISTRICTS: CampusDistrict[] = [
@@ -270,6 +302,48 @@ export const PROCESS_WEST_LAYOUT_BLUEPRINTS: LayoutBlueprint[] = [
     blocksVehicle: false,
     blocksPerson: false,
     variant: 'west-header',
+  },
+  {
+    id: 'west-assembly-hall',
+    districtId: 'process-west',
+    label: '西区柔性装配大厅',
+    kind: 'assembly-hall',
+    center: point(-78, -8),
+    width: 24,
+    depth: 10,
+    height: 7.4,
+    major: false,
+    blocksVehicle: false,
+    blocksPerson: false,
+    variant: 'conveyor-production-hall',
+  },
+  {
+    id: 'west-conveyor-spine',
+    districtId: 'process-west',
+    label: '西区连续输送线',
+    kind: 'conveyor-line',
+    center: point(-58, -7),
+    width: 68,
+    depth: 3.2,
+    height: 3.4,
+    major: false,
+    blocksVehicle: false,
+    blocksPerson: false,
+    variant: 'roller-spine',
+  },
+  {
+    id: 'west-robot-cell',
+    districtId: 'process-west',
+    label: '西区机器人巡检单元',
+    kind: 'robot-cell',
+    center: point(-28, -9),
+    width: 14,
+    depth: 9,
+    height: 5.4,
+    major: false,
+    blocksVehicle: false,
+    blocksPerson: false,
+    variant: 'dual-arm-cell',
   },
 ]
 
@@ -427,6 +501,20 @@ export const TANK_EAST_LAYOUT_BLUEPRINTS: LayoutBlueprint[] = [
     blocksVehicle: true,
     blocksPerson: false,
     variant: 'sphere',
+  },
+  {
+    id: 'east-additive-silo-yard',
+    districtId: 'tank-east',
+    label: '东区添加剂筒仓列',
+    kind: 'silo-yard',
+    center: point(86, -6),
+    width: 8,
+    depth: 24,
+    height: 13.6,
+    major: false,
+    blocksVehicle: false,
+    blocksPerson: false,
+    variant: 'four-pack-silos',
   },
 ]
 
@@ -598,6 +686,48 @@ export const LOGISTICS_SOUTH_LAYOUT_BLUEPRINTS: LayoutBlueprint[] = [
     blocksVehicle: true,
     blocksPerson: true,
     variant: 'yard-control-block',
+  },
+  {
+    id: 'logistics-telescopic-conveyor',
+    districtId: 'logistics-south',
+    label: '伸缩装车输送线',
+    kind: 'conveyor-line',
+    center: point(-36, 84),
+    width: 58,
+    depth: 4,
+    height: 3.2,
+    major: false,
+    blocksVehicle: false,
+    blocksPerson: false,
+    variant: 'telescopic-dock-loader',
+  },
+  {
+    id: 'logistics-robot-palletizing-cell',
+    districtId: 'logistics-south',
+    label: '机器人码垛单元',
+    kind: 'robot-cell',
+    center: point(-46, 100),
+    width: 14,
+    depth: 10,
+    height: 5.2,
+    major: false,
+    blocksVehicle: false,
+    blocksPerson: false,
+    variant: 'palletizing-cell',
+  },
+  {
+    id: 'logistics-sortation-hall',
+    districtId: 'logistics-south',
+    label: '高速分拣装配厅',
+    kind: 'assembly-hall',
+    center: point(32, 100),
+    width: 38,
+    depth: 14,
+    height: 8.8,
+    major: false,
+    blocksVehicle: false,
+    blocksPerson: false,
+    variant: 'sortation-hall',
   },
 ]
 
@@ -946,75 +1076,165 @@ export const CAMPUS_ZONE_BLUEPRINTS: ZoneBlueprint[] = [
   },
 ]
 
+function uniqueSortedNumbers(values: number[]) {
+  return [...new Set(values)].sort((left, right) => left - right)
+}
+
+function dedupePoints(points: Vector3[]) {
+  const seen = new Set<string>()
+  return points.filter((candidate) => {
+    const key = `${candidate.x}:${candidate.y}:${candidate.z}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+const CAMPUS_SECTOR_OFFSET_XS = uniqueSortedNumbers(CAMPUS_SECTORS.map((sector) => sector.offset.x))
+const CAMPUS_SECTOR_OFFSET_ZS = uniqueSortedNumbers(CAMPUS_SECTORS.map((sector) => sector.offset.z))
+const CAMPUS_INTER_SECTOR_ROAD_WIDTH = 18
+const CAMPUS_INTER_SECTOR_SIDEWALK_WIDTH = 4
+const CAMPUS_INTER_SECTOR_MARGIN = CAMPUS_SECTOR_HALF_EXTENT + 10
+const CAMPUS_INTER_SECTOR_ROUTE_INSET = 32
+const CAMPUS_INTER_SECTOR_MIN_X = Math.min(...CAMPUS_SECTOR_OFFSET_XS) - CAMPUS_INTER_SECTOR_MARGIN
+const CAMPUS_INTER_SECTOR_MAX_X = Math.max(...CAMPUS_SECTOR_OFFSET_XS) + CAMPUS_INTER_SECTOR_MARGIN
+const CAMPUS_INTER_SECTOR_MIN_Z = Math.min(...CAMPUS_SECTOR_OFFSET_ZS) - CAMPUS_INTER_SECTOR_MARGIN
+const CAMPUS_INTER_SECTOR_MAX_Z = Math.max(...CAMPUS_SECTOR_OFFSET_ZS) + CAMPUS_INTER_SECTOR_MARGIN
+
+export const CAMPUS_INTER_SECTOR_ROAD_ROWS: InterSectorRoadRibbon[] = CAMPUS_SECTOR_OFFSET_ZS.map(
+  (z) => ({
+    id: `row-z${z}`,
+    axis: 'x',
+    center: point((CAMPUS_INTER_SECTOR_MIN_X + CAMPUS_INTER_SECTOR_MAX_X) / 2, z),
+    length: CAMPUS_INTER_SECTOR_MAX_X - CAMPUS_INTER_SECTOR_MIN_X,
+    width: CAMPUS_INTER_SECTOR_ROAD_WIDTH,
+  })
+)
+
+export const CAMPUS_INTER_SECTOR_ROAD_COLUMNS: InterSectorRoadRibbon[] =
+  CAMPUS_SECTOR_OFFSET_XS.map((x) => ({
+    id: `column-x${x}`,
+    axis: 'z',
+    center: point(x, (CAMPUS_INTER_SECTOR_MIN_Z + CAMPUS_INTER_SECTOR_MAX_Z) / 2),
+    length: CAMPUS_INTER_SECTOR_MAX_Z - CAMPUS_INTER_SECTOR_MIN_Z,
+    width: CAMPUS_INTER_SECTOR_ROAD_WIDTH,
+  }))
+
+export const CAMPUS_INTER_SECTOR_INTERSECTIONS: Vector3[] = CAMPUS_SECTOR_OFFSET_ZS.flatMap((z) =>
+  CAMPUS_SECTOR_OFFSET_XS.map((x) => point(x, z))
+)
+
 const INTER_SECTOR_VEHICLE_LANE_RECTS: LaneRect[] = [
-  { minX: -388, maxX: 388, minZ: -8, maxZ: 8 },
-  { minX: -8, maxX: 8, minZ: -388, maxZ: 388 },
-  { minX: -8, maxX: 388, minZ: 252, maxZ: 268 },
+  ...CAMPUS_INTER_SECTOR_ROAD_ROWS.map((row) => ({
+    minX: row.center.x - row.length / 2,
+    maxX: row.center.x + row.length / 2,
+    minZ: row.center.z - row.width / 2,
+    maxZ: row.center.z + row.width / 2,
+  })),
+  ...CAMPUS_INTER_SECTOR_ROAD_COLUMNS.map((column) => ({
+    minX: column.center.x - column.width / 2,
+    maxX: column.center.x + column.width / 2,
+    minZ: column.center.z - column.length / 2,
+    maxZ: column.center.z + column.length / 2,
+  })),
 ]
 
 const INTER_SECTOR_PERSON_LANE_RECTS: LaneRect[] = [
-  { minX: -388, maxX: 388, minZ: -16, maxZ: -12 },
-  { minX: -388, maxX: 388, minZ: 12, maxZ: 16 },
-  { minX: -16, maxX: -12, minZ: -388, maxZ: 388 },
-  { minX: 12, maxX: 16, minZ: -388, maxZ: 388 },
-  { minX: -8, maxX: 388, minZ: 244, maxZ: 248 },
-  { minX: -8, maxX: 388, minZ: 272, maxZ: 276 },
+  ...CAMPUS_INTER_SECTOR_ROAD_ROWS.flatMap((row) => [
+    {
+      minX: row.center.x - row.length / 2,
+      maxX: row.center.x + row.length / 2,
+      minZ: row.center.z - row.width / 2 - CAMPUS_INTER_SECTOR_SIDEWALK_WIDTH - 3,
+      maxZ: row.center.z - row.width / 2 - 3,
+    },
+    {
+      minX: row.center.x - row.length / 2,
+      maxX: row.center.x + row.length / 2,
+      minZ: row.center.z + row.width / 2 + 3,
+      maxZ: row.center.z + row.width / 2 + CAMPUS_INTER_SECTOR_SIDEWALK_WIDTH + 3,
+    },
+  ]),
+  ...CAMPUS_INTER_SECTOR_ROAD_COLUMNS.flatMap((column) => [
+    {
+      minX: column.center.x - column.width / 2 - CAMPUS_INTER_SECTOR_SIDEWALK_WIDTH - 3,
+      maxX: column.center.x - column.width / 2 - 3,
+      minZ: column.center.z - column.length / 2,
+      maxZ: column.center.z + column.length / 2,
+    },
+    {
+      minX: column.center.x + column.width / 2 + 3,
+      maxX: column.center.x + column.width / 2 + CAMPUS_INTER_SECTOR_SIDEWALK_WIDTH + 3,
+      minZ: column.center.z - column.length / 2,
+      maxZ: column.center.z + column.length / 2,
+    },
+  ]),
 ]
 
-const INTER_SECTOR_VEHICLE_ROUTE_GOALS: Vector3[] = [
-  point(-356, 0),
-  point(-260, 0),
-  point(-130, 0),
-  point(0, 0),
-  point(130, 0),
-  point(260, 0),
-  point(356, 0),
-  point(0, -112),
-  point(0, -260),
-  point(0, -356),
-  point(0, 130),
-  point(0, 260),
-  point(0, 356),
-  point(130, 260),
-  point(260, 260),
-  point(356, 260),
-]
+const INTER_SECTOR_VEHICLE_ROUTE_GOALS: Vector3[] = dedupePoints([
+  ...CAMPUS_SECTOR_OFFSET_ZS.flatMap((z) =>
+    [
+      CAMPUS_INTER_SECTOR_MIN_X + CAMPUS_INTER_SECTOR_ROUTE_INSET,
+      ...CAMPUS_SECTOR_OFFSET_XS,
+      CAMPUS_INTER_SECTOR_MAX_X - CAMPUS_INTER_SECTOR_ROUTE_INSET,
+    ].map((x) => point(x, z))
+  ),
+  ...CAMPUS_SECTOR_OFFSET_XS.flatMap((x) =>
+    [
+      CAMPUS_INTER_SECTOR_MIN_Z + CAMPUS_INTER_SECTOR_ROUTE_INSET,
+      ...CAMPUS_SECTOR_OFFSET_ZS,
+      CAMPUS_INTER_SECTOR_MAX_Z - CAMPUS_INTER_SECTOR_ROUTE_INSET,
+    ].map((z) => point(x, z))
+  ),
+])
 
-const INTER_SECTOR_PERSON_ROUTE_GOALS: Vector3[] = [
-  point(-356, -14),
-  point(-260, -14),
-  point(-130, -14),
-  point(0, -14),
-  point(130, -14),
-  point(260, -14),
-  point(356, -14),
-  point(-356, 14),
-  point(-260, 14),
-  point(-130, 14),
-  point(0, 14),
-  point(130, 14),
-  point(260, 14),
-  point(356, 14),
-  point(-14, -112),
-  point(-14, -260),
-  point(-14, -356),
-  point(-14, 0),
-  point(-14, 130),
-  point(-14, 260),
-  point(-14, 356),
-  point(14, -112),
-  point(14, -260),
-  point(14, -356),
-  point(14, 0),
-  point(14, 130),
-  point(14, 260),
-  point(14, 356),
-  point(130, 246),
-  point(260, 246),
-  point(356, 246),
-  point(130, 274),
-  point(260, 274),
-  point(356, 274),
+const INTER_SECTOR_PERSON_ROUTE_GOALS: Vector3[] = dedupePoints([
+  ...CAMPUS_SECTOR_OFFSET_ZS.flatMap((z) =>
+    [
+      CAMPUS_INTER_SECTOR_MIN_X + CAMPUS_INTER_SECTOR_ROUTE_INSET,
+      ...CAMPUS_SECTOR_OFFSET_XS,
+      CAMPUS_INTER_SECTOR_MAX_X - CAMPUS_INTER_SECTOR_ROUTE_INSET,
+    ].flatMap((x) => [
+      point(x, z - CAMPUS_INTER_SECTOR_ROAD_WIDTH / 2 - 5),
+      point(x, z + CAMPUS_INTER_SECTOR_ROAD_WIDTH / 2 + 5),
+    ])
+  ),
+  ...CAMPUS_SECTOR_OFFSET_XS.flatMap((x) =>
+    [
+      CAMPUS_INTER_SECTOR_MIN_Z + CAMPUS_INTER_SECTOR_ROUTE_INSET,
+      ...CAMPUS_SECTOR_OFFSET_ZS,
+      CAMPUS_INTER_SECTOR_MAX_Z - CAMPUS_INTER_SECTOR_ROUTE_INSET,
+    ].flatMap((z) => [
+      point(x - CAMPUS_INTER_SECTOR_ROAD_WIDTH / 2 - 5, z),
+      point(x + CAMPUS_INTER_SECTOR_ROAD_WIDTH / 2 + 5, z),
+    ])
+  ),
+])
+
+const INTER_SECTOR_VEHICLE_ROUTE_LOOPS: Vector3[][] = [
+  [
+    point(
+      CAMPUS_INTER_SECTOR_MIN_X + CAMPUS_INTER_SECTOR_ROUTE_INSET,
+      CAMPUS_INTER_SECTOR_MIN_Z + CAMPUS_INTER_SECTOR_ROUTE_INSET
+    ),
+    point(
+      CAMPUS_INTER_SECTOR_MAX_X - CAMPUS_INTER_SECTOR_ROUTE_INSET,
+      CAMPUS_INTER_SECTOR_MIN_Z + CAMPUS_INTER_SECTOR_ROUTE_INSET
+    ),
+    point(
+      CAMPUS_INTER_SECTOR_MAX_X - CAMPUS_INTER_SECTOR_ROUTE_INSET,
+      CAMPUS_INTER_SECTOR_MAX_Z - CAMPUS_INTER_SECTOR_ROUTE_INSET
+    ),
+    point(
+      CAMPUS_INTER_SECTOR_MIN_X + CAMPUS_INTER_SECTOR_ROUTE_INSET,
+      CAMPUS_INTER_SECTOR_MAX_Z - CAMPUS_INTER_SECTOR_ROUTE_INSET
+    ),
+  ],
+  ...CAMPUS_SECTOR_OFFSET_ZS.map((z) => [
+    point(CAMPUS_INTER_SECTOR_MIN_X + CAMPUS_INTER_SECTOR_ROUTE_INSET, z - 6),
+    point(CAMPUS_INTER_SECTOR_MAX_X - CAMPUS_INTER_SECTOR_ROUTE_INSET, z - 6),
+    point(CAMPUS_INTER_SECTOR_MAX_X - CAMPUS_INTER_SECTOR_ROUTE_INSET, z + 6),
+    point(CAMPUS_INTER_SECTOR_MIN_X + CAMPUS_INTER_SECTOR_ROUTE_INSET, z + 6),
+  ]),
 ]
 
 const BASE_CAMPUS_EQUIPMENT_PLACEMENTS: EquipmentPlacement[] = [
@@ -1088,6 +1308,12 @@ const BASE_CAMPUS_EQUIPMENT_PLACEMENTS: EquipmentPlacement[] = [
   { name: '光伏逆变柜 PV-101', position: point(22, 91), repeatable: false },
   { name: '危化仓储货架 WH-301', position: point(-72, 90), repeatable: false },
   { name: '车辆闸机 GT-101', position: point(0, -112), repeatable: false },
+  { name: '柔性装配线 CV-101', position: point(-70, -8), repeatable: false, spread: { x: 0.45, z: 0.35 } },
+  { name: '视觉检测台 VI-101', position: point(-52, -7), repeatable: false, spread: { x: 0.35, z: 0.35 } },
+  { name: '机器人巡检臂 RB-101', position: point(-28, -9), repeatable: false, spread: { x: 0.4, z: 0.4 } },
+  { name: '伸缩装车输送机 CV-501', position: point(-36, 84), repeatable: false, spread: { x: 0.5, z: 0.4 } },
+  { name: '码垛机器人 RB-501', position: point(-46, 100), repeatable: false, spread: { x: 0.4, z: 0.4 } },
+  { name: '添加剂筒仓 SY-401', position: point(86, -6), repeatable: false, spread: { x: 0.4, z: 0.5 } },
 ]
 
 const BASE_PERSON_ANCHORS: Vector3[] = [
@@ -1377,6 +1603,7 @@ export const VEHICLE_ROUTE_LOOPS: Vector3[][] = [
       loop.map((waypoint) => offsetPoint(waypoint, sector.offset))
     )
   ),
+  ...INTER_SECTOR_VEHICLE_ROUTE_LOOPS,
 ]
 
 function expandCampusBoundsForPoint(
@@ -1432,7 +1659,7 @@ export const DEFAULT_SCENE_COUNTS: SceneEntityCounts = {
 }
 
 export const PRODUCTION_SCENE_COUNTS: SceneEntityCounts = {
-  persons: 80 * CAMPUS_SECTORS.length,
-  vehicles: 45 * CAMPUS_SECTORS.length,
-  equipment: EQUIPMENT_ANCHORS.length * 2,
+  persons: 40 * CAMPUS_SECTORS.length,
+  vehicles: 24 * CAMPUS_SECTORS.length,
+  equipment: Math.ceil(EQUIPMENT_ANCHORS.length * 1.25),
 }

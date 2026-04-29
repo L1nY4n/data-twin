@@ -65,6 +65,8 @@ const STATUS_CONFIG = {
 
 const STATIC_FEATURE_KIND_LABELS: Record<RuntimePublishedStaticFeature['feature']['kind'], string> = {
   'admin-building': '行政 / 调度建筑',
+  'assembly-hall': '装配大厅',
+  'conveyor-line': '输送线',
   'cooling-tower': '冷却塔',
   'emergency-station': '消防应急站',
   'flare-stack': '火炬排放塔',
@@ -85,6 +87,8 @@ const STATIC_FEATURE_KIND_LABELS: Record<RuntimePublishedStaticFeature['feature'
   'vertical-tank': '立式储罐',
   weighbridge: '地磅',
   'pump-manifold': '泵组',
+  'robot-cell': '机器人单元',
+  'silo-yard': '筒仓区',
   'wall-system': '墙体 / 隔断',
   'door-system': '门体',
   'window-system': '窗体',

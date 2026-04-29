@@ -36,6 +36,7 @@ import {
 const DEFAULT_EMPTY_SPREAD = { x: 0, z: 0 } as const
 const VEHICLE_SPAWN_RELAXATION_BUFFER = 0.12
 const VEHICLE_LANE_SAMPLE_STEP = 2.5
+const VEHICLE_LANE_SAMPLE_MAX_SEGMENTS = 32
 
 type HydratableLayer = PublishedPersonLayer | PublishedVehicleLayer | PublishedEquipmentLayer
 type VehicleSpawnPlacement = Pick<VehicleEntity, 'position' | 'vehicleType'>
@@ -136,6 +137,27 @@ function laneIntersectsBounds(lane: LaneRect, bounds: PublishedSceneBounds) {
   )
 }
 
+function footprintIntersectsBounds(footprint: VehicleBlockingFootprint, bounds: PublishedSceneBounds) {
+  return !(
+    footprint.center.x + footprint.width / 2 < bounds.min.x ||
+    bounds.max.x < footprint.center.x - footprint.width / 2 ||
+    footprint.center.z + footprint.depth / 2 < bounds.min.z ||
+    bounds.max.z < footprint.center.z - footprint.depth / 2
+  )
+}
+
+function buildLayerVehiclePlacementRules(
+  rules: VehiclePlacementRules | null,
+  bounds: PublishedSceneBounds
+): VehiclePlacementRules | null {
+  if (!rules) return null
+
+  return {
+    lanes: rules.lanes.filter((lane) => laneIntersectsBounds(lane, bounds)),
+    blockers: rules.blockers.filter((blocker) => footprintIntersectsBounds(blocker, bounds)),
+  }
+}
+
 function clipLaneToBounds(lane: LaneRect, bounds: PublishedSceneBounds): LaneRect | null {
   if (!laneIntersectsBounds(lane, bounds)) return null
 
@@ -195,7 +217,10 @@ function createAxisSamples(min: number, max: number, preferred: number) {
   push(min)
   push(max)
 
-  for (let value = min; value <= max; value += VEHICLE_LANE_SAMPLE_STEP) {
+  const span = Math.max(0, max - min)
+  const adaptiveStep = Math.max(VEHICLE_LANE_SAMPLE_STEP, span / VEHICLE_LANE_SAMPLE_MAX_SEGMENTS)
+
+  for (let value = min; value <= max; value += adaptiveStep) {
     push(value)
   }
   push(max)
@@ -729,18 +754,25 @@ export function hydratePublishedScenePackage(
   const persons = personLayers.flatMap((layer, index) => hydratePersons(layer, personCounts[index] ?? 0))
   const vehiclePlacementRules = buildCampusVehiclePlacementRules(pkg)
   const rawVehicles = vehicleLayers.flatMap((layer, index) =>
-    hydrateVehicles(layer, vehicleCounts[index] ?? 0, vehiclePlacementRules)
+    hydrateVehicles(
+      layer,
+      vehicleCounts[index] ?? 0,
+      buildLayerVehiclePlacementRules(vehiclePlacementRules, layer.bounds)
+    )
   )
   const vehicleMinimumSeparation = vehicleLayers.reduce(
     (maxSeparation, layer) => Math.max(maxSeparation, layer.minimumSeparation),
     0
   )
-  const vehicles = relaxVehiclePlacements(
-    rawVehicles,
-    pkg.bounds,
-    vehicleMinimumSeparation,
-    vehiclePlacementRules
-  )
+  const vehicles =
+    vehiclePlacementRules && vehicleLayers.length > 1
+      ? rawVehicles
+      : relaxVehiclePlacements(
+          rawVehicles,
+          pkg.bounds,
+          vehicleMinimumSeparation,
+          vehiclePlacementRules
+        )
   const equipment = equipmentLayers.flatMap((layer, index) =>
     hydrateEquipment(layer, equipmentCounts[index] ?? 0)
   )
