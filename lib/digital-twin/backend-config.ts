@@ -6,17 +6,57 @@ function trimTrailingSlash(url: string): string {
   return url.replace(/\/$/, '')
 }
 
+function isLoopbackHostname(hostname: string): boolean {
+  const normalized = hostname.toLowerCase()
+  return normalized === 'localhost' || normalized === '127.0.0.1' || normalized === '::1' || normalized === '[::1]'
+}
+
+function configuredUrlUsesLoopbackHost(url: string): boolean {
+  try {
+    return isLoopbackHostname(new URL(url).hostname)
+  } catch {
+    return false
+  }
+}
+
+function browserLocation(): Location | null {
+  return typeof window === 'undefined' ? null : window.location
+}
+
+function resolveBrowserHttpBaseUrl(configuredUrl: string): string {
+  const location = browserLocation()
+  if (!location) return configuredUrl
+
+  if (configuredUrlUsesLoopbackHost(configuredUrl) && !isLoopbackHostname(location.hostname)) {
+    return location.origin
+  }
+
+  return configuredUrl
+}
+
+function resolveBrowserWsBaseUrl(configuredUrl: string): string {
+  const location = browserLocation()
+  if (!location) return configuredUrl
+
+  if (configuredUrlUsesLoopbackHost(configuredUrl) && !isLoopbackHostname(location.hostname)) {
+    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
+    return `${protocol}//${location.host}`
+  }
+
+  return configuredUrl
+}
+
 export function getBackendHttpBaseUrl(): string {
   const publicUrl = process.env.NEXT_PUBLIC_BACKEND_HTTP_URL || DEFAULT_HTTP
   const internalUrl = process.env.BACKEND_HTTP_URL_INTERNAL || DEFAULT_INTERNAL_HTTP
-  const raw = typeof window === 'undefined' ? internalUrl : publicUrl
+  const raw = typeof window === 'undefined' ? internalUrl : resolveBrowserHttpBaseUrl(publicUrl)
   return trimTrailingSlash(raw)
 }
 
 export function getBackendWsBaseUrl(): string {
   const configured = process.env.NEXT_PUBLIC_BACKEND_WS_URL
   if (configured && configured.length > 0) {
-    return trimTrailingSlash(configured)
+    return trimTrailingSlash(resolveBrowserWsBaseUrl(configured))
   }
 
   return getBackendHttpBaseUrl().replace(/^http/i, 'ws')
