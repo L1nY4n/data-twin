@@ -15,6 +15,8 @@ import {
   Circle,
   AlertTriangle,
   XCircle,
+  X,
+  ListTree,
 } from 'lucide-react'
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
 import type { EntityType, EntityStatus } from '@/lib/digital-twin/types'
@@ -115,6 +117,7 @@ export function EntityListPanel() {
   const selectedEntityId = useDigitalTwinStore((state) => state.selectedEntityId)
   const setSelectedEntity = useDigitalTwinStore((state) => state.setSelectedEntity)
   const focusCameraOnEntity = useDigitalTwinStore((state) => state.focusCameraOnEntity)
+  const toggleLeftPanel = useDigitalTwinStore((state) => state.toggleLeftPanel)
 
   const [expandedSections, setExpandedSections] = useState<string[]>(readStoredExpandedSections)
   const [showFilters, setShowFilters] = useState(readStoredFilterDrawerOpen)
@@ -319,14 +322,29 @@ export function EntityListPanel() {
   return (
     <ViewerAdminSidePanelBody>
       <ViewerAdminPanelHeader
-        title="对象索引"
+        title="Hierarchy / 对象树"
         description={`${filteredEntityCount}/${totalEntityCount} 可见对象`}
-        trailing={<span className="viewer-admin-kicker text-[11px]">运行态只读</span>}
-        className="viewer-admin-entity-panel-header px-3 py-2"
+        leading={<ListTree className="h-4 w-4 text-sky-300" />}
+        trailing={
+          <>
+            <span className="viewer-admin-kicker text-[11px]">运行态只读</span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="viewer-admin-panel-close h-7 w-7"
+              onClick={toggleLeftPanel}
+              aria-label="关闭对象树"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </>
+        }
+        className="viewer-admin-entity-panel-header viewer-admin-hierarchy-header px-3 py-2"
       />
 
       {/* 搜索栏 */}
-      <div className="border-b px-3 py-2">
+      <div className="viewer-admin-hierarchy-search-block border-b px-3 py-2">
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -341,6 +359,10 @@ export function EntityListPanel() {
           <div>
             <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">当前筛选</span>
             <p className="text-xs text-white">{filteredEntityCount} 项 · {groupedSections.length} 组</p>
+          </div>
+          <div className="viewer-admin-hierarchy-root-chip">
+            <span>Scene Root</span>
+            <strong>{totalEntityCount}</strong>
           </div>
         </div>
 
@@ -563,6 +585,11 @@ export function EntityListPanel() {
           )}
         </div>
       </ScrollArea>
+
+      <div className="viewer-admin-hierarchy-footer">
+        <span>{totalEntityCount} nodes</span>
+        <span>{hasActiveFilters ? 'filtered view' : 'all groups visible'}</span>
+      </div>
     </ViewerAdminSidePanelBody>
   )
 }
@@ -586,11 +613,12 @@ function EntityListItem({ entity, isSelected, onSelect, onFocus }: EntityListIte
   return (
     <div
       className={cn(
-        'viewer-admin-list-item viewer-admin-entity-row-card flex items-center gap-1.5 transition-colors',
+        'viewer-admin-list-item viewer-admin-entity-row-card viewer-admin-hierarchy-node flex items-center gap-1.5 transition-colors',
         isSelected && 'is-active'
       )}
       style={{ borderLeftColor: statusConfig.color }}
     >
+      <span className="viewer-admin-hierarchy-branch" aria-hidden />
       <button
         type="button"
         onClick={onSelect}

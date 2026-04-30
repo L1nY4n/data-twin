@@ -16,7 +16,6 @@ import {
   Box,
   Wifi,
   WifiOff,
-  Bell,
   Settings,
   ChevronDown,
   Sun,
@@ -25,9 +24,7 @@ import {
 import { useTheme } from '@/components/theme-provider'
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
 import type { ViewMode } from '@/lib/digital-twin/types'
-import { isRuntimeIncidentActive } from '@/lib/digital-twin/incident-utils'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import {
@@ -72,11 +69,7 @@ export function Toolbar({ workspaceSlug }: { workspaceSlug: string }) {
   const setMeasurementMode = useDigitalTwinStore((state) => state.setMeasurementMode)
   const clearMeasurementPoints = useDigitalTwinStore((state) => state.clearMeasurementPoints)
   const isConnected = useDigitalTwinStore((state) => state.isConnected)
-  const unacknowledgedAlarmCount = useDigitalTwinStore((state) => state.unacknowledgedAlarmCount)
-  const activeIncidentCount = useDigitalTwinStore(
-    (state) => state.incidents.filter((incident) => isRuntimeIncidentActive(incident)).length
-  )
-  const toggleBottomPanel = useDigitalTwinStore((state) => state.toggleBottomPanel)
+  const leftPanelOpen = useDigitalTwinStore((state) => state.leftPanelOpen)
   const isPlayingTrajectory = useDigitalTwinStore((state) => state.isPlayingTrajectory)
   const setTrajectoryPlayback = useDigitalTwinStore((state) => state.setTrajectoryPlayback)
   const qualityProfile = useDigitalTwinStore((state) => state.qualityProfile)
@@ -87,7 +80,6 @@ export function Toolbar({ workspaceSlug }: { workspaceSlug: string }) {
   const rendererBackend = useDigitalTwinStore((state) => state.rendererBackend)
   const setRendererMode = useDigitalTwinStore((state) => state.setRendererMode)
   const isDarkTheme = resolvedTheme === 'dark'
-  const sceneTitle = sceneConfig.name?.trim() || '数字孪生平台'
   const editorHref = buildEditorHref(workspaceSlug, '/')
   const canTrackSelectedEntity = selectedEntityType !== null && selectedEntityType !== 'zone'
 
@@ -106,12 +98,25 @@ export function Toolbar({ workspaceSlug }: { workspaceSlug: string }) {
 
   return (
     <TooltipProvider delayDuration={300}>
+      <div
+        data-viewer-ui-panel="module-navigation"
+        className={cn(
+          'viewer-module-nav-strip absolute bottom-4 z-30 hidden items-center gap-2 xl:flex',
+          leftPanelOpen ? 'left-[356px]' : 'left-4'
+        )}
+      >
+        <ProductModuleNav className="viewer-module-nav-strip__links" />
+      </div>
+
       <ViewerAdminToolbarBar
         data-viewer-ui-panel="top-toolbar"
-        className="editor-toolbar mx-2 mt-2 flex min-h-12 flex-wrap items-center gap-y-2 rounded-[22px] px-4 py-2"
+        className={cn(
+          'viewer-tool-rail absolute top-1/2 z-30 flex -translate-y-1/2 flex-col items-center gap-1 rounded-2xl p-1.5',
+          leftPanelOpen ? 'left-[356px]' : 'left-4'
+        )}
       >
         {/* 左侧：视图控制 */}
-        <div className="flex items-center gap-1">
+        <div className="viewer-tool-rail__group flex flex-col items-center gap-1">
           {/* 网格开关 */}
           <Tooltip>
             <TooltipTrigger asChild>
@@ -276,14 +281,8 @@ export function Toolbar({ workspaceSlug }: { workspaceSlug: string }) {
           )}
         </div>
 
-        {/* 中间：标题 + 模块导航 */}
-        <div className="order-3 flex basis-full items-center justify-center gap-3 xl:order-none xl:basis-auto xl:flex-1">
-          <h1 className="hidden text-sm font-medium xl:block">{sceneTitle}</h1>
-          <ProductModuleNav className="max-w-[min(100%,34rem)] justify-center" />
-        </div>
-
         {/* 右侧：状态和控制 */}
-        <div className="flex items-center gap-1 xl:ml-auto">
+        <div className="viewer-tool-rail__group flex flex-col items-center gap-1">
           {/* 轨迹回放控制 */}
           <Tooltip>
             <TooltipTrigger asChild>
@@ -324,29 +323,6 @@ export function Toolbar({ workspaceSlug }: { workspaceSlug: string }) {
               </Button>
             </TooltipTrigger>
             <TooltipContent>{isConnected ? '已连接' : '未连接'}</TooltipContent>
-          </Tooltip>
-
-          {/* 告警 */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="relative h-8 w-8"
-                onClick={toggleBottomPanel}
-              >
-                <Bell className="h-4 w-4" />
-                {Math.max(unacknowledgedAlarmCount, activeIncidentCount) > 0 && (
-                  <Badge 
-                    variant="destructive" 
-                    className="absolute -right-1 -top-1 h-4 min-w-4 px-1 text-[10px]"
-                  >
-                    {Math.max(unacknowledgedAlarmCount, activeIncidentCount)}
-                  </Badge>
-                )}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>事件 / 告警通知</TooltipContent>
           </Tooltip>
 
           {/* 设置 */}

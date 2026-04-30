@@ -72,6 +72,7 @@ import {
 import {
   createRuntimePublishedStaticFeatureRegistry,
   getRuntimePublishedStaticFeature,
+  type RuntimePublishedStaticFeature,
   type RuntimePublishedStaticFeatureRegistry,
 } from './runtime/static/features'
 import {
@@ -293,6 +294,7 @@ interface DigitalTwinActions {
   setActiveCameraPreset: (presetId: string | null) => void
   clearCameraFocusRequest: () => void
   focusCameraOnEntity: (id: string) => void
+  focusCameraOnStaticFeature: (id: string) => void
   setSceneReady: (ready: boolean) => void
 
   // 实体操作
@@ -442,8 +444,8 @@ const initialState: DigitalTwinState = {
   runtimeDataSource: 'live',
   runtimeNotice: null,
 
-  leftPanelOpen: true,
-  rightPanelOpen: true,
+  leftPanelOpen: false,
+  rightPanelOpen: false,
   bottomPanelOpen: false,
   bottomPanelTab: 'timeline',
 
@@ -1865,6 +1867,54 @@ function buildCameraFocusRequest(
   }
 }
 
+function buildStaticFeatureFocusRequest(
+  entry: RuntimePublishedStaticFeature,
+  currentCamera: Vector3,
+  fallbackCamera: Vector3
+): CameraFocusRequest {
+  const { feature } = entry
+  const target = {
+    x: feature.center.x,
+    y: feature.center.y + Math.max(feature.height * 0.55, 1.8),
+    z: feature.center.z,
+  }
+  const sourceCamera = isZeroVector(currentCamera) ? fallbackCamera : currentCamera
+  const footprintDistance = Math.max(
+    CAMERA_FOCUS_HORIZONTAL_DISTANCE,
+    Math.min(48, Math.max(feature.width, feature.depth) * 2.2)
+  )
+  let offsetX = sourceCamera.x - target.x
+  let offsetZ = sourceCamera.z - target.z
+  const horizontalDistance = Math.hypot(offsetX, offsetZ)
+
+  if (horizontalDistance < CAMERA_FOCUS_MIN_HORIZONTAL_DISTANCE) {
+    offsetX = footprintDistance * 0.72
+    offsetZ = footprintDistance * 0.72
+  } else {
+    const scale = footprintDistance / horizontalDistance
+    offsetX *= scale
+    offsetZ *= scale
+  }
+
+  const sourceVerticalDistance = sourceCamera.y - target.y
+  const verticalDistance = Math.max(
+    CAMERA_FOCUS_MIN_VERTICAL_DISTANCE,
+    Math.min(
+      CAMERA_FOCUS_VERTICAL_DISTANCE + Math.max(feature.height * 0.18, 0),
+      sourceVerticalDistance > 0 ? sourceVerticalDistance : CAMERA_FOCUS_VERTICAL_DISTANCE
+    )
+  )
+
+  return {
+    position: {
+      x: target.x + offsetX,
+      y: target.y + verticalDistance,
+      z: target.z + offsetZ,
+    },
+    target,
+  }
+}
+
 export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>()(
   subscribeWithSelector((set, get) => {
     let lastMetricsAt = 0
@@ -2398,6 +2448,28 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
             ? null
             : buildCameraFocusRequest(
                 entity,
+                latestCamera,
+                focusedState.sceneConfig.cameraPosition
+              ),
+        })
+      },
+
+      focusCameraOnStaticFeature: (id) => {
+        const state = get()
+        if (state.selectedStaticFeatureId !== id || state.selectedEntityId !== null) {
+          state.setSelectedStaticFeature(id)
+        }
+
+        const focusedState = get()
+        const entry = focusedState.staticFeatureRegistry.byId.get(id)
+        if (!entry) return
+
+        set({
+          activeCameraPreset: null,
+          cameraFocusRequest: isTrackedRuntimeViewMode(focusedState.viewMode)
+            ? null
+            : buildStaticFeatureFocusRequest(
+                entry,
                 latestCamera,
                 focusedState.sceneConfig.cameraPosition
               ),
@@ -2968,9 +3040,23 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
       // UI操作
       toggleLeftPanel: () => set((state) => ({ leftPanelOpen: !state.leftPanelOpen })),
 
-      toggleRightPanel: () => set((state) => ({ rightPanelOpen: !state.rightPanelOpen })),
+      toggleRightPanel: () =>
+        set((state) => {
+          const nextRightPanelOpen = !state.rightPanelOpen
+          return {
+            rightPanelOpen: nextRightPanelOpen,
+            ...(nextRightPanelOpen ? { bottomPanelOpen: false } : {}),
+          }
+        }),
 
-      toggleBottomPanel: () => set((state) => ({ bottomPanelOpen: !state.bottomPanelOpen })),
+      toggleBottomPanel: () =>
+        set((state) => {
+          const nextBottomPanelOpen = !state.bottomPanelOpen
+          return {
+            bottomPanelOpen: nextBottomPanelOpen,
+            ...(nextBottomPanelOpen ? { rightPanelOpen: false } : {}),
+          }
+        }),
 
       setBottomPanelTab: (tab) => set({ bottomPanelTab: tab }),
 

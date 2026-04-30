@@ -4,21 +4,16 @@ import { useMemo } from 'react'
 import {
   Activity,
   AlertTriangle,
-  Bell,
   Gauge,
-  ListTree,
   Network,
-  PanelLeft,
-  PanelRight,
 } from 'lucide-react'
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
 import { summarizeEntityDirectorySignalTelemetry } from '@/lib/digital-twin/signal-telemetry'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 
 type ViewerHmiOverlayProps = {
   className?: string
+  panelOpen?: boolean
 }
 
 function formatMetric(value: number, unit = '') {
@@ -26,7 +21,12 @@ function formatMetric(value: number, unit = '') {
   return `${value.toFixed(value >= 10 ? 0 : 1)}${unit}`
 }
 
-export function ViewerHmiOverlay({ className }: ViewerHmiOverlayProps) {
+function metricCaption(value: string | number | null | undefined) {
+  if (value === null || value === undefined || value === '') return 'nominal'
+  return String(value)
+}
+
+export function ViewerHmiOverlay({ className, panelOpen = false }: ViewerHmiOverlayProps) {
   const entityDirectory = useDigitalTwinStore((state) => state.entityDirectory)
   const incidents = useDigitalTwinStore((state) => state.incidents)
   const alarms = useDigitalTwinStore((state) => state.alarms)
@@ -35,15 +35,10 @@ export function ViewerHmiOverlay({ className }: ViewerHmiOverlayProps) {
   const runtimeNotice = useDigitalTwinStore((state) => state.runtimeNotice)
   const performanceMetrics = useDigitalTwinStore((state) => state.performanceMetrics)
   const rendererDiagnostics = useDigitalTwinStore((state) => state.rendererDiagnostics)
-  const leftPanelOpen = useDigitalTwinStore((state) => state.leftPanelOpen)
-  const rightPanelOpen = useDigitalTwinStore((state) => state.rightPanelOpen)
-  const bottomPanelOpen = useDigitalTwinStore((state) => state.bottomPanelOpen)
-  const toggleLeftPanel = useDigitalTwinStore((state) => state.toggleLeftPanel)
-  const toggleRightPanel = useDigitalTwinStore((state) => state.toggleRightPanel)
-  const toggleBottomPanel = useDigitalTwinStore((state) => state.toggleBottomPanel)
-  const setBottomPanelTab = useDigitalTwinStore((state) => state.setBottomPanelTab)
 
-  const visibleEntities = Array.from(entityDirectory.values()).filter((entity) => entity.visible).length
+  const visibleEntities = Array.from(entityDirectory.values()).filter(
+    (entity) => entity.visible
+  ).length
   const signalSummary = useMemo(
     () => summarizeEntityDirectorySignalTelemetry(entityDirectory.values()),
     [entityDirectory]
@@ -54,114 +49,56 @@ export function ViewerHmiOverlay({ className }: ViewerHmiOverlayProps) {
   const rendererLabel = rendererDiagnostics.storageBufferActive
     ? 'GPU Storage'
     : rendererDiagnostics.backend.toUpperCase()
-
-  const openEvents = () => {
-    setBottomPanelTab('timeline')
-    if (!bottomPanelOpen) toggleBottomPanel()
-  }
+  const activeEventCount = activeIncidents.length + activeAlarms
 
   return (
     <div
       data-viewer-ui-panel="hmi-overlay"
-      className={cn('viewer-hmi-overlay pointer-events-none absolute bottom-4 z-30 hidden xl:grid', className)}
+      className={cn(
+        'viewer-hmi-overlay pointer-events-none absolute left-1/2 z-30 hidden -translate-x-1/2 xl:flex',
+        panelOpen ? 'top-[76px] viewer-hmi-overlay--panel-open' : 'top-4',
+        className
+      )}
       aria-label="数字孪生 HMI 快捷看板"
     >
       <section
-        data-hmi-slot="kpi"
-        className="viewer-hmi-slot viewer-hmi-slot--kpi pointer-events-auto"
+        data-hmi-slot="kpi-bar"
+        className="viewer-hmi-kpi-strip pointer-events-auto"
         aria-label="运行 KPI"
       >
-        <div className="viewer-hmi-kicker">
-          Runtime HMI · {connectionLabel} · {rendererLabel}
+        <div className="viewer-hmi-metric-card viewer-hmi-metric-card--green">
+          <Gauge className="h-3.5 w-3.5" />
+          <span>FPS</span>
+          <strong>{formatMetric(performanceMetrics.fps)}</strong>
+          <small>{rendererLabel}</small>
+          <i className="viewer-hmi-sparkline" aria-hidden />
         </div>
-        <div className="viewer-hmi-kpi-grid">
-          <div className="viewer-hmi-kpi-card">
-            <Gauge className="h-3.5 w-3.5" />
-            <span>FPS</span>
-            <strong>{formatMetric(performanceMetrics.fps)}</strong>
-          </div>
-          <div className="viewer-hmi-kpi-card">
-            <Activity className="h-3.5 w-3.5" />
-            <span>对象</span>
-            <strong>{visibleEntities}</strong>
-          </div>
-          <div className="viewer-hmi-kpi-card">
-            <Network className="h-3.5 w-3.5" />
-            <span>信号</span>
-            <strong>{signalSummary.totalSignals}</strong>
-          </div>
-          <div className="viewer-hmi-kpi-card">
-            <AlertTriangle className="h-3.5 w-3.5" />
-            <span>事件</span>
-            <strong>{activeIncidents.length + activeAlarms}</strong>
-          </div>
+        <div className="viewer-hmi-metric-card viewer-hmi-metric-card--blue">
+          <Activity className="h-3.5 w-3.5" />
+          <span>对象</span>
+          <strong>{visibleEntities}</strong>
+          <small>{connectionLabel}</small>
+          <i className="viewer-hmi-sparkline" aria-hidden />
         </div>
-      </section>
-
-      <section
-        data-hmi-slot="operator-actions"
-        className="viewer-hmi-slot viewer-hmi-slot--actions pointer-events-auto"
-        aria-label="操作员快捷按钮"
-      >
-        <Button
-          type="button"
-          variant={leftPanelOpen ? 'secondary' : 'ghost'}
-          size="sm"
-          className="viewer-hmi-action-button"
-          aria-pressed={leftPanelOpen}
-          onClick={toggleLeftPanel}
-        >
-          <PanelLeft className="h-3.5 w-3.5" />
-          对象树
-        </Button>
-        <Button
-          type="button"
-          variant={rightPanelOpen ? 'secondary' : 'ghost'}
-          size="sm"
-          className="viewer-hmi-action-button"
-          aria-pressed={rightPanelOpen}
-          onClick={toggleRightPanel}
-        >
-          <PanelRight className="h-3.5 w-3.5" />
-          详情
-        </Button>
-        <Button
-          type="button"
-          variant={bottomPanelOpen ? 'secondary' : 'ghost'}
-          size="sm"
-          className="viewer-hmi-action-button"
-          aria-pressed={bottomPanelOpen}
-          onClick={openEvents}
-        >
-          <Bell className="h-3.5 w-3.5" />
-          事件流
-        </Button>
-      </section>
-
-      <section
-        data-hmi-slot="message-summary"
-        className="viewer-hmi-slot viewer-hmi-slot--messages pointer-events-auto"
-        aria-label="实时消息摘要"
-      >
-        <div className="viewer-hmi-message-header">
-          <ListTree className="h-3.5 w-3.5" />
-          <span>Message Panel</span>
-          <Badge variant={signalSummary.degradedSignals > 0 ? 'secondary' : 'outline'}>
-            {runtimeNotice
-              ? 'notice'
-              : signalSummary.degradedSignals > 0
+        <div className="viewer-hmi-metric-card viewer-hmi-metric-card--cyan">
+          <Network className="h-3.5 w-3.5" />
+          <span>信号</span>
+          <strong>{signalSummary.totalSignals}</strong>
+          <small>
+            {metricCaption(
+              signalSummary.degradedSignals > 0
                 ? `${signalSummary.degradedSignals} degraded`
-                : activeIncidents.length}
-          </Badge>
+                : null
+            )}
+          </small>
+          <i className="viewer-hmi-sparkline" aria-hidden />
         </div>
-        <div className="viewer-hmi-message-list">
-          {runtimeNotice ? (
-            <p>{runtimeNotice}</p>
-          ) : activeIncidents.length > 0 ? (
-            activeIncidents.map((incident) => <p key={incident.id}>{incident.title}</p>)
-          ) : (
-            <p>当前无未确认事件，等待实时信号或规则触发。</p>
-          )}
+        <div className="viewer-hmi-metric-card viewer-hmi-metric-card--amber">
+          <AlertTriangle className="h-3.5 w-3.5" />
+          <span>事件</span>
+          <strong>{activeEventCount}</strong>
+          <small>{runtimeNotice ? 'notice' : `${activeIncidents.length} incidents`}</small>
+          <i className="viewer-hmi-sparkline" aria-hidden />
         </div>
       </section>
     </div>

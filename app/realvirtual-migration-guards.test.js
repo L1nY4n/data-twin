@@ -16,6 +16,7 @@ describe('realvirtual-WEB migration guardrails', () => {
     expect(report.includes('data-viewer-ui-panel')).toBe(true)
     expect(report.includes('实体面板偏好持久化')).toBe(true)
     expect(report.includes('搜索时扁平结果模式')).toBe(true)
+    expect(report.includes('全局对象搜索')).toBe(true)
   })
 
   test('viewer chrome marks UI overlays so scene picking can ignore panel-origin events', () => {
@@ -34,8 +35,13 @@ describe('realvirtual-WEB migration guardrails', () => {
 
     expect(toolbar.includes('data-viewer-ui-panel="top-toolbar"')).toBe(true)
     expect(page.includes('data-viewer-ui-panel="panel-launcher"')).toBe(true)
-    expect(page.includes('viewer-panel-launcher__status-pill')).toBe(true)
-    expect(page.includes("rightPanelOpen ? 'right-[336px]' : 'right-4'")).toBe(true)
+    expect(page.includes('viewer-panel-toolbar__scene-pill')).toBe(true)
+    expect(page.includes('data-viewer-ui-panel="viewer-command-strip"')).toBe(true)
+    expect(page.includes('aria-label="全局对象搜索"')).toBe(true)
+    expect(page.includes('quickSearchResults')).toBe(true)
+    expect(page.includes('handleQuickSearchSelect')).toBe(true)
+    expect(page.includes('const rightDockOffsetClass = bottomPanelOpen')).toBe(true)
+    expect(page.includes("sidePanelOpen && 'viewer-command-strip--hidden'")).toBe(true)
     expect(page.includes('data-viewer-ui-panel="left-entity-panel"')).toBe(true)
     expect(page.includes('data-viewer-ui-panel="right-detail-panel"')).toBe(true)
     expect(page.includes('data-viewer-ui-panel="bottom-panel-dock"')).toBe(true)
@@ -129,17 +135,19 @@ describe('realvirtual-WEB migration guardrails', () => {
 
     expect(page.includes('<ViewerHmiOverlay')).toBe(true)
     expect(overlay.includes('data-viewer-ui-panel="hmi-overlay"')).toBe(true)
-    expect(overlay.includes('data-hmi-slot="kpi"')).toBe(true)
-    expect(overlay.includes('data-hmi-slot="operator-actions"')).toBe(true)
-    expect(overlay.includes('data-hmi-slot="message-summary"')).toBe(true)
+    expect(overlay.includes('data-hmi-slot="kpi-bar"')).toBe(true)
+    expect(overlay.includes('data-hmi-slot="message-peek"')).toBe(false)
+    expect(overlay.includes('viewer-hmi-metric-card')).toBe(true)
     expect(overlay.includes('summarizeEntityDirectorySignalTelemetry')).toBe(true)
     expect(overlay.includes('state.entities')).toBe(false)
     expect(overlay.includes('signalSummary.degradedSignals')).toBe(true)
     expect(overlay.includes('pointer-events-none absolute')).toBe(true)
     expect(overlay.includes('pointer-events-auto')).toBe(true)
+    expect(overlay.includes("panelOpen ? 'top-[76px] viewer-hmi-overlay--panel-open' : 'top-4'")).toBe(true)
     expect(styles.includes('.viewer-admin-surface .viewer-hmi-overlay')).toBe(true)
-    expect(styles.includes('.viewer-admin-surface .viewer-hmi-slot--actions')).toBe(true)
-    expect(styles.includes('.viewer-admin-surface .viewer-hmi-message-list')).toBe(true)
+    expect(styles.includes('.viewer-admin-surface .viewer-hmi-kpi-strip')).toBe(true)
+    expect(styles.includes('.viewer-admin-surface .viewer-hmi-overlay--panel-open')).toBe(true)
+    expect(styles.includes('.viewer-admin-surface .viewer-hmi-message-peek')).toBe(false)
   })
 
   test('entity details render live signals plus metadata documents and maintenance when present', () => {
@@ -156,6 +164,36 @@ describe('realvirtual-WEB migration guardrails', () => {
     expect(entityDetail.includes('data-digital-twin-metadata-section="documents"')).toBe(true)
     expect(entityDetail.includes('data-digital-twin-metadata-section="maintenance"')).toBe(true)
     expect(entityDetail.includes('if (!hasMetadata) return null')).toBe(true)
+  })
+
+  test('bottom command strip is a realvirtual-style global search and focus entry', () => {
+    const page = readFileSync(
+      join(process.cwd(), 'components/digital-twin/DigitalTwinViewerPage.tsx'),
+      'utf8'
+    )
+    const styles = readFileSync(
+      join(process.cwd(), 'app/viewer-admin-surface.css'),
+      'utf8'
+    )
+
+    expect(page.includes('const [quickSearchQuery, setQuickSearchQuery]')).toBe(true)
+    expect(page.includes('normalizedQuickSearchQuery')).toBe(true)
+    expect(page.includes('entry.secondaryLabel')).toBe(true)
+    expect(page.includes('entry.categoryLabel')).toBe(true)
+    expect(page.includes('staticFeatureRegistry.entries')).toBe(true)
+    expect(page.includes('entry.feature.label')).toBe(true)
+    expect(page.includes('focusCameraOnEntity(entry.id)')).toBe(true)
+    expect(page.includes('setSelectedEntity(entry.id)')).toBe(true)
+    expect(page.includes('focusCameraOnStaticFeature(entry.id)')).toBe(true)
+    expect(page.includes('setSelectedStaticFeature(entry.id)')).toBe(true)
+    expect(page.includes('onKeyDown={handleQuickSearchKeyDown}')).toBe(true)
+    expect(page.includes('role="listbox" aria-label="全局对象搜索结果"')).toBe(true)
+    expect(styles.includes('.viewer-admin-surface .viewer-command-palette__kind')).toBe(true)
+    expect(styles.includes('.viewer-admin-surface .viewer-command-strip__search')).toBe(true)
+    expect(styles.includes('.viewer-admin-surface .viewer-command-strip__input')).toBe(true)
+    expect(styles.includes('.viewer-admin-surface .viewer-command-palette')).toBe(true)
+    expect(styles.includes('.viewer-admin-surface .viewer-command-palette__item')).toBe(true)
+    expect(styles.includes('.viewer-admin-surface .viewer-command-strip__placeholder')).toBe(false)
   })
 
 })

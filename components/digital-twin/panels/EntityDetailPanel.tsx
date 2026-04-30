@@ -207,10 +207,10 @@ export function EntityDetailPanel() {
 
   if (!entity && !staticFeature) {
     return (
-      <ViewerAdminSidePanelBody className="items-center justify-center p-4 text-center">
+      <ViewerAdminSidePanelBody className="viewer-admin-inspector-empty items-center justify-center p-4 text-center">
         <Map className="mb-3 h-12 w-12 text-muted-foreground/30" />
-        <p className="text-sm text-muted-foreground">选择一个对象查看详情</p>
-        <p className="mt-1 text-xs text-muted-foreground/70">在3D场景或左侧列表中点击选择</p>
+        <p className="text-sm text-white/80">Inspector ready</p>
+        <p className="mt-1 text-xs text-muted-foreground/70">在 3D 场景或左侧对象树中选择组件</p>
       </ViewerAdminSidePanelBody>
     )
   }
@@ -232,21 +232,26 @@ export function EntityDetailPanel() {
     <ViewerAdminSidePanelBody>
       <ViewerAdminPanelHeader
         title={entity.name}
-        description={`ID: ${entity.id.slice(-8)}`}
+        description={`Inspector · ID: ${entity.id.slice(-8)}`}
         leading={<EntityTypeIcon type={entity.type} />}
         trailing={
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleClose}>
+          <Button variant="ghost" size="icon" className="viewer-admin-panel-close h-7 w-7" onClick={handleClose}>
             <X className="h-4 w-4" />
           </Button>
         }
+        className="viewer-admin-inspector-header"
       />
 
       <ScrollArea className="flex-1">
         <div className="space-y-4 p-3">
           {/* 状态 */}
-          <ViewerAdminSoftCard className={cn('rounded-2xl p-3', statusConfig.bg)}>
-            <div className="flex items-center justify-between">
-              <span className="text-sm">状态</span>
+          <ViewerAdminSoftCard className={cn('viewer-admin-inspector-hero rounded-2xl p-3', statusConfig.bg)}>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <span className="viewer-admin-kicker">selected component</span>
+                <h4 className="mt-1 truncate text-sm font-semibold text-white">{entity.name}</h4>
+                <p className="mt-1 truncate font-mono text-[10px] text-muted-foreground">{entity.id}</p>
+              </div>
               <Badge 
                 variant="outline" 
                 style={{ borderColor: statusConfig.color, color: statusConfig.color }}
@@ -328,18 +333,19 @@ function StaticFeatureDetailPanel({
     <ViewerAdminSidePanelBody>
       <ViewerAdminPanelHeader
         title={feature.label}
-        description={`ID: ${feature.id.slice(-8)}`}
+        description={`Static inspector · ID: ${feature.id.slice(-8)}`}
         leading={<Box className="h-5 w-5 text-sky-500" />}
         trailing={
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onClose}>
+          <Button variant="ghost" size="icon" className="viewer-admin-panel-close h-7 w-7" onClick={onClose}>
             <X className="h-4 w-4" />
           </Button>
         }
+        className="viewer-admin-inspector-header"
       />
 
       <ScrollArea className="flex-1">
         <div className="space-y-4 p-3">
-          <ViewerAdminSoftCard className="p-3">
+          <ViewerAdminSoftCard className="viewer-admin-inspector-hero p-3">
             <div className="flex items-center justify-between">
               <span className="text-sm">类型</span>
               <Badge variant="outline">{kindLabel}</Badge>

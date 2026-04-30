@@ -89,3 +89,36 @@
 - 不复制 AGPL 源码。
 - 不迁移 MUI/TanStack virtual/完整插件系统。
 - 不改变当前 Next.js 应用结构。
+
+## Round 4：布局细节复盘后的追加吸收
+
+上一个 viewer polish 已经解决了右侧检查器 / 消息面板互斥、顶部 panel launcher 偏移、HMI KPI 下移、底部 command strip 避让等覆盖问题。继续对比 `realvirtual-WEB`（`005277ac6bb365d0fe85617dfad640af899ca2cc`）后，本轮更值得吸收的是 **BottomBar 全局对象搜索 + 选中后聚焦/揭示** 的产品模式，而不是继续增加装饰性按钮。
+
+### realvirtual-WEB 模式抽象
+
+- 顶部按钮只负责打开主要面板，避免把搜索、层级树、消息入口全部塞在一个角落。
+- 底部区域承担“命令入口”：搜索对象、键盘确认、选择结果后让相机聚焦，并把层级面板切到相关上下文。
+- 搜索结果使用轻量浮层，不占用左右面板宽度；有结果时快速选择，无结果时给出明确空态。
+- 该模式与 HMI overlay、右侧消息 dock 互不重叠，适合大场景和密集对象目录。
+
+### 本仓库追加迁移
+
+1. **全局对象搜索**
+   - 把原来的静态 `viewer-command-strip` placeholder 改为真实搜索输入。
+   - 搜索范围覆盖运行实体名称、ID、二级标签、动态分类名称、分类 key，以及已发布静态设施的 label、ID、kind、district、chunk、sector。
+   - 结果浮层限制为前 6 项，降低大场景下 UI 噪音。
+
+2. **搜索即定位 / 揭示**
+   - 点击结果或按 Enter 会调用本仓库已有 `setSelectedEntity` + `focusCameraOnEntity`。
+   - 如果对象树未打开，则自动打开左侧对象树，形成“搜索 → 选中 → 聚焦 → 左侧上下文可见”的闭环。
+   - 搜索到静态设施时会调用 `setSelectedStaticFeature` + `focusCameraOnStaticFeature`，并打开右侧 inspector，让纯发布场景（当前公网 factory demo 主要是 1176 个静态资产）也能被搜索定位。
+   - Escape / 清空按钮用于快速退出，不改变当前面板状态。
+
+3. **去掉无效占位**
+   - 删除旧的 `viewer-command-strip__placeholder` 样式，避免继续保留已经不用的 UI 残留。
+
+### 继续暂缓
+
+- 不照搬 realvirtual-WEB 的 `BottomBar`、`useNodeFilter` 或插件选择逻辑。
+- 不新增虚拟化依赖；当前先用受限结果浮层满足大场景快速定位。
+- 不把全局搜索做成独立插件 slot，等 data-t 需要第三方模块注入时再抽象。

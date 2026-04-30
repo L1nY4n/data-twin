@@ -26,16 +26,46 @@ describe('viewer/admin shared style primitives', () => {
       join(process.cwd(), 'components/digital-twin/DigitalTwinViewerPage.tsx'),
       'utf8'
     )
+    const store = readFileSync(
+      join(process.cwd(), 'lib/digital-twin/store.ts'),
+      'utf8'
+    )
+    const overlay = readFileSync(
+      join(process.cwd(), 'components/digital-twin/panels/ViewerHmiOverlay.tsx'),
+      'utf8'
+    )
+    const styles = readFileSync(
+      join(process.cwd(), 'app/viewer-admin-surface.css'),
+      'utf8'
+    )
 
     expect(page.includes('ViewerAdminEdgePanel')).toBe(true)
     expect(page.includes("widthClass={leftPanelOpen ? 'w-[340px]' : 'w-0'}")).toBe(true)
     expect(page.includes("widthClass={rightPanelOpen ? 'w-[320px]' : 'w-0'}")).toBe(true)
     expect(page.includes('viewer-edge-toggle')).toBe(false)
-    expect(page.includes('viewer-panel-launcher')).toBe(true)
-    expect(page.includes('viewer-panel-launcher__status-pill')).toBe(true)
-    expect(page.includes('viewer-panel-launcher__button')).toBe(true)
-    expect(page.includes("rightPanelOpen ? 'right-[336px]' : 'right-4'")).toBe(true)
+    expect(page.includes('viewer-panel-toolbar')).toBe(true)
+    expect(page.includes('viewer-panel-toolbar__scene-pill')).toBe(true)
+    expect(page.includes('viewer-panel-toolbar__button')).toBe(true)
+    expect(page.includes('data-viewer-ui-panel="viewer-command-strip"')).toBe(true)
+    expect(page.includes('viewer-command-strip__input')).toBe(true)
+    expect(page.includes('viewer-command-palette__item')).toBe(true)
+    expect(page.includes('const rightDockOffsetClass = bottomPanelOpen')).toBe(true)
+    expect(page.includes("? 'right-[476px]'")).toBe(true)
+    expect(page.includes("? 'right-[336px]'")).toBe(true)
+    expect(page.includes("sidePanelOpen && 'viewer-command-strip--hidden'")).toBe(true)
     expect(page.includes('variant="soft"')).toBe(true)
+    expect(page.includes('data-viewer-ui-panel="runtime-status-badge"')).toBe(true)
+    expect(page.includes('viewer-runtime-badge__renderer')).toBe(true)
+    expect(overlay.includes('absolute left-1/2 z-30')).toBe(true)
+    expect(overlay.includes("panelOpen ? 'top-[76px] viewer-hmi-overlay--panel-open' : 'top-4'")).toBe(true)
+    expect(overlay.includes('data-hmi-slot="kpi-bar"')).toBe(true)
+    expect(overlay.includes('data-hmi-slot="message-peek"')).toBe(false)
+    expect(store.includes('leftPanelOpen: false')).toBe(true)
+    expect(store.includes('rightPanelOpen: false')).toBe(true)
+    expect(store.includes('nextRightPanelOpen ? { bottomPanelOpen: false } : {}')).toBe(true)
+    expect(store.includes('nextBottomPanelOpen ? { rightPanelOpen: false } : {}')).toBe(true)
+    expect(styles.includes('.viewer-admin-surface .viewer-runtime-badge')).toBe(true)
+    expect(styles.includes('border: 1px solid rgba(255, 255, 255, 0.12) !important;')).toBe(true)
   })
 
   test('admin and runtime chrome reuse shared toolbar and viewer/admin detail primitives', () => {
@@ -72,6 +102,8 @@ describe('viewer/admin shared style primitives', () => {
     expect(entityDetail.includes('createDetailRendererRegistry')).toBe(true)
     expect(bottomPanel.includes('ViewerAdminPanelHeader')).toBe(true)
     expect(bottomPanel.includes('ViewerAdminSidePanelBody')).toBe(true)
+    expect(bottomPanel.includes('viewer-message-panel')).toBe(true)
+    expect(bottomPanel.includes('viewer-message-card')).toBe(true)
   })
 
   test('admin console-specific surfaces live in a shared module', () => {
@@ -182,16 +214,23 @@ describe('viewer/admin shared style primitives', () => {
     expect(entityList.includes('viewer-admin-entity-type-badge')).toBe(true)
     expect(entityList.includes('viewer-admin-entity-row-main')).toBe(true)
     expect(entityList.includes('viewer-admin-entity-focus')).toBe(true)
+    expect(entityList.includes('viewer-admin-hierarchy-header')).toBe(true)
+    expect(entityList.includes('viewer-admin-hierarchy-footer')).toBe(true)
+    expect(entityList.includes('viewer-admin-hierarchy-node')).toBe(true)
     expect(entityList.includes('isFlatSearchMode')).toBe(true)
     expect(entityList.includes('viewer-admin-entity-flat-results-header')).toBe(true)
     expect(entityList.includes('const ENTITY_TYPES')).toBe(true)
     expect(entityList.includes('const ENTITY_STATUSES')).toBe(true)
     expect(entityList.includes('entity.secondaryLabel')).toBe(true)
     expect(entityList.includes('entity.archetypeLabel')).toBe(false)
-    expect(styles.includes('.viewer-admin-surface .viewer-panel-launcher')).toBe(true)
-    expect(styles.includes('.viewer-admin-surface .viewer-panel-launcher__status-pill')).toBe(true)
-    expect(styles.includes('.viewer-admin-surface .viewer-panel-launcher__button')).toBe(true)
-    expect(styles.includes('.viewer-admin-surface .viewer-panel-launcher__meta')).toBe(true)
+    expect(styles.includes('.viewer-admin-surface .viewer-panel-toolbar')).toBe(true)
+    expect(styles.includes('.viewer-admin-surface .viewer-panel-toolbar__scene-pill')).toBe(true)
+    expect(styles.includes('.viewer-admin-surface .viewer-panel-toolbar__button')).toBe(true)
+    expect(styles.includes('.viewer-admin-surface .viewer-command-strip')).toBe(true)
+    expect(styles.includes('.viewer-admin-surface .viewer-command-strip__search')).toBe(true)
+    expect(styles.includes('.viewer-admin-surface .viewer-command-palette')).toBe(true)
+    expect(styles.includes('.viewer-admin-surface .viewer-command-palette__item')).toBe(true)
+    expect(styles.includes('.viewer-admin-surface .viewer-tool-rail')).toBe(true)
     expect(styles.includes('.viewer-admin-surface .viewer-edge-toggle')).toBe(false)
     expect(styles.includes('.viewer-admin-surface .viewer-admin-entity-search')).toBe(true)
     expect(styles.includes('.viewer-admin-surface .viewer-admin-entity-summary')).toBe(true)
@@ -206,12 +245,36 @@ describe('viewer/admin shared style primitives', () => {
     expect(styles.includes('.viewer-admin-surface .viewer-admin-entity-type-badge')).toBe(true)
     expect(styles.includes('.viewer-admin-surface .viewer-admin-entity-row-main')).toBe(true)
     expect(styles.includes('.viewer-admin-surface .viewer-admin-entity-flat-results-header')).toBe(true)
+    expect(styles.includes('.viewer-admin-surface .viewer-admin-hierarchy-footer')).toBe(true)
+    expect(styles.includes('.viewer-admin-surface .viewer-admin-hierarchy-branch')).toBe(true)
     expect(styles.includes('min-height: 32px;')).toBe(true)
     expect(styles.includes('font-size: 11px !important;')).toBe(true)
     expect(styles.includes('border-radius: 8px !important;')).toBe(true)
     expect(styles.includes('background: var(--viewer-admin-surface-4) !important;')).toBe(true)
     expect(styles.includes('padding: 4px 8px 4px 32px !important;')).toBe(true)
     expect(styles.includes('padding: 6px 8px !important;')).toBe(true)
+  })
+
+  test('event/message panel is redesigned as a side message stack instead of old wide dashboard', () => {
+    const bottomPanel = readFileSync(
+      join(process.cwd(), 'components/digital-twin/panels/BottomPanel.tsx'),
+      'utf8'
+    )
+    const styles = readFileSync(
+      join(process.cwd(), 'app/viewer-admin-surface.css'),
+      'utf8'
+    )
+
+    expect(bottomPanel.includes('viewer-message-panel')).toBe(true)
+    expect(bottomPanel.includes('viewer-message-summary-grid')).toBe(true)
+    expect(bottomPanel.includes('viewer-message-list-scroll')).toBe(true)
+    expect(bottomPanel.includes('viewer-message-detail-card')).toBe(true)
+    expect(bottomPanel.includes('viewer-rules-summary-list')).toBe(true)
+    expect(bottomPanel.includes('viewer-chart-stack')).toBe(true)
+    expect(bottomPanel.includes('w-[360px] border-r')).toBe(false)
+    expect(styles.includes('.viewer-admin-surface .viewer-message-panel__timeline')).toBe(true)
+    expect(styles.includes('.viewer-admin-surface .viewer-message-card')).toBe(true)
+    expect(styles.includes('.viewer-admin-surface .viewer-message-detail-card')).toBe(true)
   })
 
   test('runtime top-view shortcut should refocus once without locking orbit controls', () => {
