@@ -164,6 +164,29 @@ interface EntityCategoryPresentation {
   sortOrder: number
 }
 
+const HMI_OVERLAY_VISIBILITY_STORAGE_KEY = 'data-t.viewer.hmiOverlayVisible'
+
+function readStoredHmiOverlayVisible() {
+  if (typeof window === 'undefined') return true
+
+  try {
+    const raw = window.localStorage.getItem(HMI_OVERLAY_VISIBILITY_STORAGE_KEY)
+    return raw === null ? true : raw === 'true'
+  } catch {
+    return true
+  }
+}
+
+function persistHmiOverlayVisible(visible: boolean) {
+  if (typeof window === 'undefined') return
+
+  try {
+    window.localStorage.setItem(HMI_OVERLAY_VISIBILITY_STORAGE_KEY, JSON.stringify(visible))
+  } catch {
+    // Ignore storage quota/private-mode failures; the overlay toggle is a convenience preference.
+  }
+}
+
 function getEntityCategoryPresentationFromMap(
   categories: Map<string, EntityCategory>,
   key: string
@@ -253,6 +276,7 @@ interface DigitalTwinState {
   rightPanelOpen: boolean
   bottomPanelOpen: boolean
   bottomPanelTab: 'timeline' | 'rules' | 'charts'
+  hmiOverlayVisible: boolean
 
   // 测量工具
   measurementMode: 'none' | 'distance' | 'angle' | 'area'
@@ -361,6 +385,8 @@ interface DigitalTwinActions {
   toggleRightPanel: () => void
   toggleBottomPanel: () => void
   setBottomPanelTab: (tab: DigitalTwinState['bottomPanelTab']) => void
+  toggleHmiOverlayVisible: () => void
+  setHmiOverlayVisible: (visible: boolean) => void
 
   // 测量工具
   setMeasurementMode: (mode: DigitalTwinState['measurementMode']) => void
@@ -448,6 +474,7 @@ const initialState: DigitalTwinState = {
   rightPanelOpen: false,
   bottomPanelOpen: false,
   bottomPanelTab: 'timeline',
+  hmiOverlayVisible: readStoredHmiOverlayVisible(),
 
   measurementMode: 'none',
   measurementPoints: [],
@@ -3059,6 +3086,20 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
         }),
 
       setBottomPanelTab: (tab) => set({ bottomPanelTab: tab }),
+
+      toggleHmiOverlayVisible: () =>
+        set((state) => {
+          const hmiOverlayVisible = !state.hmiOverlayVisible
+          persistHmiOverlayVisible(hmiOverlayVisible)
+          return { hmiOverlayVisible }
+        }),
+
+      setHmiOverlayVisible: (visible) =>
+        set((state) => {
+          if (state.hmiOverlayVisible === visible) return state
+          persistHmiOverlayVisible(visible)
+          return { hmiOverlayVisible: visible }
+        }),
 
       // 测量工具
       setMeasurementMode: (mode) =>

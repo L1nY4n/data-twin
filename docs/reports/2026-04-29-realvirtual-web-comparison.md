@@ -122,3 +122,26 @@
 - 不照搬 realvirtual-WEB 的 `BottomBar`、`useNodeFilter` 或插件选择逻辑。
 - 不新增虚拟化依赖；当前先用受限结果浮层满足大场景快速定位。
 - 不把全局搜索做成独立插件 slot，等 data-t 需要第三方模块注入时再抽象。
+
+## Round 5：Ralph 追加迁移 —— HMI 可见性切换
+
+继续看 `realvirtual-WEB` 的 HMI shell 后，另一个值得吸收的布局设计点是：**HMI chrome 可临时隐藏，但底部/基础控制仍保留**。realvirtual-WEB 通过 `hmi-visibility-store` 与 `CameraBar` 的 `Toggle HMI (H)` 让操作者在检查模型细节、拍摄截图、XR/FPV 等模式下减少遮挡。
+
+### 本仓库追加迁移
+
+1. **HMI KPI 可见性持久化**
+   - 在 data-t store 内新增 `hmiOverlayVisible`，并以 `data-t.viewer.hmiOverlayVisible` 进行 localStorage 持久化。
+   - 默认显示，隐藏状态只影响 KPI 看板，不影响 panel launcher、对象树、检查器、消息面板和底部搜索。
+
+2. **按钮 + 键盘双入口**
+   - 在右上 panel launcher 增加 HMI 按钮，显示/隐藏状态用 `Eye` / `EyeOff` 区分。
+   - 增加 `H` 快捷键；当焦点在 input/textarea/contenteditable 内时不触发，避免干扰全局对象搜索输入。
+
+3. **布局边界**
+   - HMI 隐藏后不移除 `data-viewer-ui-panel` 体系，也不改变面板互斥逻辑。
+   - 保留底部 command search 作为快速恢复导航路径，避免“沉浸模式”把操作者困住。
+
+### 继续暂缓
+
+- 不迁移 realvirtual-WEB 完整 UI zoom / visual settings 面板。
+- 不把所有 viewer chrome 一次性隐藏；当前只隐藏最容易遮挡画面的 KPI overlay。

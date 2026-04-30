@@ -17,6 +17,7 @@ describe('realvirtual-WEB migration guardrails', () => {
     expect(report.includes('实体面板偏好持久化')).toBe(true)
     expect(report.includes('搜索时扁平结果模式')).toBe(true)
     expect(report.includes('全局对象搜索')).toBe(true)
+    expect(report.includes('HMI 可见性切换')).toBe(true)
   })
 
   test('viewer chrome marks UI overlays so scene picking can ignore panel-origin events', () => {
@@ -37,6 +38,8 @@ describe('realvirtual-WEB migration guardrails', () => {
     expect(page.includes('data-viewer-ui-panel="panel-launcher"')).toBe(true)
     expect(page.includes('viewer-panel-toolbar__scene-pill')).toBe(true)
     expect(page.includes('data-viewer-ui-panel="viewer-command-strip"')).toBe(true)
+    expect(page.includes("aria-label={hmiOverlayVisible ? '隐藏HMI看板' : '显示HMI看板'}")).toBe(true)
+    expect(page.includes("event.key.toLowerCase() !== 'h'")).toBe(true)
     expect(page.includes('aria-label="全局对象搜索"')).toBe(true)
     expect(page.includes('quickSearchResults')).toBe(true)
     expect(page.includes('handleQuickSearchSelect')).toBe(true)
@@ -132,8 +135,14 @@ describe('realvirtual-WEB migration guardrails', () => {
       join(process.cwd(), 'app/viewer-admin-surface.css'),
       'utf8'
     )
+    const store = readFileSync(
+      join(process.cwd(), 'lib/digital-twin/store.ts'),
+      'utf8'
+    )
 
     expect(page.includes('<ViewerHmiOverlay')).toBe(true)
+    expect(page.includes('hmiOverlayVisible && <ViewerHmiOverlay')).toBe(true)
+    expect(page.includes('toggleHmiOverlayVisible')).toBe(true)
     expect(overlay.includes('data-viewer-ui-panel="hmi-overlay"')).toBe(true)
     expect(overlay.includes('data-hmi-slot="kpi-bar"')).toBe(true)
     expect(overlay.includes('data-hmi-slot="message-peek"')).toBe(false)
@@ -148,6 +157,10 @@ describe('realvirtual-WEB migration guardrails', () => {
     expect(styles.includes('.viewer-admin-surface .viewer-hmi-kpi-strip')).toBe(true)
     expect(styles.includes('.viewer-admin-surface .viewer-hmi-overlay--panel-open')).toBe(true)
     expect(styles.includes('.viewer-admin-surface .viewer-hmi-message-peek')).toBe(false)
+    expect(store.includes('HMI_OVERLAY_VISIBILITY_STORAGE_KEY')).toBe(true)
+    expect(store.includes('data-t.viewer.hmiOverlayVisible')).toBe(true)
+    expect(store.includes('readStoredHmiOverlayVisible')).toBe(true)
+    expect(store.includes('persistHmiOverlayVisible')).toBe(true)
   })
 
   test('entity details render live signals plus metadata documents and maintenance when present', () => {

@@ -2,10 +2,12 @@
 
 import dynamic from 'next/dynamic'
 import type { KeyboardEvent } from 'react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Bell,
   Boxes,
+  Eye,
+  EyeOff,
   LocateFixed,
   PanelLeft,
   PanelRight,
@@ -56,6 +58,7 @@ function useDigitalTwinViewportState() {
   const leftPanelOpen = useDigitalTwinStore((state) => state.leftPanelOpen)
   const rightPanelOpen = useDigitalTwinStore((state) => state.rightPanelOpen)
   const bottomPanelOpen = useDigitalTwinStore((state) => state.bottomPanelOpen)
+  const hmiOverlayVisible = useDigitalTwinStore((state) => state.hmiOverlayVisible)
   const runtimeNotice = useDigitalTwinStore((state) => state.runtimeNotice)
   const isConnected = useDigitalTwinStore((state) => state.isConnected)
   const runtimeDataSource = useDigitalTwinStore((state) => state.runtimeDataSource)
@@ -68,6 +71,7 @@ function useDigitalTwinViewportState() {
   const toggleLeftPanel = useDigitalTwinStore((state) => state.toggleLeftPanel)
   const toggleRightPanel = useDigitalTwinStore((state) => state.toggleRightPanel)
   const toggleBottomPanel = useDigitalTwinStore((state) => state.toggleBottomPanel)
+  const toggleHmiOverlayVisible = useDigitalTwinStore((state) => state.toggleHmiOverlayVisible)
   const setSelectedEntity = useDigitalTwinStore((state) => state.setSelectedEntity)
   const setSelectedStaticFeature = useDigitalTwinStore((state) => state.setSelectedStaticFeature)
   const focusCameraOnEntity = useDigitalTwinStore((state) => state.focusCameraOnEntity)
@@ -77,6 +81,7 @@ function useDigitalTwinViewportState() {
     leftPanelOpen,
     rightPanelOpen,
     bottomPanelOpen,
+    hmiOverlayVisible,
     runtimeNotice,
     isConnected,
     runtimeDataSource,
@@ -89,6 +94,7 @@ function useDigitalTwinViewportState() {
     toggleLeftPanel,
     toggleRightPanel,
     toggleBottomPanel,
+    toggleHmiOverlayVisible,
     setSelectedEntity,
     setSelectedStaticFeature,
     focusCameraOnEntity,
@@ -108,6 +114,7 @@ export function DigitalTwinViewerPage({
     leftPanelOpen,
     rightPanelOpen,
     bottomPanelOpen,
+    hmiOverlayVisible,
     runtimeNotice,
     isConnected,
     runtimeDataSource,
@@ -120,6 +127,7 @@ export function DigitalTwinViewerPage({
     toggleLeftPanel,
     toggleRightPanel,
     toggleBottomPanel,
+    toggleHmiOverlayVisible,
     setSelectedEntity,
     setSelectedStaticFeature,
     focusCameraOnEntity,
@@ -224,6 +232,21 @@ export function DigitalTwinViewerPage({
     }
   }
 
+  useEffect(() => {
+    const handleKeyboardShortcut = (event: globalThis.KeyboardEvent) => {
+      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return
+      const target = event.target instanceof HTMLElement ? event.target : null
+      if (target?.closest('input, textarea, [contenteditable="true"]')) return
+      if (event.key.toLowerCase() !== 'h') return
+
+      event.preventDefault()
+      toggleHmiOverlayVisible()
+    }
+
+    window.addEventListener('keydown', handleKeyboardShortcut)
+    return () => window.removeEventListener('keydown', handleKeyboardShortcut)
+  }, [toggleHmiOverlayVisible])
+
   return (
     <ViewerAdminSurfaceShell
       className="viewer-surface h-screen overflow-hidden"
@@ -290,7 +313,7 @@ export function DigitalTwinViewerPage({
               </div>
             )}
 
-            <ViewerHmiOverlay panelOpen={sidePanelOpen} />
+            {hmiOverlayVisible && <ViewerHmiOverlay panelOpen={sidePanelOpen} />}
             <Toolbar workspaceSlug={workspaceSlug} />
 
             <div
@@ -340,6 +363,19 @@ export function DigitalTwinViewerPage({
                 >
                   <Bell className="h-4 w-4" />
                   <span className="viewer-panel-toolbar__badge">{bottomPanelOpen ? 'open' : 'msg'}</span>
+                </Button>
+                <Button
+                  type="button"
+                  variant={hmiOverlayVisible ? 'secondary' : 'ghost'}
+                  size="sm"
+                  className="viewer-panel-toolbar__button"
+                  aria-pressed={hmiOverlayVisible}
+                  aria-label={hmiOverlayVisible ? '隐藏HMI看板' : '显示HMI看板'}
+                  title="HMI 看板 (H)"
+                  onClick={toggleHmiOverlayVisible}
+                >
+                  {hmiOverlayVisible ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+                  <span className="viewer-panel-toolbar__badge">hmi</span>
                 </Button>
               </div>
             </div>
