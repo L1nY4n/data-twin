@@ -175,3 +175,66 @@
 - 不复制 realvirtual-WEB `CameraBar` 的源码或长按保存实现。
 - 不新增“用户自定义相机书签”存储；data-t 先复用已发布场景预设，避免引入新持久化模型。
 - 不移除左侧工具 rail 的完整相机下拉；本轮只把高频预设作为快捷 dock 暴露，完整列表仍在原入口中。
+
+## Round 7：Ralph 追加迁移 —— 底部命令区 ownership 收口
+
+继续对比 `realvirtual-WEB`（`005277ac6bb365d0fe85617dfad640af899ca2cc`）的 `BottomBar`、`CameraBar`、`TopBar` 与 `LeftPanelManager` 后，本轮吸收的是 **高频命令按空间分层归属**：底部中心负责搜索和聚焦，底部右侧负责相机视角与 HMI 显隐，顶部/左侧不再重复承担相机预设入口。
+
+### realvirtual-WEB 模式抽象
+
+- `BottomBar` 把搜索输入、结果数量、聚焦动作与右下角相机控制组合为同一条底部命令层。
+- `CameraBar` 位于底部右侧，和 HMI 显隐处于同一操作语义，不需要在另一个工具 rail 里重复出现。
+- `TopBar` 更偏面板、设置、协作、注释等主入口；布局上避免把所有 viewer chrome 堆到顶部。
+- `LeftPanelManager` 的启发不是照搬类，而是继续坚持“单一 owner 管理同一区域面板”，data-t 当前右侧 inspector / message dock 已经在 store 层互斥，本轮不新增 parallel manager。
+
+### 本仓库追加迁移
+
+1. **相机 preset 入口归一到底部 dock**
+   - 保留右下角前三个高频相机预设按钮。
+   - 在同一个 `camera-preset-dock` 增加“全部相机预设”菜单，覆盖完整 `cameraPresets` 列表。
+   - 移除左侧工具 rail 内的相机预设下拉，减少重复 chrome 和“同一能力两处入口”的认知负担。
+
+2. **底部搜索补齐结果数量与快捷定位**
+   - 将搜索匹配先保留为完整 `quickSearchMatches`，浮层仍只展示前 6 项，避免大场景噪音。
+   - 搜索输入右侧显示 `N found`，并提供一个 `Locate` 快捷按钮，行为等同 Enter：定位第一个结果并打开对应上下文面板。
+   - 保持 Escape / 清空按钮逻辑不变，搜索仍不改变当前面板状态，只有选择/定位时才揭示对象树或 inspector。
+
+3. **布局边界延续**
+   - camera dock 继续复用 `rightDockOffsetClass` 避让右侧 inspector / message dock。
+   - 顶部 panel launcher 继续只负责对象树、检查器、事件消息三类主面板。
+   - 仍然不复制 realvirtual-WEB 的源码、MUI 组件或完整 camera bookmark 长按保存实现。
+
+### 继续暂缓
+
+- 不新增用户自定义相机书签持久化；当前先把发布场景已有 preset 的入口收口。
+- 不把 search settings / filter popover 完整迁移过来；data-t 的搜索范围与结果上限已经适配当前 25 sector / 1176 asset 场景。
+- 不迁移完整插件 slot 系统；后续若多个业务模块需要注入按钮，再抽象轻量 slot。
+
+## Round 8：Ralph 故障修复 —— 右下角视角切换不再固定相机
+
+用户反馈首页 / viewer 右下角视角切换后会出现“视角被固定”的体感。继续对比 realvirtual-WEB 的 `CameraBar` 后，本轮确认关键产品语义是：**底部相机按钮只触发一次 restore / animate，不应该成为持续控制相机的模式**。
+
+### 根因
+
+- data-t 的右下角 camera dock 通过 `activeCameraPreset` 触发 `DigitalTwinCanvas` 的相机 preset 动画。
+- 动画期间如果用户立即拖拽/缩放 orbit controls，`focusAnimationRef` 仍会在 frame loop 中继续把 camera / target 平滑拉回目标 preset，形成“视角被固定/被抢回”的体感。
+- `activeCameraPreset` 继续保留时，用户手动移动后再次点击同一个 preset 也不一定能重新触发，因为状态值没有变化。
+
+### 修复
+
+1. **OrbitControls 用户接管时取消 preset 动画**
+   - 给 `OrbitControls` 增加 `onStart={handleOrbitControlsStart}`。
+   - 用户开始 orbit/pan/zoom 时清空 `focusAnimationRef`，不再和用户输入抢控制权。
+
+2. **清除持久 active preset / focus 请求**
+   - 用户接管 orbit controls 时清空 `activeCameraPreset`。
+   - 同时清空可能残留的 `cameraFocusRequest`。
+   - `previousActiveCameraPresetRef` 也归零，保证手动移动后再次点击同一个右下角 preset 可以重新触发一次性相机动画。
+
+3. **边界**
+   - tracked camera 模式（follow / firstperson）仍由 viewMode 接管，不在本 handler 内改写。
+   - 不改变 preset 本身、发布场景 camera preset 顺序或右下角 dock 布局。
+
+### 结论
+
+右下角视角切换现在符合 realvirtual-WEB 的“一次性 restore”语义：点击后可自动飞到预设，但用户一旦开始操作 orbit controls，系统立即停止动画并把视角控制权交还给用户。

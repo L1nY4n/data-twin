@@ -277,6 +277,28 @@ const SceneContent = memo(function SceneContent({ backgroundColor }: SceneConten
 
   useDigitalTwinRuntimePlugin(runtimeStoreBridgePlugin, 'store-runtime-bridge')
 
+  const handleOrbitControlsStart = useCallback(() => {
+    if (isTrackedViewMode(useDigitalTwinStore.getState().viewMode)) return
+
+    focusAnimationRef.current = null
+    previousActiveCameraPresetRef.current = null
+
+    const {
+      activeCameraPreset: currentPreset,
+      cameraFocusRequest: currentFocusRequest,
+      setActiveCameraPreset,
+      clearCameraFocusRequest,
+    } = useDigitalTwinStore.getState()
+
+    if (currentPreset) {
+      setActiveCameraPreset(null)
+    }
+
+    if (currentFocusRequest) {
+      clearCameraFocusRequest()
+    }
+  }, [])
+
   useEffect(() => {
     setSceneReady(true)
     return () => setSceneReady(false)
@@ -490,6 +512,7 @@ const SceneContent = memo(function SceneContent({ backgroundColor }: SceneConten
       />
       <OrbitControls
         ref={controlsRef}
+        onStart={handleOrbitControlsStart}
         enableDamping
         dampingFactor={0.05}
         minDistance={5}

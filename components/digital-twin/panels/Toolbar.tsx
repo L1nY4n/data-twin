@@ -13,7 +13,6 @@ import {
   RotateCcw,
   Move,
   ArrowUp,
-  Box,
   Wifi,
   WifiOff,
   Settings,
@@ -61,8 +60,6 @@ export function Toolbar({ workspaceSlug }: { workspaceSlug: string }) {
     const selectedId = state.selectedEntityId
     return selectedId ? state.entities.get(selectedId)?.type ?? null : null
   })
-  const cameraPresets = useDigitalTwinStore((state) => state.cameraPresets)
-  const activeCameraPreset = useDigitalTwinStore((state) => state.activeCameraPreset)
   const setActiveCameraPreset = useDigitalTwinStore((state) => state.setActiveCameraPreset)
   const clearCameraFocusRequest = useDigitalTwinStore((state) => state.clearCameraFocusRequest)
   const measurementMode = useDigitalTwinStore((state) => state.measurementMode)
@@ -186,38 +183,6 @@ export function Toolbar({ workspaceSlug }: { workspaceSlug: string }) {
                   </DropdownMenuItem>
                 )
               })}
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          {/* 相机预设 */}
-          <DropdownMenu>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-8 w-8">
-                    <Camera className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-              </TooltipTrigger>
-              <TooltipContent>相机预设</TooltipContent>
-            </Tooltip>
-            <DropdownMenuContent align="start">
-              <DropdownMenuLabel>相机预设</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              {cameraPresets.map((preset) => (
-                <DropdownMenuItem
-                  key={preset.id}
-                  onClick={() => {
-                    clearCameraFocusRequest()
-                    setViewMode('orbit')
-                    setActiveCameraPreset(preset.id)
-                  }}
-                  className={cn(activeCameraPreset === preset.id && 'bg-accent')}
-                >
-                  <Box className="mr-2 h-4 w-4" />
-                  {preset.name}
-                </DropdownMenuItem>
-              ))}
             </DropdownMenuContent>
           </DropdownMenu>
 

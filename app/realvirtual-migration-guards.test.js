@@ -19,6 +19,7 @@ describe('realvirtual-WEB migration guardrails', () => {
     expect(report.includes('全局对象搜索')).toBe(true)
     expect(report.includes('HMI 可见性切换')).toBe(true)
     expect(report.includes('底部相机快捷 dock')).toBe(true)
+    expect(report.includes('底部命令区 ownership 收口')).toBe(true)
   })
 
   test('viewer chrome marks UI overlays so scene picking can ignore panel-origin events', () => {
@@ -43,8 +44,11 @@ describe('realvirtual-WEB migration guardrails', () => {
     expect(page.includes("aria-label={hmiOverlayVisible ? '隐藏HMI看板' : '显示HMI看板'}")).toBe(true)
     expect(page.includes("event.key.toLowerCase() !== 'h'")).toBe(true)
     expect(page.includes('aria-label="全局对象搜索"')).toBe(true)
+    expect(page.includes('quickSearchMatches')).toBe(true)
+    expect(page.includes('quickSearchResultCount')).toBe(true)
     expect(page.includes('quickSearchResults')).toBe(true)
     expect(page.includes('handleQuickSearchSelect')).toBe(true)
+    expect(page.includes('handleQuickSearchFocusFirst')).toBe(true)
     expect(page.includes('const rightDockOffsetClass = bottomPanelOpen')).toBe(true)
     expect(page.includes("sidePanelOpen && 'viewer-command-strip--hidden'")).toBe(true)
     expect(page.includes('data-viewer-ui-panel="left-entity-panel"')).toBe(true)
@@ -186,6 +190,14 @@ describe('realvirtual-WEB migration guardrails', () => {
       join(process.cwd(), 'components/digital-twin/DigitalTwinViewerPage.tsx'),
       'utf8'
     )
+    const canvas = readFileSync(
+      join(process.cwd(), 'components/digital-twin/scene/DigitalTwinCanvas.tsx'),
+      'utf8'
+    )
+    const toolbar = readFileSync(
+      join(process.cwd(), 'components/digital-twin/panels/Toolbar.tsx'),
+      'utf8'
+    )
     const styles = readFileSync(
       join(process.cwd(), 'app/viewer-admin-surface.css'),
       'utf8'
@@ -193,6 +205,9 @@ describe('realvirtual-WEB migration guardrails', () => {
 
     expect(page.includes('const [quickSearchQuery, setQuickSearchQuery]')).toBe(true)
     expect(page.includes('normalizedQuickSearchQuery')).toBe(true)
+    expect(page.includes('const quickSearchMatches = useMemo(() => {')).toBe(true)
+    expect(page.includes('const quickSearchResults = useMemo(() => quickSearchMatches.slice(0, 6), [quickSearchMatches])')).toBe(true)
+    expect(page.includes('const quickSearchResultCount = quickSearchMatches.length')).toBe(true)
     expect(page.includes('entry.secondaryLabel')).toBe(true)
     expect(page.includes('entry.categoryLabel')).toBe(true)
     expect(page.includes('staticFeatureRegistry.entries')).toBe(true)
@@ -201,22 +216,40 @@ describe('realvirtual-WEB migration guardrails', () => {
     expect(page.includes('setSelectedEntity(entry.id)')).toBe(true)
     expect(page.includes('focusCameraOnStaticFeature(entry.id)')).toBe(true)
     expect(page.includes('setSelectedStaticFeature(entry.id)')).toBe(true)
+    expect(page.includes('handleQuickSearchFocusFirst')).toBe(true)
+    expect(page.includes('viewer-command-strip__result-count')).toBe(true)
+    expect(page.includes('viewer-command-strip__focus')).toBe(true)
     expect(page.includes('onKeyDown={handleQuickSearchKeyDown}')).toBe(true)
     expect(page.includes('role="listbox" aria-label="全局对象搜索结果"')).toBe(true)
     expect(page.includes('const quickCameraPresets = useMemo(() => cameraPresets.slice(0, 3), [cameraPresets])')).toBe(true)
     expect(page.includes('handleQuickCameraPresetSelect')).toBe(true)
     expect(page.includes("setViewMode('orbit')")).toBe(true)
     expect(page.includes('setActiveCameraPreset(presetId)')).toBe(true)
+    expect(page.includes('aria-label="展开全部相机预设"')).toBe(true)
+    expect(page.includes('viewer-camera-dock__menu')).toBe(true)
+    expect(page.includes('cameraPresets.map((preset)')).toBe(true)
     expect(page.includes('viewer-camera-dock__button')).toBe(true)
     expect(page.includes('viewer-camera-dock__hmi')).toBe(true)
+    expect(toolbar.includes('<DropdownMenuLabel>相机预设</DropdownMenuLabel>')).toBe(false)
+    expect(toolbar.includes('cameraPresets.map((preset)')).toBe(false)
+    expect(canvas.includes('const handleOrbitControlsStart = useCallback(() => {')).toBe(true)
+    expect(canvas.includes('focusAnimationRef.current = null')).toBe(true)
+    expect(canvas.includes('previousActiveCameraPresetRef.current = null')).toBe(true)
+    expect(canvas.includes('setActiveCameraPreset(null)')).toBe(true)
+    expect(canvas.includes('clearCameraFocusRequest()')).toBe(true)
+    expect(canvas.includes('onStart={handleOrbitControlsStart}')).toBe(true)
     expect(styles.includes('.viewer-admin-surface .viewer-command-palette__kind')).toBe(true)
     expect(styles.includes('.viewer-admin-surface .viewer-command-strip__search')).toBe(true)
     expect(styles.includes('.viewer-admin-surface .viewer-command-strip__input')).toBe(true)
+    expect(styles.includes('.viewer-admin-surface .viewer-command-strip__result-count')).toBe(true)
+    expect(styles.includes('.viewer-admin-surface .viewer-command-strip__focus')).toBe(true)
     expect(styles.includes('.viewer-admin-surface .viewer-command-palette')).toBe(true)
     expect(styles.includes('.viewer-admin-surface .viewer-command-palette__item')).toBe(true)
     expect(styles.includes('.viewer-admin-surface .viewer-camera-dock')).toBe(true)
     expect(styles.includes('.viewer-admin-surface .viewer-camera-dock__button.is-active')).toBe(true)
     expect(styles.includes('.viewer-admin-surface .viewer-camera-dock__hmi')).toBe(true)
+    expect(styles.includes('.viewer-admin-surface .viewer-camera-dock__menu')).toBe(true)
+    expect(styles.includes('.viewer-camera-dock__menu-content')).toBe(true)
     expect(styles.includes('.viewer-admin-surface .viewer-command-strip__placeholder')).toBe(false)
   })
 

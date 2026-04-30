@@ -14,6 +14,8 @@ describe('rules panel dock layout', () => {
     expect(source.includes("sidePanelOpen && 'viewer-command-strip--hidden'")).toBe(true)
     expect(source.includes('data-viewer-ui-panel="camera-preset-dock"')).toBe(true)
     expect(source.includes("'viewer-camera-dock absolute bottom-4 z-30 hidden items-center gap-1.5 xl:flex'")).toBe(true)
+    expect(source.includes('viewer-camera-dock__menu')).toBe(true)
+    expect(source.includes('aria-label="展开全部相机预设"')).toBe(true)
     expect(source.includes('rightDockOffsetClass')).toBe(true)
   })
 
@@ -40,5 +42,18 @@ describe('rules panel dock layout', () => {
 
     expect(source.includes('useCitationRuntime()')).toBe(false)
     expect(source.includes('<IncidentVideoDialog />')).toBe(true)
+  })
+
+  test('cancels camera preset animation when orbit controls become user-driven', () => {
+    const canvasPath = join(process.cwd(), 'components/digital-twin/scene/DigitalTwinCanvas.tsx')
+    const source = readFileSync(canvasPath, 'utf8')
+
+    expect(source.includes('const handleOrbitControlsStart = useCallback(() => {')).toBe(true)
+    expect(source.includes('if (isTrackedViewMode(useDigitalTwinStore.getState().viewMode)) return')).toBe(true)
+    expect(source.includes('focusAnimationRef.current = null')).toBe(true)
+    expect(source.includes('previousActiveCameraPresetRef.current = null')).toBe(true)
+    expect(source.includes('setActiveCameraPreset(null)')).toBe(true)
+    expect(source.includes('clearCameraFocusRequest()')).toBe(true)
+    expect(source.includes('onStart={handleOrbitControlsStart}')).toBe(true)
   })
 })

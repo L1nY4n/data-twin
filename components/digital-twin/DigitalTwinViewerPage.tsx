@@ -10,6 +10,7 @@ import {
   Eye,
   EyeOff,
   LocateFixed,
+  MoreHorizontal,
   PanelLeft,
   PanelRight,
   Search,
@@ -25,6 +26,14 @@ import { ViewerHmiOverlay } from '@/components/digital-twin/panels/ViewerHmiOver
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { Badge } from '@/components/ui/badge'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import {
   ViewerAdminEdgePanel,
   ViewerAdminPanel,
@@ -170,7 +179,7 @@ export function DigitalTwinViewerPage({
       ? 'right-[336px]'
       : 'right-4'
   const normalizedQuickSearchQuery = quickSearchQuery.trim().toLowerCase()
-  const quickSearchResults = useMemo(() => {
+  const quickSearchMatches = useMemo(() => {
     if (!normalizedQuickSearchQuery) return []
 
     const entityResults = Array.from(entityDirectory.values())
@@ -221,10 +230,12 @@ export function DigitalTwinViewerPage({
         subtitle: `${entry.sector?.name ?? entry.chunk.label} · ${entry.feature.kind}`,
       }))
 
-    return [...entityResults, ...staticFeatureResults].slice(0, 6)
+    return [...entityResults, ...staticFeatureResults]
   }, [entityDirectory, normalizedQuickSearchQuery, staticFeatureRegistry])
+  const quickSearchResults = useMemo(() => quickSearchMatches.slice(0, 6), [quickSearchMatches])
+  const quickSearchResultCount = quickSearchMatches.length
   const showQuickSearchResults = normalizedQuickSearchQuery.length > 0
-  const handleQuickSearchSelect = (entry: (typeof quickSearchResults)[number]) => {
+  const handleQuickSearchSelect = (entry: (typeof quickSearchMatches)[number]) => {
     if (entry.kind === 'entity') {
       setSelectedEntity(entry.id)
       focusCameraOnEntity(entry.id)
@@ -235,6 +246,10 @@ export function DigitalTwinViewerPage({
       if (!rightPanelOpen) toggleRightPanel()
     }
     setQuickSearchQuery('')
+  }
+  const handleQuickSearchFocusFirst = () => {
+    const firstResult = quickSearchResults[0]
+    if (firstResult) handleQuickSearchSelect(firstResult)
   }
   const handleQuickSearchKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'Escape') {
@@ -421,6 +436,24 @@ export function DigitalTwinViewerPage({
                   </Button>
                 )}
                 {showQuickSearchResults && (
+                  <span className="viewer-command-strip__result-count" aria-live="polite">
+                    {quickSearchResultCount} found
+                  </span>
+                )}
+                {quickSearchResults[0] && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="viewer-command-strip__focus h-6 w-6"
+                    onClick={handleQuickSearchFocusFirst}
+                    aria-label="定位第一个搜索结果"
+                    title="定位第一个搜索结果 (Enter)"
+                  >
+                    <LocateFixed className="h-3.5 w-3.5" />
+                  </Button>
+                )}
+                {showQuickSearchResults && (
                   <div className="viewer-command-palette" role="listbox" aria-label="全局对象搜索结果">
                     {quickSearchResults.length > 0 ? (
                       quickSearchResults.map((entry) => (
@@ -483,6 +516,35 @@ export function DigitalTwinViewerPage({
                   </Button>
                 ))}
               </div>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="viewer-camera-dock__button viewer-camera-dock__menu"
+                    aria-label="展开全部相机预设"
+                    title="全部相机预设"
+                  >
+                    <MoreHorizontal className="h-3.5 w-3.5" />
+                    <span className="viewer-camera-dock__label">More</span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" sideOffset={8} className="viewer-camera-dock__menu-content">
+                  <DropdownMenuLabel>相机预设</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  {cameraPresets.map((preset) => (
+                    <DropdownMenuItem
+                      key={preset.id}
+                      onClick={() => handleQuickCameraPresetSelect(preset.id)}
+                      className={cn(activeCameraPreset === preset.id && 'bg-accent')}
+                    >
+                      <Camera className="mr-2 h-4 w-4" />
+                      {preset.name}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
               <span className="viewer-camera-dock__divider" aria-hidden />
               <Button
                 type="button"
