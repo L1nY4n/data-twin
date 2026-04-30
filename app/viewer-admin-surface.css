@@ -1031,6 +1031,77 @@
     background: var(--viewer-admin-border-subtle);
   }
 
+  .viewer-admin-surface .viewer-camera-dock {
+    pointer-events: auto;
+    max-width: min(390px, calc(100% - 32px));
+    padding: 4px;
+    border: 1px solid rgba(171, 199, 255, 0.16);
+    border-radius: 14px;
+    background: rgba(17, 22, 31, 0.78);
+    color: var(--viewer-admin-text-muted);
+    box-shadow: 0 14px 34px rgba(6, 10, 16, 0.28);
+    -webkit-backdrop-filter: blur(18px);
+    backdrop-filter: blur(18px);
+    transition:
+      right 240ms ease,
+      opacity 180ms ease,
+      transform 240ms ease;
+  }
+
+  .viewer-admin-surface .viewer-camera-dock__presets {
+    display: inline-flex;
+    min-width: 0;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .viewer-admin-surface .viewer-camera-dock__button {
+    min-height: 32px !important;
+    min-width: 0;
+    gap: 4px !important;
+    padding: 0 7px !important;
+    border: 1px solid var(--viewer-admin-border-subtle) !important;
+    border-radius: 10px !important;
+    background: rgba(255, 255, 255, 0.035) !important;
+    color: var(--viewer-admin-text-secondary) !important;
+    font-size: 10px !important;
+  }
+
+  .viewer-admin-surface .viewer-camera-dock__button:hover:enabled,
+  .viewer-admin-surface .viewer-camera-dock__button.is-active,
+  .viewer-admin-surface .viewer-camera-dock__button[aria-pressed='true'] {
+    border-color: var(--viewer-admin-accent-border) !important;
+    background:
+      radial-gradient(circle at top, rgba(125, 167, 255, 0.2), transparent 62%),
+      var(--viewer-admin-accent-soft) !important;
+    color: var(--viewer-admin-text-primary) !important;
+  }
+
+  .viewer-admin-surface .viewer-camera-dock__index {
+    color: var(--viewer-admin-text-dim);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+  }
+
+  .viewer-admin-surface .viewer-camera-dock__label {
+    display: inline-block;
+    max-width: 58px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .viewer-admin-surface .viewer-camera-dock__divider {
+    height: 18px;
+    width: 1px;
+    background: var(--viewer-admin-border-subtle);
+  }
+
+  .viewer-admin-surface .viewer-camera-dock__hmi {
+    flex-shrink: 0;
+  }
+
   .viewer-admin-surface .viewer-hmi-overlay {
     width: auto;
     align-items: flex-start;

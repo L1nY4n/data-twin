@@ -134,7 +134,7 @@
    - 默认显示，隐藏状态只影响 KPI 看板，不影响 panel launcher、对象树、检查器、消息面板和底部搜索。
 
 2. **按钮 + 键盘双入口**
-   - 在右上 panel launcher 增加 HMI 按钮，显示/隐藏状态用 `Eye` / `EyeOff` 区分。
+   - 先在右上 panel launcher 增加 HMI 按钮；Round 6 已将该入口下沉到右下角 camera dock，显示/隐藏状态继续用 `Eye` / `EyeOff` 区分。
    - 增加 `H` 快捷键；当焦点在 input/textarea/contenteditable 内时不触发，避免干扰全局对象搜索输入。
 
 3. **布局边界**
@@ -145,3 +145,33 @@
 
 - 不迁移 realvirtual-WEB 完整 UI zoom / visual settings 面板。
 - 不把所有 viewer chrome 一次性隐藏；当前只隐藏最容易遮挡画面的 KPI overlay。
+
+## Round 6：Ralph 追加迁移 —— 底部相机快捷 dock
+
+继续对比 `realvirtual-WEB`（`005277ac6bb365d0fe85617dfad640af899ca2cc`）的 `BottomBar` / `CameraBar` / `layout-constants` 后，本轮吸收的是 **底部命令区旁保留轻量相机快捷控制** 的布局思想：搜索仍居中承担“找对象/聚焦对象”，相机常用视角和 HMI 可见性则放在右下角，避免把所有控制继续堆在顶部 panel launcher。
+
+### realvirtual-WEB 模式抽象
+
+- 搜索、相机与 HMI 可见性分层：底部中心负责搜索命令，右下角负责视角快捷与 HMI 显隐。
+- 控制条随已打开面板避让，避免与左侧层级树、右侧 inspector、消息 dock 互相覆盖。
+- 顶部按钮只保留主要面板入口，不再承担所有 viewer chrome 操作。
+
+### 本仓库追加迁移
+
+1. **底部相机快捷 dock**
+   - 在 viewer 右下角新增 `camera-preset-dock`，复用当前发布场景已有的前三个 `cameraPresets`。
+   - 点击预设会清除一次性 focus 请求、切回 `orbit`，然后设置 `activeCameraPreset`，保持与现有 `DigitalTwinCanvas` 相机动画链路一致。
+
+2. **HMI 显隐入口下沉**
+   - 将 HMI 显隐按钮从顶部 panel launcher 下沉到右下角 camera dock，继续保留 `H` 快捷键和 `隐藏HMI看板` / `显示HMI看板` 无障碍标签。
+   - 顶部 launcher 回归“对象树 / inspector / 事件消息”三类主面板入口，减少重复 chrome 与顶部拥挤。
+
+3. **面板碰撞避让**
+   - camera dock 复用现有 `rightDockOffsetClass`，右侧 inspector 或消息 dock 打开时自动左移。
+   - 继续通过 `data-viewer-ui-panel` 标记，让场景 picking 忽略来自 dock 的 UI 事件。
+
+### 明确暂缓
+
+- 不复制 realvirtual-WEB `CameraBar` 的源码或长按保存实现。
+- 不新增“用户自定义相机书签”存储；data-t 先复用已发布场景预设，避免引入新持久化模型。
+- 不移除左侧工具 rail 的完整相机下拉；本轮只把高频预设作为快捷 dock 暴露，完整列表仍在原入口中。

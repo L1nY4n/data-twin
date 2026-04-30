@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   Bell,
   Boxes,
+  Camera,
   Eye,
   EyeOff,
   LocateFixed,
@@ -68,6 +69,11 @@ function useDigitalTwinViewportState() {
   const entityDirectory = useDigitalTwinStore((state) => state.entityDirectory)
   const selectedEntityId = useDigitalTwinStore((state) => state.selectedEntityId)
   const selectedStaticFeatureId = useDigitalTwinStore((state) => state.selectedStaticFeatureId)
+  const cameraPresets = useDigitalTwinStore((state) => state.cameraPresets)
+  const activeCameraPreset = useDigitalTwinStore((state) => state.activeCameraPreset)
+  const setActiveCameraPreset = useDigitalTwinStore((state) => state.setActiveCameraPreset)
+  const clearCameraFocusRequest = useDigitalTwinStore((state) => state.clearCameraFocusRequest)
+  const setViewMode = useDigitalTwinStore((state) => state.setViewMode)
   const toggleLeftPanel = useDigitalTwinStore((state) => state.toggleLeftPanel)
   const toggleRightPanel = useDigitalTwinStore((state) => state.toggleRightPanel)
   const toggleBottomPanel = useDigitalTwinStore((state) => state.toggleBottomPanel)
@@ -91,6 +97,11 @@ function useDigitalTwinViewportState() {
     entityDirectory,
     selectedEntityId,
     selectedStaticFeatureId,
+    cameraPresets,
+    activeCameraPreset,
+    setActiveCameraPreset,
+    clearCameraFocusRequest,
+    setViewMode,
     toggleLeftPanel,
     toggleRightPanel,
     toggleBottomPanel,
@@ -124,6 +135,11 @@ export function DigitalTwinViewerPage({
     entityDirectory,
     selectedEntityId,
     selectedStaticFeatureId,
+    cameraPresets,
+    activeCameraPreset,
+    setActiveCameraPreset,
+    clearCameraFocusRequest,
+    setViewMode,
     toggleLeftPanel,
     toggleRightPanel,
     toggleBottomPanel,
@@ -147,6 +163,7 @@ export function DigitalTwinViewerPage({
     ? 'GPU storage'
     : rendererDiagnostics.backend.toUpperCase()
   const sidePanelOpen = leftPanelOpen || rightPanelOpen || bottomPanelOpen
+  const quickCameraPresets = useMemo(() => cameraPresets.slice(0, 3), [cameraPresets])
   const rightDockOffsetClass = bottomPanelOpen
     ? 'right-[476px]'
     : rightPanelOpen
@@ -230,6 +247,11 @@ export function DigitalTwinViewerPage({
       event.preventDefault()
       handleQuickSearchSelect(quickSearchResults[0])
     }
+  }
+  const handleQuickCameraPresetSelect = (presetId: string) => {
+    clearCameraFocusRequest()
+    setViewMode('orbit')
+    setActiveCameraPreset(presetId)
   }
 
   useEffect(() => {
@@ -364,19 +386,6 @@ export function DigitalTwinViewerPage({
                   <Bell className="h-4 w-4" />
                   <span className="viewer-panel-toolbar__badge">{bottomPanelOpen ? 'open' : 'msg'}</span>
                 </Button>
-                <Button
-                  type="button"
-                  variant={hmiOverlayVisible ? 'secondary' : 'ghost'}
-                  size="sm"
-                  className="viewer-panel-toolbar__button"
-                  aria-pressed={hmiOverlayVisible}
-                  aria-label={hmiOverlayVisible ? '隐藏HMI看板' : '显示HMI看板'}
-                  title="HMI 看板 (H)"
-                  onClick={toggleHmiOverlayVisible}
-                >
-                  {hmiOverlayVisible ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
-                  <span className="viewer-panel-toolbar__badge">hmi</span>
-                </Button>
               </div>
             </div>
 
@@ -442,6 +451,52 @@ export function DigitalTwinViewerPage({
               <span className="viewer-command-strip__divider" aria-hidden />
               <Boxes className="h-4 w-4" />
               <span>{visibleEntityCount} visible</span>
+            </div>
+
+            <div
+              data-viewer-ui-panel="camera-preset-dock"
+              className={cn(
+                'viewer-camera-dock absolute bottom-4 z-30 hidden items-center gap-1.5 xl:flex',
+                rightDockOffsetClass
+              )}
+              aria-label="相机快捷视角与HMI控制"
+            >
+              <div className="viewer-camera-dock__presets" role="group" aria-label="相机预设快捷切换">
+                {quickCameraPresets.map((preset, index) => (
+                  <Button
+                    key={preset.id}
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className={cn(
+                      'viewer-camera-dock__button',
+                      activeCameraPreset === preset.id && 'is-active'
+                    )}
+                    aria-pressed={activeCameraPreset === preset.id}
+                    aria-label={`切换到相机预设 ${preset.name}`}
+                    title={`相机预设 ${preset.name}`}
+                    onClick={() => handleQuickCameraPresetSelect(preset.id)}
+                  >
+                    <Camera className="h-3.5 w-3.5" />
+                    <span className="viewer-camera-dock__index">C{index + 1}</span>
+                    <span className="viewer-camera-dock__label">{preset.name}</span>
+                  </Button>
+                ))}
+              </div>
+              <span className="viewer-camera-dock__divider" aria-hidden />
+              <Button
+                type="button"
+                variant={hmiOverlayVisible ? 'secondary' : 'ghost'}
+                size="sm"
+                className="viewer-camera-dock__button viewer-camera-dock__hmi"
+                aria-pressed={hmiOverlayVisible}
+                aria-label={hmiOverlayVisible ? '隐藏HMI看板' : '显示HMI看板'}
+                title="HMI 看板 (H)"
+                onClick={toggleHmiOverlayVisible}
+              >
+                {hmiOverlayVisible ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+                <span className="viewer-camera-dock__label">HMI</span>
+              </Button>
             </div>
 
             <div

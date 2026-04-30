@@ -12,6 +12,9 @@ describe('rules panel dock layout', () => {
     expect(source.includes('const rightDockOffsetClass = bottomPanelOpen')).toBe(true)
     expect(source.includes("? 'right-[476px]'")).toBe(true)
     expect(source.includes("sidePanelOpen && 'viewer-command-strip--hidden'")).toBe(true)
+    expect(source.includes('data-viewer-ui-panel="camera-preset-dock"')).toBe(true)
+    expect(source.includes("'viewer-camera-dock absolute bottom-4 z-30 hidden items-center gap-1.5 xl:flex'")).toBe(true)
+    expect(source.includes('rightDockOffsetClass')).toBe(true)
   })
 
   test('does not reserve fixed bottom height for rules panel anymore', () => {
