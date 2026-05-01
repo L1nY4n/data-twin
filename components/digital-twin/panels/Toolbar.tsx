@@ -21,16 +21,19 @@ import {
   Moon,
 } from 'lucide-react'
 import { useTheme } from '@/components/theme-provider'
-import { useDigitalTwinStore } from '@/lib/digital-twin/store'
+import { useDigitalTwinStore, type QualityProfile, type RendererMode } from '@/lib/digital-twin/store'
 import type { ViewMode } from '@/lib/digital-twin/types'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
@@ -45,6 +48,17 @@ const VIEW_MODE_CONFIG: Record<ViewMode, { icon: typeof Move; label: string }> =
   follow: { icon: Eye, label: '跟随视角' },
   firstperson: { icon: Camera, label: '第一人称' },
 }
+
+const RENDERER_MODE_OPTIONS: Array<{ value: RendererMode; label: string }> = [
+  { value: 'auto', label: '自动（优先 WebGPU）' },
+  { value: 'webgpu', label: '强制 WebGPU' },
+  { value: 'webgl2', label: '强制 WebGL2' },
+]
+
+const QUALITY_PROFILE_OPTIONS: Array<{ value: QualityProfile; label: string }> = [
+  { value: 'balanced', label: '平衡画质' },
+  { value: 'performance', label: '性能优先' },
+]
 
 function isTrackedViewMode(mode: ViewMode) {
   return mode === 'follow' || mode === 'firstperson'
@@ -79,6 +93,8 @@ export function Toolbar({ workspaceSlug }: { workspaceSlug: string }) {
   const isDarkTheme = resolvedTheme === 'dark'
   const editorHref = buildEditorHref(workspaceSlug, '/')
   const canTrackSelectedEntity = selectedEntityType !== null && selectedEntityType !== 'zone'
+  const CurrentViewModeIcon = VIEW_MODE_CONFIG[viewMode].icon
+  const ThemeIcon = isDarkTheme ? Sun : Moon
 
   const handleViewModeSelect = (mode: ViewMode) => {
     if (mode === 'topdown') {
@@ -120,7 +136,8 @@ export function Toolbar({ workspaceSlug }: { workspaceSlug: string }) {
               <Button
                 variant={sceneConfig.showGrid ? 'secondary' : 'ghost'}
                 size="icon"
-                className="h-8 w-8"
+                className="viewer-tool-rail__button h-8 w-8"
+                aria-label={sceneConfig.showGrid ? '隐藏网格' : '显示网格'}
                 onClick={() => setSceneConfig({ showGrid: !sceneConfig.showGrid })}
               >
                 <Grid3X3 className="h-4 w-4" />
@@ -135,7 +152,8 @@ export function Toolbar({ workspaceSlug }: { workspaceSlug: string }) {
               <Button
                 variant={sceneConfig.showAxes ? 'secondary' : 'ghost'}
                 size="icon"
-                className="h-8 w-8"
+                className="viewer-tool-rail__button h-8 w-8"
+                aria-label={sceneConfig.showAxes ? '隐藏坐标轴' : '显示坐标轴'}
                 onClick={() => setSceneConfig({ showAxes: !sceneConfig.showAxes })}
               >
                 <Axis3D className="h-4 w-4" />
@@ -151,20 +169,26 @@ export function Toolbar({ workspaceSlug }: { workspaceSlug: string }) {
             <Tooltip>
               <TooltipTrigger asChild>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="sm" className="h-8 gap-1.5">
-                    {(() => {
-                      const config = VIEW_MODE_CONFIG[viewMode]
-                      const Icon = config.icon
-                      return <Icon className="h-4 w-4" />
-                    })()}
-                    <span className="text-xs">{VIEW_MODE_CONFIG[viewMode].label}</span>
-                    <ChevronDown className="h-3 w-3" />
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="viewer-tool-rail__button h-8 w-8"
+                    aria-label={`视角模式：${VIEW_MODE_CONFIG[viewMode].label}`}
+                    title={`视角模式：${VIEW_MODE_CONFIG[viewMode].label}`}
+                  >
+                    <CurrentViewModeIcon className="h-4 w-4" />
+                    <ChevronDown className="viewer-tool-rail__corner-caret" />
                   </Button>
                 </DropdownMenuTrigger>
               </TooltipTrigger>
               <TooltipContent>视角模式</TooltipContent>
             </Tooltip>
-            <DropdownMenuContent align="start">
+            <DropdownMenuContent
+              align="start"
+              side="right"
+              sideOffset={8}
+              className="viewer-tool-rail__menu-content"
+            >
               <DropdownMenuLabel>视角模式</DropdownMenuLabel>
               <DropdownMenuSeparator />
               {(Object.keys(VIEW_MODE_CONFIG) as ViewMode[]).map((mode) => {
@@ -194,7 +218,8 @@ export function Toolbar({ workspaceSlug }: { workspaceSlug: string }) {
               <Button
                 variant={measurementMode === 'distance' ? 'secondary' : 'ghost'}
                 size="icon"
-                className="h-8 w-8"
+                className="viewer-tool-rail__button h-8 w-8"
+                aria-label={measurementMode === 'distance' ? '关闭距离测量' : '开启距离测量'}
                 onClick={() => {
                   if (measurementMode === 'distance') {
                     setMeasurementMode('none')
@@ -214,7 +239,8 @@ export function Toolbar({ workspaceSlug }: { workspaceSlug: string }) {
               <Button
                 variant={measurementMode === 'angle' ? 'secondary' : 'ghost'}
                 size="icon"
-                className="h-8 w-8"
+                className="viewer-tool-rail__button h-8 w-8"
+                aria-label={measurementMode === 'angle' ? '关闭角度测量' : '开启角度测量'}
                 onClick={() => {
                   if (measurementMode === 'angle') {
                     setMeasurementMode('none')
@@ -235,7 +261,8 @@ export function Toolbar({ workspaceSlug }: { workspaceSlug: string }) {
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-8 w-8"
+                  className="viewer-tool-rail__button h-8 w-8"
+                  aria-label="清除测量点"
                   onClick={clearMeasurementPoints}
                 >
                   <RotateCcw className="h-4 w-4" />
@@ -254,7 +281,8 @@ export function Toolbar({ workspaceSlug }: { workspaceSlug: string }) {
               <Button
                 variant={isPlayingTrajectory ? 'secondary' : 'ghost'}
                 size="icon"
-                className="h-8 w-8"
+                className="viewer-tool-rail__button h-8 w-8"
+                aria-label={isPlayingTrajectory ? '暂停轨迹回放' : '播放轨迹回放'}
                 onClick={() => setTrajectoryPlayback(!isPlayingTrajectory)}
               >
                 {isPlayingTrajectory ? (
@@ -276,9 +304,10 @@ export function Toolbar({ workspaceSlug }: { workspaceSlug: string }) {
                 variant="ghost"
                 size="icon"
                 className={cn(
-                  "h-8 w-8",
+                  'viewer-tool-rail__button h-8 w-8',
                   isConnected ? "text-green-500" : "text-muted-foreground"
                 )}
+                aria-label={isConnected ? '后端已连接' : '后端未连接'}
               >
                 {isConnected ? (
                   <Wifi className="h-4 w-4" />
@@ -290,101 +319,86 @@ export function Toolbar({ workspaceSlug }: { workspaceSlug: string }) {
             <TooltipContent>{isConnected ? '已连接' : '未连接'}</TooltipContent>
           </Tooltip>
 
-          {/* 设置 */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8">
-                <Settings className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>设置</TooltipContent>
-          </Tooltip>
-
-          <Button asChild variant="secondary" size="sm" className="h-8 gap-1.5 px-3 text-[11px]">
-            <Link href={editorHref}>
-              <ArrowUpRight className="h-4 w-4" />
-              进入编辑器
-            </Link>
-          </Button>
-
-          {/* 性能档位 */}
+          {/* 设置：把文字型控制收进菜单，避免竖向工具栏被标签撑宽 */}
           <DropdownMenu>
             <Tooltip>
               <TooltipTrigger asChild>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="sm" className="h-8 gap-1.5 px-2 text-[11px]">
-                    <span>GPU:{rendererMode}</span>
-                    <ChevronDown className="h-3 w-3" />
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={cn(
+                      'viewer-tool-rail__button viewer-tool-rail__settings-menu h-8 w-8',
+                      (rendererMode !== 'auto' || qualityProfile === 'performance' || autoQuality) && 'is-active'
+                    )}
+                    aria-label="打开视图与性能设置"
+                    title="视图与性能设置"
+                  >
+                    <Settings className="h-4 w-4" />
+                    <ChevronDown className="viewer-tool-rail__corner-caret" />
                   </Button>
                 </DropdownMenuTrigger>
               </TooltipTrigger>
-              <TooltipContent>渲染后端模式（当前: {rendererBackend}）</TooltipContent>
+              <TooltipContent>视图与性能设置</TooltipContent>
             </Tooltip>
-            <DropdownMenuContent align="end">
-              <DropdownMenuLabel>渲染后端</DropdownMenuLabel>
+            <DropdownMenuContent
+              align="start"
+              side="right"
+              sideOffset={8}
+              className="viewer-tool-rail__menu-content viewer-tool-rail__settings-menu-content"
+            >
+              <DropdownMenuLabel>视图与性能</DropdownMenuLabel>
+              <DropdownMenuItem asChild>
+                <Link href={editorHref}>
+                  <ArrowUpRight className="mr-2 h-4 w-4" />
+                  进入编辑器
+                </Link>
+              </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => setRendererMode('auto')}>
-                自动（优先WebGPU）
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setRendererMode('webgpu')}>
-                强制WebGPU（失败回退）
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setRendererMode('webgl2')}>
-                强制WebGL2
+
+              <DropdownMenuLabel className="flex items-center justify-between gap-3">
+                <span>渲染后端</span>
+                <span className="text-[10px] font-normal text-muted-foreground">
+                  {rendererBackend}
+                </span>
+              </DropdownMenuLabel>
+              <DropdownMenuRadioGroup
+                value={rendererMode}
+                onValueChange={(value) => setRendererMode(value as RendererMode)}
+              >
+                {RENDERER_MODE_OPTIONS.map((option) => (
+                  <DropdownMenuRadioItem key={option.value} value={option.value}>
+                    {option.label}
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+              <DropdownMenuSeparator />
+
+              <DropdownMenuLabel>画质档位</DropdownMenuLabel>
+              <DropdownMenuRadioGroup
+                value={qualityProfile}
+                onValueChange={(value) => setQualityProfile(value as QualityProfile)}
+              >
+                {QUALITY_PROFILE_OPTIONS.map((option) => (
+                  <DropdownMenuRadioItem key={option.value} value={option.value}>
+                    {option.label}
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+              <DropdownMenuCheckboxItem
+                checked={autoQuality}
+                onCheckedChange={(checked) => setAutoQuality(checked === true)}
+              >
+                自动降级
+              </DropdownMenuCheckboxItem>
+              <DropdownMenuSeparator />
+
+              <DropdownMenuItem onClick={() => setTheme(isDarkTheme ? 'light' : 'dark')}>
+                <ThemeIcon className="mr-2 h-4 w-4" />
+                切换到{isDarkTheme ? '浅色' : '深色'}主题
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant={qualityProfile === 'performance' ? 'secondary' : 'ghost'}
-                size="sm"
-                className="h-8 px-2 text-[11px]"
-                onClick={() =>
-                  setQualityProfile(qualityProfile === 'balanced' ? 'performance' : 'balanced')
-                }
-              >
-                {qualityProfile === 'balanced' ? 'Balanced' : 'Performance'}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>切换渲染质量档位</TooltipContent>
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant={autoQuality ? 'secondary' : 'ghost'}
-                size="sm"
-                className="h-8 px-2 text-[11px]"
-                onClick={() => setAutoQuality(!autoQuality)}
-              >
-                Auto
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>自动降级</TooltipContent>
-          </Tooltip>
-
-          {/* 主题切换 */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8"
-                onClick={() => setTheme(isDarkTheme ? 'light' : 'dark')}
-              >
-                {isDarkTheme ? (
-                  <Sun className="h-4 w-4" />
-                ) : (
-                  <Moon className="h-4 w-4" />
-                )}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              切换到{isDarkTheme ? '浅色' : '深色'}主题
-            </TooltipContent>
-          </Tooltip>
         </div>
       </ViewerAdminToolbarBar>
     </TooltipProvider>

@@ -115,6 +115,32 @@ describe('viewer/admin shared style primitives', () => {
     expect(bottomPanel.includes('viewer-message-card')).toBe(true)
   })
 
+  test('viewer left tool rail stays icon-only and moves verbose controls into menus', () => {
+    const toolbar = readFileSync(
+      join(process.cwd(), 'components/digital-twin/panels/Toolbar.tsx'),
+      'utf8'
+    )
+    const styles = readFileSync(
+      join(process.cwd(), 'app/viewer-admin-surface.css'),
+      'utf8'
+    )
+
+    expect(toolbar.includes('viewer-tool-rail__button')).toBe(true)
+    expect(toolbar.includes('viewer-tool-rail__menu-content')).toBe(true)
+    expect(toolbar.includes('viewer-tool-rail__settings-menu')).toBe(true)
+    expect(toolbar.includes('DropdownMenuRadioGroup')).toBe(true)
+    expect(toolbar.includes('DropdownMenuCheckboxItem')).toBe(true)
+    expect(toolbar.includes('aria-label={`视角模式：${VIEW_MODE_CONFIG[viewMode].label}`}')).toBe(true)
+    expect(toolbar.includes('aria-label="打开视图与性能设置"')).toBe(true)
+    expect(toolbar.includes('<span>GPU:{rendererMode}</span>')).toBe(false)
+    expect(toolbar.includes("qualityProfile === 'balanced' ? 'Balanced' : 'Performance'")).toBe(false)
+    expect(toolbar.includes('进入编辑器\n            </Link>')).toBe(false)
+    expect(styles.includes('.viewer-admin-surface .viewer-tool-rail__button')).toBe(true)
+    expect(styles.includes('font-size: 0 !important;')).toBe(true)
+    expect(/^\s*\.viewer-tool-rail__menu-content \{/m.test(styles)).toBe(true)
+    expect(/^\s*\.viewer-admin-surface \.viewer-tool-rail__menu-content \{/m.test(styles)).toBe(false)
+  })
+
   test('admin console-specific surfaces live in a shared module', () => {
     const adminSurface = readFileSync(
       join(process.cwd(), 'components/admin/admin-surface.tsx'),

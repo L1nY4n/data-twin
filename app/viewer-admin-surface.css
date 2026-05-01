@@ -790,10 +790,39 @@
     justify-content: center !important;
     padding: 0 !important;
     border-radius: 10px !important;
+    overflow: hidden;
+    font-size: 0 !important;
   }
 
   .viewer-admin-surface .viewer-tool-rail [data-slot='button'] span.text-xs {
     display: none;
+  }
+
+  .viewer-admin-surface .viewer-tool-rail__button {
+    position: relative;
+    border: 1px solid transparent !important;
+    color: var(--viewer-admin-text-secondary) !important;
+    font-size: 0 !important;
+  }
+
+  .viewer-admin-surface .viewer-tool-rail__button:hover:enabled,
+  .viewer-admin-surface .viewer-tool-rail__button[aria-expanded='true'],
+  .viewer-admin-surface .viewer-tool-rail__button[aria-pressed='true'],
+  .viewer-admin-surface .viewer-tool-rail__button.is-active {
+    border-color: var(--viewer-admin-accent-border) !important;
+    background:
+      radial-gradient(circle at top, rgba(125, 167, 255, 0.2), transparent 62%),
+      var(--viewer-admin-accent-soft) !important;
+    color: var(--viewer-admin-text-primary) !important;
+  }
+
+  .viewer-admin-surface .viewer-tool-rail__corner-caret {
+    position: absolute;
+    right: 3px;
+    bottom: 3px;
+    width: 9px !important;
+    height: 9px !important;
+    opacity: 0.64;
   }
 
   .viewer-admin-surface .viewer-tool-rail [data-slot='separator'] {
@@ -804,6 +833,23 @@
 
   .viewer-admin-surface .viewer-tool-rail__group {
     width: 100%;
+  }
+
+  .viewer-tool-rail__menu-content {
+    min-width: 220px !important;
+    border: 1px solid rgba(171, 199, 255, 0.16) !important;
+    background:
+      linear-gradient(180deg, rgba(17, 22, 31, 0.96), rgba(8, 11, 18, 0.94)) !important;
+    color: rgba(244, 247, 255, 0.9) !important;
+    box-shadow:
+      0 18px 45px rgba(2, 6, 12, 0.42),
+      inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    -webkit-backdrop-filter: blur(18px);
+    backdrop-filter: blur(18px);
+  }
+
+  .viewer-tool-rail__settings-menu-content {
+    min-width: 250px !important;
   }
 
   .viewer-admin-surface .viewer-panel-toolbar {
