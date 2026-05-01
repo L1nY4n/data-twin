@@ -19,6 +19,7 @@ describe('runtime vehicle snapshot registry', () => {
   test('stores per-entity snapshots in timestamp order', () => {
     const registry = createRuntimeVehicleSnapshotRegistry({
       maxSamplesPerEntity: 4,
+      maxSourceTimestampBacktrackMs: 500,
     })
 
     registry.append('vehicle-1', {
@@ -51,6 +52,11 @@ describe('runtime vehicle snapshot registry', () => {
       1_100,
       1_200,
     ])
+    expect(registry.getStats()).toMatchObject({
+      acceptedSnapshots: 3,
+      reorderedSnapshots: 2,
+      staleSnapshots: 0,
+    })
   })
 
   test('keeps dense same-frame timestamp projection from overweighting the offset history', () => {
@@ -110,6 +116,74 @@ describe('runtime vehicle snapshot registry', () => {
       1_200,
       1_300,
     ])
+    expect(registry.getStats()).toMatchObject({
+      acceptedSnapshots: 4,
+      droppedOverflowSnapshots: 1,
+    })
+  })
+
+  test('rejects very stale source timestamps instead of letting old transforms re-enter the pose buffer', () => {
+    const registry = createRuntimeVehicleSnapshotRegistry({
+      maxSamplesPerEntity: 4,
+      maxSourceTimestampBacktrackMs: 120,
+    })
+
+    registry.append('vehicle-1', {
+      timestamp: 1_300,
+      sourceTimestamp: 1_300,
+      position: { x: 13, y: 0, z: 0 },
+      yaw: 0,
+      speed: 3,
+      status: 'active',
+    })
+    registry.append('vehicle-1', {
+      timestamp: 1_220,
+      sourceTimestamp: 1_220,
+      position: { x: 12, y: 0, z: 0 },
+      yaw: 0,
+      speed: 3,
+      status: 'active',
+    })
+    registry.append('vehicle-1', {
+      timestamp: 900,
+      sourceTimestamp: 900,
+      position: { x: 9, y: 0, z: 0 },
+      yaw: 0,
+      speed: 3,
+      status: 'warning',
+    })
+
+    expect(registry.get('vehicle-1').map((sample) => sample.sourceTimestamp)).toEqual([
+      1_220,
+      1_300,
+    ])
+    expect(registry.getStats()).toMatchObject({
+      acceptedSnapshots: 2,
+      reorderedSnapshots: 1,
+      staleSnapshots: 1,
+    })
+  })
+
+  test('tracks duplicate movement snapshots as stream quality evidence', () => {
+    const registry = createRuntimeVehicleSnapshotRegistry()
+    const sample = {
+      timestamp: 1_000,
+      sourceTimestamp: 1_000,
+      position: { x: 0, y: 0, z: 0 },
+      yaw: 0,
+      speed: 0,
+      status: 'active' as const,
+    }
+
+    registry.append('vehicle-1', sample)
+    registry.append('vehicle-1', { ...sample })
+
+    expect(registry.get('vehicle-1')).toHaveLength(1)
+    expect(registry.getStats()).toMatchObject({
+      acceptedSnapshots: 1,
+      duplicateSnapshots: 1,
+      entityCount: 1,
+    })
   })
 
   test('resets buffers and time sync together on global clear', () => {
@@ -127,6 +201,14 @@ describe('runtime vehicle snapshot registry', () => {
     registry.clear()
 
     expect(registry.get('vehicle-1')).toEqual([])
+    expect(registry.getStats()).toEqual({
+      entityCount: 0,
+      acceptedSnapshots: 0,
+      duplicateSnapshots: 0,
+      staleSnapshots: 0,
+      reorderedSnapshots: 0,
+      droppedOverflowSnapshots: 0,
+    })
     expect(registry.projectTimestamp(2_000, 2_150)).toBe(2_150)
   })
 })

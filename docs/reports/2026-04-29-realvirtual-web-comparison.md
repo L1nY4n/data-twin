@@ -238,3 +238,159 @@
 ### 结论
 
 右下角视角切换现在符合 realvirtual-WEB 的“一次性 restore”语义：点击后可自动飞到预设，但用户一旦开始操作 orbit controls，系统立即停止动画并把视角控制权交还给用户。
+
+## Round 9：Ralph 追加迁移 —— 底部命令层常驻与搜索范围设置
+
+继续对比 `realvirtual-WEB`（`005277ac6bb365d0fe85617dfad640af899ca2cc`）的 `BottomBar`、`CameraBar`、`MessagePanel` 与 `ButtonPanel` 后，本轮吸收的是 **底部命令层不因面板打开而失效，而是按可用视口避让** 的布局思想。realvirtual-WEB 的底部搜索、结果数量、聚焦按钮、搜索设置与右下角相机/HMI 控制共同组成独立命令层；左右面板由宽度/偏移协调，而不是把底部命令直接隐藏。
+
+### realvirtual-WEB 模式抽象
+
+- `BottomBar` 是持续可用的搜索 / 聚焦入口，结果浮层在搜索条上方展开。
+- 搜索条内有结果数量、清空、聚焦以及设置入口；搜索设置使用 include/filter 思路控制结果范围。
+- `CameraBar` 和 HMI 显隐保留在右下角，和底部命令区同层但分工清晰。
+- `ButtonPanel` / 左侧面板管理使用面板宽度计算偏移，避免控制层与已打开面板重叠。
+
+### 本仓库追加迁移
+
+1. **底部命令条常驻**
+   - 移除 `viewer-command-strip--hidden` 的“任意侧面板打开就隐藏”逻辑。
+   - 新增 `viewer-command-strip--left-panel`、`viewer-command-strip--right-panel`、`viewer-command-strip--message-panel` 三类布局状态。
+   - 通过 CSS 变量计算 left/right reserve 与中心偏移，左侧对象树、右侧 inspector 或消息 dock 打开时，底部搜索仍在剩余视口中可用。
+
+2. **轻量搜索范围设置**
+   - 在搜索条内新增 scope 菜单，复用本仓库已有 DropdownMenu，不引入新依赖。
+   - 可独立启用 / 禁用“运行实体”和“静态资产 / 场景区块”搜索范围；至少保留一个范围，避免空配置。
+   - 搜索逻辑继续使用本仓库已有 `entityDirectory` 与 `staticFeatureRegistry`，不复制 realvirtual-WEB 的 `useNodeFilter` 或 registry 代码。
+
+3. **布局边界延续**
+   - `camera-preset-dock` 继续独立避让右侧面板。
+   - 底部命令条、scope 菜单和结果浮层继续保持 `data-viewer-ui-panel` 边界，场景 picking 不接收 UI 区域事件。
+
+### 继续暂缓
+
+- 不迁移 realvirtual-WEB 完整 search settings store 或 hover tooltip/highlight 机制。
+- 不新增 localStorage 持久化搜索范围；当前范围是轻量会话状态。
+- 不迁移完整插件 slot 系统，继续按 data-t 当前 primitives/store 独立实现。
+
+## Round 10：Ralph 追加迁移 —— 消息更新与 3D 变换的帧级缓冲
+
+继续对比 `realvirtual-WEB`（`005277ac6bb365d0fe85617dfad640af899ca2cc`）的 `BaseIndustrialInterface`、`SignalStore`、`WebSocketRealtimeInterface`、`RVDrive` 与 `MessagePanel` 后，本轮吸收的是 **工业协议消息先缓冲、再按固定 tick / 渲染帧批量刷新模型状态** 的运行时思想，而不是把每条 websocket 回调都立刻扩散到 React/store/Three 对象。
+
+### realvirtual-WEB 模式抽象
+
+- `BaseIndustrialInterface` 将异步协议回调写入 incoming buffer，随后在 fixed update 前统一 flush 到 signal store；同一 tick 内重复信号天然 last-wins。
+- `SignalStore.setMany` 具备批量一致性：值先整体落库，再通知订阅者，并且只对实际变化递增版本。
+- `WebSocketRealtimeInterface` 把 `snapshot` / `data` 消息解析为信号字典，交给 buffer，而不是在网络回调里直接驱动每个组件。
+- `RVDrive` 把 3D 运动拆成“缓存基础 position/quaternion + 当前 drive position 的局部 delta”，外部同步只改当前 position/speed，再由统一 update/apply 链路落到 Three.js node。
+- `MessagePanel` 的右侧消息栈仍是可继续借鉴的 UI 模式，但本轮优先解决消息更新与运动变换的数据流问题。
+
+### 本仓库追加迁移
+
+1. **runtime message frame compaction**
+   - 在 `lib/digital-twin/runtime-message-batcher.ts` 新增 `compactRuntimeMessagesForFrame`。
+   - `position_update`、`status_update`、`signal_update` 在同一个 requestAnimationFrame / scheduled flush 中按 `type + entityId` 合并；高频车辆位姿、状态与信号值采用 last-wins。
+   - `alarm`、`incident`、`rule_triggered` 等操作员事件保持 append-only，不参与压缩，避免丢失消息历史。
+
+2. **信号更新批量语义**
+   - `signal_update` 的 `signals` 数组按 `id/path/name/label` 合并，保留未被覆盖的信号，只替换同一信号的最新 value / quality / metadata。
+   - 这对应 realvirtual-WEB 的 SignalStore 名称/路径索引思想，但没有复制其 store 源码，也没有引入新的 PLC 协议层。
+
+3. **3D 运动/变换更新降噪**
+   - 同一渲染帧内重复车辆/动态实体 `position_update` 只把最新目标 pose 送入现有 `runtimeVehicleSnapshotRegistry` / `runtimeVehiclePoseBuffer` 链路。
+   - 现有 `pose_frame` 二进制密集位姿帧保持原样；它本身已经是后端批处理后的高吞吐通道。
+   - 结果是 React store 与 Three 实例只接收帧级合并后的变换状态，避免网络抖动导致的重复 patch 与模型变换 churn。
+
+### 继续暂缓
+
+- 不迁移 realvirtual-WEB 完整 PLC `SignalStore` / `BaseIndustrialInterface` 类型体系；data-t 仍通过当前 backend websocket contract 接入。
+- 不改变 `position_update` / `pose_frame` 的外部协议格式，避免影响 simulator 和线上 backend。
+- 不在本轮新增 MessagePanel peek UI；若继续做面板视觉迁移，可独立从 realvirtual-WEB 的右侧 minimized message stack 做下一片。
+
+## Round 11：Ralph 追加迁移 —— 消息边界安全的变换合并
+
+继续复核 realvirtual-WEB 的消息/信号更新链路后，本轮修正 Round 10 的一个重要语义边界：**高频状态可以在 tick 内 last-wins，但操作员可见消息与配置变更不能被状态合并跨越**。realvirtual-WEB 中 PLC 信号缓冲和 MessagePanel 是两个不同层次；信号 buffer 可以压缩，但面向人的消息栈仍然是事件顺序边界。
+
+### 本仓库追加迁移
+
+1. **连续状态段内合并**
+   - `compactRuntimeMessagesForFrame` 现在只在连续的 `position_update` / `status_update` / `signal_update` 段内压缩。
+   - 一旦遇到 `alarm`、`incident`、`rule_triggered`、`config_changed` 或其他非状态消息，会先 flush 当前压缩段，再保留该消息原位。
+
+2. **避免消息顺序被变换更新跨越**
+   - 车辆/动态实体的后续 `position_update` 不再被提前到中间告警之前。
+   - 配置/发布变更仍作为刷新边界，避免把后续场景状态更新提前应用到刷新触发之前。
+
+3. **保留 Round 10 降噪收益**
+   - 同一个连续状态段里，重复实体位姿、状态和信号仍然 last-wins。
+   - 匿名信号继续保持 append，不会因为缺少 id/path/name/label 被按数组位置误合并。
+
+### 继续暂缓
+
+- 不把 data-t 运行时改造成 realvirtual-WEB 的完整 PLC interface manager。
+- 不改变外部 websocket protocol，只强化本地 frame/tick 消费语义。
+
+## Round 12：Ralph 追加迁移 —— SignalStore-like 运行时信号去抖与别名解析
+
+继续对比 `realvirtual-WEB`（`005277ac6bb365d0fe85617dfad640af899ca2cc`）的 `SignalStore`、`Drive_Simple`、`Drive_Cylinder` 与 `RVDrive` 后，本轮吸收的是 **信号值变化才推动版本/订阅者更新，信号引用可通过 name/path/别名解析到同一底层状态** 的语义。上游 drive 组件把 PLC 信号订阅成 jog / cylinder motion，再由 drive 的统一 update/apply 链路更新 3D transform；因此本仓库继续优先强化 runtime signal ingest 的稳定性，而不是复制完整 PLC/Drive 类型体系。
+
+### realvirtual-WEB 模式抽象
+
+- `SignalStore` 同时维护 name 与 path 索引，并缓存 path 解析结果；组件可以按不同引用方式拿到同一个 signal。
+- `set` / `setMany` 只在值真正变化时递增版本和通知订阅者；重复的 PLC snapshot 不应造成 UI 或 3D 组件 churn。
+- `Drive_Simple`、`Drive_Cylinder` 将 PLC output/input 信号转为运动命令与反馈信号，保持“消息输入 → 信号状态 → transform apply”的层次边界。
+- `RVDrive` 的 3D 运动继续通过当前 position/speed 与基础 transform delta 统一落到 Three node，而不是在网络回调里直接抢模型 transform。
+
+### 本仓库追加迁移
+
+1. **runtime signal ingest 去掉无变化 revision churn**
+   - `buildRuntimeSignalEntityPatch` 现在会先把 signal alias 规范化，再和已有 `metadata.realvirtual.signals` 合并比较。
+   - 如果本次 `signal_update` 没有改变 value / quality / signal metadata，也没有改变 runtime source / connector envelope，则直接返回空 patch。
+   - 这样重复 runtime snapshot 不再刷新 `updatedAt` / `runtimeSignalsRevision`，减少 React store、面板和 3D 绑定链路的无意义重渲染。
+
+2. **更稳定的信号别名匹配**
+   - 运行时信号和 authored metadata 都按 `id/path/name/label` 建立同一批 alias key。
+   - 已有 authored signal 的顺序保持不变；运行时更新只覆盖匹配项，新增信号才追加到末尾。
+   - alias key 会 trim 空白，避免外部连接器传入带空格的 PLC 地址导致重复信号行。
+
+3. **轻量 path suffix / 空格归一解析**
+   - `DigitalTwinSignalStore` 新增 path resolve cache，可处理 GLTF/PLC 路径中的空格到下划线差异，以及上游 C# 路径省略根节点时的 suffix lookup。
+   - descriptor 重新注册会清空 path cache，避免旧 path 解析污染后续 signal update。
+
+### 继续暂缓
+
+- 不复制 realvirtual-WEB 的 AGPL `SignalStore`、drive component 或 PLC interface 源码；本轮只迁移索引、缓存、actual-change-only 的设计语义。
+- 不改变 data-t 的 websocket `signal_update` / `position_update` 协议格式。
+- 不把 3D transform 改造成完整 Drive component runtime；当前继续通过已有 pose buffer、routeTrack/trackPosition 和 metadata signal seams 演进。
+
+## Round 13：Ralph 追加迁移 —— 时间戳防乱序与运动流质量证据
+
+继续对比 `realvirtual-WEB`（`005277ac6bb365d0fe85617dfad640af899ca2cc`）的 `SignalStore`、`RVDrive.applySyncData()`、`DrivesPlayback` 与 viewer fixed-update 链路后，本轮目标不是再复制上游“外部 position/speed 直接写入 drive 再 apply transform”的同步方式，而是在 data-t 已有 pose buffer / frame batcher 之上做一层更强的工业网络鲁棒性：**同一帧内旧状态不能覆盖新状态，运动快照流需要能证明丢弃了重复/过期/乱序输入**。
+
+### realvirtual-WEB 模式抽象
+
+- 上游 `SignalStore.setMany` 解决的是同一 tick 内的信号一致性和 actual-change-only 通知。
+- 上游 `RVDrive.applySyncData()` 适合高频、低抖动的同步通道：外部位置写到 drive state，再由 drive 的 transform apply 逻辑刷新 Three node。
+- 上游 `DrivesPlayback` 使用 `positionOverwrite` 保护回放位置对 drive update 的所有权，但没有在网络帧层提供 stale packet 质量统计。
+
+### 本仓库超越点
+
+1. **timestamp-aware frame compaction**
+   - `compactRuntimeMessagesForFrame` 现在不再只按到达顺序 last-wins。
+   - 对同一连续状态段内同一实体的 `position_update` / `status_update` / `signal_update`，如果后到消息的 `timestamp` 更旧，则旧 payload 不会覆盖较新的 transform / status / signal state。
+   - 操作员事件边界仍然保留；防乱序只发生在连续状态段内部，不跨越 `alarm` / `incident` / `config_changed`。
+
+2. **runtime movement stale guard**
+   - `runtimeVehicleSnapshotRegistry` 增加 `maxSourceTimestampBacktrackMs`，允许小范围网络乱序用于插值，但拒绝超过窗口的旧 `sourceTimestamp`。
+   - 这样旧 websocket/pose-frame 包不会重新进入 pose buffer，把车辆、AGV 或人员模型拉回过期位置。
+   - 默认窗口保持保守，兼容当前 simulator 的轻微乱序，同时保护生产网络抖动下的 3D 变换稳定性。
+
+3. **运动流质量证据**
+   - `runtimeVehicleSnapshotRegistry.getStats()` 新增 `acceptedSnapshots`、`duplicateSnapshots`、`staleSnapshots`、`reorderedSnapshots`、`droppedOverflowSnapshots` 与 `entityCount`。
+   - 后续面板或诊断 API 可以直接暴露这些指标，用于判断现场连接器、后端 websocket 或浏览器端队列是否在制造过期位姿。
+   - 这比上游“直接 apply sync data”更适合 data-t 的公开部署和高密度移动实体场景，因为它能解释为什么某些 transform 被丢弃，而不是只看到模型跳变。
+
+### 继续暂缓
+
+- 不改变 websocket 协议字段；继续使用现有 `timestamp` / `sourceTimestamp` / `receivedAt`。
+- 不引入完整 drive component runtime 或 PLC interface manager；当前仍由 data-t 的 pose buffer、routeTrack/trackPosition 和 runtime signal seams 承担运行时同步。
+- 不在本轮接 UI 指标面板；`getStats()` 已提供后续接入点。

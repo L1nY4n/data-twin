@@ -104,10 +104,39 @@ function normalizeRuntimeSignalDirection(
   return writable === true ? 'output' : 'input'
 }
 
+function normalizeSignalAlias(value: unknown): string | null {
+  const alias = asString(value)?.trim()
+  return alias ? alias : null
+}
+
+function compactSignalAliases(
+  aliases: unknown[]
+): string[] {
+  const seen = new Set<string>()
+  const keys: string[] = []
+
+  for (const alias of aliases) {
+    const normalized = normalizeSignalAlias(alias)
+    if (!normalized || seen.has(normalized)) continue
+    seen.add(normalized)
+    keys.push(normalized)
+  }
+
+  return keys
+}
+
 function runtimeSignalIdentity(signal: RuntimeSignalUpdate, index: number) {
-  const id = asString(signal.id) ?? asString(signal.path) ?? asString(signal.name)
-  const name = asString(signal.name) ?? asString(signal.label) ?? id ?? `runtime-signal-${index}`
-  const path = asString(signal.path) ?? id ?? name
+  const id =
+    normalizeSignalAlias(signal.id) ??
+    normalizeSignalAlias(signal.path) ??
+    normalizeSignalAlias(signal.name) ??
+    normalizeSignalAlias(signal.label)
+  const name =
+    normalizeSignalAlias(signal.name) ??
+    normalizeSignalAlias(signal.label) ??
+    id ??
+    `runtime-signal-${index}`
+  const path = normalizeSignalAlias(signal.path) ?? id ?? name
 
   return {
     id: id ?? path,
@@ -152,28 +181,60 @@ function normalizeRuntimeSignalUpdate(
 
 function signalEntryKeys(value: unknown): string[] {
   if (typeof value === 'string') {
-    const key = value.trim()
-    return key ? [key] : []
+    return compactSignalAliases([value])
   }
   const record = asObject(value)
   if (!record) return []
-  return [
-    asString(record.id),
-    asString(record.path),
-    asString(record.name),
-    asString(record.label),
-  ].filter((key): key is string => typeof key === 'string' && key.length > 0)
+  return compactSignalAliases([record.id, record.path, record.name, record.label])
 }
 
 function signalEntryToObject(value: unknown): Record<string, unknown> {
   if (typeof value === 'string') {
+    const key = normalizeSignalAlias(value) ?? value
     return {
-      id: value,
-      name: value,
-      path: value,
+      id: key,
+      name: key,
+      path: key,
     }
   }
   return { ...(asObject(value) ?? {}) }
+}
+
+function stableSignalComparable(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(stableSignalComparable)
+  }
+  const record = asObject(value)
+  if (!record) return value
+
+  return Object.fromEntries(
+    Object.keys(record)
+      .sort()
+      .filter((key) => record[key] !== undefined)
+      .map((key) => [key, stableSignalComparable(record[key])])
+  )
+}
+
+function signalEntriesEqual(
+  previous: Record<string, unknown>,
+  next: Record<string, unknown>
+) {
+  return (
+    JSON.stringify(stableSignalComparable(previous)) ===
+    JSON.stringify(stableSignalComparable(next))
+  )
+}
+
+function indexSignalEntryAliases(
+  indexByKey: Map<string, number>,
+  entry: unknown,
+  index: number
+) {
+  for (const key of signalEntryKeys(entry)) {
+    if (!indexByKey.has(key)) {
+      indexByKey.set(key, index)
+    }
+  }
 }
 
 function runtimeSignalRevision(timestamp: number, signals: DigitalTwinSignalBinding[]) {
@@ -524,36 +585,45 @@ export function buildRuntimeSignalEntityPatch(
       : []
   const nextSignalEntries = currentSignalEntries.slice()
   const existingIndexByKey = new Map<string, number>()
+  let signalsChanged = false
 
   nextSignalEntries.forEach((entry, index) => {
-    for (const key of signalEntryKeys(entry)) {
-      existingIndexByKey.set(key, index)
-    }
+    indexSignalEntryAliases(existingIndexByKey, entry, index)
   })
 
   for (const signal of runtimeSignals) {
-    const keys = [signal.id, signal.path, signal.name].filter(Boolean)
+    const keys = signalEntryKeys(signal)
     const existingIndex = keys
       .map((key) => existingIndexByKey.get(key))
       .find((index): index is number => index !== undefined)
 
     if (existingIndex === undefined) {
-      existingIndexByKey.set(signal.id, nextSignalEntries.length)
-      existingIndexByKey.set(signal.path, nextSignalEntries.length)
-      existingIndexByKey.set(signal.name, nextSignalEntries.length)
+      indexSignalEntryAliases(existingIndexByKey, signal, nextSignalEntries.length)
       nextSignalEntries.push(signal)
+      signalsChanged = true
       continue
     }
 
     const previous = signalEntryToObject(nextSignalEntries[existingIndex])
-    nextSignalEntries[existingIndex] = {
+    const next = {
       ...previous,
       ...signal,
     }
+    indexSignalEntryAliases(existingIndexByKey, next, existingIndex)
+    if (signalEntriesEqual(previous, next)) continue
+    nextSignalEntries[existingIndex] = next
+    signalsChanged = true
   }
 
-  const source = asString(message.source)
-  const connectorId = asString(message.connectorId)
+  const source = normalizeSignalAlias(message.source)
+  const connectorId = normalizeSignalAlias(message.connectorId)
+  const signalEnvelopeChanged =
+    (source !== null && currentRealvirtual.runtimeSignalsSource !== source) ||
+    (connectorId !== null && currentRealvirtual.runtimeSignalsConnectorId !== connectorId)
+
+  if (!signalsChanged && !signalEnvelopeChanged) {
+    return {}
+  }
 
   return {
     metadata: {

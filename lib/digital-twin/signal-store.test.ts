@@ -37,6 +37,27 @@ describe('digital twin signal store', () => {
     expect(store.resolveSignalId({ name: 'ConveyorRunning' })).toBe('conveyor-running')
   })
 
+  test('resolves PLC paths by normalized and suffix aliases', () => {
+    const store = createDigitalTwinSignalStore([
+      {
+        id: 'conveyor-start',
+        name: 'ConveyorStart',
+        path: 'Factory_Cell/Signals/Line1/Conveyor/Start',
+        direction: 'output',
+      },
+    ])
+
+    expect(store.resolveSignalId({ path: 'Factory Cell/Signals/Line1/Conveyor/Start' })).toBe(
+      'conveyor-start'
+    )
+    expect(store.resolveSignalId({ path: 'Signals/Line1/Conveyor/Start' })).toBe(
+      'conveyor-start'
+    )
+
+    store.updateSignal({ path: 'Signals/Line1/Conveyor/Start', value: true, timestamp: 12 })
+    expect(store.getSignal('conveyor-start')?.value).toBe(true)
+  })
+
   test('lists immutable signal snapshots in registration order', () => {
     const store = createDigitalTwinSignalStore([
       { id: 'speed', name: 'Speed', direction: 'input' },

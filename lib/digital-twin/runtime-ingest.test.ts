@@ -400,6 +400,110 @@ describe('runtime ingest helpers', () => {
     )
   })
 
+  test('skips runtime signal metadata churn when normalized signal values are unchanged', () => {
+    const sensor = createSensor()
+    sensor.metadata = {
+      realvirtual: {
+        runtimeSignalsUpdatedAt: 500,
+        runtimeSignalsRevision: '500:reactor-temp-pv=PLC/Line1/Reactor/TemperaturePV=good=71.25',
+        signals: [
+          {
+            id: 'reactor-temp-pv',
+            name: 'ReactorTemperaturePV',
+            path: 'PLC/Line1/Reactor/TemperaturePV',
+            value: 71.25,
+            direction: 'input',
+            writable: false,
+            source: 'runtime',
+            quality: 'good',
+          },
+        ],
+      },
+    }
+
+    expect(
+      buildRuntimeSignalEntityPatch(
+        sensor,
+        {
+          entityId: sensor.id,
+          signals: [
+            {
+              id: ' reactor-temp-pv ',
+              name: 'ReactorTemperaturePV',
+              path: 'PLC/Line1/Reactor/TemperaturePV',
+              direction: 'input',
+              value: 71.25,
+              quality: 'good',
+            },
+          ],
+        },
+        { timestamp: 900 }
+      )
+    ).toEqual({})
+  })
+
+  test('matches runtime signal aliases by label and preserves authored signal ordering', () => {
+    const sensor = createSensor()
+    sensor.metadata = {
+      realvirtual: {
+        signals: [
+          {
+            id: 'authored-temp',
+            name: 'AuthoredTemperature',
+            path: 'Authored/Temperature',
+            label: '反应釜温度 PV',
+            value: 62,
+            unit: 'C',
+            direction: 'input',
+            writable: false,
+          },
+          {
+            id: 'reactor-enable-cmd',
+            name: 'ReactorEnable',
+            path: 'PLC/Line1/Reactor/Enable',
+            direction: 'output',
+            writable: true,
+            value: false,
+          },
+        ],
+      },
+    }
+
+    const patch = buildRuntimeSignalEntityPatch(
+      sensor,
+      {
+        entityId: sensor.id,
+        signals: [
+          {
+            id: 'runtime-temp-pv',
+            name: 'RuntimeTemperaturePV',
+            path: 'PLC/Line1/Reactor/TemperaturePV',
+            label: '反应釜温度 PV',
+            unit: 'C',
+            direction: 'input',
+            value: 72,
+          },
+        ],
+      },
+      { timestamp: 901 }
+    )
+
+    const signals = (patch.metadata?.realvirtual as { signals: Array<Record<string, unknown>> })
+      .signals
+    expect(signals).toHaveLength(2)
+    expect(signals.map((signal) => signal.id)).toEqual([
+      'runtime-temp-pv',
+      'reactor-enable-cmd',
+    ])
+    expect(signals[0]).toEqual(
+      expect.objectContaining({
+        label: '反应釜温度 PV',
+        value: 72,
+        source: 'runtime',
+      })
+    )
+  })
+
   test('rejects malformed incident payloads before they reach the viewer', () => {
     expect(
       resolveRuntimeIncident({

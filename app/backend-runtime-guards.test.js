@@ -81,6 +81,28 @@ describe('backend runtime guards', () => {
     expect(source.includes('needsBootstrapResyncRef')).toBe(true)
   })
 
+  test('runtime message batcher should compact high-frequency signal and transform updates per frame', () => {
+    const batcher = readFileSync(
+      join(process.cwd(), 'lib/digital-twin/runtime-message-batcher.ts'),
+      'utf8'
+    )
+    const hook = readFileSync(join(process.cwd(), 'hooks/use-live-digital-twin.ts'), 'utf8')
+
+    expect(batcher.includes('compactRuntimeMessagesForFrame')).toBe(true)
+    expect(batcher.includes('flushCompactableSegment')).toBe(true)
+    expect(batcher.includes('compactRuntimeStateSegment')).toBe(true)
+    expect(batcher.includes("message.type !== 'position_update'")).toBe(true)
+    expect(batcher.includes("message.type !== 'signal_update'")).toBe(true)
+    expect(batcher.includes('mergeSignalUpdatePayload')).toBe(true)
+    expect(batcher.includes('nonEmptySignalKey(signal.id)')).toBe(true)
+    expect(batcher.includes('signalUpdateKey(signal)')).toBe(true)
+    expect(batcher.includes('incoming.timestamp < previous.timestamp')).toBe(true)
+    expect(batcher.includes('compactFrame = options.compactFrame ?? true')).toBe(true)
+    expect(batcher.includes('Append-only operator events (alarms/incidents/rules)')).toBe(true)
+    expect(hook.includes('createRuntimeMessageBatcher')).toBe(true)
+    expect(hook.includes('for (const runtimeMessage of flattenRealtimeMessage(message))')).toBe(true)
+  })
+
   test('backend config helper should expose bootstrap and admin API base urls', () => {
     const source = readFileSync(join(process.cwd(), 'lib/digital-twin/backend-config.ts'), 'utf8')
     const proxyRoute = readFileSync(

@@ -89,6 +89,7 @@ export class DigitalTwinSignalStore {
   private readonly descriptorsById = new Map<string, SignalDescriptor>()
   private readonly idsByName = new Map<string, string>()
   private readonly idsByPath = new Map<string, string>()
+  private readonly idsByResolvedPath = new Map<string, string | null>()
   private readonly snapshotsById = new Map<string, SignalSnapshot>()
   private readonly listeners = new Set<SignalStoreListener>()
   private readonly signalListeners = new Map<string, Set<SignalListener>>()
@@ -109,6 +110,7 @@ export class DigitalTwinSignalStore {
     if (normalized.path) {
       this.idsByPath.set(normalized.path, normalized.id)
     }
+    this.idsByResolvedPath.clear()
 
     const nextSnapshot: SignalSnapshot = existing
       ? {
@@ -169,10 +171,38 @@ export class DigitalTwinSignalStore {
 
     const pathKey = path?.trim()
     if (pathKey) {
-      const resolvedByPath = this.idsByPath.get(pathKey)
+      const resolvedByPath = this.resolveSignalIdByPath(pathKey)
       if (resolvedByPath) return resolvedByPath
     }
 
+    return null
+  }
+
+  private resolveSignalIdByPath(path: string): string | null {
+    const direct = this.idsByPath.get(path)
+    if (direct) return direct
+
+    if (this.idsByResolvedPath.has(path)) {
+      return this.idsByResolvedPath.get(path) ?? null
+    }
+
+    const normalized = path.replace(/ /g, '_')
+    if (normalized !== path) {
+      const normalizedMatch = this.idsByPath.get(normalized)
+      if (normalizedMatch) {
+        this.idsByResolvedPath.set(path, normalizedMatch)
+        return normalizedMatch
+      }
+    }
+
+    for (const [registeredPath, id] of this.idsByPath) {
+      if (registeredPath.endsWith(`/${normalized}`)) {
+        this.idsByResolvedPath.set(path, id)
+        return id
+      }
+    }
+
+    this.idsByResolvedPath.set(path, null)
     return null
   }
 

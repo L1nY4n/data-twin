@@ -14,6 +14,7 @@ import {
   PanelLeft,
   PanelRight,
   Search,
+  SlidersHorizontal,
   X,
 } from 'lucide-react'
 import { useLiveDigitalTwin } from '@/hooks/use-live-digital-twin'
@@ -28,6 +29,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { Badge } from '@/components/ui/badge'
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
@@ -159,6 +161,10 @@ export function DigitalTwinViewerPage({
     focusCameraOnStaticFeature,
   } = useDigitalTwinViewportState()
   const [quickSearchQuery, setQuickSearchQuery] = useState('')
+  const [quickSearchScopes, setQuickSearchScopes] = useState({
+    entities: true,
+    staticFeatures: true,
+  })
 
   const sectorCount = publishedScenePackage.sectors.length
   const staticFeatureCount = publishedScenePackage.staticChunks.reduce(
@@ -178,60 +184,80 @@ export function DigitalTwinViewerPage({
     : rightPanelOpen
       ? 'right-[336px]'
       : 'right-4'
+  const commandStripLayoutClass = cn(
+    leftPanelOpen && 'viewer-command-strip--left-panel',
+    rightPanelOpen && 'viewer-command-strip--right-panel',
+    bottomPanelOpen && 'viewer-command-strip--message-panel'
+  )
+  const quickSearchScopeLabel = quickSearchScopes.entities
+    ? quickSearchScopes.staticFeatures
+      ? '全部'
+      : '实体'
+    : '资产'
   const normalizedQuickSearchQuery = quickSearchQuery.trim().toLowerCase()
   const quickSearchMatches = useMemo(() => {
     if (!normalizedQuickSearchQuery) return []
 
-    const entityResults = Array.from(entityDirectory.values())
-      .filter((entry) => {
-        if (!entry.visible) return false
-        const haystack = [
-          entry.name,
-          entry.id,
-          entry.secondaryLabel,
-          entry.categoryLabel,
-          entry.categoryKey,
-        ]
-          .filter(Boolean)
-          .join(' ')
-          .toLowerCase()
+    const entityResults = quickSearchScopes.entities
+      ? Array.from(entityDirectory.values())
+          .filter((entry) => {
+            if (!entry.visible) return false
+            const haystack = [
+              entry.name,
+              entry.id,
+              entry.secondaryLabel,
+              entry.categoryLabel,
+              entry.categoryKey,
+            ]
+              .filter(Boolean)
+              .join(' ')
+              .toLowerCase()
 
-        return haystack.includes(normalizedQuickSearchQuery)
-      })
-      .map((entry) => ({
-        id: entry.id,
-        kind: 'entity' as const,
-        title: entry.name,
-        subtitle: `${entry.secondaryLabel ?? entry.categoryLabel ?? entry.type} · ${entry.id}`,
-      }))
+            return haystack.includes(normalizedQuickSearchQuery)
+          })
+          .map((entry) => ({
+            id: entry.id,
+            kind: 'entity' as const,
+            title: entry.name,
+            subtitle: `${entry.secondaryLabel ?? entry.categoryLabel ?? entry.type} · ${entry.id}`,
+          }))
+      : []
 
-    const staticFeatureResults = staticFeatureRegistry.entries
-      .filter((entry) => {
-        const { feature, chunk, sector } = entry
-        const haystack = [
-          feature.label,
-          feature.id,
-          feature.kind,
-          feature.districtName,
-          feature.variant,
-          chunk.label,
-          sector?.name,
-        ]
-          .filter(Boolean)
-          .join(' ')
-          .toLowerCase()
+    const staticFeatureResults = quickSearchScopes.staticFeatures
+      ? staticFeatureRegistry.entries
+          .filter((entry) => {
+            const { feature, chunk, sector } = entry
+            const haystack = [
+              feature.label,
+              feature.id,
+              feature.kind,
+              feature.districtName,
+              feature.variant,
+              chunk.label,
+              sector?.name,
+            ]
+              .filter(Boolean)
+              .join(' ')
+              .toLowerCase()
 
-        return haystack.includes(normalizedQuickSearchQuery)
-      })
-      .map((entry) => ({
-        id: entry.feature.id,
-        kind: 'static' as const,
-        title: entry.feature.label,
-        subtitle: `${entry.sector?.name ?? entry.chunk.label} · ${entry.feature.kind}`,
-      }))
+            return haystack.includes(normalizedQuickSearchQuery)
+          })
+          .map((entry) => ({
+            id: entry.feature.id,
+            kind: 'static' as const,
+            title: entry.feature.label,
+            subtitle: `${entry.sector?.name ?? entry.chunk.label} · ${entry.feature.kind}`,
+          }))
+      : []
 
     return [...entityResults, ...staticFeatureResults]
-  }, [entityDirectory, normalizedQuickSearchQuery, staticFeatureRegistry])
+  }, [
+    entityDirectory,
+    normalizedQuickSearchQuery,
+    quickSearchScopes.entities,
+    quickSearchScopes.staticFeatures,
+    staticFeatureRegistry,
+  ])
   const quickSearchResults = useMemo(() => quickSearchMatches.slice(0, 6), [quickSearchMatches])
   const quickSearchResultCount = quickSearchMatches.length
   const showQuickSearchResults = normalizedQuickSearchQuery.length > 0
@@ -250,6 +276,12 @@ export function DigitalTwinViewerPage({
   const handleQuickSearchFocusFirst = () => {
     const firstResult = quickSearchResults[0]
     if (firstResult) handleQuickSearchSelect(firstResult)
+  }
+  const toggleQuickSearchScope = (scope: keyof typeof quickSearchScopes, checked: boolean) => {
+    setQuickSearchScopes((current) => {
+      const next = { ...current, [scope]: checked }
+      return next.entities || next.staticFeatures ? next : current
+    })
   }
   const handleQuickSearchKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'Escape') {
@@ -407,8 +439,8 @@ export function DigitalTwinViewerPage({
             <div
               data-viewer-ui-panel="viewer-command-strip"
               className={cn(
-                'viewer-command-strip absolute bottom-4 left-1/2 z-30 hidden -translate-x-1/2 items-center gap-2 xl:flex',
-                sidePanelOpen && 'viewer-command-strip--hidden'
+                'viewer-command-strip absolute z-30 hidden items-center gap-2 xl:flex',
+                commandStripLayoutClass
               )}
               aria-label="场景快速搜索与相机提示"
             >
@@ -440,6 +472,41 @@ export function DigitalTwinViewerPage({
                     {quickSearchResultCount} found
                   </span>
                 )}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="viewer-command-strip__scope h-6 w-6"
+                      aria-label={`配置全局搜索范围：${quickSearchScopeLabel}`}
+                      title={`搜索范围：${quickSearchScopeLabel}`}
+                    >
+                      <SlidersHorizontal className="h-3.5 w-3.5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent
+                    align="end"
+                    side="top"
+                    sideOffset={10}
+                    className="viewer-command-strip__scope-menu"
+                  >
+                    <DropdownMenuLabel>搜索范围</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuCheckboxItem
+                      checked={quickSearchScopes.entities}
+                      onCheckedChange={(checked) => toggleQuickSearchScope('entities', Boolean(checked))}
+                    >
+                      运行实体
+                    </DropdownMenuCheckboxItem>
+                    <DropdownMenuCheckboxItem
+                      checked={quickSearchScopes.staticFeatures}
+                      onCheckedChange={(checked) => toggleQuickSearchScope('staticFeatures', Boolean(checked))}
+                    >
+                      静态资产 / 场景区块
+                    </DropdownMenuCheckboxItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
                 {quickSearchResults[0] && (
                   <Button
                     type="button"

@@ -235,6 +235,9 @@ describe('performance guards', () => {
 
     expect(registry.includes('lastReceivedAt')).toBe(true)
     expect(registry.includes('appendSnapshotInPlace')).toBe(true)
+    expect(registry.includes('maxSourceTimestampBacktrackMs')).toBe(true)
+    expect(registry.includes('staleSnapshots')).toBe(true)
+    expect(registry.includes('getStats()')).toBe(true)
     expect(registry.includes('appendVehicleSnapshot')).toBe(false)
     expect(poseBuffer.includes('count: idsByIndex.length')).toBe(true)
     expect(poseBuffer.includes("type: 'upsert_many'")).toBe(true)
