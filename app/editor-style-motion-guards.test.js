@@ -55,6 +55,8 @@ describe('editor style and motion integration', () => {
     )
 
     expect(source.includes('.editor-surface .editor-input')).toBe(true)
+    expect(source.includes('--editor-blur-panel: 18px;')).toBe(true)
+    expect(source.includes('--editor-blur-frame: 12px;')).toBe(true)
     expect(source.includes('border-radius: 14px !important;')).toBe(true)
     expect(source.includes('border-color: rgba(164, 192, 236, 0.16) !important;')).toBe(true)
     expect(source.includes("[data-slot='switch']")).toBe(true)

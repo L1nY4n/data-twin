@@ -16,6 +16,7 @@ import {
   Undo2,
   Upload,
 } from 'lucide-react'
+import { useShallow } from 'zustand/react/shallow'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import type { EditorActivityStatus } from '@/hooks/use-editor-digital-twin'
@@ -54,22 +55,45 @@ export function EditorToolbar({
   activityStatus,
   className,
 }: EditorToolbarProps) {
-  const selectedEntityId = useEditorViewerStore((state) => state.selectedEntityId)
-  const selectedStaticAssetId = useEditorViewerStore((state) => state.selectedStaticAssetId)
-  const placementCatalogId = useEditorUiStore((state) => state.placementCatalogId)
-  const draftEntity = useEditorSceneStore((state) => state.draftEntity)
-  const draftStaticAsset = useEditorSceneStore((state) => state.draftStaticAsset)
-  const sceneId = useEditorSceneStore((state) => state.sceneConfig.id)
-  const sceneName = useEditorSceneStore((state) => state.sceneConfig.name)
-  const transformMode = useEditorUiStore((state) => state.transformMode)
-  const historyLength = useEditorSceneStore((state) => state.history.length)
-  const redoLength = useEditorSceneStore((state) => state.redoHistory.length)
-  const hasSceneChanges = useEditorSceneStore((state) => state.hasSceneChanges)
-  const isDirty = useEditorSceneStore((state) => state.isDirty)
-  const isSaving = useEditorUiStore((state) => state.isSaving)
-  const setTransformMode = useEditorUiStore((state) => state.setTransformMode)
-  const undo = useEditorSceneStore((state) => state.undo)
-  const redo = useEditorSceneStore((state) => state.redo)
+  const { selectedEntityId, selectedStaticAssetId } = useEditorViewerStore(
+    useShallow((state) => ({
+      selectedEntityId: state.selectedEntityId,
+      selectedStaticAssetId: state.selectedStaticAssetId,
+    }))
+  )
+  const { placementCatalogId, transformMode, isSaving, setTransformMode } = useEditorUiStore(
+    useShallow((state) => ({
+      placementCatalogId: state.placementCatalogId,
+      transformMode: state.transformMode,
+      isSaving: state.isSaving,
+      setTransformMode: state.setTransformMode,
+    }))
+  )
+  const {
+    draftEntity,
+    draftStaticAsset,
+    sceneId,
+    sceneName,
+    historyLength,
+    redoLength,
+    hasSceneChanges,
+    isDirty,
+    undo,
+    redo,
+  } = useEditorSceneStore(
+    useShallow((state) => ({
+      draftEntity: state.draftEntity,
+      draftStaticAsset: state.draftStaticAsset,
+      sceneId: state.sceneConfig.id,
+      sceneName: state.sceneConfig.name,
+      historyLength: state.history.length,
+      redoLength: state.redoHistory.length,
+      hasSceneChanges: state.hasSceneChanges,
+      isDirty: state.isDirty,
+      undo: state.undo,
+      redo: state.redo,
+    }))
+  )
   const selectionKind = getEditorSelectionKind({
     selectedEntityId,
     selectedStaticAssetId,

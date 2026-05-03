@@ -5,6 +5,7 @@ import type { RefObject } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { Environment, OrthographicCamera, PerspectiveCamera } from '@react-three/drei'
 import { Expand, MousePointer2, Move, RotateCcw } from 'lucide-react'
+import { useShallow } from 'zustand/react/shallow'
 import { useTheme } from '@/components/theme-provider'
 import * as THREE from 'three'
 import { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
@@ -777,11 +778,19 @@ const EditorSceneContent = memo(function EditorSceneContent({
 
 export function EditorCanvas() {
   const { resolvedTheme } = useTheme()
-  const sceneConfig = useEditorSceneStore((state) => state.sceneConfig)
-  const draftEntity = useEditorSceneStore((state) => state.draftEntity)
-  const draftStaticAsset = useEditorSceneStore((state) => state.draftStaticAsset)
-  const selectionMarquee = useEditorUiStore((state) => state.selectionMarquee)
-  const transformMode = useEditorUiStore((state) => state.transformMode)
+  const { sceneConfig, draftEntity, draftStaticAsset } = useEditorSceneStore(
+    useShallow((state) => ({
+      sceneConfig: state.sceneConfig,
+      draftEntity: state.draftEntity,
+      draftStaticAsset: state.draftStaticAsset,
+    }))
+  )
+  const { selectionMarquee, transformMode } = useEditorUiStore(
+    useShallow((state) => ({
+      selectionMarquee: state.selectionMarquee,
+      transformMode: state.transformMode,
+    }))
+  )
   const isDark = resolvedTheme === 'dark'
   const canvasBackground = isDark ? sceneConfig.backgroundColor : '#eaf1fb'
   const hasActiveTransformTarget = Boolean(draftStaticAsset ?? draftEntity)

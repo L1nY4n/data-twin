@@ -15,6 +15,7 @@ import {
 import {
   SlidersHorizontal,
 } from 'lucide-react'
+import { useShallow } from 'zustand/react/shallow'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -725,18 +726,37 @@ function EditorInspectorContent({
   onCreateStandardRoom,
   createStandardRoomBusy = false,
 }: EditorInspectorProps) {
-  const draftEntity = useEditorSceneStore((state) => state.draftEntity)
-  const savedEntity = useEditorSceneStore((state) => state.savedEntity)
-  const draftStaticAsset = useEditorSceneStore((state) => state.draftStaticAsset)
-  const savedStaticAsset = useEditorSceneStore((state) => state.savedStaticAsset)
-  const placementCatalogId = useEditorUiStore((state) => state.placementCatalogId)
-  const sceneConfig = useEditorSceneStore((state) => state.sceneConfig)
-  const isDirty = useEditorSceneStore((state) => state.isDirty)
-  const error = useEditorUiStore((state) => state.error)
-  const setSceneConfig = useEditorSceneStore((state) => state.setSceneConfig)
-  const updateDraftProperties = useEditorSceneStore((state) => state.updateDraftProperties)
-  const updateDraftMetadata = useEditorSceneStore((state) => state.updateDraftMetadata)
-  const setDraftTransformField = useEditorSceneStore((state) => state.setDraftTransformField)
+  const {
+    draftEntity,
+    savedEntity,
+    draftStaticAsset,
+    savedStaticAsset,
+    sceneConfig,
+    isDirty,
+    setSceneConfig,
+    updateDraftProperties,
+    updateDraftMetadata,
+    setDraftTransformField,
+  } = useEditorSceneStore(
+    useShallow((state) => ({
+      draftEntity: state.draftEntity,
+      savedEntity: state.savedEntity,
+      draftStaticAsset: state.draftStaticAsset,
+      savedStaticAsset: state.savedStaticAsset,
+      sceneConfig: state.sceneConfig,
+      isDirty: state.isDirty,
+      setSceneConfig: state.setSceneConfig,
+      updateDraftProperties: state.updateDraftProperties,
+      updateDraftMetadata: state.updateDraftMetadata,
+      setDraftTransformField: state.setDraftTransformField,
+    }))
+  )
+  const { placementCatalogId, error } = useEditorUiStore(
+    useShallow((state) => ({
+      placementCatalogId: state.placementCatalogId,
+      error: state.error,
+    }))
+  )
   const collapseLabel = collapsed ? 'Expand inspector panel' : 'Collapse inspector panel'
 
   if (collapsed) {

@@ -2,7 +2,9 @@
 
 import Link from 'next/link'
 import {
+  startTransition,
   useCallback,
+  useDeferredValue,
   useEffect,
   useMemo,
   useRef,
@@ -26,6 +28,7 @@ import {
   Image as ImageIcon,
 } from 'lucide-react'
 import Image from 'next/image'
+import { useShallow } from 'zustand/react/shallow'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -103,6 +106,7 @@ const ENTITY_TYPE_LABELS: Record<string, string> = {
 
 const ALLOWED_FLOOR_PLAN_TYPES = new Set(['image/png', 'image/jpeg'])
 const MAX_FLOOR_PLAN_BYTES = 10 * 1024 * 1024
+const STATIC_ASSET_CATALOG_ITEMS = listStaticAssetCatalog()
 
 function normalizeText(value: string) {
   return value.trim().toLowerCase()
@@ -318,21 +322,47 @@ export function EditorAppSidebar({
   importBusy = false,
   onImportDetectedFloorPlan,
 }: EditorAppSidebarProps) {
-  const entities = useEditorSceneStore((state) => state.entities)
-  const staticAssets = useEditorSceneStore((state) => state.staticAssets)
-  const draftStaticAsset = useEditorSceneStore((state) => state.draftStaticAsset)
-  const selectedEntityId = useEditorViewerStore((state) => state.selectedEntityId)
-  const selectedStaticAssetId = useEditorViewerStore((state) => state.selectedStaticAssetId)
-  const editorCameraTarget = useEditorViewerStore((state) => state.editorCameraTarget)
-  const placementCatalogId = useEditorUiStore((state) => state.placementCatalogId)
-  const floorPlanReference = useEditorUiStore((state) => state.floorPlanReference)
-  const selectEntity = useEditorViewerStore((state) => state.selectEntity)
-  const selectStaticAsset = useEditorViewerStore((state) => state.selectStaticAsset)
-  const armStaticAssetPlacement = useEditorUiStore((state) => state.armStaticAssetPlacement)
-  const setFloorPlanReference = useEditorUiStore((state) => state.setFloorPlanReference)
-  const updateFloorPlanReference = useEditorUiStore((state) => state.updateFloorPlanReference)
-  const isLoading = useEditorUiStore((state) => state.isLoading)
-  const setError = useEditorUiStore((state) => state.setError)
+  const { entities, staticAssets, draftStaticAsset } = useEditorSceneStore(
+    useShallow((state) => ({
+      entities: state.entities,
+      staticAssets: state.staticAssets,
+      draftStaticAsset: state.draftStaticAsset,
+    }))
+  )
+  const {
+    selectedEntityId,
+    selectedStaticAssetId,
+    editorCameraTarget,
+    selectEntity,
+    selectStaticAsset,
+  } = useEditorViewerStore(
+    useShallow((state) => ({
+      selectedEntityId: state.selectedEntityId,
+      selectedStaticAssetId: state.selectedStaticAssetId,
+      editorCameraTarget: state.editorCameraTarget,
+      selectEntity: state.selectEntity,
+      selectStaticAsset: state.selectStaticAsset,
+    }))
+  )
+  const {
+    placementCatalogId,
+    floorPlanReference,
+    armStaticAssetPlacement,
+    setFloorPlanReference,
+    updateFloorPlanReference,
+    isLoading,
+    setError,
+  } = useEditorUiStore(
+    useShallow((state) => ({
+      placementCatalogId: state.placementCatalogId,
+      floorPlanReference: state.floorPlanReference,
+      armStaticAssetPlacement: state.armStaticAssetPlacement,
+      setFloorPlanReference: state.setFloorPlanReference,
+      updateFloorPlanReference: state.updateFloorPlanReference,
+      isLoading: state.isLoading,
+      setError: state.setError,
+    }))
+  )
   const [resourceTab, setResourceTab] = useState<ResourceTab>('catalog')
   const [isDetectingFloorPlan, setIsDetectingFloorPlan] = useState(false)
   const [catalogSearch, setCatalogSearch] = useState('')
@@ -342,8 +372,8 @@ export function EditorAppSidebar({
   const [sceneGroupFilter, setSceneGroupFilter] = useState('all')
   const [collapsedTreeSections, setCollapsedTreeSections] = useState<Record<string, boolean>>({})
   const floorPlanInputRef = useRef<HTMLInputElement | null>(null)
-
-  const catalogItems = listStaticAssetCatalog()
+  const deferredCatalogSearch = useDeferredValue(catalogSearch)
+  const deferredSceneSearch = useDeferredValue(sceneSearch)
 
   const editableEntities = useMemo(
     () =>
@@ -383,18 +413,18 @@ export function EditorAppSidebar({
   }, [placementCatalogId, selectedEntityId, selectedStaticAssetId])
 
   const filteredCatalogItems = useMemo(() => {
-    const keyword = normalizeText(catalogSearch)
-    return catalogItems.filter((item) => {
+    const keyword = normalizeText(deferredCatalogSearch)
+    return STATIC_ASSET_CATALOG_ITEMS.filter((item) => {
       if (!matchesCatalogFilter(item, catalogFilter)) return false
       if (!keyword) return true
       return normalizeText(
         `${item.name} ${item.description} ${item.assetKind} ${item.domain} ${item.subcategory} ${item.tags.join(' ')}`
       ).includes(keyword)
     })
-  }, [catalogFilter, catalogItems, catalogSearch])
+  }, [catalogFilter, deferredCatalogSearch])
 
   const filteredAuthoredStaticAssets = useMemo(() => {
-    const keyword = normalizeText(sceneSearch)
+    const keyword = normalizeText(deferredSceneSearch)
     return authoredStaticAssets.filter((asset) => {
       if (sceneLayerFilter === 'runtime-entities') return false
       if (!matchesSceneGroup(sceneGroupFilter, 'asset', asset.assetKind)) return false
@@ -411,17 +441,17 @@ export function EditorAppSidebar({
         `${asset.name} ${getStaticAssetKindLabel(asset.assetKind)} ${asset.assetKind} ${asset.variant ?? ''} ${metadata.domain ?? ''} ${metadata.subcategory ?? ''} ${metadata.placementMode ?? ''} ${tags}`
       ).includes(keyword)
     })
-  }, [authoredStaticAssets, sceneGroupFilter, sceneLayerFilter, sceneSearch])
+  }, [authoredStaticAssets, deferredSceneSearch, sceneGroupFilter, sceneLayerFilter])
 
   const filteredEditableEntities = useMemo(() => {
-    const keyword = normalizeText(sceneSearch)
+    const keyword = normalizeText(deferredSceneSearch)
     return editableEntities.filter((entity) => {
       if (sceneLayerFilter === 'static-assets') return false
       if (!matchesSceneGroup(sceneGroupFilter, 'entity', entity.type)) return false
       if (!keyword) return true
       return normalizeText(`${entity.name} ${entity.type} ${entity.status}`).includes(keyword)
     })
-  }, [editableEntities, sceneGroupFilter, sceneLayerFilter, sceneSearch])
+  }, [deferredSceneSearch, editableEntities, sceneGroupFilter, sceneLayerFilter])
 
   const sceneTreeSections = useMemo(
     () => buildEditorSceneTree(visibleZones, filteredAuthoredStaticAssets, filteredEditableEntities),
@@ -781,7 +811,9 @@ export function EditorAppSidebar({
                     <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-white/36" />
                     <Input
                       value={catalogSearch}
-                      onChange={(event) => setCatalogSearch(event.target.value)}
+                      onChange={(event) =>
+                        startTransition(() => setCatalogSearch(event.target.value))
+                      }
                       placeholder="搜索墙体、门、摄像头、传感器、温控器..."
                       className="editor-input pl-9"
                     />
@@ -793,8 +825,8 @@ export function EditorAppSidebar({
                         active={catalogFilter === item.key}
                         count={
                           item.key === 'all'
-                            ? catalogItems.length
-                            : catalogItems.filter((catalogItem) =>
+                            ? STATIC_ASSET_CATALOG_ITEMS.length
+                            : STATIC_ASSET_CATALOG_ITEMS.filter((catalogItem) =>
                                 matchesCatalogFilter(catalogItem, item.key)
                               ).length
                         }
@@ -870,7 +902,9 @@ export function EditorAppSidebar({
                     <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-white/36" />
                     <Input
                       value={sceneSearch}
-                      onChange={(event) => setSceneSearch(event.target.value)}
+                      onChange={(event) =>
+                        startTransition(() => setSceneSearch(event.target.value))
+                      }
                       placeholder="搜索对象、实体、图层、分组..."
                       className="editor-input pl-9"
                     />

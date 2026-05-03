@@ -6,6 +6,7 @@ import {
   Grid3X3,
   Magnet,
 } from 'lucide-react'
+import { useShallow } from 'zustand/react/shallow'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -47,17 +48,36 @@ const DOCK_READOUT_CONTROL_CLASS =
   'editor-control min-w-[7rem] shrink-0 justify-between gap-1.5 px-2 text-[12px]'
 
 export function EditorViewportDock() {
-  const sceneConfig = useEditorSceneStore((state) => state.sceneConfig)
-  const viewportProjection = useEditorViewerStore((state) => state.viewportProjection)
-  const snapEnabled = useEditorUiStore((state) => state.snapEnabled)
-  const translateSnap = useEditorUiStore((state) => state.translateSnap)
-  const rotateSnapDegrees = useEditorUiStore((state) => state.rotateSnapDegrees)
-  const setSceneConfig = useEditorSceneStore((state) => state.setSceneConfig)
-  const setViewportProjection = useEditorViewerStore((state) => state.setViewportProjection)
-  const focusCameraDirection = useEditorViewerStore((state) => state.focusCameraDirection)
-  const setSnapEnabled = useEditorUiStore((state) => state.setSnapEnabled)
-  const setTranslateSnap = useEditorUiStore((state) => state.setTranslateSnap)
-  const setRotateSnapDegrees = useEditorUiStore((state) => state.setRotateSnapDegrees)
+  const { sceneConfig, setSceneConfig } = useEditorSceneStore(
+    useShallow((state) => ({
+      sceneConfig: state.sceneConfig,
+      setSceneConfig: state.setSceneConfig,
+    }))
+  )
+  const { viewportProjection, setViewportProjection, focusCameraDirection } = useEditorViewerStore(
+    useShallow((state) => ({
+      viewportProjection: state.viewportProjection,
+      setViewportProjection: state.setViewportProjection,
+      focusCameraDirection: state.focusCameraDirection,
+    }))
+  )
+  const {
+    snapEnabled,
+    translateSnap,
+    rotateSnapDegrees,
+    setSnapEnabled,
+    setTranslateSnap,
+    setRotateSnapDegrees,
+  } = useEditorUiStore(
+    useShallow((state) => ({
+      snapEnabled: state.snapEnabled,
+      translateSnap: state.translateSnap,
+      rotateSnapDegrees: state.rotateSnapDegrees,
+      setSnapEnabled: state.setSnapEnabled,
+      setTranslateSnap: state.setTranslateSnap,
+      setRotateSnapDegrees: state.setRotateSnapDegrees,
+    }))
+  )
 
   return (
     <div className="editor-dock flex w-max max-w-full flex-nowrap items-center justify-center gap-1 overflow-x-auto px-2 py-1 text-white">

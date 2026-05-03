@@ -301,6 +301,22 @@ export function EditorShell({
   const inspectorPanelInlineSize = inspectorCollapsed
     ? COLLAPSED_PANEL_SIZE
     : inspectorPanelWidth
+  const chromeLeftInset = !isMobile
+    ? resourcesPanelOpen
+      ? resourcesPanelInlineSize + 24
+      : 56
+    : 56
+  const chromeRightInset = isLargeViewport
+    ? inspectorCollapsed
+      ? 56
+      : inspectorPanelInlineSize + 24
+    : 56
+  const chromeOverlayStyle = isLargeViewport
+    ? {
+        paddingLeft: `${chromeLeftInset}px`,
+        paddingRight: `${chromeRightInset}px`,
+      }
+    : undefined
 
   useEffect(() => {
     return () => {
@@ -393,7 +409,7 @@ export function EditorShell({
                     </div>
                   </div>
 
-                  <div className="pointer-events-none absolute inset-x-0 top-3 z-30 flex justify-center px-14 md:px-16 lg:px-24">
+                  <div className="pointer-events-none absolute inset-x-0 top-3 z-30 flex justify-center px-14 md:px-16 lg:px-24" style={chromeOverlayStyle}>
                     <div className="flex w-full max-w-[60rem] flex-col items-center gap-1.5">
                       <div
                         ref={toolbarRef}
@@ -473,7 +489,7 @@ export function EditorShell({
                     </div>
                   </div>
 
-                  <div className="pointer-events-none absolute inset-x-0 bottom-2.5 z-20 hidden justify-center px-2.5 md:flex xl:bottom-3">
+                  <div className="pointer-events-none absolute inset-x-0 bottom-2.5 z-20 hidden justify-center px-2.5 md:flex xl:bottom-3" style={chromeOverlayStyle}>
                     <div
                       ref={dockRef}
                       data-editor-chrome="dock"
