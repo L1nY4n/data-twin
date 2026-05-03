@@ -8,6 +8,33 @@ import {
 } from './bootstrap-client'
 
 const originalFetch = globalThis.fetch
+const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
+
+function setBrowserLocation(origin: string) {
+  const url = new URL(origin)
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: {
+      location: {
+        origin: url.origin,
+        protocol: url.protocol,
+        hostname: url.hostname,
+        host: url.host,
+        port: url.port,
+        pathname: '/',
+        search: '',
+      },
+    },
+  })
+}
+
+function restoreWindow() {
+  if (originalWindow) {
+    Object.defineProperty(globalThis, 'window', originalWindow)
+  } else {
+    Reflect.deleteProperty(globalThis, 'window')
+  }
+}
 
 describe('bootstrap client', () => {
   test('surfaces structured json admin API errors', async () => {
@@ -50,6 +77,33 @@ describe('bootstrap client', () => {
       )
     } finally {
       globalThis.fetch = originalFetch
+      restoreWindow()
+    }
+  })
+
+  test('collapses HTML error pages into a readable backend-entrypoint hint', async () => {
+    try {
+      setBrowserLocation('http://8.136.225.27:5000')
+      globalThis.fetch = (async () =>
+        new Response(
+          '<!DOCTYPE html><html><head><title>404: This page could not be found.</title></head><body>missing</body></html>',
+          {
+            status: 404,
+            headers: { 'Content-Type': 'text/html; charset=utf-8' },
+          }
+        )) as typeof fetch
+
+      await fetchAdminPublishStatus()
+      throw new Error('expected fetchAdminPublishStatus to fail')
+    } catch (error) {
+      expect(isAdminApiError(error)).toBe(true)
+      expect((error as AdminApiError).status).toBe(404)
+      expect((error as AdminApiError).message).toBe(
+        'Request failed 404: API returned an HTML page instead of JSON. You likely opened the standalone frontend port (http://8.136.225.27:5000). Use http://8.136.225.27/ instead.'
+      )
+    } finally {
+      globalThis.fetch = originalFetch
+      restoreWindow()
     }
   })
 
@@ -181,6 +235,7 @@ describe('bootstrap client', () => {
       })
     } finally {
       globalThis.fetch = originalFetch
+      restoreWindow()
     }
   })
 })

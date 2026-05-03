@@ -11,11 +11,13 @@ function setBrowserLocation({
   host = hostname,
   origin,
   protocol = 'http:',
+  port = '',
 }: {
   hostname: string
   host?: string
   origin: string
   protocol?: string
+  port?: string
 }) {
   Object.defineProperty(globalThis, 'window', {
     configurable: true,
@@ -25,6 +27,7 @@ function setBrowserLocation({
         host,
         origin,
         protocol,
+        port,
       },
     },
   })
@@ -107,6 +110,22 @@ describe('backend runtime URL resolution', () => {
       process.env.NEXT_PUBLIC_BACKEND_WS_URL = 'ws://127.0.0.1:4000'
 
       expect(getBackendWsBaseUrl()).toBe('wss://demo.example.com')
+    })
+  })
+
+  test('uses the public site root when a deployed bundle is opened on the standalone frontend port', () => {
+    withRestoredRuntime(() => {
+      setBrowserLocation({
+        hostname: '8.136.225.27',
+        host: '8.136.225.27:5000',
+        origin: 'http://8.136.225.27:5000',
+        port: '5000',
+      })
+      process.env.NEXT_PUBLIC_BACKEND_HTTP_URL = 'http://localhost:4000'
+      process.env.NEXT_PUBLIC_BACKEND_WS_URL = 'ws://localhost:4000'
+
+      expect(getBackendHttpBaseUrl()).toBe('http://8.136.225.27')
+      expect(getBackendWsBaseUrl()).toBe('ws://8.136.225.27')
     })
   })
 })

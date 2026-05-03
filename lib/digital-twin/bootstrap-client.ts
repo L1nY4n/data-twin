@@ -136,6 +136,36 @@ function parseAdminApiErrorPayload(payload: string): AdminApiErrorDetails | null
   }
 }
 
+function isLoopbackHostname(hostname: string): boolean {
+  const normalized = hostname.toLowerCase()
+  return (
+    normalized === 'localhost' ||
+    normalized === '127.0.0.1' ||
+    normalized === '::1' ||
+    normalized === '[::1]'
+  )
+}
+
+function looksLikeHtmlDocument(payload: string): boolean {
+  const sample = payload.trim().slice(0, 1024).toLowerCase()
+  return sample.includes('<!doctype html') || sample.includes('<html')
+}
+
+function normalizeHtmlErrorPayload(payload: string): string | null {
+  if (!looksLikeHtmlDocument(payload)) return null
+
+  if (typeof window !== 'undefined') {
+    const { protocol, hostname, origin, port } = window.location
+    const publicSiteRoot = `${protocol}//${hostname}/`
+
+    if (port === '5000' && !isLoopbackHostname(hostname)) {
+      return `API returned an HTML page instead of JSON. You likely opened the standalone frontend port (${origin}). Use ${publicSiteRoot} instead.`
+    }
+  }
+
+  return 'API returned an HTML page instead of JSON. The current entrypoint likely does not proxy backend requests.'
+}
+
 function normalizeErrorPayload(payload: string) {
   const trimmed = payload.trim()
   if (!trimmed) return ''
@@ -143,6 +173,8 @@ function normalizeErrorPayload(payload: string) {
   const parsed = parseAdminApiErrorPayload(payload)
   if (typeof parsed?.error === 'string') return parsed.error
   if (typeof parsed?.message === 'string') return parsed.message
+  const htmlError = normalizeHtmlErrorPayload(trimmed)
+  if (htmlError) return htmlError
   return trimmed
 }
 
