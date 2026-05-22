@@ -1,6 +1,6 @@
 use std::{
-    env, fs,
-    path::PathBuf,
+    env, fs, io,
+    path::{Path, PathBuf},
     process::Command,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -11,10 +11,14 @@ use std::{
 
 use serde::Deserialize;
 use tokio::task;
+use uuid::Uuid;
 
 use crate::{
     contracts::{PublishState, PublishStatusResponse, PublishedSceneDescriptor},
-    store::{PublishedStateRecord, Store, StoreError, WorkingSnapshot},
+    store::{
+        is_path_safe_workspace_slug, is_reserved_workspace_slug, PublishedStateRecord, Store,
+        StoreError, WorkingSnapshot,
+    },
 };
 
 const PUBLISH_LOCK_STALE_AFTER_MS: u64 = 120_000;
@@ -83,6 +87,7 @@ pub enum PublishError {
     Join(String),
     Io(std::io::Error),
     Parse(serde_json::Error),
+    UnsafeWorkspaceSlug(String),
     CommandFailed(String),
 }
 
@@ -93,6 +98,12 @@ impl std::fmt::Display for PublishError {
             Self::Join(error) => write!(f, "publish task failed to join: {error}"),
             Self::Io(error) => write!(f, "publish filesystem error: {error}"),
             Self::Parse(error) => write!(f, "publish artifact parse error: {error}"),
+            Self::UnsafeWorkspaceSlug(slug) => {
+                write!(
+                    f,
+                    "workspace slug is not safe for published asset paths: {slug}"
+                )
+            }
             Self::CommandFailed(error) => write!(f, "publish build failed: {error}"),
         }
     }
@@ -247,6 +258,7 @@ pub async fn publish_working_snapshot_for_workspace(
     let publish_config = config.clone();
     let snapshot_for_export = snapshot.clone();
     let workspace_slug = workspace_slug.to_string();
+    validate_publish_user_workspace_slug(&workspace_slug)?;
     let build = task::spawn_blocking(move || {
         run_publish_export(
             &publish_config,
@@ -275,6 +287,8 @@ fn run_publish_export(
     version_slug: &str,
     workspace_slug: &str,
 ) -> Result<PublishBuildOutput, PublishError> {
+    validate_publish_workspace_slug(workspace_slug)?;
+
     let repo_root = &config.repo_root;
     let generated_root = &config.generated_root;
     let is_global_alias = workspace_slug == "global";
@@ -285,9 +299,11 @@ fn run_publish_export(
     };
     let versions_root = workspace_root.join("versions");
     let final_dir = versions_root.join(version_slug);
-    let temp_public_root = generated_root.join(format!(".tmp-publish-root-{version_slug}"));
+    let temp_suffix = publish_temp_suffix(workspace_slug, version_slug);
+    let temp_public_root = generated_root.join(format!(".tmp-publish-root-{temp_suffix}"));
     let temp_snapshot_path =
-        generated_root.join(format!(".tmp-publish-snapshot-{version_slug}.json"));
+        generated_root.join(format!(".tmp-publish-snapshot-{temp_suffix}.json"));
+    let temp_alias_path = workspace_root.join(format!(".tmp-publish-alias-{temp_suffix}.json"));
     let public_base_url = if is_global_alias {
         format!(
             "{}/versions/{version_slug}",
@@ -328,30 +344,76 @@ fn run_publish_export(
         .arg("--snapshot")
         .arg(&temp_snapshot_path)
         .current_dir(repo_root)
-        .output()?;
+        .output()
+        .map_err(|error| {
+            cleanup_publish_temp_artifacts(&temp_public_root, &temp_snapshot_path);
+            command_error(&config.bun_bin, error)
+        })?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
         let detail = if !stderr.is_empty() { stderr } else { stdout };
-        let _ = fs::remove_dir_all(&temp_public_root);
-        let _ = fs::remove_file(&temp_snapshot_path);
+        cleanup_publish_temp_artifacts(&temp_public_root, &temp_snapshot_path);
         return Err(PublishError::CommandFailed(detail));
     }
 
-    fs::rename(&temp_dir, &final_dir)?;
-    fs::create_dir_all(&workspace_root)?;
-    fs::copy(
-        final_dir.join("published-scene-package.json"),
-        workspace_root.join("published-scene-package.json"),
-    )?;
-    let _ = fs::remove_dir_all(&temp_public_root);
-    let _ = fs::remove_file(&temp_snapshot_path);
-
-    let package_path = final_dir.join("published-scene-package.json");
     let package_url = format!("{public_base_url}/published-scene-package.json");
-    let payload = fs::read_to_string(&package_path)?;
-    let package = serde_json::from_str::<PublishedScenePackageIndex>(&payload)?;
+    finalize_publish_export(
+        &temp_dir,
+        &final_dir,
+        &workspace_root,
+        &temp_alias_path,
+        &temp_public_root,
+        &temp_snapshot_path,
+        package_url,
+    )
+}
+
+fn finalize_publish_export(
+    temp_dir: &Path,
+    final_dir: &Path,
+    workspace_root: &Path,
+    temp_alias_path: &Path,
+    temp_public_root: &Path,
+    temp_snapshot_path: &Path,
+    package_url: String,
+) -> Result<PublishBuildOutput, PublishError> {
+    let package = read_published_scene_package(&temp_dir.join("published-scene-package.json"))
+        .map_err(|error| {
+            cleanup_publish_temp_artifacts(temp_public_root, temp_snapshot_path);
+            error
+        })?;
+
+    fs::rename(temp_dir, final_dir).map_err(|error| {
+        cleanup_publish_temp_artifacts(temp_public_root, temp_snapshot_path);
+        PublishError::Io(error)
+    })?;
+
+    let final_package_path = final_dir.join("published-scene-package.json");
+    fs::copy(&final_package_path, temp_alias_path).map_err(|error| {
+        rollback_publish_finalize(
+            final_dir,
+            temp_alias_path,
+            temp_public_root,
+            temp_snapshot_path,
+        );
+        PublishError::Io(error)
+    })?;
+    fs::rename(
+        temp_alias_path,
+        workspace_root.join("published-scene-package.json"),
+    )
+    .map_err(|error| {
+        rollback_publish_finalize(
+            final_dir,
+            temp_alias_path,
+            temp_public_root,
+            temp_snapshot_path,
+        );
+        PublishError::Io(error)
+    })?;
+    cleanup_publish_temp_artifacts(temp_public_root, temp_snapshot_path);
 
     Ok(PublishBuildOutput {
         descriptor: PublishedSceneDescriptor {
@@ -365,6 +427,64 @@ fn run_publish_export(
             .source
             .unwrap_or_else(|| "campus-layout".to_string()),
     })
+}
+
+fn read_published_scene_package(
+    package_path: &Path,
+) -> Result<PublishedScenePackageIndex, PublishError> {
+    let payload = fs::read_to_string(package_path)?;
+    Ok(serde_json::from_str::<PublishedScenePackageIndex>(
+        &payload,
+    )?)
+}
+
+fn validate_publish_workspace_slug(workspace_slug: &str) -> Result<(), PublishError> {
+    if !is_path_safe_workspace_slug(workspace_slug) {
+        return Err(PublishError::UnsafeWorkspaceSlug(
+            workspace_slug.to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_publish_user_workspace_slug(workspace_slug: &str) -> Result<(), PublishError> {
+    validate_publish_workspace_slug(workspace_slug)?;
+    if is_reserved_workspace_slug(workspace_slug) {
+        return Err(PublishError::UnsafeWorkspaceSlug(
+            workspace_slug.to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn publish_temp_suffix(workspace_slug: &str, version_slug: &str) -> String {
+    format!("{workspace_slug}-{version_slug}-{}", Uuid::new_v4())
+}
+
+fn command_error(bun_bin: &str, error: io::Error) -> PublishError {
+    if error.kind() == io::ErrorKind::NotFound {
+        PublishError::CommandFailed(format!(
+            "publish tool not found: {bun_bin}; install Bun or set PUBLISH_BUN_BIN to an executable"
+        ))
+    } else {
+        PublishError::Io(error)
+    }
+}
+
+fn cleanup_publish_temp_artifacts(temp_public_root: &Path, temp_snapshot_path: &Path) {
+    let _ = fs::remove_dir_all(temp_public_root);
+    let _ = fs::remove_file(temp_snapshot_path);
+}
+
+fn rollback_publish_finalize(
+    final_dir: &Path,
+    temp_alias_path: &Path,
+    temp_public_root: &Path,
+    temp_snapshot_path: &Path,
+) {
+    let _ = fs::remove_dir_all(final_dir);
+    let _ = fs::remove_file(temp_alias_path);
+    cleanup_publish_temp_artifacts(temp_public_root, temp_snapshot_path);
 }
 
 pub async fn record_publish_failure(
@@ -417,8 +537,14 @@ fn now_millis() -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{load_publish_status, publish_lock_stale_after_ms, PublishRuntime};
+    use super::{
+        cleanup_publish_temp_artifacts, command_error, finalize_publish_export,
+        load_publish_status, publish_lock_stale_after_ms, publish_temp_suffix,
+        validate_publish_user_workspace_slug, validate_publish_workspace_slug, PublishError,
+        PublishRuntime,
+    };
     use crate::store::Store;
+    use std::io;
 
     #[tokio::test]
     async fn publish_status_uses_store_lock_across_runtime_instances() {
@@ -452,5 +578,155 @@ mod tests {
 
         let status = load_publish_status(&store, &runtime).await.unwrap();
         assert_ne!(status.status, crate::contracts::PublishState::Publishing);
+    }
+
+    #[test]
+    fn publish_temp_suffixes_are_unique_for_parallel_workspace_exports() {
+        let first = publish_temp_suffix("workspace-a", "42-1779440000000");
+        let second = publish_temp_suffix("workspace-a", "42-1779440000000");
+
+        assert_ne!(first, second);
+        assert!(first.starts_with("workspace-a-42-1779440000000-"));
+        assert!(!first.contains('/'));
+        assert!(!first.contains('\\'));
+    }
+
+    #[test]
+    fn publish_rejects_workspace_slugs_that_escape_asset_paths() {
+        assert!(validate_publish_workspace_slug("global").is_ok());
+        assert!(validate_publish_workspace_slug("workspace-a").is_ok());
+        assert!(validate_publish_workspace_slug("workspace_a").is_ok());
+        assert!(validate_publish_workspace_slug("Workspace-A").is_err());
+        assert!(validate_publish_workspace_slug("plant/../../escape").is_err());
+        assert!(validate_publish_workspace_slug("plant%2Fescape").is_err());
+        assert!(validate_publish_workspace_slug("workspace with space").is_err());
+        assert!(validate_publish_workspace_slug("..").is_err());
+    }
+
+    #[test]
+    fn workspace_publish_rejects_reserved_global_alias_slug() {
+        assert!(validate_publish_user_workspace_slug("workspace-a").is_ok());
+        assert!(validate_publish_user_workspace_slug("global").is_err());
+        assert!(validate_publish_user_workspace_slug("Global").is_err());
+    }
+
+    #[test]
+    fn missing_publish_tool_reports_actionable_configuration_error() {
+        let error = command_error("missing-bun-for-test", io::ErrorKind::NotFound.into());
+
+        assert!(error
+            .to_string()
+            .contains("install Bun or set PUBLISH_BUN_BIN"));
+    }
+
+    #[test]
+    fn finalize_publish_export_validates_package_before_promoting_version_dir() {
+        let root = std::env::temp_dir().join(format!(
+            "publish-finalize-parse-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let temp_public_root = root.join(".tmp-publish-root-test");
+        let temp_snapshot_path = root.join(".tmp-publish-snapshot-test.json");
+        let temp_dir =
+            temp_public_root.join("generated/published-static/workspaces/ws/versions/v1");
+        let workspace_root = root.join("published/workspaces/ws");
+        let final_dir = workspace_root.join("versions/v1");
+        let temp_alias_path = workspace_root.join(".tmp-publish-alias-test.json");
+
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        std::fs::write(temp_dir.join("published-scene-package.json"), "{}").unwrap();
+        std::fs::write(&temp_snapshot_path, "{}").unwrap();
+
+        let error = finalize_publish_export(
+            &temp_dir,
+            &final_dir,
+            &workspace_root,
+            &temp_alias_path,
+            &temp_public_root,
+            &temp_snapshot_path,
+            "/generated/published-static/workspaces/ws/versions/v1/published-scene-package.json"
+                .to_string(),
+        )
+        .unwrap_err();
+
+        assert!(matches!(error, PublishError::Parse(_)));
+        assert!(!final_dir.exists());
+        assert!(!temp_public_root.exists());
+        assert!(!temp_snapshot_path.exists());
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn finalize_publish_export_rolls_back_promoted_dir_when_alias_copy_fails() {
+        let root = std::env::temp_dir().join(format!(
+            "publish-finalize-copy-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let temp_public_root = root.join(".tmp-publish-root-test");
+        let temp_snapshot_path = root.join(".tmp-publish-snapshot-test.json");
+        let temp_dir =
+            temp_public_root.join("generated/published-static/workspaces/ws/versions/v1");
+        let final_dir = root.join("versions/v1");
+        let workspace_root = root.join("workspace-root-file");
+        let temp_alias_path = workspace_root.join(".tmp-publish-alias-test.json");
+
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        std::fs::create_dir_all(final_dir.parent().unwrap()).unwrap();
+        std::fs::write(&workspace_root, "not a directory").unwrap();
+        write_publish_package(&temp_dir);
+        std::fs::write(&temp_snapshot_path, "{}").unwrap();
+
+        let error = finalize_publish_export(
+            &temp_dir,
+            &final_dir,
+            &workspace_root,
+            &temp_alias_path,
+            &temp_public_root,
+            &temp_snapshot_path,
+            "/generated/published-static/workspaces/ws/versions/v1/published-scene-package.json"
+                .to_string(),
+        )
+        .unwrap_err();
+
+        assert!(matches!(error, PublishError::Io(_)));
+        assert!(!final_dir.exists());
+        assert!(!temp_public_root.exists());
+        assert!(!temp_snapshot_path.exists());
+        assert!(!temp_alias_path.exists());
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn cleanup_publish_temp_artifacts_removes_snapshot_and_root() {
+        let root =
+            std::env::temp_dir().join(format!("publish-cleanup-test-{}", uuid::Uuid::new_v4()));
+        let temp_public_root = root.join(".tmp-publish-root-test");
+        let temp_snapshot_path = root.join(".tmp-publish-snapshot-test.json");
+
+        std::fs::create_dir_all(temp_public_root.join("nested")).unwrap();
+        std::fs::write(temp_public_root.join("nested/asset.json"), "{}").unwrap();
+        std::fs::write(&temp_snapshot_path, "{}").unwrap();
+
+        cleanup_publish_temp_artifacts(&temp_public_root, &temp_snapshot_path);
+
+        assert!(!temp_public_root.exists());
+        assert!(!temp_snapshot_path.exists());
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    fn write_publish_package(temp_dir: &std::path::Path) {
+        std::fs::write(
+            temp_dir.join("published-scene-package.json"),
+            r#"{
+                "sceneId": "scene",
+                "generatedAt": "2026-05-22T09:00:00.000Z",
+                "staticAssetManifestUrl": "/generated/published-static/workspaces/ws/versions/v1/chunk-manifest.json",
+                "source": "workspace-snapshot"
+            }"#,
+        )
+        .unwrap();
     }
 }

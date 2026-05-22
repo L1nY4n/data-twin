@@ -23,5 +23,6 @@ describe('toolchain guards', () => {
     expect(source.includes('outputFileTracingRoot: turbopackRoot')).toBe(true)
     expect(source.includes('turbopack:')).toBe(true)
     expect(source.includes('root: turbopackRoot')).toBe(true)
+    expect(source.includes('ignoreBuildErrors')).toBe(false)
   })
 })

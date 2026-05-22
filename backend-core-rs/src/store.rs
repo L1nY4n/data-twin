@@ -22,6 +22,8 @@ mod workspace_admin;
 mod workspace_entities;
 mod workspace_state;
 
+pub(crate) use helpers::{is_path_safe_workspace_slug, is_reserved_workspace_slug};
+
 use crate::{
     contracts::{
         Alarm, AuditEventRecord, BootstrapResponse, DataConnector, EditorSaveMode,
@@ -42,7 +44,7 @@ use helpers::{
     is_sqlite_url, map_memory_audit_event, now_millis, set_entity_created_at, set_entity_id,
     sort_entities, sort_entity_archetypes, sort_entity_categories, sort_static_assets,
     sort_workspaces, static_asset_kind_to_str, status_to_str, validate_entity_archetype,
-    validate_entity_category, validate_workspace,
+    validate_entity_category, validate_workspace, workspace_slugs_match,
 };
 use persistence::{
     bump_scene_version_sqlite, bump_scene_version_tx, insert_audit_event,
@@ -2192,7 +2194,7 @@ impl Store {
                 if snapshot
                     .workspaces
                     .values()
-                    .any(|existing| existing.slug == workspace.slug)
+                    .any(|existing| workspace_slugs_match(&existing.slug, &workspace.slug))
                 {
                     return Err(StoreError::Validation(format!(
                         "workspace slug {} already exists",
@@ -2222,7 +2224,7 @@ impl Store {
             StoreBackend::Postgres(store) => {
                 let mut tx = store.pool.begin().await?;
                 let duplicate = sqlx::query_scalar::<_, i64>(
-                    r#"SELECT COUNT(*) FROM workspaces WHERE id = $1 OR slug = $2"#,
+                    r#"SELECT COUNT(*) FROM workspaces WHERE id = $1 OR LOWER(slug) = LOWER($2)"#,
                 )
                 .bind(&workspace.id)
                 .bind(&workspace.slug)
@@ -2260,7 +2262,7 @@ impl Store {
             StoreBackend::Sqlite(store) => {
                 let mut tx = store.pool.begin().await?;
                 let duplicate = sqlx::query_scalar::<_, i64>(
-                    r#"SELECT COUNT(*) FROM workspaces WHERE id = ? OR slug = ?"#,
+                    r#"SELECT COUNT(*) FROM workspaces WHERE id = ? OR lower(slug) = lower(?)"#,
                 )
                 .bind(&workspace.id)
                 .bind(&workspace.slug)
@@ -2319,11 +2321,9 @@ impl Store {
                 let Some(existing) = snapshot.workspaces.get(id) else {
                     return Err(StoreError::NotFound(format!("workspace {id}")));
                 };
-                if snapshot
-                    .workspaces
-                    .values()
-                    .any(|entry| entry.id != id && entry.slug == workspace.slug)
-                {
+                if snapshot.workspaces.values().any(|entry| {
+                    entry.id != id && workspace_slugs_match(&entry.slug, &workspace.slug)
+                }) {
                     return Err(StoreError::Validation(format!(
                         "workspace slug {} already exists",
                         workspace.slug
@@ -2357,7 +2357,7 @@ impl Store {
                     return Err(StoreError::NotFound(format!("workspace {id}")));
                 };
                 let duplicate = sqlx::query_scalar::<_, i64>(
-                    r#"SELECT COUNT(*) FROM workspaces WHERE slug = $1 AND id <> $2"#,
+                    r#"SELECT COUNT(*) FROM workspaces WHERE LOWER(slug) = LOWER($1) AND id <> $2"#,
                 )
                 .bind(&workspace.slug)
                 .bind(id)
@@ -2400,7 +2400,7 @@ impl Store {
                     return Err(StoreError::NotFound(format!("workspace {id}")));
                 };
                 let duplicate = sqlx::query_scalar::<_, i64>(
-                    r#"SELECT COUNT(*) FROM workspaces WHERE slug = ? AND id <> ?"#,
+                    r#"SELECT COUNT(*) FROM workspaces WHERE lower(slug) = lower(?) AND id <> ?"#,
                 )
                 .bind(&workspace.slug)
                 .bind(id)
@@ -5182,7 +5182,8 @@ fn validate_editor_save_request(request: &EditorSaveRequest) -> Result<(), Store
 
 #[cfg(test)]
 mod tests {
-    use super::Store;
+    use super::{Store, StoreBackend};
+    use crate::contracts::WorkspaceRecord;
     use std::{
         fs,
         path::PathBuf,
@@ -5219,6 +5220,187 @@ mod tests {
             .refresh_publish_heartbeat("token-a", 5_100)
             .await
             .unwrap());
+    }
+
+    #[tokio::test]
+    async fn create_workspace_rejects_path_unsafe_slug_before_persistence() {
+        let store = Store::memory_backend();
+        let error = store
+            .create_workspace(test_workspace("unsafe-create", "plant/../../escape"))
+            .await
+            .unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("workspace slug must contain only lowercase ASCII"));
+        assert!(store
+            .get_workspace("unsafe-create")
+            .await
+            .unwrap()
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn create_workspace_rejects_non_canonical_uppercase_slug_before_persistence() {
+        let store = Store::memory_backend();
+        let error = store
+            .create_workspace(test_workspace("uppercase-create", "Workspace-A"))
+            .await
+            .unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("workspace slug must contain only lowercase ASCII"));
+        assert!(store
+            .get_workspace("uppercase-create")
+            .await
+            .unwrap()
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn create_workspace_rejects_reserved_global_slug_before_persistence() {
+        let store = Store::memory_backend();
+        let error = store
+            .create_workspace(test_workspace("reserved-create", "global"))
+            .await
+            .unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("workspace slug global is reserved"));
+        assert!(store
+            .get_workspace("reserved-create")
+            .await
+            .unwrap()
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn update_workspace_rejects_path_unsafe_slug_before_persistence() {
+        let store = Store::memory_backend();
+        let created = store
+            .create_workspace(test_workspace("safe-update", "safe-update"))
+            .await
+            .unwrap();
+        let mut unsafe_update = created.clone();
+        unsafe_update.slug = "workspace with space".to_string();
+
+        let error = store
+            .update_workspace("safe-update", unsafe_update)
+            .await
+            .unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("workspace slug must contain only lowercase ASCII"));
+        let persisted = store
+            .get_workspace("safe-update")
+            .await
+            .unwrap()
+            .expect("safe workspace should still exist");
+        assert_eq!(persisted.slug, "safe-update");
+    }
+
+    #[tokio::test]
+    async fn update_workspace_rejects_reserved_global_slug_before_persistence() {
+        let store = Store::memory_backend();
+        let created = store
+            .create_workspace(test_workspace("reserved-update", "reserved-update"))
+            .await
+            .unwrap();
+        let mut unsafe_update = created.clone();
+        unsafe_update.slug = "global".to_string();
+
+        let error = store
+            .update_workspace("reserved-update", unsafe_update)
+            .await
+            .unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("workspace slug global is reserved"));
+        let persisted = store
+            .get_workspace("reserved-update")
+            .await
+            .unwrap()
+            .expect("safe workspace should still exist");
+        assert_eq!(persisted.slug, "reserved-update");
+    }
+
+    #[tokio::test]
+    async fn create_workspace_rejects_case_insensitive_legacy_slug_collision() {
+        let store = Store::memory_backend();
+        if let StoreBackend::Memory(memory_store) = &store.backend {
+            let mut legacy = test_workspace("legacy-uppercase", "Workspace-A");
+            legacy.created_at = 1;
+            legacy.updated_at = 1;
+            memory_store
+                .write()
+                .await
+                .workspaces
+                .insert(legacy.id.clone(), legacy);
+        }
+
+        let error = store
+            .create_workspace(test_workspace("case-dupe", "workspace-a"))
+            .await
+            .unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("workspace slug workspace-a already exists"));
+        assert!(store.get_workspace("case-dupe").await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn sqlite_workspace_updates_reject_case_insensitive_legacy_slug_collision() {
+        let (url, db_root) = unique_sqlite_url("workspace-slug-case-collision");
+        let store = Store::from_database_url(&url).await.unwrap();
+        if let StoreBackend::Sqlite(sqlite_store) = &store.backend {
+            let mut legacy = test_workspace("legacy-uppercase", "Workspace-A");
+            legacy.created_at = 1;
+            legacy.updated_at = 1;
+            sqlx::query(
+                r#"
+                INSERT INTO workspaces (id, slug, is_homepage, workspace_data, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                "#,
+            )
+            .bind(&legacy.id)
+            .bind(&legacy.slug)
+            .bind(legacy.is_homepage)
+            .bind(serde_json::to_string(&legacy).unwrap())
+            .bind(legacy.created_at as i64)
+            .bind(legacy.updated_at as i64)
+            .execute(&sqlite_store.pool)
+            .await
+            .unwrap();
+        }
+        let created = store
+            .create_workspace(test_workspace("safe-update", "safe-update"))
+            .await
+            .unwrap();
+        let mut colliding_update = created.clone();
+        colliding_update.slug = "workspace-a".to_string();
+
+        let error = store
+            .update_workspace("safe-update", colliding_update)
+            .await
+            .unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("workspace slug workspace-a already exists"));
+        let persisted = store
+            .get_workspace("safe-update")
+            .await
+            .unwrap()
+            .expect("safe workspace should still exist");
+        assert_eq!(persisted.slug, "safe-update");
+
+        drop(store);
+        let _ = fs::remove_dir_all(db_root);
     }
 
     #[tokio::test]
@@ -5263,5 +5445,17 @@ mod tests {
         let db_path = root.join("store.sqlite3");
         let url = format!("sqlite://{}?mode=rwc", db_path.to_string_lossy());
         (url, root)
+    }
+
+    fn test_workspace(id: &str, slug: &str) -> WorkspaceRecord {
+        WorkspaceRecord {
+            id: id.to_string(),
+            slug: slug.to_string(),
+            name: format!("{id} workspace"),
+            description: None,
+            is_homepage: false,
+            created_at: 0,
+            updated_at: 0,
+        }
     }
 }

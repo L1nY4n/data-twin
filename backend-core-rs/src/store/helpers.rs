@@ -13,6 +13,8 @@ use crate::contracts::{
 
 use super::{StoreError, MANAGED_ARCHETYPE_ASSET_PREFIX};
 
+const RESERVED_WORKSPACE_SLUGS: &[&str] = &["global"];
+
 pub(super) fn map_memory_audit_event(index: usize, value: &serde_json::Value) -> AuditEventRecord {
     let action = value
         .get("action")
@@ -303,11 +305,37 @@ pub(super) fn ensure_workspace_update_defaults(workspace: &mut WorkspaceRecord, 
     workspace.updated_at = now;
 }
 
+pub(crate) fn is_path_safe_workspace_slug(workspace_slug: &str) -> bool {
+    !workspace_slug.is_empty()
+        && workspace_slug.chars().all(|character| {
+            character.is_ascii_lowercase()
+                || character.is_ascii_digit()
+                || matches!(character, '-' | '_')
+        })
+}
+
+pub(crate) fn is_reserved_workspace_slug(workspace_slug: &str) -> bool {
+    RESERVED_WORKSPACE_SLUGS
+        .iter()
+        .any(|reserved| workspace_slug.eq_ignore_ascii_case(reserved))
+}
+
+pub(super) fn workspace_slugs_match(left: &str, right: &str) -> bool {
+    left.eq_ignore_ascii_case(right)
+}
+
 pub(super) fn validate_workspace(workspace: &WorkspaceRecord) -> Result<(), StoreError> {
-    if workspace.slug.trim().is_empty() {
+    if !is_path_safe_workspace_slug(&workspace.slug) {
         return Err(StoreError::Validation(
-            "workspace slug must be non-empty".to_string(),
+            "workspace slug must contain only lowercase ASCII letters, numbers, '-' or '_'"
+                .to_string(),
         ));
+    }
+    if is_reserved_workspace_slug(&workspace.slug) {
+        return Err(StoreError::Validation(format!(
+            "workspace slug {} is reserved",
+            workspace.slug
+        )));
     }
     if workspace.name.trim().is_empty() {
         return Err(StoreError::Validation(

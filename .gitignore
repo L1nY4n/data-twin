@@ -18,11 +18,14 @@ backend-core-rs/target/
 backend-core-rs/data/
 backend-core-rs/.data/
 .omx/
+tsconfig.tsbuildinfo
 
 # Local verification / runtime artifacts
 .playwright-mcp/
 data/*.db
 data/*.db-*
+public/generated/**/.tmp-publish-*
+public/assets/entity-archetypes/*
 *-benchmark*.png
 runtime-benchmark*.png
 tmux-client-*.log

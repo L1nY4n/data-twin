@@ -1019,3 +1019,60 @@ pub enum ConfigChangedScope {
     Rule,
     Publish,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{ConfigChangedScope, RealtimeEvent};
+
+    #[test]
+    fn canonical_realtime_fixture_matches_backend_contracts() {
+        let events: Vec<RealtimeEvent> = serde_json::from_str(include_str!(
+            "../../fixtures/contracts/realtime-events.json"
+        ))
+        .expect("canonical realtime fixture should deserialize");
+
+        assert_eq!(events.len(), 3);
+        match &events[0] {
+            RealtimeEvent::PositionUpdate { payload, .. } => {
+                assert_eq!(payload.entity_id, "vehicle-forklift-01");
+                assert_eq!(
+                    payload
+                        .route_track
+                        .as_ref()
+                        .map(|track| track.track_id.as_str()),
+                    Some("forklift-track-live")
+                );
+                assert_eq!(
+                    payload
+                        .track_position
+                        .as_ref()
+                        .map(|position| position.segment_index),
+                    Some(0)
+                );
+            }
+            other => panic!("expected position_update fixture, got {other:?}"),
+        }
+
+        match &events[1] {
+            RealtimeEvent::SignalUpdate { payload, .. } => {
+                assert_eq!(payload.entity_id, "sensor-temp-reactor-01");
+                assert_eq!(
+                    payload.signals[0].path.as_deref(),
+                    Some("PLC/Line1/Reactor/TemperaturePV")
+                );
+            }
+            other => panic!("expected signal_update fixture, got {other:?}"),
+        }
+
+        match &events[2] {
+            RealtimeEvent::ConfigChanged { payload, .. } => {
+                assert_eq!(payload.workspace_id, "industrial-campus");
+                assert!(matches!(payload.scope, ConfigChangedScope::Publish));
+                assert!(payload.published_scene.as_ref().is_some_and(|scene| scene
+                    .package_url
+                    .ends_with("/published-scene-package.json")));
+            }
+            other => panic!("expected config_changed fixture, got {other:?}"),
+        }
+    }
+}

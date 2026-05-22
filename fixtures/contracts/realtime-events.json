@@ -1,0 +1,70 @@
+[
+  {
+    "type": "position_update",
+    "timestamp": 1779440000000,
+    "payload": {
+      "entityId": "vehicle-forklift-01",
+      "position": { "x": 7.5, "y": 0, "z": -0.5 },
+      "rotation": { "x": 0, "y": 1.78, "z": 0 },
+      "speed": 2.8,
+      "heading": 102,
+      "routeTrack": {
+        "routeId": "factory-yard-circulation",
+        "trackId": "forklift-track-live",
+        "label": "Live loading route",
+        "looped": true,
+        "waypoints": [
+          { "x": 7.5, "y": 0, "z": -0.5 },
+          { "x": 12, "y": 0, "z": 3 },
+          { "x": 18, "y": 0, "z": 3 }
+        ]
+      },
+      "trackPosition": {
+        "routeId": "factory-yard-circulation",
+        "trackId": "forklift-track-live",
+        "segmentIndex": 0,
+        "nextWaypointIndex": 1,
+        "segmentProgress": 0.42
+      }
+    }
+  },
+  {
+    "type": "signal_update",
+    "timestamp": 1779440000100,
+    "payload": {
+      "entityId": "sensor-temp-reactor-01",
+      "source": "canonical-contract-fixture",
+      "connectorId": "simulated-plc-line-1",
+      "signals": [
+        {
+          "id": "reactor-temp-pv",
+          "name": "ReactorTemperaturePV",
+          "path": "PLC/Line1/Reactor/TemperaturePV",
+          "label": "Reactor temperature PV",
+          "unit": "C",
+          "dataType": "float",
+          "direction": "input",
+          "value": 88.5,
+          "quality": "uncertain"
+        }
+      ]
+    }
+  },
+  {
+    "type": "config_changed",
+    "timestamp": 1779440000200,
+    "payload": {
+      "workspaceId": "industrial-campus",
+      "sceneVersion": 42,
+      "changedAt": 1779440000200,
+      "scope": "publish",
+      "publishedScene": {
+        "packageUrl": "/generated/published-static/workspaces/industrial-campus/versions/42-1779440000200/published-scene-package.json",
+        "packageVersion": "2026-05-22T09:00:00.000Z",
+        "sceneId": "industrial-campus",
+        "generatedAt": "2026-05-22T09:00:00.000Z",
+        "staticAssetManifestUrl": "/generated/published-static/workspaces/industrial-campus/versions/42-1779440000200/chunk-manifest.json"
+      }
+    }
+  }
+]
