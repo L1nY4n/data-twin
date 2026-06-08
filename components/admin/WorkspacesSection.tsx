@@ -6,15 +6,16 @@ import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { AdvancedJsonEditor } from '@/components/admin/AdvancedJsonEditor'
 import {
+  AdminBadge,
   AdminButton,
+  AdminInput,
   AdminInsetBlock,
   AdminSectionFrame,
-  AdminSelectableCard,
+  AdminSelect,
+  AdminSelectableRecordCard,
   SectionPanel,
   WorkspaceEmptyState,
 } from '@/components/admin/admin-surface'
-import { Badge } from '@/components/ui/badge'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useStructuredDraft } from '@/hooks/use-structured-draft'
@@ -146,9 +147,9 @@ export function WorkspacesSection() {
           eyebrow="工作区"
           title="工作区列表"
           action={
-            <Badge variant="outline" className="rounded-full px-2.5 text-[10px]">
+            <AdminBadge variant="outline">
               共 {workspaces.length} 个
-            </Badge>
+            </AdminBadge>
           }
         >
           <div className="space-y-3">
@@ -169,10 +170,9 @@ export function WorkspacesSection() {
               <ScrollArea className="h-[520px]">
                 <div className="space-y-2 pr-3">
                   {workspaces.map((workspace) => (
-                    <AdminSelectableCard
+                    <AdminSelectableRecordCard
                       key={workspace.id}
                       active={selectedWorkspaceId === workspace.id && draftSeed === null}
-                      className="px-3 py-3"
                       onClick={() => {
                         setDraftSeed(null)
                         setSelectedWorkspaceId(workspace.id)
@@ -180,19 +180,17 @@ export function WorkspacesSection() {
                           scroll: false,
                         })
                       }}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <div className="font-medium text-foreground">{workspace.name}</div>
-                          <div className="mt-1 text-xs text-muted-foreground">{workspace.slug}</div>
-                        </div>
-                        {workspace.isHomepage ? (
-                          <Badge variant="default">首页</Badge>
+                      title={workspace.name}
+                      meta={workspace.slug}
+                      trailing={
+                        workspace.isHomepage ? (
+                          <AdminBadge variant="default">首页</AdminBadge>
                         ) : (
-                          <Badge variant="outline">普通</Badge>
-                        )}
-                      </div>
-                    </AdminSelectableCard>
+                          <AdminBadge variant="outline">普通</AdminBadge>
+                        )
+                      }
+                    >
+                    </AdminSelectableRecordCard>
                   ))}
                 </div>
               </ScrollArea>
@@ -212,7 +210,7 @@ export function WorkspacesSection() {
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
                   <Label>ID</Label>
-                  <Input
+                  <AdminInput
                     value={draft.draft.id}
                     onChange={(event) =>
                       draft.updateDraft((current) => ({ ...current, id: event.target.value }))
@@ -221,7 +219,7 @@ export function WorkspacesSection() {
                 </div>
                 <div className="space-y-2">
                   <Label>名称</Label>
-                  <Input
+                  <AdminInput
                     value={draft.draft.name}
                     onChange={(event) =>
                       draft.updateDraft((current) => ({ ...current, name: event.target.value }))
@@ -233,7 +231,7 @@ export function WorkspacesSection() {
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
                   <Label>Slug</Label>
-                  <Input
+                  <AdminInput
                     value={draft.draft.slug}
                     onChange={(event) =>
                       draft.updateDraft((current) => ({ ...current, slug: event.target.value }))
@@ -242,8 +240,7 @@ export function WorkspacesSection() {
                 </div>
                 <div className="space-y-2">
                   <Label>首页工作区</Label>
-                  <select
-                    className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                  <AdminSelect
                     value={draft.draft.isHomepage ? 'true' : 'false'}
                     onChange={(event) =>
                       draft.updateDraft((current) => ({
@@ -254,13 +251,13 @@ export function WorkspacesSection() {
                   >
                     <option value="false">否</option>
                     <option value="true">是</option>
-                  </select>
+                  </AdminSelect>
                 </div>
               </div>
 
               <div className="space-y-2">
                 <Label>说明</Label>
-                <Input
+                <AdminInput
                   value={draft.draft.description ?? ''}
                   onChange={(event) =>
                     draft.updateDraft((current) => ({ ...current, description: event.target.value }))

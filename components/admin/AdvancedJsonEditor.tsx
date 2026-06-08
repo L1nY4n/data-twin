@@ -1,8 +1,7 @@
 'use client'
 
-import { AdminButton } from '@/components/admin/admin-surface'
+import { AdminButton, AdminTextarea } from '@/components/admin/admin-surface'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
-import { Textarea } from '@/components/ui/textarea'
 
 interface AdvancedJsonEditorProps {
   value: string
@@ -22,7 +21,7 @@ export function AdvancedJsonEditor({
         <span className="text-xs text-muted-foreground">专家模式</span>
       </CollapsibleTrigger>
       <CollapsibleContent className="space-y-3 border-t p-3">
-        <Textarea
+        <AdminTextarea
           className="min-h-[220px] font-mono text-xs"
           value={value}
           onChange={(event) => onChange(event.target.value)}

@@ -31,3 +31,4 @@ runtime-benchmark*.png
 tmux-client-*.log
 __pycache__/
 *.pyc
+outputs/

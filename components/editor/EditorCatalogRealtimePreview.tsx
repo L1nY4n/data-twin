@@ -5,6 +5,7 @@ import { Box, Boxes, Pause, Play } from 'lucide-react'
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import type { StaticAssetCatalogItem } from '@/lib/digital-twin/static-asset-catalog'
+import { EditorRealtimePreviewFrame } from './editor-primitives'
 
 type PreviewBounds = {
   min: { x: number; y: number; z: number }
@@ -510,8 +511,7 @@ export const EditorCatalogRealtimePreview = memo(function EditorCatalogRealtimeP
   }, [item.id])
 
   return (
-    <div
-      className="relative h-14 w-[4.25rem] shrink-0 overflow-hidden rounded-[16px] border border-[#7da7ff]/18 bg-[linear-gradient(180deg,rgba(10,16,27,0.92),rgba(17,26,41,0.88))] shadow-[0_14px_28px_rgba(7,10,16,0.18),inset_0_1px_0_rgba(255,255,255,0.05)]"
+    <EditorRealtimePreviewFrame
       onPointerEnter={() => setIsHovered(true)}
       onPointerLeave={() => setIsHovered(false)}
     >
@@ -564,6 +564,6 @@ export const EditorCatalogRealtimePreview = memo(function EditorCatalogRealtimeP
           {isWireframe ? <Boxes className="size-3" /> : <Box className="size-3" />}
         </button>
       </div>
-    </div>
+    </EditorRealtimePreviewFrame>
   )
 })

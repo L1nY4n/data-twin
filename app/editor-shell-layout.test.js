@@ -8,6 +8,10 @@ describe('editor shell layout and control affordances', () => {
       join(process.cwd(), 'components/editor/EditorShell.tsx'),
       'utf8'
     )
+    const editorPrimitivesSource = readFileSync(
+      join(process.cwd(), 'components/editor/editor-primitives.tsx'),
+      'utf8'
+    )
     const toolbarSource = readFileSync(
       join(process.cwd(), 'components/editor/EditorToolbar.tsx'),
       'utf8'
@@ -44,9 +48,15 @@ describe('editor shell layout and control affordances', () => {
     expect(source.includes('const chromeLeftInset = !isMobile')).toBe(true)
     expect(source.includes('const chromeRightInset = isLargeViewport')).toBe(true)
     expect(source.includes('const chromeOverlayStyle = isLargeViewport')).toBe(true)
+    expect(source.includes('const shouldHideFloatingChromeForResources = isMobile && resourcesPanelOpen')).toBe(true)
+    expect(source.includes('{!shouldHideFloatingChromeForResources ? (')).toBe(true)
     expect(source.includes('style={chromeOverlayStyle}')).toBe(true)
     expect(source.includes('const shouldShowBootstrapPlaceholder = !hasHydratedFromBootstrap')).toBe(true)
-    expect(source.includes('editor-canvas-loading-shell flex h-full w-full items-center justify-center')).toBe(true)
+    expect(source.includes('EditorLoadingShell')).toBe(true)
+    expect(source.includes('EditorLoadingCard')).toBe(true)
+    expect(editorPrimitivesSource.includes('editor-canvas-loading-shell flex h-full w-full items-center justify-center')).toBe(true)
+    expect(editorPrimitivesSource.includes('export function EditorInsetBlock')).toBe(true)
+    expect(editorPrimitivesSource.includes('export function EditorTreeSectionCard')).toBe(true)
     expect(
       source.includes(
         'absolute inset-x-0 bottom-2.5 z-20 hidden justify-center px-2.5 md:flex'
@@ -139,6 +149,10 @@ describe('editor shell layout and control affordances', () => {
     expect(sidebarSource.includes('CatalogPreviewTile')).toBe(true)
     expect(sidebarSource.includes('h-10 w-[3.1rem]')).toBe(true)
     expect(sidebarSource.includes('text-[11px] font-medium')).toBe(true)
+    expect(sidebarSource.includes('EditorInsetBlock')).toBe(true)
+    expect(sidebarSource.includes('EditorTreeSectionCard')).toBe(true)
+    expect(sidebarSource.includes('rounded-[12px] border border-white/6 bg-black/10')).toBe(false)
+    expect(sidebarSource.includes('rounded-[14px] border border-white/6 bg-white/[0.02]')).toBe(false)
     expect(sidebarSource.includes('拖入')).toBe(false)
     expect(sidebarSource.includes('item.thumbnailUrl')).toBe(true)
     expect(sidebarSource.includes('loading="lazy"')).toBe(true)
@@ -167,13 +181,12 @@ describe('editor shell layout and control affordances', () => {
     expect(shellSource.includes("aria-label={activityStatus.retryLabel ?? '重试当前操作'}")).toBe(true)
     expect(shellSource.includes('activityStatus={activityStatus}')).toBe(true)
     expect(shellSource.includes('pointer-events-auto w-full max-w-[21rem] self-end xl:mt-1')).toBe(true)
-    expect(
-      shellSource.includes(
-        'flex items-start gap-2.5 rounded-[16px] border px-3 py-2 backdrop-blur-xl'
-      )
-    ).toBe(true)
-    expect(shellSource.includes('text-[12px] leading-4 text-current/92')).toBe(true)
+    expect(shellSource.includes('EditorStatusNotice')).toBe(true)
+    expect(shellSource.includes('rounded-[16px] border px-3 py-2 backdrop-blur-xl')).toBe(false)
+    expect(chromeSource.includes('.editor-surface .editor-status-notice')).toBe(true)
     expect(canvasSource.includes('absolute bottom-3 right-3')).toBe(true)
+    expect(canvasSource.includes('EditorFloatingHintCard')).toBe(true)
+    expect(canvasSource.includes('rounded-[16px] border border-white/10')).toBe(false)
     expect(canvasSource.includes("from 'zustand/react/shallow'")).toBe(true)
     expect(canvasSource.includes('Shift + 左键框选')).toBe(true)
     expect(canvasSource.includes('左键拖动画面')).toBe(true)
@@ -197,6 +210,9 @@ describe('editor shell layout and control affordances', () => {
     expect(previewSource.includes('new THREE.Box3().setFromObject(contentRef.current)')).toBe(true)
     expect(previewSource.includes('camera.lookAt(0, 0, 0)')).toBe(true)
     expect(previewSource.includes('powerPreference')).toBe(true)
+    expect(previewSource.includes('EditorRealtimePreviewFrame')).toBe(true)
+    expect(previewSource.includes('rounded-[16px] border border-[#7da7ff]/18')).toBe(false)
+    expect(chromeSource.includes('.editor-surface .editor-realtime-preview-frame')).toBe(true)
     expect(chromeSource.includes('.editor-surface .editor-dock {')).toBe(true)
     expect(chromeSource.includes('min-height: 48px;')).toBe(true)
     expect(chromeSource.includes('width: max-content;')).toBe(true)

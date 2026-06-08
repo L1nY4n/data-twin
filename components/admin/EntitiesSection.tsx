@@ -4,9 +4,12 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Plus, RefreshCw, Save, Trash2 } from 'lucide-react'
 import { AdvancedJsonEditor } from '@/components/admin/AdvancedJsonEditor'
 import {
+  ADMIN_VALUE_UNSELECTED,
+  adminDisplayValue,
   AdminButton,
   AdminSectionFrame,
-  AdminSelectableCard,
+  AdminSelect,
+  AdminSelectableRecordCard,
   SectionPanel,
   WorkspaceEmptyState,
 } from '@/components/admin/admin-surface'
@@ -14,8 +17,6 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import {
-} from '@/components/viewer-admin/primitives'
 import { useStructuredDraft } from '@/hooks/use-structured-draft'
 import {
   cloneEntityDraft,
@@ -88,8 +89,7 @@ function EntityFields({
         </div>
         <div className="space-y-2">
           <Label>状态</Label>
-          <select
-            className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+          <AdminSelect
             value={draft.status}
             onChange={(event) =>
               updateDraft((current) => ({
@@ -103,12 +103,11 @@ function EntityFields({
                 {status}
               </option>
             ))}
-          </select>
+          </AdminSelect>
         </div>
         <div className="space-y-2">
           <Label>可见性</Label>
-          <select
-            className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+          <AdminSelect
             value={draft.visible ? 'true' : 'false'}
             onChange={(event) =>
               updateDraft((current) => ({
@@ -119,7 +118,7 @@ function EntityFields({
           >
             <option value="true">显示</option>
             <option value="false">隐藏</option>
-          </select>
+          </AdminSelect>
         </div>
       </div>
 
@@ -285,8 +284,7 @@ function EntityFields({
         <div className="grid gap-4 md:grid-cols-5">
           <div className="space-y-2">
             <Label>传感器类型</Label>
-            <select
-              className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+            <AdminSelect
               value={draft.sensorType}
               onChange={(event) =>
                 updateDraft((current) =>
@@ -304,7 +302,7 @@ function EntityFields({
                   {item}
                 </option>
               ))}
-            </select>
+            </AdminSelect>
           </div>
           <div className="space-y-2">
             <Label>单位</Label>
@@ -377,8 +375,7 @@ function EntityFields({
         <div className="grid gap-4 md:grid-cols-5">
           <div className="space-y-2">
             <Label>摄像头类型</Label>
-            <select
-              className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+            <AdminSelect
               value={draft.cameraType}
               onChange={(event) =>
                 updateDraft((current) =>
@@ -396,7 +393,7 @@ function EntityFields({
                   {item}
                 </option>
               ))}
-            </select>
+            </AdminSelect>
           </div>
           <div className="space-y-2">
             <Label>流地址</Label>
@@ -645,7 +642,10 @@ export function EntitiesSection({ workspaceId }: { workspaceId?: string }) {
         },
         {
           label: '当前选中',
-          value: selectedEntity?.name ?? draft.draft?.name ?? '--',
+          value: adminDisplayValue(
+            selectedEntity?.name ?? draft.draft?.name,
+            ADMIN_VALUE_UNSELECTED
+          ),
         },
         {
           label: '草稿模式',
@@ -679,8 +679,7 @@ export function EntitiesSection({ workspaceId }: { workspaceId?: string }) {
         >
           <div className="space-y-3">
             <div className="grid gap-2">
-              <select
-                className="h-9 rounded-md border bg-background px-2 text-sm"
+              <AdminSelect
                 value={newEntityType}
                 onChange={(event) => setNewEntityType(event.target.value as Entity['type'])}
               >
@@ -691,10 +690,9 @@ export function EntitiesSection({ workspaceId }: { workspaceId?: string }) {
                 <option value="camera">摄像头</option>
                 <option value="zone">区域</option>
                 <option value="dynamic">动态实体</option>
-              </select>
+              </AdminSelect>
               {newEntityType === 'dynamic' ? (
-                <select
-                  className="h-9 rounded-md border bg-background px-2 text-sm"
+                <AdminSelect
                   value={newDynamicArchetypeId}
                   onChange={(event) => setNewDynamicArchetypeId(event.target.value)}
                 >
@@ -704,7 +702,7 @@ export function EntitiesSection({ workspaceId }: { workspaceId?: string }) {
                       {archetype.categoryKey} · {archetype.displayName}
                     </option>
                   ))}
-                </select>
+                </AdminSelect>
               ) : null}
               <AdminButton
                 onClick={() => {
@@ -736,29 +734,28 @@ export function EntitiesSection({ workspaceId }: { workspaceId?: string }) {
               <ScrollArea className="h-[520px]">
                 <div className="space-y-2 pr-3">
                   {entities.map((entity) => (
-                    <AdminSelectableCard
+                    <AdminSelectableRecordCard
                       key={entity.id}
                       active={selectedEntityId === entity.id && draftSeed === null}
-                      className="px-3 py-3"
                       onClick={() => {
                         setDraftSeed(null)
                         setSelectedEntityId(entity.id)
                       }}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <div className="font-medium text-foreground">{entity.name}</div>
-                          <div className="mt-1 text-xs text-muted-foreground">{entity.id}</div>
-                        </div>
+                      title={entity.name}
+                      meta={entity.id}
+                      trailing={
                         <Badge variant="outline" className="rounded-full">
                           {entity.type}
                         </Badge>
-                      </div>
-                      <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
-                        <span>{entity.visible ? '可见于场景' : '隐藏于场景'}</span>
-                        <span>{entity.status}</span>
-                      </div>
-                    </AdminSelectableCard>
+                      }
+                      footer={
+                        <>
+                          <span>{entity.visible ? '可见于场景' : '隐藏于场景'}</span>
+                          <span>{entity.status}</span>
+                        </>
+                      }
+                    >
+                    </AdminSelectableRecordCard>
                   ))}
                 </div>
               </ScrollArea>

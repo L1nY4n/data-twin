@@ -40,6 +40,16 @@ const viewerUrl = env('DATA_T_VIEWER_URL', 'http://127.0.0.1:3000')
 const backendUrl = env('DATA_T_BACKEND_URL', 'http://127.0.0.1:4000')
 const runtimeToken = env('RUNTIME_INGEST_TOKEN', 'dev-runtime-ingest-token')
 const expectedIncidentTitle = env('DATA_T_EXPECTED_INCIDENT', 'Python simulated zone intrusion')
+const allowedConsolePatterns = [
+  /\[HMR\] connected/u,
+  /THREE\.WebGLRenderer: Context Lost\./u,
+  /GL Driver Message .*GPU stall due to ReadPixels/u,
+]
+
+function isAllowedConsoleMessage(entry) {
+  if (entry.type === 'info' || entry.type === 'log') return true
+  return allowedConsolePatterns.some((pattern) => pattern.test(entry.text ?? ''))
+}
 
 const { chromium } = await loadPlaywright()
 const browser = await chromium.launch({ headless: true })
@@ -96,8 +106,13 @@ try {
     summary.incidentVisible = false
   }
 
+  const unexpectedConsoleMessages = summary.consoleMessages.filter(
+    (entry) => !isAllowedConsoleMessage(entry)
+  )
+  summary.unexpectedConsoleMessages = unexpectedConsoleMessages
+
   process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`)
-  if (!summary.incidentVisible) {
+  if (!summary.incidentVisible || unexpectedConsoleMessages.length > 0) {
     process.exitCode = 1
   }
 } finally {

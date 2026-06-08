@@ -1,10 +1,10 @@
 use std::collections::BTreeMap;
 
 use crate::contracts::{
-    AccessAction, AccessRule, CameraEntity, CameraType, ContractValue, Entity, EntityBase,
-    EntityStatus, GraphPosition, PersonEntity, RuleConfig, RuleEdge, RuleNode, RuleNodeData,
-    RuleNodeType, SceneConfig, SensorEntity, SensorType, TimeRange, Vector3, VehicleEntity,
-    VehicleRouteTrack, VehicleTrackPosition, VehicleType, ZoneEntity, ZoneType,
+    AccessAction, AccessRule, CameraEntity, CameraPreset, CameraType, ContractValue, Entity,
+    EntityBase, EntityStatus, GraphPosition, PersonEntity, RuleConfig, RuleEdge, RuleNode,
+    RuleNodeData, RuleNodeType, SceneConfig, SensorEntity, SensorType, TimeRange, Vector3,
+    VehicleEntity, VehicleRouteTrack, VehicleTrackPosition, VehicleType, ZoneEntity, ZoneType,
 };
 
 pub const SITE_ID: &str = "factory-demo-site";
@@ -48,7 +48,81 @@ fn seed_scene_config() -> SceneConfig {
             y: 0.0,
             z: -1.0,
         },
+        camera_presets: Some(seed_camera_presets()),
     }
+}
+
+fn seed_camera_presets() -> Vec<CameraPreset> {
+    vec![
+        CameraPreset {
+            id: "iso".to_string(),
+            name: "工厂总览".to_string(),
+            position: Vector3 {
+                x: 318.0,
+                y: 14.0,
+                z: 250.0,
+            },
+            target: Vector3 {
+                x: 2.0,
+                y: 0.0,
+                z: -1.0,
+            },
+            fov: 50.0,
+            quick_access: Some(true),
+            quick_access_order: Some(0),
+        },
+        CameraPreset {
+            id: "top".to_string(),
+            name: "全域俯视".to_string(),
+            position: Vector3 {
+                x: 0.0,
+                y: 360.0,
+                z: 6.0,
+            },
+            target: Vector3 {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            fov: 45.0,
+            quick_access: Some(true),
+            quick_access_order: Some(1),
+        },
+        CameraPreset {
+            id: "yard".to_string(),
+            name: "物流作业区".to_string(),
+            position: Vector3 {
+                x: -120.0,
+                y: 72.0,
+                z: 130.0,
+            },
+            target: Vector3 {
+                x: -50.0,
+                y: 4.0,
+                z: 35.0,
+            },
+            fov: 50.0,
+            quick_access: Some(true),
+            quick_access_order: Some(2),
+        },
+        CameraPreset {
+            id: "gate".to_string(),
+            name: "门岗入口".to_string(),
+            position: Vector3 {
+                x: 150.0,
+                y: 34.0,
+                z: 84.0,
+            },
+            target: Vector3 {
+                x: 92.0,
+                y: 3.0,
+                z: 48.0,
+            },
+            fov: 48.0,
+            quick_access: None,
+            quick_access_order: None,
+        },
+    ]
 }
 
 fn seed_entities() -> Vec<Entity> {

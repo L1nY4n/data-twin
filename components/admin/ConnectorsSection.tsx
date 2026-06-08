@@ -4,14 +4,17 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Plus, RefreshCw, Save, Trash2 } from 'lucide-react'
 import { AdvancedJsonEditor } from '@/components/admin/AdvancedJsonEditor'
 import {
+  ADMIN_VALUE_UNSELECTED,
+  adminDisplayValue,
+  AdminBadge,
   AdminButton,
-  AdminSelectableCard,
+  AdminInput,
+  AdminSelect,
+  AdminSelectableRecordCard,
   AdminSectionFrame,
   SectionPanel,
   WorkspaceEmptyState,
 } from '@/components/admin/admin-surface'
-import { Badge } from '@/components/ui/badge'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useStructuredDraft } from '@/hooks/use-structured-draft'
@@ -129,7 +132,10 @@ export function ConnectorsSection({ workspaceId }: { workspaceId?: string }) {
         },
         {
           label: '当前对象',
-          value: selectedConnector?.name ?? draft.draft?.name ?? '--',
+          value: adminDisplayValue(
+            selectedConnector?.name ?? draft.draft?.name,
+            ADMIN_VALUE_UNSELECTED
+          ),
         },
         {
           label: '接入形态',
@@ -139,11 +145,14 @@ export function ConnectorsSection({ workspaceId }: { workspaceId?: string }) {
       railCards={[
         {
           title: '协议',
-          value: selectedConnector?.protocol ?? draft.draft?.protocol ?? '--',
+          value: adminDisplayValue(
+            selectedConnector?.protocol ?? draft.draft?.protocol,
+            ADMIN_VALUE_UNSELECTED
+          ),
         },
         {
           title: '状态',
-          value: draft.draft?.enabled ? '启用' : '停用',
+          value: draft.draft ? (draft.draft.enabled ? '启用' : '停用') : ADMIN_VALUE_UNSELECTED,
         },
       ]}
     >
@@ -152,9 +161,9 @@ export function ConnectorsSection({ workspaceId }: { workspaceId?: string }) {
           eyebrow="连接器"
           title="连接器列表"
           action={
-            <Badge variant="outline" className="rounded-full px-2.5 text-[10px]">
+            <AdminBadge variant="outline">
               共 {connectors.length} 个
-            </Badge>
+            </AdminBadge>
           }
         >
           <div className="space-y-3">
@@ -176,29 +185,28 @@ export function ConnectorsSection({ workspaceId }: { workspaceId?: string }) {
               <ScrollArea className="h-[520px]">
                 <div className="space-y-2 pr-3">
                   {connectors.map((connector) => (
-                    <AdminSelectableCard
+                    <AdminSelectableRecordCard
                       key={connector.id}
                       active={selectedConnectorId === connector.id && draftSeed === null}
-                      className="px-3 py-3"
                       onClick={() => {
                         setDraftSeed(null)
                         setSelectedConnectorId(connector.id)
                       }}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <div className="font-medium text-foreground">{connector.name}</div>
-                          <div className="mt-1 text-xs text-muted-foreground">{connector.id}</div>
-                        </div>
-                        <Badge variant="outline" className="rounded-full">
+                      title={connector.name}
+                      meta={connector.id}
+                      trailing={
+                        <AdminBadge variant="outline">
                           {connector.protocol}
-                        </Badge>
-                      </div>
-                      <div className="mt-3 flex items-center justify-between gap-3 text-xs text-muted-foreground">
-                        <span className="truncate">{connector.endpoint}</span>
-                        <span>{connector.enabled ? 'enabled' : 'disabled'}</span>
-                      </div>
-                    </AdminSelectableCard>
+                        </AdminBadge>
+                      }
+                      footer={
+                        <>
+                          <span className="truncate">{connector.endpoint}</span>
+                          <span>{connector.enabled ? 'enabled' : 'disabled'}</span>
+                        </>
+                      }
+                    >
+                    </AdminSelectableRecordCard>
                   ))}
                 </div>
               </ScrollArea>
@@ -219,7 +227,7 @@ export function ConnectorsSection({ workspaceId }: { workspaceId?: string }) {
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2">
                     <Label>ID</Label>
-                    <Input
+                    <AdminInput
                       value={draft.draft.id}
                       onChange={(event) =>
                         draft.updateDraft((current) => ({
@@ -231,7 +239,7 @@ export function ConnectorsSection({ workspaceId }: { workspaceId?: string }) {
                   </div>
                   <div className="space-y-2">
                     <Label>名称</Label>
-                    <Input
+                    <AdminInput
                       value={draft.draft.name}
                       onChange={(event) =>
                         draft.updateDraft((current) => ({
@@ -246,7 +254,7 @@ export function ConnectorsSection({ workspaceId }: { workspaceId?: string }) {
                 <div className="grid gap-4 md:grid-cols-3">
                   <div className="space-y-2">
                     <Label>协议</Label>
-                    <Input
+                    <AdminInput
                       value={draft.draft.protocol}
                       onChange={(event) =>
                         draft.updateDraft((current) => ({
@@ -258,7 +266,7 @@ export function ConnectorsSection({ workspaceId }: { workspaceId?: string }) {
                   </div>
                   <div className="space-y-2 md:col-span-2">
                     <Label>Endpoint</Label>
-                    <Input
+                    <AdminInput
                       value={draft.draft.endpoint}
                       onChange={(event) =>
                         draft.updateDraft((current) => ({
@@ -272,8 +280,7 @@ export function ConnectorsSection({ workspaceId }: { workspaceId?: string }) {
 
                 <div className="space-y-2">
                   <Label>启用状态</Label>
-                  <select
-                    className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                  <AdminSelect
                     value={draft.draft.enabled ? 'true' : 'false'}
                     onChange={(event) =>
                       draft.updateDraft((current) => ({
@@ -284,7 +291,7 @@ export function ConnectorsSection({ workspaceId }: { workspaceId?: string }) {
                   >
                     <option value="true">启用</option>
                     <option value="false">停用</option>
-                  </select>
+                  </AdminSelect>
                 </div>
 
                 <AdvancedJsonEditor

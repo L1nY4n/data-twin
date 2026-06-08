@@ -268,7 +268,9 @@ describe('performance guards', () => {
       'utf8'
     )
 
-    expect(source.includes('collectVisibleSnapshotsByTypes')).toBe(true)
+    expect(source.includes('collectVisibleMovingSnapshotsInto')).toBe(true)
+    expect(source.includes('movingSnapshotsScratch')).toBe(true)
+    expect(source.includes('dynamicNeighborsScratch')).toBe(true)
     expect(source.includes("'person'")).toBe(true)
     expect(source.includes("'vehicle'")).toBe(true)
     expect(source.includes('createDynamicOccupancyIndex')).toBe(true)
@@ -337,6 +339,8 @@ describe('performance guards', () => {
 
     expect(canvas.includes('dpr={dprRange}')).toBe(true)
     expect(canvas.includes('frameloop="always"')).toBe(true)
+    expect(canvas.includes('WEBGPU_FRAME_STALL_FALLBACK_MS')).toBe(true)
+    expect(canvas.includes("setRendererMode('webgl2')")).toBe(true)
     expect(canvas.includes('glRenderer.setPixelRatio')).toBe(true)
     expect(canvas.includes('window.devicePixelRatio <= 1.5')).toBe(true)
     expect(canvas.includes('minPolarAngle={MIN_ORBIT_POLAR_ANGLE}')).toBe(true)

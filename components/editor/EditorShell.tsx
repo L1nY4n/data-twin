@@ -9,6 +9,7 @@ import { useEditorUiStore } from '@/lib/digital-twin/editor-store'
 import { cn } from '@/lib/utils'
 import { EditorAppSidebar } from './EditorAppSidebar'
 import { EditorInspector } from './EditorInspector'
+import { EditorLoadingCard, EditorLoadingShell, EditorStatusNotice } from './editor-primitives'
 import { EditorToolbar } from './EditorToolbar'
 import { EditorViewportDock } from './EditorViewportDock'
 import { useEditorChromeMotion } from './useEditorChromeMotion'
@@ -19,12 +20,12 @@ const EditorCanvas = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="editor-canvas-loading-shell flex h-full w-full items-center justify-center">
-        <div className="editor-loading-card flex flex-col items-center gap-3 px-6 py-5 text-white">
+      <EditorLoadingShell>
+        <EditorLoadingCard>
           <Spinner className="h-8 w-8 text-[#7da7ff]" />
           <span className="text-sm text-white/70">加载 3D 编辑器...</span>
-        </div>
-      </div>
+        </EditorLoadingCard>
+      </EditorLoadingShell>
     ),
   }
 )
@@ -288,10 +289,7 @@ export function EditorShell({
     Boolean(error) || activityStatus.phase === 'recovering' || activityStatus.phase === 'error'
   const canRetryCurrentOperation = Boolean(activityStatus.canRetry && activityStatus.retryAction)
   const shouldShowBootstrapPlaceholder = !hasHydratedFromBootstrap
-  const statusBannerToneClass =
-    activityStatus.tone === 'danger'
-      ? 'border-[#ff9e9e]/40 bg-[#1b1014]/84 text-[#ffd4d4] shadow-[0_18px_44px_rgba(43,12,16,0.22)]'
-      : 'border-[#f6bf6a]/35 bg-[#2a2114]/82 text-[#ffe0ad] shadow-[0_18px_44px_rgba(62,38,10,0.22)]'
+  const statusBannerTone = activityStatus.tone === 'danger' ? 'danger' : 'warning'
   const bannerDetail = error ?? activityStatus.detail
   const resourcesPanelInlineSize = resourcesPanelOpen
     ? isMobile
@@ -317,6 +315,7 @@ export function EditorShell({
         paddingRight: `${chromeRightInset}px`,
       }
     : undefined
+  const shouldHideFloatingChromeForResources = isMobile && resourcesPanelOpen
 
   useEffect(() => {
     return () => {
@@ -352,8 +351,8 @@ export function EditorShell({
 
             <div className="relative h-full">
               {shouldShowBootstrapPlaceholder ? (
-                <div className="editor-canvas-loading-shell flex h-full w-full items-center justify-center">
-                  <div className="editor-loading-card flex max-w-sm flex-col items-center gap-3 px-6 py-5 text-center text-white">
+                <EditorLoadingShell>
+                  <EditorLoadingCard className="max-w-sm text-center">
                     <Spinner className="h-8 w-8 text-[#7da7ff]" />
                     <div className="space-y-1">
                       <p className="text-sm font-semibold text-white">{activityStatus.title}</p>
@@ -370,8 +369,8 @@ export function EditorShell({
                         {activityStatus.retryLabel ?? '重试'}
                       </button>
                     ) : null}
-                  </div>
-                </div>
+                  </EditorLoadingCard>
+                </EditorLoadingShell>
               ) : (
                 <>
                   <EditorCanvas />
@@ -409,57 +408,50 @@ export function EditorShell({
                     </div>
                   </div>
 
-                  <div className="pointer-events-none absolute inset-x-0 top-3 z-30 flex justify-center px-14 md:px-16 lg:px-24" style={chromeOverlayStyle}>
-                    <div className="flex w-full max-w-[60rem] flex-col items-center gap-1.5">
-                      <div
-                        ref={toolbarRef}
-                        data-editor-chrome="toolbar"
-                        className="pointer-events-auto w-full"
-                      >
-                        <EditorToolbar
-                          onSave={() => void saveSelection()}
-                          onPublish={() => void publish()}
-                          onDuplicate={() => void duplicateSelection()}
-                          onDelete={() => void deleteSelection()}
-                          canPublish={canPublish}
-                          publishStatus={publishStatus}
-                          activityStatus={activityStatus}
-                        />
-                      </div>
-
-                      {shouldShowStatusBanner ? (
-                        <div className="pointer-events-auto w-full max-w-[21rem] self-end xl:mt-1">
-                          <div
-                            className={cn(
-                              'flex items-start gap-2.5 rounded-[16px] border px-3 py-2 backdrop-blur-xl',
-                              statusBannerToneClass
-                            )}
-                          >
-                            <div className="min-w-0 flex-1">
-                              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-current/68">
-                                {activityStatus.title}
-                              </p>
-                              <p className="mt-0.5 text-[12px] leading-4 text-current/92">
-                                {bannerDetail}
-                              </p>
-                            </div>
-
-                            {canRetryCurrentOperation ? (
-                              <button
-                                type="button"
-                                className="rounded-full border border-current/20 bg-black/10 px-2.5 py-1 text-[10px] font-semibold text-current transition hover:bg-black/20"
-                                onClick={() => void retryActivity()}
-                                title={activityStatus.retryLabel ?? '重试当前操作'}
-                                aria-label={activityStatus.retryLabel ?? '重试当前操作'}
-                              >
-                                {activityStatus.retryLabel ?? '重试'}
-                              </button>
-                            ) : null}
-                          </div>
+                  {!shouldHideFloatingChromeForResources ? (
+                    <div className="pointer-events-none absolute inset-x-0 top-3 z-30 flex justify-center px-14 md:px-16 lg:px-24" style={chromeOverlayStyle}>
+                      <div className="flex w-full max-w-[60rem] flex-col items-center gap-1.5">
+                        <div
+                          ref={toolbarRef}
+                          data-editor-chrome="toolbar"
+                          className="pointer-events-auto w-full"
+                        >
+                          <EditorToolbar
+                            onSave={() => void saveSelection()}
+                            onPublish={() => void publish()}
+                            onDuplicate={() => void duplicateSelection()}
+                            onDelete={() => void deleteSelection()}
+                            canPublish={canPublish}
+                            publishStatus={publishStatus}
+                            activityStatus={activityStatus}
+                          />
                         </div>
-                      ) : null}
+
+                        {shouldShowStatusBanner ? (
+                          <div className="pointer-events-auto w-full max-w-[21rem] self-end xl:mt-1">
+                            <EditorStatusNotice
+                              tone={statusBannerTone}
+                              title={activityStatus.title}
+                              detail={bannerDetail}
+                              action={
+                                canRetryCurrentOperation ? (
+                                <button
+                                  type="button"
+                                  className="rounded-full border border-current/20 bg-black/10 px-2.5 py-1 text-[10px] font-semibold text-current transition hover:bg-black/20"
+                                  onClick={() => void retryActivity()}
+                                  title={activityStatus.retryLabel ?? '重试当前操作'}
+                                  aria-label={activityStatus.retryLabel ?? '重试当前操作'}
+                                >
+                                  {activityStatus.retryLabel ?? '重试'}
+                                </button>
+                                ) : null
+                              }
+                            />
+                          </div>
+                        ) : null}
+                      </div>
                     </div>
-                  </div>
+                  ) : null}
 
                   <div
                     className={cn(

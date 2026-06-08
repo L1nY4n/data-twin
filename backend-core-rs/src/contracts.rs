@@ -206,6 +206,8 @@ pub struct SceneConfig {
     pub show_grid: bool,
     pub camera_position: Vector3,
     pub camera_target: Vector3,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub camera_presets: Option<Vec<CameraPreset>>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -213,6 +215,20 @@ pub struct Vector3 {
     pub x: f32,
     pub y: f32,
     pub z: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CameraPreset {
+    pub id: String,
+    pub name: String,
+    pub position: Vector3,
+    pub target: Vector3,
+    pub fov: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quick_access: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quick_access_order: Option<i32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

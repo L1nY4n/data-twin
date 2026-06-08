@@ -12,6 +12,7 @@ import {
 } from 'three'
 import type * as THREE from 'three'
 import { PublishedStaticAssetMount } from '@/components/digital-twin/scene/PublishedStaticAssetMount'
+import { PublishedFloorPlanBasemapLayer } from '@/components/digital-twin/scene/PublishedFloorPlanBasemapLayer'
 import { createPublishedStaticPalette } from '@/components/digital-twin/scene/palette'
 import {
   PublishedStaticRecipeMount,
@@ -144,6 +145,9 @@ export const EditorStaticEnvironment = memo(function EditorStaticEnvironment({
 
   return (
     <group ref={rootRef} name="editor-static-environment">
+      <PublishedFloorPlanBasemapLayer
+        basemaps={publishedScenePackage.floorPlanBasemaps ?? []}
+      />
       {staticChunkRegistry.map((entry) => {
         const assetEntry = assetManifest?.chunks[entry.id]
 

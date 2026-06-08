@@ -53,6 +53,31 @@ describe('createTickScheduler', () => {
     expect(calls).toBeLessThanOrEqual(4)
   })
 
+  test('uses supplied render delta when the coarse clock has not advanced', () => {
+    let fixedCount = 0
+    const renderDeltas: number[] = []
+    const renderTimes: number[] = []
+
+    const scheduler = createTickScheduler({
+      fixedHz: 60,
+      onFixedTick: () => {
+        fixedCount += 1
+      },
+      onRenderTick: (nowMs, deltaMs) => {
+        renderTimes.push(nowMs)
+        renderDeltas.push(deltaMs)
+      },
+    })
+
+    scheduler.advance(1000)
+    scheduler.advance(1000, 16.7)
+    scheduler.advance(1000, 16.7)
+
+    expect(fixedCount).toBeGreaterThan(0)
+    expect(renderDeltas).toEqual([0, 16.7, 16.7])
+    expect(renderTimes).toEqual([1000, 1016.7, 1033.4])
+  })
+
   test('drops large frame gaps instead of replaying every missed fixed tick', () => {
     let fixedCount = 0
     const renderDeltas: number[] = []

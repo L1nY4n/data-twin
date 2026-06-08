@@ -26,10 +26,10 @@ pub(crate) use helpers::{is_path_safe_workspace_slug, is_reserved_workspace_slug
 
 use crate::{
     contracts::{
-        Alarm, AuditEventRecord, BootstrapResponse, DataConnector, EditorSaveMode,
+        Alarm, AuditEventRecord, BootstrapResponse, CameraPreset, DataConnector, EditorSaveMode,
         EditorSaveRequest, EditorSaveResponse, Entity, EntityArchetype, EntityBinding,
         EntityCategory, PublishedSceneDescriptor, RuleConfig, RuleValidationResponse, SceneConfig,
-        SceneResponse, StaticAssetInstance, WorkspaceRecord,
+        SceneResponse, StaticAssetInstance, Vector3, WorkspaceRecord,
     },
     module_registry::{built_in_event_type_registrations, built_in_platform_module_manifests},
     published_scene::load_published_scene_descriptor,
@@ -153,6 +153,8 @@ struct WorkspaceState {
     scene_config: SceneConfig,
     entities: BTreeMap<String, Entity>,
     static_assets: BTreeMap<String, StaticAssetInstance>,
+    #[serde(default)]
+    floor_plan_basemaps: Vec<serde_json::Value>,
     published_scene_version: u64,
     published_scene_config: SceneConfig,
     published_entities: Vec<Entity>,
@@ -182,6 +184,7 @@ pub struct WorkingSnapshot {
     pub scene_config: SceneConfig,
     pub entities: Vec<Entity>,
     pub static_assets: Vec<StaticAssetInstance>,
+    pub floor_plan_basemaps: Vec<serde_json::Value>,
 }
 
 #[derive(Debug, Clone)]
@@ -267,6 +270,7 @@ fn create_seed_workspace_state(workspace: &WorkspaceRecord) -> WorkspaceState {
             .map(|entity| (entity.id().to_string(), entity))
             .collect(),
         static_assets: BTreeMap::new(),
+        floor_plan_basemaps: Vec::new(),
         published_scene_version: snapshot.scene_version,
         published_scene_config: scene_config,
         published_entities,
@@ -292,6 +296,64 @@ fn create_seed_workspace_state(workspace: &WorkspaceRecord) -> WorkspaceState {
         bindings: BTreeMap::new(),
         audit_events: Vec::new(),
     }
+}
+
+fn offset_vector(origin: &Vector3, x: f32, y: f32, z: f32) -> Vector3 {
+    Vector3 {
+        x: origin.x + x,
+        y: origin.y + y,
+        z: origin.z + z,
+    }
+}
+
+fn derive_default_camera_presets(scene_config: &SceneConfig) -> Vec<CameraPreset> {
+    let span = (scene_config.grid_size as f32).clamp(36.0, 160.0);
+    let target = scene_config.camera_target;
+
+    vec![
+        CameraPreset {
+            id: "overview".to_string(),
+            name: "场景总览".to_string(),
+            position: scene_config.camera_position,
+            target,
+            fov: 50.0,
+            quick_access: Some(true),
+            quick_access_order: Some(0),
+        },
+        CameraPreset {
+            id: "top".to_string(),
+            name: "全域俯视".to_string(),
+            position: offset_vector(&target, 0.0, (span * 4.5).max(96.0), span * 0.08),
+            target,
+            fov: 45.0,
+            quick_access: Some(true),
+            quick_access_order: Some(1),
+        },
+        CameraPreset {
+            id: "inspection".to_string(),
+            name: "巡检视角".to_string(),
+            position: offset_vector(&target, span * 0.75, span * 0.42, span * 0.65),
+            target,
+            fov: 50.0,
+            quick_access: Some(true),
+            quick_access_order: Some(2),
+        },
+    ]
+}
+
+fn ensure_scene_config_camera_presets(scene_config: &mut SceneConfig) -> bool {
+    if scene_config.camera_presets.is_some() {
+        return false;
+    }
+
+    scene_config.camera_presets = Some(derive_default_camera_presets(scene_config));
+    true
+}
+
+fn normalize_workspace_state_scene_defaults(state: &mut WorkspaceState) -> bool {
+    let mut changed = ensure_scene_config_camera_presets(&mut state.scene_config);
+    changed |= ensure_scene_config_camera_presets(&mut state.published_scene_config);
+    changed
 }
 
 impl Store {
@@ -364,16 +426,23 @@ impl Store {
                 let state = snapshot
                     .workspace_states
                     .entry(workspace_id.to_string())
-                    .or_insert_with(|| create_seed_workspace_state(&workspace))
-                    .clone();
+                    .or_insert_with(|| create_seed_workspace_state(&workspace));
+                normalize_workspace_state_scene_defaults(state);
+                let state = state.clone();
                 Ok((workspace, state))
             }
             StoreBackend::Postgres(store) => {
                 let maybe_state = load_workspace_state_postgres(&store.pool, workspace_id).await?;
-                let state = if let Some(state) = maybe_state {
+                let state = if let Some(mut state) = maybe_state {
+                    if normalize_workspace_state_scene_defaults(&mut state) {
+                        let mut tx = store.pool.begin().await?;
+                        persist_workspace_state_postgres(&mut tx, workspace_id, &state).await?;
+                        tx.commit().await?;
+                    }
                     state
                 } else {
-                    let state = create_seed_workspace_state(&workspace);
+                    let mut state = create_seed_workspace_state(&workspace);
+                    normalize_workspace_state_scene_defaults(&mut state);
                     let mut tx = store.pool.begin().await?;
                     persist_workspace_state_postgres(&mut tx, workspace_id, &state).await?;
                     tx.commit().await?;
@@ -383,10 +452,16 @@ impl Store {
             }
             StoreBackend::Sqlite(store) => {
                 let maybe_state = load_workspace_state_sqlite(&store.pool, workspace_id).await?;
-                let state = if let Some(state) = maybe_state {
+                let state = if let Some(mut state) = maybe_state {
+                    if normalize_workspace_state_scene_defaults(&mut state) {
+                        let mut tx = store.pool.begin().await?;
+                        persist_workspace_state_sqlite(&mut tx, workspace_id, &state).await?;
+                        tx.commit().await?;
+                    }
                     state
                 } else {
-                    let state = create_seed_workspace_state(&workspace);
+                    let mut state = create_seed_workspace_state(&workspace);
+                    normalize_workspace_state_scene_defaults(&mut state);
                     let mut tx = store.pool.begin().await?;
                     persist_workspace_state_sqlite(&mut tx, workspace_id, &state).await?;
                     tx.commit().await?;
@@ -539,9 +614,10 @@ impl Store {
     pub async fn workspace_update_scene(
         &self,
         workspace_id: &str,
-        config: SceneConfig,
+        mut config: SceneConfig,
     ) -> Result<SceneResponse, StoreError> {
         let (_, mut state) = self.ensure_workspace_state(workspace_id).await?;
+        ensure_scene_config_camera_presets(&mut config);
         state.scene_config = config.clone();
         state.scene_version += 1;
         state.audit_events.push(serde_json::json!({
@@ -569,6 +645,7 @@ impl Store {
             scene_config: state.scene_config,
             entities: state.entities.values().cloned().collect(),
             static_assets: state.static_assets.values().cloned().collect(),
+            floor_plan_basemaps: state.floor_plan_basemaps.clone(),
         })
     }
 
@@ -620,6 +697,7 @@ impl Store {
                         scene_config: published.scene_config.clone(),
                         entities: published.entities.clone(),
                         static_assets: published.static_assets.clone(),
+                        floor_plan_basemaps: Vec::new(),
                     },
                     published.published_scene.as_ref(),
                     &published.compiler_source,
@@ -646,6 +724,7 @@ impl Store {
                         scene_config: published.scene_config.clone(),
                         entities: published.entities.clone(),
                         static_assets: published.static_assets.clone(),
+                        floor_plan_basemaps: Vec::new(),
                     },
                     published.published_scene.as_ref(),
                     &published.compiler_source,
@@ -868,6 +947,7 @@ impl Store {
         state.published_scene_config = snapshot.scene_config.clone();
         state.published_entities = snapshot.entities.clone();
         state.published_static_assets = snapshot.static_assets.clone();
+        state.floor_plan_basemaps = snapshot.floor_plan_basemaps.clone();
         state.published_scene = published_scene.clone();
         state.published_compiler_source = compiler_source.to_string();
         state.published_updated_at = updated_at;
@@ -5220,6 +5300,64 @@ mod tests {
             .refresh_publish_heartbeat("token-a", 5_100)
             .await
             .unwrap());
+    }
+
+    #[tokio::test]
+    async fn scene_update_backfills_missing_camera_presets() {
+        let store = Store::memory_backend();
+        let mut scene_config = store
+            .workspace_get_scene("factory-demo-scene")
+            .await
+            .unwrap()
+            .scene_config;
+        scene_config.camera_presets = None;
+
+        let response = store
+            .workspace_update_scene("factory-demo-scene", scene_config)
+            .await
+            .unwrap();
+
+        let presets = response.scene_config.camera_presets.unwrap();
+        assert_eq!(presets.len(), 3);
+        assert_eq!(presets[0].id, "overview");
+        assert_eq!(presets[0].quick_access, Some(true));
+        assert_eq!(presets[0].quick_access_order, Some(0));
+    }
+
+    #[tokio::test]
+    async fn scene_update_preserves_explicit_empty_camera_presets() {
+        let store = Store::memory_backend();
+        let mut scene_config = store
+            .workspace_get_scene("factory-demo-scene")
+            .await
+            .unwrap()
+            .scene_config;
+        scene_config.camera_presets = Some(Vec::new());
+
+        let response = store
+            .workspace_update_scene("factory-demo-scene", scene_config)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            response
+                .scene_config
+                .camera_presets
+                .as_ref()
+                .map(|presets| presets.len()),
+            Some(0)
+        );
+        assert_eq!(
+            store
+                .workspace_get_scene("factory-demo-scene")
+                .await
+                .unwrap()
+                .scene_config
+                .camera_presets
+                .as_ref()
+                .map(|presets| presets.len()),
+            Some(0)
+        );
     }
 
     #[tokio::test]

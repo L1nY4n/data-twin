@@ -24,10 +24,13 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
-  ViewerAdminEmptyCard,
+  ViewerAdminEmptyState,
+  ViewerAdminContentCard,
+  ViewerAdminKicker,
   ViewerAdminPanelHeader,
+  ViewerAdminRecordCard,
   ViewerAdminSidePanelBody,
-  ViewerAdminSoftCard,
+  ViewerAdminMetricTile,
 } from '@/components/viewer-admin/primitives'
 import {
   Area,
@@ -197,19 +200,46 @@ export function BottomPanel() {
           <TabsContent value="timeline" className="m-0 h-full">
             <div className="viewer-message-panel__timeline">
               <div className="viewer-message-summary-grid">
-                <StatCard label="活跃事件" value={activeIncidentCount} color="#8b5cf6" isWarning={activeIncidentCount > 0} />
-                <StatCard label="未处理告警" value={unacknowledgedAlarmCount} color="#ef4444" isWarning={unacknowledgedAlarmCount > 0} />
-                <StatCard label="运行车辆" value={stats.vehicles} color="#f59e0b" />
-                <StatCard label="设备运行" value={stats.activeEquipment} total={stats.equipment} color="#22c55e" />
+                <ViewerAdminMetricTile
+                  label="活跃事件"
+                  value={renderPanelMetricValue(activeIncidentCount, '#8b5cf6')}
+                  density="compact"
+                  size="compact"
+                  className={cn('viewer-message-stat-card', activeIncidentCount > 0 && 'is-warning')}
+                />
+                <ViewerAdminMetricTile
+                  label="未处理告警"
+                  value={renderPanelMetricValue(unacknowledgedAlarmCount, '#ef4444')}
+                  density="compact"
+                  size="compact"
+                  className={cn('viewer-message-stat-card', unacknowledgedAlarmCount > 0 && 'is-warning')}
+                />
+                <ViewerAdminMetricTile
+                  label="运行车辆"
+                  value={renderPanelMetricValue(stats.vehicles, '#f59e0b')}
+                  density="compact"
+                  size="compact"
+                  className="viewer-message-stat-card"
+                />
+                <ViewerAdminMetricTile
+                  label="设备运行"
+                  value={renderPanelMetricValue(stats.activeEquipment, '#22c55e', stats.equipment)}
+                  density="compact"
+                  size="compact"
+                  className="viewer-message-stat-card"
+                />
               </div>
 
               <ScrollArea className="viewer-message-list-scroll">
                 <div className="viewer-message-card-stack">
                   {incidents.length === 0 ? (
-                    <ViewerAdminEmptyCard className="viewer-message-empty border-dashed p-4 text-center text-sm text-muted-foreground">
-                      <Sparkles className="mx-auto mb-2 h-7 w-7" />
-                      等待外部数据源推送事件与告警。
-                    </ViewerAdminEmptyCard>
+                    <ViewerAdminEmptyState
+                      title="等待事件数据"
+                      description="外部数据源推送事件与告警后，会自动生成消息卡片。"
+                      icon={Sparkles}
+                      align="center"
+                      className="viewer-message-empty"
+                    />
                   ) : (
                     incidents.map((incident) => {
                       const eventType = resolveRuntimeEventType({
@@ -249,7 +279,7 @@ export function BottomPanel() {
 
           <TabsContent value="rules" className="m-0 h-full">
             <div className="viewer-rules-summary-list">
-              <ViewerAdminSoftCard className="border-amber-300/30 bg-amber-300/10 p-3">
+              <ViewerAdminContentCard className="border-amber-300/30 bg-amber-300/10">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <h4 className="text-sm font-medium text-amber-100/90">规则配置在后台管理中心维护</h4>
@@ -261,23 +291,45 @@ export function BottomPanel() {
                     <Link href="/admin/rules">管理</Link>
                   </Button>
                 </div>
-              </ViewerAdminSoftCard>
+              </ViewerAdminContentCard>
 
               <div className="viewer-message-summary-grid">
-                <StatCard label="规则总数" value={rules.length} color="#8b5cf6" />
-                <StatCard label="启用" value={rules.filter((rule) => rule.enabled).length} color="#22c55e" />
-                <StatCard label="停用" value={rules.filter((rule) => !rule.enabled).length} color="#f59e0b" />
+                <ViewerAdminMetricTile
+                  label="规则总数"
+                  value={renderPanelMetricValue(rules.length, '#8b5cf6')}
+                  density="compact"
+                  size="compact"
+                  className="viewer-message-stat-card"
+                />
+                <ViewerAdminMetricTile
+                  label="启用"
+                  value={renderPanelMetricValue(rules.filter((rule) => rule.enabled).length, '#22c55e')}
+                  density="compact"
+                  size="compact"
+                  className="viewer-message-stat-card"
+                />
+                <ViewerAdminMetricTile
+                  label="停用"
+                  value={renderPanelMetricValue(rules.filter((rule) => !rule.enabled).length, '#f59e0b')}
+                  density="compact"
+                  size="compact"
+                  className="viewer-message-stat-card"
+                />
               </div>
 
               <ScrollArea className="viewer-rules-scroll">
                 <div className="viewer-message-card-stack">
                   {rules.length === 0 ? (
-                    <ViewerAdminEmptyCard className="border-dashed p-6 text-center text-sm text-muted-foreground">
-                      当前未加载规则配置。
-                    </ViewerAdminEmptyCard>
+                    <ViewerAdminEmptyState
+                      title="暂无规则配置"
+                      description="后台管理中心保存规则后，运行态会展示规则摘要和触发结果。"
+                      icon={GitBranch}
+                      align="center"
+                      className="p-6"
+                    />
                   ) : (
                     rules.map((rule) => (
-                      <ViewerAdminSoftCard key={rule.id} className="viewer-rule-card p-3">
+                      <ViewerAdminContentCard key={rule.id} className="viewer-rule-card">
                         <div className="flex items-start justify-between gap-4">
                           <div className="min-w-0">
                             <div className="truncate text-sm font-medium">{rule.name}</div>
@@ -294,7 +346,7 @@ export function BottomPanel() {
                           <span>{rule.edges.length} edges</span>
                           <span>v{rule.version ?? 1}</span>
                         </div>
-                      </ViewerAdminSoftCard>
+                      </ViewerAdminContentCard>
                     ))
                   )}
                 </div>
@@ -304,7 +356,7 @@ export function BottomPanel() {
 
           <TabsContent value="charts" className="m-0 h-full">
             <div className="viewer-chart-stack">
-              <ViewerAdminSoftCard className="viewer-chart-card p-3">
+              <ViewerAdminContentCard className="viewer-chart-card">
                 <h4 className="mb-2 text-sm font-medium">实时活动趋势</h4>
                 <ResponsiveContainer width="100%" height={150}>
                   <AreaChart data={chartData}>
@@ -317,9 +369,9 @@ export function BottomPanel() {
                     <Area type="monotone" dataKey="equipment" name="设备" stroke="#22c55e" fill="#22c55e" fillOpacity={0.18} />
                   </AreaChart>
                 </ResponsiveContainer>
-              </ViewerAdminSoftCard>
+              </ViewerAdminContentCard>
 
-              <ViewerAdminSoftCard className="viewer-chart-card p-3">
+              <ViewerAdminContentCard className="viewer-chart-card">
                 <h4 className="mb-2 text-sm font-medium">运行负载</h4>
                 <ResponsiveContainer width="100%" height={150}>
                   <LineChart data={chartData}>
@@ -331,7 +383,7 @@ export function BottomPanel() {
                     <Line type="monotone" dataKey="vehicles" name="车辆" stroke="#f59e0b" strokeWidth={2} dot={false} />
                   </LineChart>
                 </ResponsiveContainer>
-              </ViewerAdminSoftCard>
+              </ViewerAdminContentCard>
             </div>
           </TabsContent>
         </div>
@@ -346,6 +398,17 @@ const chartTooltipStyle = {
   borderRadius: '12px',
   fontSize: '12px',
 } as const
+
+function renderPanelMetricValue(value: number, color: string, total?: number) {
+  return (
+    <span className="flex items-end gap-1.5">
+      <span className="text-lg font-semibold" style={{ color }}>
+        {value}
+      </span>
+      {total !== undefined ? <span className="pb-0.5 text-xs text-muted-foreground">/ {total}</span> : null}
+    </span>
+  )
+}
 
 function MessageIncidentCard({
   incident,
@@ -368,34 +431,36 @@ function MessageIncidentCard({
   const color = ALARM_COLOR_MAP[incident.severity]
 
   return (
-    <ViewerAdminSoftCard
-      className={cn('viewer-message-card p-3', active && 'is-active', incident.acknowledged && 'is-acknowledged')}
-      onClick={onSelect}
-    >
-      <div className="flex items-start gap-2.5">
+    <ViewerAdminRecordCard
+      title={incident.title}
+      meta={incident.summary}
+      leading={
         <span className="viewer-message-card__icon" style={{ color }}>
           <Icon className="h-4 w-4" />
         </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center justify-between gap-2">
-            <p className="truncate text-sm font-semibold">{incident.title}</p>
-            <span className="viewer-message-card__time">
-              {new Date(incident.timestamp).toLocaleTimeString('zh-CN', {
-                hour: '2-digit',
-                minute: '2-digit',
-              })}
-            </span>
-          </div>
-          <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{incident.summary}</p>
-          <div className="mt-2 flex flex-wrap gap-1">
-            <Badge variant="outline" className="text-[10px]">{eventLabel}</Badge>
-            <Badge variant="secondary" className="text-[10px]">{incident.severity}</Badge>
-            {incident.zoneName ? <Badge variant="outline" className="text-[10px]">{incident.zoneName}</Badge> : null}
-          </div>
-        </div>
+      }
+      trailing={
+        <span className="viewer-message-card__time">
+          {new Date(incident.timestamp).toLocaleTimeString('zh-CN', {
+            hour: '2-digit',
+            minute: '2-digit',
+          })}
+        </span>
+      }
+      className={cn('viewer-message-card p-3', active && 'is-active', incident.acknowledged && 'is-acknowledged')}
+      titleClassName="truncate text-sm font-semibold"
+      metaClassName="line-clamp-2"
+      bodyClassName="space-y-3"
+      density="compact"
+      onClick={onSelect}
+    >
+      <div className="flex flex-wrap gap-1">
+        <Badge variant="outline" className="text-[10px]">{eventLabel}</Badge>
+        <Badge variant="secondary" className="text-[10px]">{incident.severity}</Badge>
+        {incident.zoneName ? <Badge variant="outline" className="text-[10px]">{incident.zoneName}</Badge> : null}
       </div>
 
-      <div className="mt-3 flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-2">
         <Button variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={(event) => { event.stopPropagation(); onFocus() }}>
           <LocateFixed className="mr-1 h-3.5 w-3.5" />
           聚焦
@@ -412,21 +477,32 @@ function MessageIncidentCard({
           </Button>
         ) : null}
       </div>
-    </ViewerAdminSoftCard>
+    </ViewerAdminRecordCard>
   )
 }
 
 function ActiveIncidentCard({ incident }: { incident: RuntimeIncident | null }) {
+  if (!incident) {
+    return (
+      <ViewerAdminEmptyState
+        title="暂无活跃事件"
+        description="系统会根据移动对象、实时信号和规则触发生成证据化事件卡片。"
+        icon={Sparkles}
+        className="viewer-message-detail-card"
+      />
+    )
+  }
+
   return (
-    <ViewerAdminSoftCard className="viewer-message-detail-card p-3">
-      <div className="viewer-admin-kicker">focus message</div>
+    <ViewerAdminContentCard className="viewer-message-detail-card">
+      <ViewerAdminKicker>focus message</ViewerAdminKicker>
       <h4 className="mt-1 line-clamp-2 text-sm font-semibold">
-        {incident?.title ?? '暂无活跃事件'}
+        {incident.title}
       </h4>
       <p className="mt-1 line-clamp-3 text-xs text-muted-foreground">
-        {incident?.message ?? '系统会根据移动对象、实时信号和规则触发生成证据化事件卡片。'}
+        {incident.message}
       </p>
-      {incident?.citations?.length ? (
+      {incident.citations?.length ? (
         <div className="mt-3 grid gap-2">
           {incident.citations.slice(0, 3).map((citation) => (
             <div key={citation.id} className="viewer-message-citation-row">
@@ -436,7 +512,7 @@ function ActiveIncidentCard({ incident }: { incident: RuntimeIncident | null }) 
           ))}
         </div>
       ) : null}
-    </ViewerAdminSoftCard>
+    </ViewerAdminContentCard>
   )
 }
 
@@ -448,7 +524,7 @@ function AlarmSummary({
   onAcknowledge: (alarmId: string) => void
 }) {
   return (
-    <ViewerAdminSoftCard className="viewer-alarm-summary p-3">
+    <ViewerAdminContentCard className="viewer-alarm-summary">
       <div className="mb-2 flex items-center justify-between">
         <span className="text-sm font-medium">告警摘要</span>
         <Badge variant="outline">{alarms.length}</Badge>
@@ -474,36 +550,15 @@ function AlarmSummary({
           )
         })}
         {alarms.length === 0 ? (
-          <ViewerAdminEmptyCard className="flex items-center gap-2 border-dashed p-3 text-sm text-muted-foreground">
-            <CheckCircle2 className="h-4 w-4 text-green-500" />
-            当前无传统告警，重点关注事件联动卡片。
-          </ViewerAdminEmptyCard>
+          <ViewerAdminEmptyState
+            title="暂无传统告警"
+            description="当前重点关注事件联动卡片。"
+            icon={CheckCircle2}
+            density="compact"
+            iconClassName="text-green-400"
+          />
         ) : null}
       </div>
-    </ViewerAdminSoftCard>
-  )
-}
-
-function StatCard({
-  label,
-  value,
-  total,
-  color,
-  isWarning = false,
-}: {
-  label: string
-  value: number
-  total?: number
-  color: string
-  isWarning?: boolean
-}) {
-  return (
-    <ViewerAdminSoftCard className={cn('viewer-message-stat-card p-2.5', isWarning && 'is-warning')}>
-      <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">{label}</div>
-      <div className="mt-1 flex items-end gap-1.5">
-        <span className="text-lg font-semibold" style={{ color }}>{value}</span>
-        {total !== undefined ? <span className="pb-0.5 text-xs text-muted-foreground">/ {total}</span> : null}
-      </div>
-    </ViewerAdminSoftCard>
+    </ViewerAdminContentCard>
   )
 }

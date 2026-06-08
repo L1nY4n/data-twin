@@ -1,8 +1,9 @@
 import { notFound } from 'next/navigation'
 import { AdminConsole } from '@/components/admin/AdminConsole'
+import { BackendUnavailableState } from '@/components/viewer-admin/BackendUnavailableState'
 import type { AdminSection } from '@/lib/digital-twin/admin'
 import { hasAdminPageRegistration } from '@/components/admin/admin-meta'
-import { fetchWorkspaceById } from '@/lib/digital-twin/bootstrap-client'
+import { fetchWorkspaceById, isAdminApiError } from '@/lib/digital-twin/bootstrap-client'
 
 export default async function AdminWorkspaceSectionPage({
   params,
@@ -19,7 +20,16 @@ export default async function AdminWorkspaceSectionPage({
 
   try {
     workspace = await fetchWorkspaceById(workspaceId)
-  } catch {
+  } catch (error) {
+    if (isAdminApiError(error) && error.status === 0) {
+      return (
+        <BackendUnavailableState
+          error={error}
+          retryHref={`/admin/workspaces/${encodeURIComponent(workspaceId)}/${encodeURIComponent(section)}`}
+        />
+      )
+    }
+
     notFound()
   }
 

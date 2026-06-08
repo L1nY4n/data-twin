@@ -37,7 +37,7 @@ import {
   flushBufferedCommands,
   flushCommands,
   LabelComponent,
-  resolveLabelMode,
+  resolveLabelModeFromDistanceSquared,
   type EcsCommand,
   type EcsEntitySnapshot,
   type EcsCreatePayload,
@@ -517,6 +517,14 @@ const LABEL_MODE_TO_CODE: Record<'hidden' | 'sprite' | 'html', number> = {
 
 const ecsWorld = createEcsWorld()
 type MovingSnapshot = EcsEntitySnapshot & { type: 'person' | 'vehicle' }
+type MovingOccupantInput = {
+  id: string
+  type: 'person' | 'vehicle'
+  position: Vector3
+  vehicleType?: VehicleEntity['vehicleType']
+}
+
+const MOVING_ENTITY_TYPES = ['person', 'vehicle'] as const
 
 function upsertRuntimeIncidentState(
   state: Pick<DigitalTwinState, 'incidents' | 'activeIncidentId'>,
@@ -554,21 +562,35 @@ function upsertRuntimeIncidentState(
   }
 }
 
-function collectVisibleSnapshotsByTypes<T extends EntityType>(
+function collectVisibleMovingSnapshotsInto(
   world: EcsWorld,
-  types: readonly T[]
-): Array<EcsEntitySnapshot & { type: T }> {
-  const snapshots: Array<EcsEntitySnapshot & { type: T }> = []
-  for (const type of types) {
+  snapshots: MovingSnapshot[],
+  occupants: MovingOccupantInput[]
+) {
+  let count = 0
+
+  for (const type of MOVING_ENTITY_TYPES) {
     for (const id of world.byType[type]) {
       const snapshot = world.snapshotById.get(id)
-      if (snapshot?.visible) {
-        snapshots.push(snapshot as EcsEntitySnapshot & { type: T })
+      if (!snapshot?.visible) continue
+
+      snapshots[count] = snapshot as MovingSnapshot
+      const occupant = occupants[count] ?? {
+        id: snapshot.id,
+        type: snapshot.type as 'person' | 'vehicle',
+        position: snapshot.position,
       }
+      occupant.id = snapshot.id
+      occupant.type = snapshot.type as 'person' | 'vehicle'
+      occupant.position = snapshot.position
+      occupant.vehicleType = snapshot.type === 'vehicle' ? snapshot.vehicleType : undefined
+      occupants[count] = occupant
+      count += 1
     }
   }
 
-  return snapshots
+  snapshots.length = count
+  occupants.length = count
 }
 
 function getAggregatePoolMetrics() {
@@ -663,6 +685,9 @@ function cloneSceneConfigValue(sceneConfig: SceneConfig): SceneConfig {
     ...sceneConfig,
     cameraPosition: { ...sceneConfig.cameraPosition },
     cameraTarget: { ...sceneConfig.cameraTarget },
+    ...(sceneConfig.cameraPresets
+      ? { cameraPresets: cloneCameraPresetsValue(sceneConfig.cameraPresets) }
+      : {}),
   }
 }
 
@@ -1800,24 +1825,23 @@ function applyLabelLod(profile: QualityProfile, cameraPosition: Vector3): {
   changedIds: string[]
 } {
   const config = getLabelConfig(profile)
+  const htmlDistanceSquared = config.htmlDistance * config.htmlDistance
+  const spriteDistanceSquared = config.spriteDistance * config.spriteDistance
 
   let htmlIndex = 0
   let visibleLabels = 0
   const changedIds: string[] = []
 
   for (const snapshot of ecsWorld.snapshotById.values()) {
-    const distance = Math.hypot(
-      snapshot.position.x - cameraPosition.x,
-      snapshot.position.y - cameraPosition.y,
-      snapshot.position.z - cameraPosition.z
-    )
-
-    const mode = resolveLabelMode({
-      distance,
+    const dx = snapshot.position.x - cameraPosition.x
+    const dy = snapshot.position.y - cameraPosition.y
+    const dz = snapshot.position.z - cameraPosition.z
+    const mode = resolveLabelModeFromDistanceSquared({
+      distanceSquared: dx * dx + dy * dy + dz * dz,
       isSelected: ecsWorld.selectedId === snapshot.id,
       isHovered: ecsWorld.hoveredId === snapshot.id,
-      htmlDistance: config.htmlDistance,
-      spriteDistance: config.spriteDistance,
+      htmlDistanceSquared,
+      spriteDistanceSquared,
       maxHtmlLabels: config.maxHtmlLabels,
       htmlLabelIndex: htmlIndex,
     })
@@ -1956,6 +1980,9 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
     let latestCamera: Vector3 = { x: 0, y: 0, z: 0 }
     let latestCameraTarget: Vector3 | null = null
     let latestDrawCalls = 0
+    const movingSnapshotsScratch: MovingSnapshot[] = []
+    const movingOccupantsScratch: MovingOccupantInput[] = []
+    const dynamicNeighborsScratch: MovingOccupantInput[] = []
 
     function syncImmediateLabelLod() {
       const labelState = applyLabelLod(get().qualityProfile, latestCamera)
@@ -1991,20 +2018,14 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
         const trajectoryUpdates: Array<{ entityId: string; point: { position: Vector3; timestamp: number } }> = []
         const newAlarms: Alarm[] = []
         fixedTickCount += 1
-        const movingSnapshots = collectVisibleSnapshotsByTypes(ecsWorld, [
-          'person',
-          'vehicle',
-        ]) as MovingSnapshot[]
-        const occupancyIndex = createDynamicOccupancyIndex(
-          movingSnapshots.map((snapshot) => ({
-            id: snapshot.id,
-            type: snapshot.type,
-            position: snapshot.position,
-            vehicleType: snapshot.type === 'vehicle' ? snapshot.vehicleType : undefined,
-          }))
+        collectVisibleMovingSnapshotsInto(
+          ecsWorld,
+          movingSnapshotsScratch,
+          movingOccupantsScratch
         )
+        const occupancyIndex = createDynamicOccupancyIndex(movingOccupantsScratch)
 
-        for (const snapshot of movingSnapshots) {
+        for (const snapshot of movingSnapshotsScratch) {
           const simulationCadence = resolveEntitySimulationCadence({
             entityPosition: snapshot.position,
             cameraPosition: latestCamera,
@@ -2038,7 +2059,8 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
               occupancyIndex,
               movement.position,
               DYNAMIC_NEIGHBOR_QUERY_RADIUS,
-              snapshot.id
+              snapshot.id,
+              dynamicNeighborsScratch
             ),
             snapshot.type === 'vehicle' ? snapshot.vehicleType : undefined
           )
@@ -2409,9 +2431,25 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
 
       // 场景操作
       setSceneConfig: (config) =>
-        set((state) => ({
-          sceneConfig: { ...state.sceneConfig, ...config },
-        })),
+        set((state) => {
+          const nextCameraPresets = config.cameraPresets
+            ? cloneCameraPresetsValue(config.cameraPresets)
+            : null
+
+          return {
+            sceneConfig: { ...state.sceneConfig, ...config },
+            ...(nextCameraPresets
+              ? {
+                  cameraPresets: nextCameraPresets,
+                  activeCameraPreset: nextCameraPresets.some(
+                    (preset) => preset.id === state.activeCameraPreset
+                  )
+                    ? state.activeCameraPreset
+                    : nextCameraPresets[0]?.id ?? null,
+                }
+              : {}),
+          }
+        }),
 
       setViewMode: (mode) =>
         set((state) => {
@@ -2861,11 +2899,19 @@ export const useDigitalTwinStore = create<DigitalTwinState & DigitalTwinActions>
         }
       },
 
-      advanceRuntime: (nowMs, _deltaMs, cameraPosition, drawCalls, cameraTarget) => {
+      advanceRuntime: (nowMs, deltaMs, cameraPosition, drawCalls, cameraTarget) => {
         latestCamera = cameraPosition
-        latestCameraTarget = cameraTarget ? { ...cameraTarget } : latestCameraTarget
+        if (cameraTarget) {
+          if (latestCameraTarget) {
+            latestCameraTarget.x = cameraTarget.x
+            latestCameraTarget.y = cameraTarget.y
+            latestCameraTarget.z = cameraTarget.z
+          } else {
+            latestCameraTarget = { ...cameraTarget }
+          }
+        }
         latestDrawCalls = drawCalls
-        scheduler.advance(nowMs)
+        scheduler.advance(nowMs, deltaMs)
       },
 
       setRuntimeRunning: (running) => set({ runtimeRunning: running }),

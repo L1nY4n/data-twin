@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { resolveLabelMode } from './label-lod'
+import { resolveLabelMode, resolveLabelModeFromDistanceSquared } from './label-lod'
 
 describe('resolveLabelMode', () => {
   test('always keeps selected entity as html', () => {
@@ -56,5 +56,35 @@ describe('resolveLabelMode', () => {
     })
 
     expect(mode).toBe('hidden')
+  })
+
+  test('matches distance-based behavior without per-entity square roots', () => {
+    const cases = [
+      { distance: 12, isSelected: false, isHovered: false, htmlLabelIndex: 0 },
+      { distance: 44, isSelected: false, isHovered: false, htmlLabelIndex: 0 },
+      { distance: 12, isSelected: false, isHovered: false, htmlLabelIndex: 99 },
+      { distance: 120, isSelected: true, isHovered: false, htmlLabelIndex: 99 },
+      { distance: 120, isSelected: false, isHovered: true, htmlLabelIndex: 99 },
+    ]
+
+    for (const item of cases) {
+      const base = {
+        ...item,
+        htmlDistance: 16,
+        spriteDistance: 42,
+        maxHtmlLabels: 40,
+      }
+      expect(
+        resolveLabelModeFromDistanceSquared({
+          distanceSquared: item.distance * item.distance,
+          isSelected: item.isSelected,
+          isHovered: item.isHovered,
+          htmlDistanceSquared: base.htmlDistance * base.htmlDistance,
+          spriteDistanceSquared: base.spriteDistance * base.spriteDistance,
+          maxHtmlLabels: base.maxHtmlLabels,
+          htmlLabelIndex: item.htmlLabelIndex,
+        })
+      ).toBe(resolveLabelMode(base))
+    }
   })
 })

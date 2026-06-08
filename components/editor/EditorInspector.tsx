@@ -25,6 +25,7 @@ import {
   useEditorSceneStore,
   useEditorUiStore,
 } from '@/lib/digital-twin/editor-store'
+import { EditorKicker } from '@/components/editor/editor-primitives'
 import {
   getStaticAssetCatalogItem,
   getStaticAssetKindLabel,
@@ -231,7 +232,7 @@ function InspectorPanel({
     <section className="editor-panel p-3">
       <div className="flex items-start justify-between gap-2">
         <div>
-          <p className="editor-kicker">{eyebrow}</p>
+          <EditorKicker>{eyebrow}</EditorKicker>
           <h2 className="text-[12px] font-semibold text-white">{title}</h2>
           <p className="mt-0.5 text-[10px] leading-4 text-white/52">{description}</p>
         </div>
@@ -252,7 +253,7 @@ function InspectorBlock({
 }) {
   return (
     <div className="editor-block p-2.5">
-      <p className="editor-kicker">{label}</p>
+      <EditorKicker>{label}</EditorKicker>
       <div className="mt-2 space-y-2.5">{children}</div>
     </div>
   )
@@ -699,7 +700,7 @@ function InspectorFrame({
           <div className="editor-group px-2 py-1.5">
             <div className="flex items-center justify-between gap-2">
               <div className="min-w-0">
-                <p className="editor-kicker">{summaryKicker}</p>
+                <EditorKicker>{summaryKicker}</EditorKicker>
                 <p className="mt-1 truncate text-[12px] font-semibold leading-[1.05rem]">
                   {summaryTitle}
                 </p>

@@ -26,9 +26,11 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
+  ViewerAdminEmptyState,
+  ViewerAdminKicker,
+  ViewerAdminContentCard,
   ViewerAdminPanelHeader,
   ViewerAdminSidePanelBody,
-  ViewerAdminSoftCard,
 } from '@/components/viewer-admin/primitives'
 import { cn } from '@/lib/utils'
 import type { EntityDirectoryEntry } from '@/lib/digital-twin/store'
@@ -327,7 +329,7 @@ export function EntityListPanel() {
         leading={<ListTree className="h-4 w-4 text-sky-300" />}
         trailing={
           <>
-            <span className="viewer-admin-kicker text-[11px]">运行态只读</span>
+            <ViewerAdminKicker>运行态只读</ViewerAdminKicker>
             <Button
               type="button"
               variant="ghost"
@@ -357,7 +359,7 @@ export function EntityListPanel() {
 
         <div className="viewer-admin-entity-summary mt-2">
           <div>
-            <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">当前筛选</span>
+            <ViewerAdminKicker>当前筛选</ViewerAdminKicker>
             <p className="text-xs text-white">{filteredEntityCount} 项 · {groupedSections.length} 组</p>
           </div>
           <div className="viewer-admin-hierarchy-root-chip">
@@ -456,7 +458,7 @@ export function EntityListPanel() {
 
         {/* 筛选选项 */}
         {showFilters && (
-          <ViewerAdminSoftCard className="mt-2 space-y-2 p-2">
+          <ViewerAdminContentCard density="compact" className="mt-2 space-y-2">
             <div>
               <span className="text-xs text-muted-foreground">类型</span>
               <div className="mt-1 flex flex-wrap gap-1">
@@ -487,7 +489,7 @@ export function EntityListPanel() {
                 ))}
               </div>
             </div>
-          </ViewerAdminSoftCard>
+          </ViewerAdminContentCard>
         )}
       </div>
 
@@ -511,9 +513,14 @@ export function EntityListPanel() {
                   />
                 ))}
                 {flatResultEntities.length === 0 && (
-                  <div className="viewer-admin-empty py-3 text-center text-xs text-muted-foreground">
-                    未找到匹配对象
-                  </div>
+                  <ViewerAdminEmptyState
+                    title="未找到匹配对象"
+                    description="调整关键词或筛选条件后重试。"
+                    icon={Search}
+                    align="center"
+                    density="compact"
+                    className="py-3 text-xs"
+                  />
                 )}
               </div>
             </div>
@@ -573,9 +580,14 @@ export function EntityListPanel() {
                         />
                       ))}
                       {section.entities.length === 0 && (
-                        <div className="viewer-admin-empty py-3 text-center text-xs text-muted-foreground">
-                          暂无数据
-                        </div>
+                        <ViewerAdminEmptyState
+                          title="暂无数据"
+                          description="该类型当前没有可见对象。"
+                          icon={ListTree}
+                          align="center"
+                          density="compact"
+                          className="py-3 text-xs"
+                        />
                       )}
                     </div>
                   </CollapsibleContent>

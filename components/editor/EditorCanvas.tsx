@@ -32,6 +32,7 @@ import { EditorFloorPlanOverlay } from './scene/EditorFloorPlanOverlay'
 import { EditorScenePicking } from './scene/EditorScenePicking'
 import { EditorStaticEnvironment } from './scene/EditorStaticEnvironment'
 import { EditorTransformGizmo } from './scene/EditorTransformGizmo'
+import { EditorFloatingHintCard } from './editor-primitives'
 import {
   installEditorDragCheckBridge,
   setEditorDragCheckCameraProvider,
@@ -861,22 +862,12 @@ export function EditorCanvas() {
         />
       ) : null}
 
-      <div className="pointer-events-none absolute bottom-3 right-3 z-20 max-w-[15rem] rounded-[16px] border border-white/10 bg-[#07101d]/78 px-3 py-2.5 text-white shadow-[0_18px_40px_rgba(7,10,16,0.26)] backdrop-blur-xl">
-        <div className="flex items-center gap-2">
-          <div className="flex size-7 items-center justify-center rounded-full border border-[#7da7ff]/28 bg-[#7da7ff]/12 text-[#d6e4ff]">
-            <HintIcon className="size-3.5" />
-          </div>
-          <div>
-            <p className="editor-kicker">Interaction</p>
-            <p className="text-[12px] font-semibold text-white">{canvasHint.label}</p>
-          </div>
-        </div>
-        <div className="mt-2 space-y-1 text-[11px] text-white/70">
-          {canvasHint.lines.map((line) => (
-            <p key={line}>{line}</p>
-          ))}
-        </div>
-      </div>
+      <EditorFloatingHintCard
+        className="absolute bottom-3 right-3 z-20 max-w-[15rem]"
+        icon={<HintIcon className="size-3.5" />}
+        label={canvasHint.label}
+        lines={canvasHint.lines}
+      />
     </div>
   )
 }

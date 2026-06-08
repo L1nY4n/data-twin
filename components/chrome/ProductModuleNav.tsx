@@ -52,7 +52,7 @@ export function ProductModuleNav({ className }: { className?: string }) {
             key={module.href}
             href={module.href}
             className={cn(
-              'product-module-nav__link shrink-0 rounded-full border px-3 py-1 text-[11px] font-medium tracking-[0.08em] transition',
+              'product-module-nav__link shrink-0 rounded-full border px-3 py-1 text-[11px] font-medium transition',
               active && 'product-module-nav__link--active',
               active
                 ? 'border-white/18 bg-white/12 text-white'

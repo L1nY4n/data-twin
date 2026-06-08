@@ -1,0 +1,466 @@
+{
+  "schemaVersion": 1,
+  "sceneId": "factory-demo-scene",
+  "profile": "default",
+  "generatedAt": "2026-05-31T07:11:57.974Z",
+  "source": "working-snapshot",
+  "staticAssetManifestUrl": "/generated/published-static/workspaces/factory-demo-scene/versions/7-1780211517246/chunk-manifest.json",
+  "bounds": {
+    "min": {
+      "x": -168,
+      "y": -5,
+      "z": -22
+    },
+    "max": {
+      "x": 330,
+      "y": 35,
+      "z": 262
+    }
+  },
+  "sceneConfig": {
+    "id": "factory-demo-scene",
+    "name": "工厂演示场景",
+    "gridSize": 860,
+    "gridDivisions": 430,
+    "backgroundColor": "#0a0a0f",
+    "ambientLightIntensity": 0.52,
+    "showAxes": false,
+    "showGrid": true,
+    "cameraPosition": {
+      "x": 318,
+      "y": 14,
+      "z": 250
+    },
+    "cameraTarget": {
+      "x": 2,
+      "y": 0,
+      "z": -1
+    },
+    "cameraPresets": [
+      {
+        "id": "overview",
+        "name": "场景总览",
+        "position": {
+          "x": 318,
+          "y": 14,
+          "z": 250
+        },
+        "target": {
+          "x": 2,
+          "y": 0,
+          "z": -1
+        },
+        "fov": 50,
+        "quickAccess": true,
+        "quickAccessOrder": 0
+      },
+      {
+        "id": "top",
+        "name": "全域俯视",
+        "position": {
+          "x": 2,
+          "y": 720,
+          "z": 11.799999
+        },
+        "target": {
+          "x": 2,
+          "y": 0,
+          "z": -1
+        },
+        "fov": 45,
+        "quickAccess": true,
+        "quickAccessOrder": 1
+      },
+      {
+        "id": "inspection",
+        "name": "巡检视角",
+        "position": {
+          "x": 122,
+          "y": 67.2,
+          "z": 103
+        },
+        "target": {
+          "x": 2,
+          "y": 0,
+          "z": -1
+        },
+        "fov": 50,
+        "quickAccess": true,
+        "quickAccessOrder": 2
+      }
+    ]
+  },
+  "sectors": [
+    {
+      "id": "sector-core",
+      "name": "工厂演示场景",
+      "offset": {
+        "x": 81,
+        "y": 15,
+        "z": 120
+      },
+      "bounds": {
+        "min": {
+          "x": -168,
+          "y": -5,
+          "z": -22
+        },
+        "max": {
+          "x": 330,
+          "y": 35,
+          "z": 262
+        }
+      },
+      "staticChunkId": "chunk:sector-core:static",
+      "dynamicLayerIds": [
+        "layer:sector-core:persons",
+        "layer:sector-core:vehicles",
+        "layer:sector-core:equipment"
+      ],
+      "interactionLayerIds": [
+        "layer:sector-core:zones"
+      ]
+    }
+  ],
+  "staticChunks": [
+    {
+      "id": "chunk:sector-core:static",
+      "label": "工厂演示场景 静态块",
+      "kind": "sector",
+      "sectorId": "sector-core",
+      "bounds": {
+        "min": {
+          "x": -168,
+          "y": -5,
+          "z": -22
+        },
+        "max": {
+          "x": 330,
+          "y": 35,
+          "z": 262
+        }
+      },
+      "proxy": {
+        "strategy": "sector-proxy",
+        "lodDistance": 498
+      },
+      "runtimeMount": {
+        "kind": "sector-cluster",
+        "renderer": "campus-sector-cluster"
+      },
+      "renderRecipe": {
+        "detailed": []
+      },
+      "featureCount": 0,
+      "features": []
+    }
+  ],
+  "interactionLayers": [
+    {
+      "id": "layer:sector-core:zones",
+      "kind": "zones",
+      "sectorId": "sector-core",
+      "bounds": {
+        "min": {
+          "x": -168,
+          "y": -5,
+          "z": -22
+        },
+        "max": {
+          "x": 330,
+          "y": 35,
+          "z": 262
+        }
+      },
+      "zones": [
+        {
+          "id": "zone-workshop-01",
+          "sectorId": "sector-core",
+          "name": "总装作业区",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 24,
+            "depth": 20
+          }
+        }
+      ]
+    }
+  ],
+  "zoneOverlays": [
+    {
+      "id": "layer:sector-core:zones",
+      "kind": "zones",
+      "sectorId": "sector-core",
+      "bounds": {
+        "min": {
+          "x": -168,
+          "y": -5,
+          "z": -22
+        },
+        "max": {
+          "x": 330,
+          "y": 35,
+          "z": 262
+        }
+      },
+      "zones": [
+        {
+          "id": "zone-workshop-01",
+          "sectorId": "sector-core",
+          "name": "总装作业区",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 24,
+            "depth": 20
+          }
+        }
+      ]
+    }
+  ],
+  "dynamicLayers": [
+    {
+      "id": "layer:sector-core:persons",
+      "entityType": "person",
+      "sectorId": "sector-core",
+      "bounds": {
+        "min": {
+          "x": -168,
+          "y": -5,
+          "z": -22
+        },
+        "max": {
+          "x": 330,
+          "y": 35,
+          "z": 262
+        }
+      },
+      "count": 1,
+      "anchors": [
+        {
+          "position": {
+            "x": -4,
+            "y": 0,
+            "z": 2
+          },
+          "spread": {
+            "x": 0,
+            "z": 0
+          }
+        }
+      ]
+    },
+    {
+      "id": "layer:sector-core:vehicles",
+      "entityType": "vehicle",
+      "sectorId": "sector-core",
+      "bounds": {
+        "min": {
+          "x": -168,
+          "y": -5,
+          "z": -22
+        },
+        "max": {
+          "x": 330,
+          "y": 35,
+          "z": 262
+        }
+      },
+      "count": 8,
+      "anchorsByType": {
+        "car": [],
+        "truck": [
+          {
+            "position": {
+              "x": -44,
+              "y": 0,
+              "z": 54
+            },
+            "spread": {
+              "x": 0,
+              "z": 0
+            }
+          },
+          {
+            "position": {
+              "x": 0,
+              "y": 0,
+              "z": 54
+            },
+            "spread": {
+              "x": 0,
+              "z": 0
+            }
+          },
+          {
+            "position": {
+              "x": 44,
+              "y": 0,
+              "z": 54
+            },
+            "spread": {
+              "x": 0,
+              "z": 0
+            }
+          }
+        ],
+        "forklift": [
+          {
+            "position": {
+              "x": -92,
+              "y": 0,
+              "z": 54
+            },
+            "spread": {
+              "x": 0,
+              "z": 0
+            }
+          },
+          {
+            "position": {
+              "x": -68,
+              "y": 0,
+              "z": 72
+            },
+            "spread": {
+              "x": 0,
+              "z": 0
+            }
+          },
+          {
+            "position": {
+              "x": -84,
+              "y": 0,
+              "z": -4
+            },
+            "spread": {
+              "x": 0,
+              "z": 0
+            }
+          },
+          {
+            "position": {
+              "x": 0,
+              "y": 0,
+              "z": 32
+            },
+            "spread": {
+              "x": 0,
+              "z": 0
+            }
+          },
+          {
+            "position": {
+              "x": -88,
+              "y": 0,
+              "z": 30
+            },
+            "spread": {
+              "x": 0,
+              "z": 0
+            }
+          }
+        ],
+        "agv": [],
+        "other": []
+      },
+      "minimumSeparation": 3
+    },
+    {
+      "id": "layer:sector-core:equipment",
+      "entityType": "equipment",
+      "sectorId": "sector-core",
+      "bounds": {
+        "min": {
+          "x": -168,
+          "y": -5,
+          "z": -22
+        },
+        "max": {
+          "x": 330,
+          "y": 35,
+          "z": 262
+        }
+      },
+      "count": 0,
+      "placements": []
+    }
+  ],
+  "routingLayers": [],
+  "cameraPresets": [
+    {
+      "id": "overview",
+      "name": "场景总览",
+      "position": {
+        "x": 318,
+        "y": 14,
+        "z": 250
+      },
+      "target": {
+        "x": 2,
+        "y": 0,
+        "z": -1
+      },
+      "fov": 50,
+      "quickAccess": true,
+      "quickAccessOrder": 0
+    },
+    {
+      "id": "top",
+      "name": "全域俯视",
+      "position": {
+        "x": 2,
+        "y": 720,
+        "z": 11.799999
+      },
+      "target": {
+        "x": 2,
+        "y": 0,
+        "z": -1
+      },
+      "fov": 45,
+      "quickAccess": true,
+      "quickAccessOrder": 1
+    },
+    {
+      "id": "inspection",
+      "name": "巡检视角",
+      "position": {
+        "x": 122,
+        "y": 67.2,
+        "z": 103
+      },
+      "target": {
+        "x": 2,
+        "y": 0,
+        "z": -1
+      },
+      "fov": 50,
+      "quickAccess": true,
+      "quickAccessOrder": 2
+    }
+  ],
+  "entityCounts": {
+    "default": {
+      "persons": 1,
+      "vehicles": 8,
+      "equipment": 0
+    },
+    "production": {
+      "persons": 1,
+      "vehicles": 8,
+      "equipment": 0
+    }
+  }
+}

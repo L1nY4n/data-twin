@@ -1,5 +1,6 @@
 import { notFound, redirect } from 'next/navigation'
-import { fetchWorkspaceById } from '@/lib/digital-twin/bootstrap-client'
+import { BackendUnavailableState } from '@/components/viewer-admin/BackendUnavailableState'
+import { fetchWorkspaceById, isAdminApiError } from '@/lib/digital-twin/bootstrap-client'
 
 export default async function LegacyWorkspacePage({
   params,
@@ -8,10 +9,22 @@ export default async function LegacyWorkspacePage({
 }) {
   const routeParams = await params
 
+  let workspace
+
   try {
-    const workspace = await fetchWorkspaceById(routeParams.workspaceId)
-    redirect(`/workspaces/${encodeURIComponent(workspace.slug)}`)
-  } catch {
+    workspace = await fetchWorkspaceById(routeParams.workspaceId)
+  } catch (error) {
+    if (isAdminApiError(error) && error.status === 0) {
+      return (
+        <BackendUnavailableState
+          error={error}
+          retryHref={`/workspace/${encodeURIComponent(routeParams.workspaceId)}`}
+        />
+      )
+    }
+
     notFound()
   }
+
+  redirect(`/workspaces/${encodeURIComponent(workspace.slug)}`)
 }

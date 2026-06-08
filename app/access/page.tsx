@@ -1,5 +1,12 @@
 import { redirect } from 'next/navigation'
 import { cookies, headers } from 'next/headers'
+import { ArrowRight, LockKeyhole, ShieldAlert } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import {
+  ViewerAdminCenteredPanel,
+  ViewerAdminNotice,
+} from '@/components/viewer-admin/primitives'
 import {
   getFrontendAccessCookieName,
   isFrontendAccessConfigured,
@@ -52,7 +59,14 @@ export default async function AccessPage({
   searchParams?: Promise<{ error?: string; next?: string; token?: string }>
 }) {
   if (!isFrontendAccessConfigured()) {
-    return <div className="p-6 text-sm">Access is not configured.</div>
+    return (
+      <ViewerAdminCenteredPanel
+        title="Access not configured"
+        description="Frontend access token is missing."
+        leading={<ShieldAlert className="h-4 w-4 text-amber-100" />}
+        maxWidthClass="max-w-sm"
+      />
+    )
   }
 
   const query = (await searchParams) ?? {}
@@ -63,32 +77,34 @@ export default async function AccessPage({
   const invalid = query.error === 'invalid'
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-slate-950 px-6 text-slate-100">
-      <form action={unlockFrontendAccess} className="grid w-full max-w-sm gap-4 rounded-xl border border-white/10 bg-white/8 p-5">
-        <div>
-          <h1 className="text-base font-semibold">Access required</h1>
-          {invalid ? (
-            <p className="mt-2 text-sm text-rose-200">Access token is invalid.</p>
-          ) : null}
-        </div>
+    <ViewerAdminCenteredPanel
+      title="Access required"
+      description="输入访问令牌以继续进入工作台"
+      leading={<LockKeyhole className="h-4 w-4" />}
+      maxWidthClass="max-w-sm"
+    >
+      <form action={unlockFrontendAccess} className="space-y-4">
+        {invalid ? (
+          <ViewerAdminNotice tone="danger" className="py-2">
+            Access token is invalid.
+          </ViewerAdminNotice>
+        ) : null}
         <input type="hidden" name="next" value={nextPath} />
-        <label className="grid gap-2 text-sm">
+        <label className="grid gap-2 text-sm font-medium text-white/80">
           Token
-          <input
+          <Input
             name="token"
             type="password"
             autoComplete="current-password"
-            className="rounded-md border border-white/15 bg-slate-900 px-3 py-2 text-sm outline-none focus:border-sky-300"
+            className="h-10"
             required
           />
         </label>
-        <button
-          type="submit"
-          className="rounded-md bg-sky-500 px-3 py-2 text-sm font-medium text-slate-950 hover:bg-sky-400"
-        >
+        <Button type="submit" className="w-full justify-between">
           Continue
-        </button>
+          <ArrowRight className="h-4 w-4" />
+        </Button>
       </form>
-    </main>
+    </ViewerAdminCenteredPanel>
   )
 }

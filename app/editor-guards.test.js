@@ -36,7 +36,8 @@ describe('editor guards', () => {
 
     expect(page.includes('fetchHomeWorkspace')).toBe(true)
     expect(page.includes('hasFrontendAccess')).toBe(true)
-    expect(page.includes("redirect('/access?next=/editor')")).toBe(true)
+    expect(page.includes('const editorHref = buildEditorHref(query.returnTo)')).toBe(true)
+    expect(page.includes("redirect(`/access?next=${encodeURIComponent(editorHref)}`)")).toBe(true)
     expect(page.includes('redirect(buildEditorHref(workspace.slug, query.returnTo))')).toBe(true)
     expect(canonicalEditorPage.includes('EditorShell')).toBe(true)
     expect(canonicalEditorPage.includes('fetchWorkspaceBySlug')).toBe(true)

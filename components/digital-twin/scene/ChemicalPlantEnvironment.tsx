@@ -14,6 +14,7 @@ import { useDigitalTwinStore } from '@/lib/digital-twin/store'
 import { AuthoredStaticAssetLayer } from './AuthoredStaticAssetLayer'
 import { createPublishedStaticPalette } from './palette'
 import { PublishedStaticAssetMount } from './PublishedStaticAssetMount'
+import { PublishedFloorPlanBasemapLayer } from './PublishedFloorPlanBasemapLayer'
 import {
   PublishedStaticRecipeMount,
 } from './PublishedStaticRecipeMount'
@@ -169,6 +170,9 @@ export const ChemicalPlantEnvironment = memo(function ChemicalPlantEnvironment({
 
   return (
     <group ref={rootRef} name="chemical-plant-campus">
+      <PublishedFloorPlanBasemapLayer
+        basemaps={publishedScenePackage.floorPlanBasemaps ?? []}
+      />
       {staticChunkRegistry.map((entry) => {
         const assetEntry = assetManifest?.chunks[entry.id]
 

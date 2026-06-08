@@ -20,6 +20,22 @@ export interface PublishedSceneBounds {
   max: Vector3
 }
 
+export interface PublishedFloorPlanBasemap {
+  id: string
+  label: string
+  floorId?: string
+  imageUrl: string
+  position: Vector3
+  size: {
+    width: number
+    depth: number
+  }
+  rotationY?: number
+  opacity?: number
+  renderOrder?: number
+  metadata?: Record<string, unknown>
+}
+
 export interface PublishedSceneSector {
   id: string
   name: string
@@ -266,6 +282,7 @@ export interface PublishedScenePackage {
   sceneConfig: SceneConfig
   sectors: PublishedSceneSector[]
   staticChunks: PublishedStaticChunk[]
+  floorPlanBasemaps?: PublishedFloorPlanBasemap[]
   interactionLayers: PublishedInteractionLayer[]
   zoneOverlays: PublishedInteractionLayer[]
   dynamicLayers: PublishedDynamicLayer[]

@@ -143,9 +143,27 @@ describe('backend runtime guards', () => {
     expect(accessPage.includes('httpOnly: true')).toBe(true)
     expect(adminLayout.includes('hasFrontendAccess')).toBe(true)
     expect(adminLayout.includes("redirect('/access?next=/admin/workspaces')")).toBe(true)
-    expect(client.includes('x-admin-api-token')).toBe(false)
+    expect(client.includes('buildRequestHeaders')).toBe(true)
+    expect(client.includes('isServerAdminApiUrl')).toBe(true)
+    expect(client.includes("process.env.BACKEND_ADMIN_API_TOKEN")).toBe(true)
+    expect(client.includes("headers.set('x-admin-api-token', adminToken)")).toBe(true)
     expect(client.includes("payload.includes('frontend access is required')")).toBe(true)
     expect(client.includes("window.location.assign")).toBe(true)
+  })
+
+  test('backend seed scene should persist camera presets in workspace scene config', () => {
+    const seedScene = readFileSync(
+      join(process.cwd(), 'backend-core-rs/src/seed_scene.rs'),
+      'utf8'
+    )
+
+    expect(seedScene.includes('fn seed_camera_presets() -> Vec<CameraPreset>')).toBe(true)
+    expect(seedScene.includes('camera_presets: Some(seed_camera_presets())')).toBe(true)
+    expect(seedScene.includes('quick_access: Some(true)')).toBe(true)
+    expect(seedScene.includes('quick_access_order: Some(0)')).toBe(true)
+    expect(seedScene.includes('quick_access_order: Some(1)')).toBe(true)
+    expect(seedScene.includes('quick_access_order: Some(2)')).toBe(true)
+    expect(seedScene.includes('camera_presets: None')).toBe(false)
   })
 
   test('dev stack should start the runtime simulator by default', () => {
@@ -183,5 +201,8 @@ describe('backend runtime guards', () => {
     expect(checker.includes("env('RUNTIME_INGEST_TOKEN', 'dev-runtime-ingest-token')")).toBe(true)
     expect(checker.includes("getByText('正在连接后端数据...')")).toBe(true)
     expect(checker.includes("timeout: 15000")).toBe(true)
+    expect(checker.includes('unexpectedConsoleMessages')).toBe(true)
+    expect(checker.includes('GPU stall due to ReadPixels')).toBe(true)
+    expect(checker.includes('!summary.incidentVisible || unexpectedConsoleMessages.length > 0')).toBe(true)
   })
 })

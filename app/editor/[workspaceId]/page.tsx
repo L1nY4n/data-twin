@@ -1,5 +1,6 @@
 import { notFound, redirect } from 'next/navigation'
-import { fetchWorkspaceById } from '@/lib/digital-twin/bootstrap-client'
+import { BackendUnavailableState } from '@/components/viewer-admin/BackendUnavailableState'
+import { fetchWorkspaceById, isAdminApiError } from '@/lib/digital-twin/bootstrap-client'
 import { buildEditorHref } from '@/lib/digital-twin/editor-routing'
 import { hasFrontendAccess } from '@/lib/digital-twin/frontend-access-server'
 
@@ -31,10 +32,22 @@ export default async function LegacyEditorWorkspacePage({
     )
   }
 
+  let workspace
+
   try {
-    const workspace = await fetchWorkspaceById(routeParams.workspaceId)
-    redirect(buildEditorHref(workspace.slug, query.returnTo))
-  } catch {
+    workspace = await fetchWorkspaceById(routeParams.workspaceId)
+  } catch (error) {
+    if (isAdminApiError(error) && error.status === 0) {
+      return (
+        <BackendUnavailableState
+          error={error}
+          retryHref={buildLegacyEditorHref(routeParams.workspaceId, query.returnTo)}
+        />
+      )
+    }
+
     notFound()
   }
+
+  redirect(buildEditorHref(workspace.slug, query.returnTo))
 }

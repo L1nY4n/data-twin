@@ -1,7 +1,22 @@
 'use client'
 
-import { Suspense, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Canvas, useFrame, useThree, addAfterEffect } from '@react-three/fiber'
+import {
+  Component,
+  Suspense,
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
+import {
+  Canvas,
+  useFrame,
+  useThree,
+  addAfterEffect,
+} from '@react-three/fiber'
 import {
   OrbitControls,
   PerspectiveCamera,
@@ -46,6 +61,17 @@ interface SceneContentProps {
   backgroundColor: string
 }
 
+interface RendererErrorBoundaryProps {
+  children: ReactNode
+  fallback: (error: Error) => ReactNode
+  onError: (error: Error) => void
+  resetKey: string | number
+}
+
+interface RendererErrorBoundaryState {
+  error: Error | null
+}
+
 interface CameraPose {
   position: { x: number; y: number; z: number }
   target: { x: number; y: number; z: number }
@@ -67,9 +93,41 @@ const MAX_TRACKED_CAMERA_DELTA = 1 / 30
 const MIN_ORBIT_POLAR_ANGLE = 0.08
 const MAX_ORBIT_POLAR_ANGLE = Math.PI / 2.05
 const RENDERER_TRANSITION_FALLBACK_MS = 2500
+const WEBGPU_FRAME_STALL_FALLBACK_MS = 5000
 
 type RendererMode = 'auto' | 'webgpu' | 'webgl2'
 type RendererBackend = 'webgpu' | 'webgl2' | 'unknown'
+
+class RendererErrorBoundary extends Component<
+  RendererErrorBoundaryProps,
+  RendererErrorBoundaryState
+> {
+  override state: RendererErrorBoundaryState = {
+    error: null,
+  }
+
+  static getDerivedStateFromError(error: Error): RendererErrorBoundaryState {
+    return { error }
+  }
+
+  override componentDidCatch(error: Error) {
+    this.props.onError(error)
+  }
+
+  override componentDidUpdate(previousProps: RendererErrorBoundaryProps) {
+    if (previousProps.resetKey !== this.props.resetKey && this.state.error) {
+      this.setState({ error: null })
+    }
+  }
+
+  override render() {
+    if (this.state.error) {
+      return this.props.fallback(this.state.error)
+    }
+
+    return this.props.children
+  }
+}
 
 function hasNavigatorWebGpu() {
   return typeof navigator !== 'undefined' && 'gpu' in navigator
@@ -81,8 +139,8 @@ function isTrackedViewMode(viewMode: 'orbit' | 'topdown' | 'follow' | 'firstpers
 
 function shouldRecreateRendererForMode(mode: RendererMode, currentBackend: RendererBackend) {
   if (currentBackend === 'unknown') return true
-  if (mode === 'webgl2') return currentBackend !== 'webgl2'
-  return currentBackend !== 'webgpu'
+  if (mode === 'webgpu') return currentBackend !== 'webgpu'
+  return currentBackend !== 'webgl2'
 }
 
 function resolveEntityAnchorHeight(entity: Entity) {
@@ -210,6 +268,13 @@ const SceneContent = memo(function SceneContent({ backgroundColor }: SceneConten
   const pickRootRef = useRef<THREE.Group>(null)
   const lastDrawCallsRef = useRef(0)
   const sampledDrawCallsRef = useRef(0)
+  const runtimeFrameRef = useRef({
+    nowMs: 0,
+    deltaMs: 0,
+    cameraPosition: { x: 0, y: 0, z: 0 },
+    cameraTarget: { x: 0, y: 0, z: 0 } as { x: number; y: number; z: number } | null,
+    drawCalls: 0,
+  })
   const hasInitializedPresetRef = useRef(false)
   const previousActiveCameraPresetRef = useRef<string | null>(null)
   const { resolvedTheme } = useTheme()
@@ -442,20 +507,28 @@ const SceneContent = memo(function SceneContent({ backgroundColor }: SceneConten
       }
     }
 
-    const runtimeCameraTarget = controls
-      ? {
-          x: controls.target.x,
-          y: controls.target.y,
-          z: controls.target.z,
+    const runtimeFrame = runtimeFrameRef.current
+    runtimeFrame.nowMs = nowMs
+    runtimeFrame.deltaMs = delta * 1000
+    runtimeFrame.cameraPosition.x = camera.position.x
+    runtimeFrame.cameraPosition.y = camera.position.y
+    runtimeFrame.cameraPosition.z = camera.position.z
+    runtimeFrame.drawCalls = sampledDrawCallsRef.current
+    const runtimeCameraTarget = controls ? controls.target : sceneConfig.cameraTarget
+    if (runtimeCameraTarget) {
+      if (runtimeFrame.cameraTarget) {
+        runtimeFrame.cameraTarget.x = runtimeCameraTarget.x
+        runtimeFrame.cameraTarget.y = runtimeCameraTarget.y
+        runtimeFrame.cameraTarget.z = runtimeCameraTarget.z
+      } else {
+        runtimeFrame.cameraTarget = {
+          x: runtimeCameraTarget.x,
+          y: runtimeCameraTarget.y,
+          z: runtimeCameraTarget.z,
         }
-      : sceneConfig.cameraTarget
-
-    const runtimeFrame = {
-      nowMs,
-      deltaMs: delta * 1000,
-      cameraPosition: { x: camera.position.x, y: camera.position.y, z: camera.position.z },
-      drawCalls: sampledDrawCallsRef.current,
-      cameraTarget: runtimeCameraTarget,
+      }
+    } else {
+      runtimeFrame.cameraTarget = null
     }
 
     if (viewerRuntime) {
@@ -467,7 +540,7 @@ const SceneContent = memo(function SceneContent({ backgroundColor }: SceneConten
         runtimeFrame.deltaMs,
         runtimeFrame.cameraPosition,
         runtimeFrame.drawCalls,
-        runtimeFrame.cameraTarget
+        runtimeFrame.cameraTarget ?? undefined
       )
     }
   })
@@ -605,7 +678,7 @@ const PerformanceHud = memo(function PerformanceHud({
   return (
     <div
       data-performance-hud="runtime"
-      className="pointer-events-none absolute bottom-3 left-3 z-20 rounded-md border bg-background/40 px-2.5 py-1.5 text-[10px] backdrop-blur-sm"
+      className="pointer-events-none absolute bottom-[4.75rem] left-4 z-20 rounded-md border bg-background/40 px-2.5 py-1.5 text-[10px] backdrop-blur-sm"
     >
       <div>FPS {fps.toFixed(0)} | P95 {frameTimeP95.toFixed(1)}ms</div>
       <div>Draw {drawCalls} | Labels {visibleLabels}</div>
@@ -621,6 +694,10 @@ const PerformanceHud = memo(function PerformanceHud({
   )
 })
 
+function describeRendererFailure(error: unknown) {
+  return error instanceof Error ? error.message : String(error)
+}
+
 export function DigitalTwinCanvas({ showStats = false }: DigitalTwinCanvasProps) {
   const { resolvedTheme } = useTheme()
   const sceneConfig = useDigitalTwinStore((state) => state.sceneConfig)
@@ -629,11 +706,13 @@ export function DigitalTwinCanvas({ showStats = false }: DigitalTwinCanvasProps)
   const rendererBackend = useDigitalTwinStore((state) => state.rendererBackend)
   const setRendererBackend = useDigitalTwinStore((state) => state.setRendererBackend)
   const setRendererDiagnostics = useDigitalTwinStore((state) => state.setRendererDiagnostics)
+  const setRendererMode = useDigitalTwinStore((state) => state.setRendererMode)
   const isDark = resolvedTheme === 'dark'
   const canvasBackground = isDark ? sceneConfig.backgroundColor : '#eaf1fb'
   const dprRange: [number, number] = qualityProfile === 'performance' ? [1, 1.2] : [1, 1.35]
   const [rendererRevision, setRendererRevision] = useState(0)
   const [rendererTransitioning, setRendererTransitioning] = useState(true)
+  const [rendererError, setRendererError] = useState<string | null>(null)
   const previousRendererModeRef = useRef<RendererMode>(rendererMode)
   const transitionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const transitionFrameRef = useRef<number | null>(null)
@@ -659,6 +738,7 @@ export function DigitalTwinCanvas({ showStats = false }: DigitalTwinCanvasProps)
   }, [])
   const beginRendererTransition = useCallback(() => {
     clearTransitionTimers()
+    setRendererError(null)
     setRendererTransitioning(true)
     transitionTimeoutRef.current = setTimeout(() => {
       transitionTimeoutRef.current = null
@@ -667,6 +747,7 @@ export function DigitalTwinCanvas({ showStats = false }: DigitalTwinCanvasProps)
   }, [clearTransitionTimers])
   const finishRendererTransition = useCallback(() => {
     clearTransitionTimers()
+    setRendererError(null)
     transitionFrameRef.current = window.requestAnimationFrame(() => {
       transitionFrameRef.current = null
       setRendererTransitioning(false)
@@ -704,53 +785,101 @@ export function DigitalTwinCanvas({ showStats = false }: DigitalTwinCanvasProps)
     setRendererRevision((revision) => revision + 1)
   }, [beginRendererTransition, rendererBackend, rendererMode, setRendererBackend, setRendererDiagnostics])
 
+  useEffect(() => {
+    if (rendererMode !== 'auto' || rendererBackend !== 'webgpu') return
+
+    const timeoutId = window.setTimeout(() => {
+      const state = useDigitalTwinStore.getState()
+      if (state.rendererMode !== 'auto' || state.rendererBackend !== 'webgpu') return
+      if (state.performanceMetrics.fps > 0 || state.performanceMetrics.frameTimeP95 > 0) return
+
+      setRendererMode('webgl2')
+    }, WEBGPU_FRAME_STALL_FALLBACK_MS)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [rendererBackend, rendererMode, setRendererMode])
+
   return (
     <div className="relative h-full w-full" style={{ background: canvasBackground }}>
-      <Canvas
-        key={`renderer-${rendererRevision}`}
-        frameloop="always"
-        shadows={qualityProfile !== 'performance'}
-        dpr={dprRange}
-        resize={{ debounce: 100 }}
-        gl={createRenderer as unknown as never}
-        style={{ background: canvasBackground }}
-        onCreated={({ gl }) => {
-          const unknownRenderer = gl as unknown as {
-            setClearColor?: (color: string) => void
-            __backend?: 'webgpu' | 'webgl2'
-            __diagnostics?: PreferredRendererDiagnostics
-          }
-          if (typeof unknownRenderer.setClearColor === 'function') {
-            unknownRenderer.setClearColor(canvasBackground)
-          }
-          const glRenderer = gl as unknown as { setPixelRatio?: (value: number) => void }
-          if (typeof glRenderer.setPixelRatio === 'function') {
-            glRenderer.setPixelRatio(window.devicePixelRatio <= 1.5 ? window.devicePixelRatio : dprRange[1])
-          }
-          const backend = unknownRenderer.__backend ?? unknownRenderer.__diagnostics?.backend ?? 'unknown'
-          setRendererBackend(backend)
+      <RendererErrorBoundary
+        resetKey={rendererRevision}
+        onError={(error) => {
+          const message = describeRendererFailure(error)
+          setRendererError(message)
+          setRendererBackend('unknown')
           setRendererDiagnostics({
             requestedMode: rendererMode,
-            backend,
-            webgpuAvailable: unknownRenderer.__diagnostics?.webgpuAvailable ?? hasNavigatorWebGpu(),
-            fallbackReason:
-              unknownRenderer.__diagnostics?.fallbackReason ??
-              (rendererMode !== 'webgl2' && backend !== 'webgpu'
-                ? 'unknown-webgpu-fallback'
-                : null),
-            message: unknownRenderer.__diagnostics?.message ?? null,
-            storageBufferActive: backend === 'webgpu',
+            backend: 'unknown',
+            webgpuAvailable: hasNavigatorWebGpu(),
+            fallbackReason: 'renderer-init-failed',
+            message,
+            storageBufferActive: false,
           })
         }}
+        fallback={() => {
+          return null
+        }}
       >
-        <Suspense fallback={<SceneLoading />}>
-          <ViewerRuntimeBridge>
-            <SceneContent backgroundColor={canvasBackground} />
-            <RendererReadySignal onReady={finishRendererTransition} />
-          </ViewerRuntimeBridge>
-        </Suspense>
-        {showStats && <Stats />}
-      </Canvas>
+        <Canvas
+          key={`renderer-${rendererRevision}`}
+          frameloop="always"
+          shadows={qualityProfile !== 'performance'}
+          dpr={dprRange}
+          resize={{ debounce: 100 }}
+          gl={createRenderer as unknown as never}
+          style={{ background: canvasBackground }}
+          onCreated={({ gl }) => {
+            setRendererError(null)
+            const unknownRenderer = gl as unknown as {
+              setClearColor?: (color: string) => void
+              __backend?: 'webgpu' | 'webgl2'
+              __diagnostics?: PreferredRendererDiagnostics
+            }
+            if (typeof unknownRenderer.setClearColor === 'function') {
+              unknownRenderer.setClearColor(canvasBackground)
+            }
+            const glRenderer = gl as unknown as { setPixelRatio?: (value: number) => void }
+            if (typeof glRenderer.setPixelRatio === 'function') {
+              glRenderer.setPixelRatio(window.devicePixelRatio <= 1.5 ? window.devicePixelRatio : dprRange[1])
+            }
+            const backend = unknownRenderer.__backend ?? unknownRenderer.__diagnostics?.backend ?? 'unknown'
+            setRendererBackend(backend)
+            setRendererDiagnostics({
+              requestedMode: rendererMode,
+              backend,
+              webgpuAvailable: unknownRenderer.__diagnostics?.webgpuAvailable ?? hasNavigatorWebGpu(),
+              fallbackReason:
+                unknownRenderer.__diagnostics?.fallbackReason ??
+                (rendererMode === 'webgpu' && backend !== 'webgpu'
+                  ? 'unknown-webgpu-fallback'
+                  : null),
+              message: unknownRenderer.__diagnostics?.message ?? null,
+              storageBufferActive: backend === 'webgpu',
+            })
+          }}
+        >
+          <Suspense fallback={<SceneLoading />}>
+            <ViewerRuntimeBridge>
+              <SceneContent backgroundColor={canvasBackground} />
+              <RendererReadySignal onReady={finishRendererTransition} />
+            </ViewerRuntimeBridge>
+          </Suspense>
+          {showStats && <Stats />}
+        </Canvas>
+      </RendererErrorBoundary>
+
+      {rendererError && (
+        <div
+          data-renderer-error="true"
+          className="absolute inset-0 z-30 flex items-center justify-center px-6 text-center"
+          style={{ background: canvasBackground }}
+        >
+          <div className="max-w-md rounded-xl border border-amber-300/30 bg-background/80 px-5 py-4 text-sm shadow-lg backdrop-blur">
+            <div className="font-medium text-amber-100">3D renderer unavailable</div>
+            <div className="mt-2 text-xs leading-5 text-muted-foreground">{rendererError}</div>
+          </div>
+        </div>
+      )}
 
       {rendererTransitioning && (
         <div

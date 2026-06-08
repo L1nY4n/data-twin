@@ -527,6 +527,39 @@ describe('editor store', () => {
     expect(useEditorDigitalTwinStore.getState().isDirty).toBe(true)
   })
 
+  test('syncs scene config camera presets into editor camera actions', () => {
+    useEditorDigitalTwinStore.getState().reset()
+    const entity = createEntity()
+    const store = useEditorDigitalTwinStore.getState()
+
+    store.hydrateFromBootstrap(
+      createBootstrapPayload(entity),
+      DEFAULT_PUBLISHED_SCENE_PACKAGE
+    )
+
+    store.setSceneConfig({
+      cameraPresets: [
+        {
+          id: 'workspace-desk',
+          name: 'Workspace Desk',
+          position: { x: 8, y: 10, z: 12 },
+          target: { x: 1, y: 0, z: 1 },
+          fov: 45,
+          quickAccess: true,
+        },
+      ],
+    })
+
+    const state = useEditorDigitalTwinStore.getState()
+
+    expect(state.cameraPresets.map((preset) => preset.id)).toEqual(['workspace-desk'])
+    expect(state.activeCameraPreset).toBe('workspace-desk')
+    expect(state.sceneConfig.cameraPresets?.map((preset) => preset.id)).toEqual([
+      'workspace-desk',
+    ])
+    expect(state.hasSceneChanges).toBe(true)
+  })
+
   test('stores floor plan reference controls in the editor ui slice only', () => {
     useEditorDigitalTwinStore.getState().reset()
     const store = useEditorDigitalTwinStore.getState()

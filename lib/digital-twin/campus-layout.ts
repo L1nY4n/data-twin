@@ -902,6 +902,8 @@ export const CAMPUS_CAMERA_PRESETS: CameraPreset[] = [
     position: CAMPUS_SCENE_CONFIG.cameraPosition,
     target: CAMPUS_SCENE_CONFIG.cameraTarget,
     fov: 50,
+    quickAccess: true,
+    quickAccessOrder: 0,
   },
   {
     id: 'top',
@@ -909,6 +911,8 @@ export const CAMPUS_CAMERA_PRESETS: CameraPreset[] = [
     position: { x: 0, y: 660, z: 0 },
     target: { x: 0, y: 0, z: 0 },
     fov: 45,
+    quickAccess: true,
+    quickAccessOrder: 1,
   },
   {
     id: 'process',
@@ -916,6 +920,8 @@ export const CAMPUS_CAMERA_PRESETS: CameraPreset[] = [
     position: { x: -4, y: 66, z: 34 },
     target: { x: -56, y: 8, z: -26 },
     fov: 50,
+    quickAccess: true,
+    quickAccessOrder: 2,
   },
   {
     id: 'tank',

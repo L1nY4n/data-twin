@@ -246,7 +246,7 @@ describe('realvirtual-WEB migration guardrails', () => {
     expect(page.includes('viewer-command-strip__focus')).toBe(true)
     expect(page.includes('onKeyDown={handleQuickSearchKeyDown}')).toBe(true)
     expect(page.includes('role="listbox" aria-label="全局对象搜索结果"')).toBe(true)
-    expect(page.includes('const quickCameraPresets = useMemo(() => cameraPresets.slice(0, 3), [cameraPresets])')).toBe(true)
+    expect(page.includes('selectQuickCameraPresets(cameraPresets)')).toBe(true)
     expect(page.includes('handleQuickCameraPresetSelect')).toBe(true)
     expect(page.includes("setViewMode('orbit')")).toBe(true)
     expect(page.includes('setActiveCameraPreset(presetId)')).toBe(true)

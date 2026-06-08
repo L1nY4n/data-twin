@@ -40,8 +40,33 @@ interface WebGpuRendererAttempt {
   diagnostics: PreferredRendererDiagnostics
 }
 
+const WEBGPU_INIT_TIMEOUT_MS = 2500
+
 function describeRendererError(error: unknown) {
   return error instanceof Error ? error.message : String(error)
+}
+
+function withRendererTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  message: string
+): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      reject(new Error(message))
+    }, timeoutMs)
+
+    promise.then(
+      (value) => {
+        clearTimeout(timeoutId)
+        resolve(value)
+      },
+      (error) => {
+        clearTimeout(timeoutId)
+        reject(error)
+      }
+    )
+  })
 }
 
 function isWebGpuSecureContext() {
@@ -95,6 +120,8 @@ async function tryCreateWebGpuRenderer(
     }
   }
 
+  let renderer: AnyRenderer | null = null
+
   try {
     if (!(defaults.canvas instanceof HTMLCanvasElement)) {
       return {
@@ -115,7 +142,7 @@ async function tryCreateWebGpuRenderer(
       }
     }
 
-    const renderer = new WebGPURenderer({
+    renderer = new WebGPURenderer({
       canvas: defaults.canvas,
       antialias: options.antialias,
       alpha: options.alpha,
@@ -123,7 +150,11 @@ async function tryCreateWebGpuRenderer(
 
     const maybeInit = renderer as unknown as { init?: () => Promise<void> }
     if (typeof maybeInit.init === 'function') {
-      await maybeInit.init()
+      await withRendererTimeout(
+        maybeInit.init(),
+        WEBGPU_INIT_TIMEOUT_MS,
+        `WebGPU renderer init timed out after ${WEBGPU_INIT_TIMEOUT_MS}ms.`
+      )
     }
 
     ;(renderer as unknown as { outputColorSpace?: THREE.ColorSpace }).outputColorSpace = THREE.SRGBColorSpace
@@ -136,6 +167,7 @@ async function tryCreateWebGpuRenderer(
       diagnostics: createDiagnostics(options, 'webgpu', null),
     }
   } catch (error) {
+    renderer?.dispose()
     return {
       renderer: null,
       diagnostics: createDiagnostics(
@@ -195,7 +227,7 @@ export async function createPreferredRenderer(
   defaults: GLDefaults,
   options: CreatePreferredRendererOptions
 ): Promise<AnyRenderer> {
-  if (options.mode !== 'webgl2') {
+  if (options.mode === 'webgpu') {
     const webGpuAttempt = await tryCreateWebGpuRenderer(defaults, options)
     if (webGpuAttempt.renderer) return webGpuAttempt.renderer
     return createWebGlRenderer(defaults, options, webGpuAttempt.diagnostics)

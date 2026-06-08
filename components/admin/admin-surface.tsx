@@ -1,18 +1,20 @@
 import type * as React from 'react'
-import { ShieldAlert, Workflow } from 'lucide-react'
+import { Inbox, ShieldAlert, Workflow } from 'lucide-react'
 import type { AdminSection } from '@/lib/digital-twin/admin'
 import { getAdminSectionMeta } from '@/components/admin/admin-meta'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card'
-import {
+  ViewerAdminEmptyState,
+  ViewerAdminKicker,
+  ViewerAdminMetricTile,
   ViewerAdminPanel,
-  ViewerAdminSoftCard,
+  ViewerAdminPanelBody,
+  ViewerAdminPanelHeader,
+  ViewerAdminRecordCard,
+  ViewerAdminSpotlightEmptyState,
 } from '@/components/viewer-admin/primitives'
 import { cn } from '@/lib/utils'
 
@@ -31,7 +33,7 @@ function StatusBanner({
       className={cn(
         'inline-flex items-center rounded-full px-3 py-1.5 text-xs',
         inverted
-          ? 'border-white/10 bg-white/5 text-slate-200'
+          ? 'border-white/10 bg-white/5 text-white/80'
           : 'bg-background text-muted-foreground'
       )}
     >
@@ -63,32 +65,45 @@ export function MetricCard({
   hint,
 }: {
   label: string
-  value: number | string
+  value: React.ReactNode
   hint?: string
 }) {
-  return (
-    <Card className="viewer-admin-panel viewer-admin-panel--soft border-white/10 bg-transparent shadow-none backdrop-blur">
-      <CardHeader className="gap-2 pb-2">
-        <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">
-          {label}
-        </p>
-      </CardHeader>
-      <CardContent>
-        <div className="text-3xl font-semibold">{value}</div>
-        {hint ? <p className="mt-2 text-xs text-muted-foreground">{hint}</p> : null}
-      </CardContent>
-    </Card>
-  )
+  return <ViewerAdminMetricTile label={label} value={value} hint={hint} size="lg" />
+}
+
+export function AdminMetricTile({
+  label,
+  value,
+  size = 'md',
+}: {
+  label: string
+  value: React.ReactNode
+  size?: 'md' | 'sm'
+}) {
+  return <ViewerAdminMetricTile label={label} value={value} size={size} />
+}
+
+export const ADMIN_VALUE_PENDING = '未加载'
+export const ADMIN_VALUE_UNSET = '未配置'
+export const ADMIN_VALUE_UNSELECTED = '未选择'
+
+export function adminDisplayValue(
+  value: React.ReactNode | null | undefined,
+  fallback: React.ReactNode = ADMIN_VALUE_UNSET
+) {
+  if (value == null) return fallback
+  if (typeof value === 'string' && value.trim().length === 0) return fallback
+  return value
 }
 
 export interface SectionMetric {
   label: string
-  value: number | string
+  value: React.ReactNode
 }
 
 export interface SectionRailCard {
   title: string
-  value: string
+  value: React.ReactNode
 }
 
 export function AdminButton({
@@ -126,6 +141,57 @@ export function AdminButton({
   )
 }
 
+export function AdminSelect({
+  className,
+  ...props
+}: React.ComponentProps<'select'>) {
+  return (
+    <select
+      className={cn(
+        'h-9 w-full rounded-md border bg-background px-2 text-sm shadow-none transition focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50',
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+export function AdminInput({
+  className,
+  ...props
+}: React.ComponentProps<typeof Input>) {
+  return (
+    <Input
+      className={cn('admin-input h-9 rounded-full shadow-none', className)}
+      {...props}
+    />
+  )
+}
+
+export function AdminTextarea({
+  className,
+  ...props
+}: React.ComponentProps<typeof Textarea>) {
+  return (
+    <Textarea
+      className={cn('admin-textarea rounded-[18px] shadow-none', className)}
+      {...props}
+    />
+  )
+}
+
+export function AdminBadge({
+  className,
+  ...props
+}: React.ComponentProps<typeof Badge>) {
+  return (
+    <Badge
+      className={cn('admin-badge rounded-full px-2.5 text-[10px]', className)}
+      {...props}
+    />
+  )
+}
+
 export function AdminSelectableCard({
   active = false,
   className,
@@ -149,6 +215,60 @@ export function AdminSelectableCard({
   )
 }
 
+type AdminSelectableRecordCardProps = Omit<
+  React.ComponentProps<typeof AdminSelectableCard>,
+  'children'
+> & {
+  title: React.ReactNode
+  meta?: React.ReactNode
+  trailing?: React.ReactNode
+  footer?: React.ReactNode
+  titleClassName?: string
+  metaClassName?: string
+  headerClassName?: string
+  children?: React.ReactNode
+}
+
+export function AdminSelectableRecordCard({
+  title,
+  meta,
+  trailing,
+  footer,
+  titleClassName,
+  metaClassName,
+  headerClassName,
+  className,
+  children,
+  ...props
+}: AdminSelectableRecordCardProps) {
+  return (
+    <AdminSelectableCard className={cn('px-3 py-3', className)} {...props}>
+      <div
+        className={cn(
+          'flex items-start justify-between gap-3',
+          headerClassName
+        )}
+      >
+        <div className="min-w-0">
+          <div className={cn('font-medium text-foreground', titleClassName)}>{title}</div>
+          {meta ? (
+            <div className={cn('mt-1 text-xs text-muted-foreground', metaClassName)}>
+              {meta}
+            </div>
+          ) : null}
+        </div>
+        {trailing ? <div className="shrink-0">{trailing}</div> : null}
+      </div>
+      {footer ? (
+        <div className="mt-3 flex items-center justify-between gap-3 text-xs text-muted-foreground">
+          {footer}
+        </div>
+      ) : null}
+      {children}
+    </AdminSelectableCard>
+  )
+}
+
 export function AdminInsetBlock({
   tone = 'default',
   className,
@@ -168,6 +288,48 @@ export function AdminInsetBlock({
   )
 }
 
+type AdminRecordCardProps = Omit<React.HTMLAttributes<HTMLDivElement>, 'title'> & {
+  title: React.ReactNode
+  meta?: React.ReactNode
+  trailing?: React.ReactNode
+  titleClassName?: string
+  metaClassName?: string
+  headerClassName?: string
+  bodyClassName?: string
+  density?: 'compact' | 'comfortable' | 'spacious'
+}
+
+export function AdminRecordCard({
+  title,
+  meta,
+  trailing,
+  titleClassName,
+  metaClassName,
+  headerClassName,
+  bodyClassName,
+  density = 'spacious',
+  className,
+  children,
+  ...props
+}: AdminRecordCardProps) {
+  return (
+    <ViewerAdminRecordCard
+      title={title}
+      meta={meta}
+      trailing={trailing}
+      titleClassName={cn('leading-6', titleClassName)}
+      metaClassName={metaClassName}
+      headerClassName={headerClassName}
+      bodyClassName={bodyClassName}
+      density={density}
+      className={className}
+      {...props}
+    >
+      {children}
+    </ViewerAdminRecordCard>
+  )
+}
+
 export function SectionPanel({
   eyebrow,
   title,
@@ -181,27 +343,47 @@ export function SectionPanel({
   className?: string
 }>) {
   return (
-    <Card
+    <ViewerAdminPanel
+      variant="soft"
       className={cn(
-        'admin-section-panel viewer-admin-panel viewer-admin-panel--soft border-white/10 bg-transparent shadow-none backdrop-blur',
+        'admin-section-panel overflow-hidden border-white/10 bg-transparent shadow-none backdrop-blur',
         className
       )}
     >
-      <CardHeader className="admin-section-panel__header items-center gap-2 border-b border-white/8 bg-transparent px-5 py-4 md:h-[var(--admin-section-header-height)] md:min-h-0 md:pt-0 md:pb-0">
-        <div className="flex h-full w-full flex-wrap items-center justify-between gap-4">
-          <div className="space-y-1.5">
-            {eyebrow ? (
-              <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">
-                {eyebrow}
-              </p>
-            ) : null}
-            <CardTitle className="text-lg">{title}</CardTitle>
-          </div>
-          {action ? <div className="flex items-center gap-2">{action}</div> : null}
-        </div>
-      </CardHeader>
-      <CardContent className="pt-5">{children}</CardContent>
-    </Card>
+      <ViewerAdminPanelHeader
+        title={title}
+        description={eyebrow ? <ViewerAdminKicker>{eyebrow}</ViewerAdminKicker> : undefined}
+        trailing={action}
+        titleClassName="text-lg"
+        descriptionClassName="mt-1.5"
+        className="admin-section-panel__header items-center gap-2 border-b border-white/8 bg-transparent px-5 py-4 md:h-[var(--admin-section-header-height)] md:min-h-0 md:pt-0 md:pb-0"
+      />
+      <ViewerAdminPanelBody className="pt-5 text-foreground">{children}</ViewerAdminPanelBody>
+    </ViewerAdminPanel>
+  )
+}
+
+export function AdminEmptyState({
+  title = '暂无数据',
+  description,
+  icon = Inbox,
+  className,
+  children,
+}: React.PropsWithChildren<{
+  title?: React.ReactNode
+  description?: React.ReactNode
+  icon?: React.ComponentType<{ className?: string }>
+  className?: string
+}>) {
+  return (
+    <ViewerAdminEmptyState
+      title={title}
+      description={description}
+      icon={icon}
+      className={className}
+    >
+      {children}
+    </ViewerAdminEmptyState>
   )
 }
 
@@ -215,34 +397,12 @@ export function WorkspaceEmptyState({
   items?: string[]
 }) {
   return (
-    <ViewerAdminPanel className="space-y-4 rounded-[24px] border border-dashed border-white/10 bg-[radial-gradient(circle_at_top_left,_rgba(122,164,255,0.12),_transparent_38%),linear-gradient(180deg,_rgba(18,19,22,0.94)_0%,_rgba(18,19,22,0.78)_100%)] p-5">
-      <div className="space-y-2">
-        <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">
-          {eyebrow}
-        </p>
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-white/6 shadow-none">
-            <Workflow className="h-4 w-4 text-white/80" />
-          </div>
-          <div>
-            <h4 className="text-lg font-semibold text-white">{title}</h4>
-          </div>
-        </div>
-      </div>
-
-      {items && items.length > 0 ? (
-        <div className="flex flex-wrap gap-2">
-          {items.map((item) => (
-            <ViewerAdminSoftCard
-              key={item}
-              className="rounded-full border-white/8 bg-white/5 px-3 py-1.5 text-xs text-white/80"
-            >
-              {item}
-            </ViewerAdminSoftCard>
-          ))}
-        </div>
-      ) : null}
-    </ViewerAdminPanel>
+    <ViewerAdminSpotlightEmptyState
+      eyebrow={eyebrow}
+      title={title}
+      icon={Workflow}
+      items={items}
+    />
   )
 }
 
@@ -291,10 +451,10 @@ export function AdminSectionFrame({
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="space-y-2">
             <div className="flex flex-wrap items-center gap-2.5">
-              <h2 className="text-[1.4rem] font-semibold tracking-tight md:text-[1.6rem]">{meta.title}</h2>
-              <Badge className="rounded-full border border-white/10 bg-white/10 px-3 text-[11px] font-medium text-white hover:bg-white/10">
+              <h2 className="text-[1.4rem] font-semibold md:text-[1.6rem]">{meta.title}</h2>
+              <AdminBadge className="border border-white/10 bg-white/10 px-3 text-[11px] font-medium text-white hover:bg-white/10">
                 {meta.shortTitle}
-              </Badge>
+              </AdminBadge>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -312,15 +472,11 @@ export function AdminSectionFrame({
             {metrics.length > 0 ? (
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                 {metrics.map((metric) => (
-                  <div
+                  <AdminMetricTile
                     key={metric.label}
-                    className="viewer-admin-panel viewer-admin-panel--soft rounded-2xl px-4 py-3"
-                  >
-                    <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">
-                      {metric.label}
-                    </p>
-                    <div className="mt-2 text-2xl font-semibold">{metric.value}</div>
-                  </div>
+                    label={metric.label}
+                    value={metric.value}
+                  />
                 ))}
               </div>
             ) : (
@@ -329,15 +485,12 @@ export function AdminSectionFrame({
 
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
               {resolvedRailCards.map((card) => (
-                <div
+                <AdminMetricTile
                   key={card.title}
-                  className="viewer-admin-panel viewer-admin-panel--soft rounded-2xl px-4 py-3"
-                >
-                  <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">
-                    {card.title}
-                  </p>
-                  <div className="mt-2 text-lg font-semibold">{card.value}</div>
-                </div>
+                  label={card.title}
+                  value={card.value}
+                  size="sm"
+                />
               ))}
             </div>
           </div>

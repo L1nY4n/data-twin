@@ -5,11 +5,17 @@ import { useDigitalTwinStore, useSelectedIncident } from '@/lib/digital-twin/sto
 import { Badge } from '@/components/ui/badge'
 import {
   Dialog,
-  DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { ViewerAdminDialogContent } from '@/components/viewer-admin/dialog'
+import {
+  ViewerAdminEmptyState,
+  ViewerAdminKicker,
+  ViewerAdminMetricTile,
+  ViewerAdminContentCard,
+} from '@/components/viewer-admin/primitives'
 
 export function IncidentVideoDialog() {
   const isOpen = useDigitalTwinStore((state) => state.isIncidentVideoOpen)
@@ -19,16 +25,16 @@ export function IncidentVideoDialog() {
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && closeIncidentVideo()}>
-      <DialogContent
-        className="max-h-[90vh] overflow-hidden border-slate-800 bg-slate-950 p-0 text-slate-50 sm:max-w-4xl"
+      <ViewerAdminDialogContent
+        className="max-h-[90vh] overflow-hidden sm:max-w-4xl"
         showCloseButton
       >
         <div data-testid="incident-video-dialog" className="grid min-h-[560px] md:grid-cols-[1.5fr_0.9fr]">
-          <div className="relative overflow-hidden border-b border-slate-800 md:border-b-0 md:border-r">
+          <div className="relative overflow-hidden border-b border-white/10 md:border-b-0 md:border-r">
             <div
               className="absolute inset-0 opacity-90"
               style={{
-                background: `radial-gradient(circle at 20% 20%, ${videoFeed?.posterTone ?? '#38bdf8'}55, transparent 40%), linear-gradient(180deg, #0f172a 0%, #020617 100%)`,
+                background: `radial-gradient(circle at 20% 20%, ${videoFeed?.posterTone ?? '#38bdf8'}55, transparent 40%), linear-gradient(180deg, rgba(18, 19, 22, 0.94) 0%, rgba(8, 12, 20, 0.96) 100%)`,
               }}
             />
             <div className="absolute inset-x-0 top-0 h-px bg-white/60 opacity-70 shadow-[0_0_18px_rgba(255,255,255,0.7)]" />
@@ -36,12 +42,14 @@ export function IncidentVideoDialog() {
             <div className="relative flex h-full min-h-[320px] flex-col justify-between p-6">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <div className="flex items-center gap-2 text-xs uppercase tracking-[0.28em] text-slate-400">
-                    <RadioTower className="h-3.5 w-3.5" />
+                  <ViewerAdminKicker
+                    leading={<RadioTower className="h-3.5 w-3.5" />}
+                    className="flex"
+                  >
                     CCTV Linkage
-                  </div>
+                  </ViewerAdminKicker>
                   <h3 className="mt-3 text-2xl font-semibold">{videoFeed?.title ?? '事件视频联动面板'}</h3>
-                  <p className="mt-2 max-w-xl text-sm text-slate-300">
+                  <p className="mt-2 max-w-xl text-sm text-muted-foreground">
                     {incident?.summary ?? '根据事件卡片自动联动到对应监控视角，便于值班员快速确认现场态势。'}
                   </p>
                 </div>
@@ -51,32 +59,40 @@ export function IncidentVideoDialog() {
               </div>
 
               <div className="grid gap-3 md:grid-cols-3">
-                <div className="rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur">
-                  <div className="text-xs uppercase tracking-[0.24em] text-slate-400">Camera</div>
-                  <div className="mt-2 text-sm font-medium">{videoFeed?.cameraName ?? 'Runtime Camera'}</div>
-                </div>
-                <div className="rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur">
-                  <div className="text-xs uppercase tracking-[0.24em] text-slate-400">Scene</div>
-                  <div className="mt-2 text-sm font-medium">{videoFeed?.sceneLabel ?? incident?.zoneName ?? '运行态联动区域'}</div>
-                </div>
-                <div className="rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur">
-                  <div className="text-xs uppercase tracking-[0.24em] text-slate-400">Status</div>
-                  <div className="mt-2 flex items-center gap-2 text-sm font-medium">
-                    <Siren className="h-4 w-4 text-amber-300" />
-                    {videoFeed?.status === 'review' ? '复核中' : videoFeed?.status === 'buffering' ? '缓冲中' : '实时联动'}
-                  </div>
-                </div>
+                <ViewerAdminMetricTile
+                  label="Camera"
+                  value={videoFeed?.cameraName ?? 'Runtime Camera'}
+                  size="compact"
+                  className="backdrop-blur"
+                />
+                <ViewerAdminMetricTile
+                  label="Scene"
+                  value={videoFeed?.sceneLabel ?? incident?.zoneName ?? '运行态联动区域'}
+                  size="compact"
+                  className="backdrop-blur"
+                />
+                <ViewerAdminMetricTile
+                  label="Status"
+                  value={
+                    <span className="flex items-center gap-2">
+                      <Siren className="h-4 w-4 text-amber-300" />
+                      {videoFeed?.status === 'review' ? '复核中' : videoFeed?.status === 'buffering' ? '缓冲中' : '实时联动'}
+                    </span>
+                  }
+                  size="compact"
+                  className="backdrop-blur"
+                />
               </div>
             </div>
           </div>
 
-          <div className="flex flex-col bg-slate-950/90 p-6">
+          <div className="flex flex-col p-6">
             <DialogHeader className="text-left">
-              <DialogTitle className="flex items-center gap-2 text-slate-50">
+              <DialogTitle className="flex items-center gap-2 text-foreground">
                 <MonitorPlay className="h-5 w-5 text-sky-300" />
                 事件 Citation
               </DialogTitle>
-              <DialogDescription className="text-slate-400">
+              <DialogDescription className="text-muted-foreground">
                 {incident?.message ?? '展示事件证据、关联对象与监控引用。'}
               </DialogDescription>
             </DialogHeader>
@@ -84,28 +100,33 @@ export function IncidentVideoDialog() {
             <div className="mt-6 space-y-3 overflow-auto">
               {incident?.citations?.length ? (
                 incident.citations.map((citation) => (
-                  <div key={citation.id} className="rounded-xl border border-white/10 bg-white/5 p-4">
-                    <div className="text-xs uppercase tracking-[0.24em] text-slate-500">{citation.label}</div>
-                    <div className="mt-2 text-sm text-slate-100">{citation.value}</div>
-                  </div>
+                  <ViewerAdminMetricTile
+                    key={citation.id}
+                    label={citation.label}
+                    value={citation.value}
+                    size="compact"
+                  />
                 ))
               ) : (
-                <div className="rounded-xl border border-dashed border-white/15 p-6 text-sm text-slate-400">
-                  当前无附加证据，保留为视频联动占位面板。
-                </div>
+                <ViewerAdminEmptyState
+                  title="暂无附加证据"
+                  description="保留为视频联动占位面板，后续事件证据会显示在这里。"
+                  icon={Video}
+                  className="p-6"
+                />
               )}
             </div>
 
-            <div className="mt-6 rounded-xl border border-white/10 bg-white/5 p-4 text-xs text-slate-400">
-              <div className="flex items-center gap-2 text-slate-200">
+            <ViewerAdminContentCard density="compact" className="mt-6 text-xs text-muted-foreground">
+              <div className="flex items-center gap-2 text-foreground">
                 <Video className="h-4 w-4 text-sky-300" />
                 流地址
               </div>
               <div className="mt-2 break-all font-mono">{videoFeed?.streamUrl ?? 'runtime://incident-feed'}</div>
-            </div>
+            </ViewerAdminContentCard>
           </div>
         </div>
-      </DialogContent>
+      </ViewerAdminDialogContent>
     </Dialog>
   )
 }

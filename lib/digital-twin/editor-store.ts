@@ -282,7 +282,8 @@ export function hasEditorSceneConfigChanged(current: SceneConfig, saved: SceneCo
     current.backgroundColor !== saved.backgroundColor ||
     current.ambientLightIntensity !== saved.ambientLightIntensity ||
     current.showAxes !== saved.showAxes ||
-    current.showGrid !== saved.showGrid
+    current.showGrid !== saved.showGrid ||
+    JSON.stringify(current.cameraPresets ?? []) !== JSON.stringify(saved.cameraPresets ?? [])
   )
 }
 
@@ -356,6 +357,7 @@ export const EDITOR_EMPTY_PUBLISHED_SCENE_PACKAGE: PublishedScenePackage = {
     ...EDITOR_EMPTY_SCENE_CONFIG,
     cameraPosition: cloneVector(EDITOR_EMPTY_SCENE_CONFIG.cameraPosition),
     cameraTarget: cloneVector(EDITOR_EMPTY_SCENE_CONFIG.cameraTarget),
+    cameraPresets: cloneCameraPresets(EDITOR_EMPTY_CAMERA_PRESETS),
   },
   sectors: [],
   staticChunks: [],
@@ -844,9 +846,24 @@ export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, ge
       const sceneDirty = hasPersistentPatch
         ? hasEditorSceneConfigChanged(sceneConfig, state.savedSceneConfig)
         : state.hasSceneChanges
+      const nextCameraPresets = persistentPatch.cameraPresets
+        ? cloneCameraPresets(persistentPatch.cameraPresets)
+        : null
+      const nextActiveCameraPreset = hasCameraPosePatch
+        ? null
+        : nextCameraPresets
+          ? nextCameraPresets.some((preset) => preset.id === state.activeCameraPreset)
+            ? state.activeCameraPreset
+            : nextCameraPresets[0]?.id ?? null
+          : state.activeCameraPreset
 
       return {
         sceneConfig,
+        ...(nextCameraPresets
+          ? {
+              cameraPresets: nextCameraPresets,
+            }
+          : {}),
         ...(hasCameraPosePatch
           ? {
               editorCameraPosition: cameraPosition
@@ -857,7 +874,7 @@ export const useEditorDigitalTwinStore = create<EditorDigitalTwinStore>((set, ge
                 : state.editorCameraTarget,
             }
           : {}),
-        activeCameraPreset: hasCameraPosePatch ? null : state.activeCameraPreset,
+        activeCameraPreset: nextActiveCameraPreset,
         ...createEditorDirtyState(sceneDirty, state.hasSelectionChanges),
       }
     }),

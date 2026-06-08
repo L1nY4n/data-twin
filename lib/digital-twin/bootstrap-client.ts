@@ -209,15 +209,53 @@ function buildAdminApiErrorMessage(response: Response, payload: string) {
   return `Request failed ${response.status}: ${detail}`
 }
 
+function isServerAdminApiUrl(url: string) {
+  if (typeof window !== 'undefined') return false
+
+  try {
+    const { pathname } = new URL(url, 'http://localhost')
+    if (/^\/api\/v1\/admin(?:\/|$)/.test(pathname)) return true
+    return (
+      pathname.startsWith('/api/v1/workspaces/') &&
+      !pathname.startsWith('/api/v1/workspaces/by-slug/') &&
+      !pathname.includes('/runtime/')
+    )
+  } catch {
+    return false
+  }
+}
+
+function buildRequestHeaders(url: string, initHeaders?: HeadersInit) {
+  const headers = new Headers(initHeaders)
+  if (!headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json')
+  }
+
+  const shouldAttachAdminToken = isServerAdminApiUrl(url)
+  const adminToken = shouldAttachAdminToken ? process.env.BACKEND_ADMIN_API_TOKEN?.trim() : ''
+  if (adminToken && !headers.has('x-admin-api-token')) {
+    headers.set('x-admin-api-token', adminToken)
+  }
+
+  return headers
+}
+
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(init?.headers ?? {}),
-    },
-    cache: 'no-store',
-  })
+  let response: Response
+
+  try {
+    response = await fetch(url, {
+      ...init,
+      headers: buildRequestHeaders(url, init?.headers),
+      cache: 'no-store',
+    })
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : 'network request failed'
+    throw new AdminApiError(`Request failed: backend API is unreachable (${reason})`, {
+      status: 0,
+      payload: reason,
+    })
+  }
 
   if (!response.ok) {
     const payload = await response.text()

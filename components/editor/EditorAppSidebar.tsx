@@ -32,6 +32,12 @@ import { useShallow } from 'zustand/react/shallow'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import {
+  EditorEmptyState,
+  EditorInsetBlock,
+  EditorKicker,
+  EditorTreeSectionCard,
+} from '@/components/editor/editor-primitives'
 import { EDITOR_CATALOG_TRANSFER_MIME } from '@/lib/digital-twin/editor-dnd'
 import type { FloorPlanDetectionResultDto } from '@/lib/digital-twin/floor-plan-detector'
 import { detectFloorPlanFromImageUrl } from '@/lib/digital-twin/floor-plan-detector'
@@ -630,7 +636,7 @@ export function EditorAppSidebar({
             <div className="editor-group px-2.5 py-2">
               <div className="flex items-center justify-between gap-2">
                 <div>
-                  <p className="editor-kicker">Workspace</p>
+                  <EditorKicker>Workspace</EditorKicker>
                   <p className="mt-1 text-[13px] font-semibold leading-5">
                     {isLoading
                       ? '正在同步编辑态'
@@ -662,9 +668,9 @@ export function EditorAppSidebar({
                   <div className="flex items-center justify-between px-2">
                     <div className="flex items-center gap-2">
                       <ImageIcon className="size-4 text-white/44" />
-                      <span className="text-[10px] font-medium uppercase tracking-[0.28em] text-white/38">
+                      <EditorKicker as="span" className="text-white/38">
                         Floor Plan
-                      </span>
+                      </EditorKicker>
                     </div>
                     <span className="editor-mini-pill">
                       {floorPlanReference ? 'Loaded' : 'Empty'}
@@ -679,7 +685,7 @@ export function EditorAppSidebar({
                     onChange={handleFloorPlanFileChange}
                   />
 
-                  <div className="mt-2 space-y-2 rounded-[12px] border border-white/6 bg-black/10 p-2">
+                  <EditorInsetBlock className="mt-2 space-y-2 p-2">
                     <div className="flex flex-wrap gap-1.5">
                       <Button
                         type="button"
@@ -799,11 +805,13 @@ export function EditorAppSidebar({
                         </Button>
                       </div>
                     ) : (
-                      <div className="editor-empty">
-                        上传 floor plan 图片作为地面参考，并导入可编辑墙体 / 门窗。
-                      </div>
+                      <EditorEmptyState
+                        icon={ImageIcon}
+                        title="等待 floor plan"
+                        description="上传图片作为地面参考，并导入可编辑墙体 / 门窗。"
+                      />
                     )}
-                  </div>
+                  </EditorInsetBlock>
                 </section>
 
                 <div className="editor-group p-1.5">
@@ -841,9 +849,9 @@ export function EditorAppSidebar({
                   <div className="flex items-center justify-between px-2">
                     <div className="flex items-center gap-2">
                       <TowerControl className="size-4 text-white/44" />
-                      <span className="text-[10px] font-medium uppercase tracking-[0.28em] text-white/38">
+                      <EditorKicker as="span" className="text-white/38">
                         Asset Library
-                      </span>
+                      </EditorKicker>
                     </div>
                     <span className="editor-mini-pill">{filteredCatalogItems.length}</span>
                   </div>
@@ -891,7 +899,12 @@ export function EditorAppSidebar({
                     ))}
                   </ul>
                   {filteredCatalogItems.length === 0 ? (
-                    <div className="mt-2 editor-empty">没有符合当前搜索和筛选的资源。</div>
+                    <EditorEmptyState
+                      icon={TowerControl}
+                      title="没有匹配资源"
+                      description="调整搜索词或资源域筛选后继续放置。"
+                      className="mt-2"
+                    />
                   ) : null}
                 </section>
               </TabsContent>
@@ -915,9 +928,9 @@ export function EditorAppSidebar({
                   <div className="flex items-center justify-between px-2">
                     <div className="flex items-center gap-2">
                       <Layers3 className="size-4 text-white/44" />
-                      <span className="text-[10px] font-medium uppercase tracking-[0.28em] text-white/38">
+                      <EditorKicker as="span" className="text-white/38">
                         图层
-                      </span>
+                      </EditorKicker>
                     </div>
                   </div>
                   <div className="mt-2 grid grid-cols-3 gap-1.5">
@@ -946,9 +959,9 @@ export function EditorAppSidebar({
                   <div className="flex items-center justify-between px-2">
                     <div className="flex items-center gap-2">
                       <Workflow className="size-4 text-white/44" />
-                      <span className="text-[10px] font-medium uppercase tracking-[0.28em] text-white/38">
+                      <EditorKicker as="span" className="text-white/38">
                         分组
-                      </span>
+                      </EditorKicker>
                     </div>
                   </div>
                   <div className="mt-2 flex flex-wrap gap-1.5">
@@ -968,9 +981,9 @@ export function EditorAppSidebar({
                   <div className="flex items-center justify-between px-2">
                     <div className="flex items-center gap-2">
                       <MapPinned className="size-4 text-white/44" />
-                      <span className="text-[10px] font-medium uppercase tracking-[0.28em] text-white/38">
+                      <EditorKicker as="span" className="text-white/38">
                         场景树
-                      </span>
+                      </EditorKicker>
                     </div>
                     <span className="editor-mini-pill">{sceneTreeSections.length}</span>
                   </div>
@@ -980,7 +993,7 @@ export function EditorAppSidebar({
                         const open = !collapsedTreeSections[section.id]
 
                         return (
-                          <li key={section.id} className="rounded-[14px] border border-white/6 bg-white/[0.02]">
+                          <EditorTreeSectionCard key={section.id}>
                             <TreeSectionTrigger
                               label={section.label}
                               subtitle={section.subtitle}
@@ -997,10 +1010,10 @@ export function EditorAppSidebar({
                             {open ? (
                               <div className="space-y-1 px-2 pb-2">
                                 {section.assets.length > 0 ? (
-                                  <div className="space-y-1 rounded-[12px] border border-white/6 bg-black/10 p-1.5">
-                                    <p className="px-2 text-[10px] uppercase tracking-[0.22em] text-white/34">
+                                  <EditorInsetBlock className="space-y-1 p-1.5">
+                                    <EditorKicker className="px-2 text-white/34">
                                       资产
-                                    </p>
+                                    </EditorKicker>
                                     {section.assets.map((asset) => (
                                       <PanelMenuButton
                                         key={asset.id}
@@ -1019,14 +1032,14 @@ export function EditorAppSidebar({
                                         </div>
                                       </PanelMenuButton>
                                     ))}
-                                  </div>
+                                  </EditorInsetBlock>
                                 ) : null}
 
                                 {section.entities.length > 0 ? (
-                                  <div className="space-y-1 rounded-[12px] border border-white/6 bg-black/10 p-1.5">
-                                    <p className="px-2 text-[10px] uppercase tracking-[0.22em] text-white/34">
+                                  <EditorInsetBlock className="space-y-1 p-1.5">
+                                    <EditorKicker className="px-2 text-white/34">
                                       实体
-                                    </p>
+                                    </EditorKicker>
                                     {section.entities.map((entity) => (
                                       <PanelMenuButton
                                         key={entity.id}
@@ -1044,16 +1057,21 @@ export function EditorAppSidebar({
                                         </div>
                                       </PanelMenuButton>
                                     ))}
-                                  </div>
+                                  </EditorInsetBlock>
                                 ) : null}
                               </div>
                             ) : null}
-                          </li>
+                          </EditorTreeSectionCard>
                         )
                       })}
                     </ul>
                   ) : (
-                    <div className="mt-2 editor-empty">当前筛选下没有可显示的场景树节点。</div>
+                    <EditorEmptyState
+                      icon={MapPinned}
+                      title="没有可显示节点"
+                      description="切换图层、分组或搜索条件后查看场景树。"
+                      className="mt-2"
+                    />
                   )}
                 </section>
               </TabsContent>

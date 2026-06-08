@@ -53,12 +53,19 @@ import {
 } from '@/components/admin/admin-meta'
 import { ModulePageHost } from '@/components/admin/module-page-host'
 import {
+  ADMIN_VALUE_PENDING,
+  ADMIN_VALUE_UNSELECTED,
+  adminDisplayValue,
   AdminButton,
+  AdminEmptyState,
   AdminInsetBlock,
+  AdminRecordCard,
   AdminSectionFrame,
-  AdminSelectableCard,
+  AdminSelect,
+  AdminSelectableRecordCard,
   SectionPanel,
 } from '@/components/admin/admin-surface'
+import { ViewerAdminLinkCard, ViewerAdminKicker } from '@/components/viewer-admin/primitives'
 import type {
   Alarm,
   DataConnector,
@@ -68,15 +75,10 @@ import type {
 } from '@/lib/digital-twin/types'
 import { RuleEditor } from '@/components/digital-twin/rules/RuleEditor'
 import { Badge } from '@/components/ui/badge'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Textarea } from '@/components/ui/textarea'
-import {
-  ViewerAdminSoftCard,
-} from '@/components/viewer-admin/primitives'
-
 function OverviewSection({ workspaceId }: { workspaceId?: string }) {
   const [overview, setOverview] = useState<AdminOverview | null>(null)
   const [alarms, setAlarms] = useState<Alarm[]>([])
@@ -129,22 +131,22 @@ function OverviewSection({ workspaceId }: { workspaceId?: string }) {
       metrics={[
         {
           label: '场景版本',
-          value: overview?.sceneVersion ?? '--',
+          value: overview?.sceneVersion ?? ADMIN_VALUE_PENDING,
         },
         {
           label: '实体规模',
-          value: overview?.entityCount ?? '--',
+          value: overview?.entityCount ?? ADMIN_VALUE_PENDING,
         },
         {
           label: '待处理告警',
-          value: overview?.unacknowledgedAlarmCount ?? '--',
+          value: overview?.unacknowledgedAlarmCount ?? ADMIN_VALUE_PENDING,
         },
         {
           label: '最近变更',
           value:
             overview?.recentChangeAt != null
               ? new Date(overview.recentChangeAt).toLocaleDateString('zh-CN')
-              : '--',
+              : ADMIN_VALUE_PENDING,
         },
       ]}
       railCards={[
@@ -154,7 +156,7 @@ function OverviewSection({ workspaceId }: { workspaceId?: string }) {
         },
         {
           title: '审计',
-          value: latestAuditEvent?.actor ?? '--',
+          value: adminDisplayValue(latestAuditEvent?.actor, '暂无审计'),
         },
       ]}
     >
@@ -166,23 +168,22 @@ function OverviewSection({ workspaceId }: { workspaceId?: string }) {
         >
           <div className="grid gap-3 xl:grid-cols-2">
             {alarms.length === 0 ? (
-              <p className="text-sm text-muted-foreground xl:col-span-2">--</p>
+              <AdminEmptyState
+                title="暂无告警"
+                className="xl:col-span-2"
+              />
             ) : (
               alarms.slice(0, 6).map((alarm) => (
-                <ViewerAdminSoftCard key={alarm.id} className="p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <span className="font-medium leading-6">{alarm.message}</span>
-                    <Badge
-                      variant={alarm.acknowledged ? 'outline' : 'destructive'}
-                      className="shrink-0"
-                    >
+                <AdminRecordCard
+                  key={alarm.id}
+                  title={alarm.message}
+                  meta={`${new Date(alarm.timestamp).toLocaleString('zh-CN')} · ${alarm.level}`}
+                  trailing={
+                    <Badge variant={alarm.acknowledged ? 'outline' : 'destructive'}>
                       {alarm.acknowledged ? '已确认' : '待处理'}
                     </Badge>
-                  </div>
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    {new Date(alarm.timestamp).toLocaleString('zh-CN')} · {alarm.level}
-                  </p>
-                </ViewerAdminSoftCard>
+                  }
+                />
               ))
             )}
           </div>
@@ -195,25 +196,23 @@ function OverviewSection({ workspaceId }: { workspaceId?: string }) {
         >
           <div className="space-y-3">
             {auditEvents.length === 0 ? (
-              <p className="text-sm text-muted-foreground">--</p>
+              <AdminEmptyState title="暂无变更记录" />
             ) : (
               auditEvents.slice(0, 6).map((event) => (
-                <ViewerAdminSoftCard key={event.id} className="p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="font-medium leading-6">{event.action}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {event.actor} · {event.resourceId}
-                      </p>
-                    </div>
-                    <Badge variant="outline" className="shrink-0">
+                <AdminRecordCard
+                  key={event.id}
+                  title={event.action}
+                  meta={`${event.actor} · ${event.resourceId}`}
+                  trailing={
+                    <Badge variant="outline">
                       {event.resourceType}
                     </Badge>
-                  </div>
+                  }
+                >
                   <p className="mt-2 text-xs text-muted-foreground">
                     {new Date(event.createdAt).toLocaleString('zh-CN')}
                   </p>
-                </ViewerAdminSoftCard>
+                </AdminRecordCard>
               ))
             )}
           </div>
@@ -226,19 +225,16 @@ function OverviewSection({ workspaceId }: { workspaceId?: string }) {
           >
             <div className="space-y-3">
               {quickLinks.map((item) => (
-                <Link
+                <ViewerAdminLinkCard
                   key={item.href}
                   href={buildAdminHref(item.section, workspaceId)}
-                  className="viewer-admin-link-card group flex items-start justify-between gap-3 p-4"
                 >
                   <div className="min-w-0">
-                    <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
-                      {item.groupTitle}
-                    </p>
+                    <ViewerAdminKicker className="block">{item.groupTitle}</ViewerAdminKicker>
                     <p className="font-medium text-foreground">{item.title}</p>
                   </div>
                   <ArrowUpRight className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition group-hover:text-foreground" />
-                </Link>
+                </ViewerAdminLinkCard>
               ))}
             </div>
           </SectionPanel>
@@ -328,7 +324,10 @@ function BindingsSection({ workspaceId }: { workspaceId?: string }) {
       metrics={[
         {
           label: '目标实体',
-          value: entities.find((entity) => entity.id === selectedEntityId)?.name ?? '--',
+          value: adminDisplayValue(
+            entities.find((entity) => entity.id === selectedEntityId)?.name,
+            ADMIN_VALUE_UNSELECTED
+          ),
         },
         {
           label: '绑定条目',
@@ -346,7 +345,7 @@ function BindingsSection({ workspaceId }: { workspaceId?: string }) {
         },
         {
           title: '实体',
-          value: selectedEntityId || '--',
+          value: adminDisplayValue(selectedEntityId, ADMIN_VALUE_UNSELECTED),
         },
       ]}
     >
@@ -363,8 +362,7 @@ function BindingsSection({ workspaceId }: { workspaceId?: string }) {
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <Label>选择实体</Label>
-              <select
-                className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+              <AdminSelect
                 value={selectedEntityId}
                 onChange={(event) => {
                   setSelectedEntityId(event.target.value)
@@ -376,7 +374,7 @@ function BindingsSection({ workspaceId }: { workspaceId?: string }) {
                     {entity.name} ({entity.type})
                   </option>
                 ))}
-              </select>
+              </AdminSelect>
             </div>
             <div className="space-y-2">
               <Label>连接器概览</Label>
@@ -410,8 +408,7 @@ function BindingsSection({ workspaceId }: { workspaceId?: string }) {
                   <div className="grid gap-3 md:grid-cols-3">
                     <div className="space-y-2">
                       <Label>连接器</Label>
-                      <select
-                        className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                      <AdminSelect
                         value={binding.connectorId}
                         onChange={(event) =>
                           draft.updateDraft((current) =>
@@ -428,7 +425,7 @@ function BindingsSection({ workspaceId }: { workspaceId?: string }) {
                             {connector.name}
                           </option>
                         ))}
-                      </select>
+                      </AdminSelect>
                     </div>
                     <div className="space-y-2 md:col-span-2">
                       <Label>源路径</Label>
@@ -468,8 +465,7 @@ function BindingsSection({ workspaceId }: { workspaceId?: string }) {
                     <div className="flex flex-col justify-between gap-2">
                       <div className="space-y-2">
                         <Label>启用状态</Label>
-                        <select
-                          className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                        <AdminSelect
                           value={binding.enabled ? 'true' : 'false'}
                           onChange={(event) =>
                             draft.updateDraft((current) =>
@@ -483,7 +479,7 @@ function BindingsSection({ workspaceId }: { workspaceId?: string }) {
                         >
                           <option value="true">启用</option>
                           <option value="false">停用</option>
-                        </select>
+                        </AdminSelect>
                       </div>
                       <AdminButton
                         tone="danger"
@@ -502,7 +498,7 @@ function BindingsSection({ workspaceId }: { workspaceId?: string }) {
                 </AdminInsetBlock>
               ))
             ) : (
-              <p className="text-sm text-muted-foreground">--</p>
+              <AdminEmptyState title="请选择实体" />
             )}
           </div>
 
@@ -661,7 +657,10 @@ function RulesSection({ workspaceId }: { workspaceId?: string }) {
         },
         {
           label: '当前规则',
-          value: draft.draft?.name ?? selectedRule?.name ?? '--',
+          value: adminDisplayValue(
+            draft.draft?.name ?? selectedRule?.name,
+            ADMIN_VALUE_UNSELECTED
+          ),
         },
         {
           label: '校验结果',
@@ -708,21 +707,18 @@ function RulesSection({ workspaceId }: { workspaceId?: string }) {
             <ScrollArea className="h-[520px]">
               <div className="space-y-2 pr-3">
                 {rules.map((rule) => (
-                  <AdminSelectableCard
+                  <AdminSelectableRecordCard
                     key={rule.id}
                     active={selectedRuleId === rule.id && draftSeed === null}
-                    className="px-3 py-3"
                     onClick={() => {
                       setDraftSeed(null)
                       setSelectedRuleId(rule.id)
                       setRuleValidation([])
                     }}
+                    title={rule.name}
+                    meta={`${rule.enabled ? '启用' : '停用'} · version ${rule.version ?? 1}`}
                   >
-                    <div className="font-medium text-foreground">{rule.name}</div>
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      {rule.enabled ? '启用' : '停用'} · version {rule.version ?? 1}
-                    </div>
-                  </AdminSelectableCard>
+                  </AdminSelectableRecordCard>
                 ))}
               </div>
             </ScrollArea>
@@ -748,8 +744,7 @@ function RulesSection({ workspaceId }: { workspaceId?: string }) {
                   </div>
                   <div className="space-y-2">
                     <Label>启用状态</Label>
-                    <select
-                      className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                    <AdminSelect
                       value={draft.draft.enabled ? 'true' : 'false'}
                       onChange={(event) =>
                         draft.updateDraft((current) => ({
@@ -760,7 +755,7 @@ function RulesSection({ workspaceId }: { workspaceId?: string }) {
                     >
                       <option value="true">启用</option>
                       <option value="false">停用</option>
-                    </select>
+                    </AdminSelect>
                   </div>
                 </div>
 
@@ -828,7 +823,7 @@ function RulesSection({ workspaceId }: { workspaceId?: string }) {
                 </div>
               </>
               ) : (
-                <p className="text-sm text-muted-foreground">--</p>
+                <AdminEmptyState title="请选择规则" />
               )}
           </div>
         </SectionPanel>
@@ -906,25 +901,21 @@ function AlarmsSection({ workspaceId }: { workspaceId?: string }) {
       >
         <div className="space-y-3">
           {alarms.length === 0 ? (
-            <p className="text-sm text-muted-foreground">--</p>
+            <AdminEmptyState title="暂无告警" />
           ) : (
             alarms.map((alarm) => (
-              <div
+              <AdminRecordCard
                 key={alarm.id}
-                className="viewer-admin-soft-card p-4"
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <div className="font-medium">{alarm.message}</div>
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      {new Date(alarm.timestamp).toLocaleString('zh-CN')} · level {alarm.level}
-                    </div>
-                  </div>
+                title={alarm.message}
+                meta={`${new Date(alarm.timestamp).toLocaleString('zh-CN')} · level ${alarm.level}`}
+                headerClassName="items-center"
+                titleClassName="leading-normal"
+                trailing={
                   <Badge variant={alarm.acknowledged ? 'outline' : 'destructive'}>
                     {alarm.acknowledged ? '已确认' : '待确认'}
                   </Badge>
-                </div>
-              </div>
+                }
+              />
             ))
           )}
         </div>
@@ -974,17 +965,17 @@ function AuditSection({ workspaceId }: { workspaceId?: string }) {
         },
         {
           label: '最近操作者',
-          value: auditEvents[0]?.actor ?? '--',
+          value: adminDisplayValue(auditEvents[0]?.actor, '暂无审计'),
         },
       ]}
       railCards={[
         {
           title: '最新事件',
-          value: auditEvents[0]?.action ?? '--',
+          value: adminDisplayValue(auditEvents[0]?.action, '暂无事件'),
         },
         {
           title: '操作者',
-          value: auditEvents[0]?.actor ?? '--',
+          value: adminDisplayValue(auditEvents[0]?.actor, '暂无审计'),
         },
       ]}
       showLiveWarning={false}
@@ -1000,28 +991,25 @@ function AuditSection({ workspaceId }: { workspaceId?: string }) {
       >
         <div className="space-y-3">
           {auditEvents.length === 0 ? (
-            <p className="text-sm text-muted-foreground">--</p>
+            <AdminEmptyState title="暂无审计日志" />
           ) : (
             auditEvents.map((event) => (
-              <div
+              <AdminRecordCard
                 key={event.id}
-                className="viewer-admin-soft-card p-4"
-              >
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <div className="font-medium">{event.action}</div>
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      {event.actor} · {event.resourceType} · {event.resourceId}
-                    </div>
-                  </div>
+                title={event.action}
+                meta={`${event.actor} · ${event.resourceType} · ${event.resourceId}`}
+                headerClassName="flex-wrap items-center"
+                titleClassName="leading-normal"
+                trailing={
                   <Badge variant="outline">
                     {new Date(event.createdAt).toLocaleString('zh-CN')}
                   </Badge>
-                </div>
+                }
+              >
                 <pre className="mt-3 overflow-x-auto rounded bg-muted p-2 text-[11px] text-muted-foreground">
                   {formatAdminJson(event.payload)}
                 </pre>
-              </div>
+              </AdminRecordCard>
             ))
           )}
         </div>
@@ -1083,15 +1071,14 @@ export function AdminConsole({
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>未知后台模块</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <p className="text-sm text-muted-foreground">
-          请返回<Link href="/admin/overview" className="text-primary underline">总览</Link>。
-        </p>
-      </CardContent>
-    </Card>
+    <SectionPanel eyebrow="后台" title="未知后台模块">
+      <AdminEmptyState title="模块未注册">
+        <AdminButton asChild tone="primary">
+          <Link href="/admin/overview">
+            返回总览
+          </Link>
+        </AdminButton>
+      </AdminEmptyState>
+    </SectionPanel>
   )
 }

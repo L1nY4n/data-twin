@@ -18,6 +18,7 @@ import {
   X,
 } from 'lucide-react'
 import { useLiveDigitalTwin } from '@/hooks/use-live-digital-twin'
+import { selectQuickCameraPresets } from '@/lib/digital-twin/camera-presets'
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
 import { EntityListPanel } from '@/components/digital-twin/panels/EntityListPanel'
 import { EntityDetailPanel } from '@/components/digital-twin/panels/EntityDetailPanel'
@@ -178,7 +179,10 @@ export function DigitalTwinViewerPage({
     ? 'GPU storage'
     : rendererDiagnostics.backend.toUpperCase()
   const sidePanelOpen = leftPanelOpen || rightPanelOpen || bottomPanelOpen
-  const quickCameraPresets = useMemo(() => cameraPresets.slice(0, 3), [cameraPresets])
+  const quickCameraPresets = useMemo(
+    () => selectQuickCameraPresets(cameraPresets),
+    [cameraPresets]
+  )
   const rightDockOffsetClass = bottomPanelOpen
     ? 'right-[476px]'
     : rightPanelOpen
@@ -594,7 +598,6 @@ export function DigitalTwinViewerPage({
                     title="全部相机预设"
                   >
                     <MoreHorizontal className="h-3.5 w-3.5" />
-                    <span className="viewer-camera-dock__label">More</span>
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" sideOffset={8} className="viewer-camera-dock__menu-content">
@@ -624,7 +627,6 @@ export function DigitalTwinViewerPage({
                 onClick={toggleHmiOverlayVisible}
               >
                 {hmiOverlayVisible ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
-                <span className="viewer-camera-dock__label">HMI</span>
               </Button>
             </div>
 

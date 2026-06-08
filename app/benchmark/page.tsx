@@ -10,7 +10,11 @@ import { useSimulation } from '@/hooks/use-simulation'
 import { useDigitalTwinStore } from '@/lib/digital-twin/store'
 import { cn } from '@/lib/utils'
 import {
+  ViewerAdminControlGroup,
+  ViewerAdminMetricListCard,
   ViewerAdminPanel,
+  ViewerAdminPanelBody,
+  ViewerAdminPanelHeader,
   ViewerAdminSurfaceShell,
   ViewerAdminToolbarBar,
 } from '@/components/viewer-admin/primitives'
@@ -42,6 +46,145 @@ function delay(ms: number) {
 function average(values: number[]) {
   if (values.length === 0) return 0
   return values.reduce((sum, n) => sum + n, 0) / values.length
+}
+
+function formatBenchmarkRows(result?: BenchmarkResult) {
+  return [
+    {
+      label: 'AVG FPS',
+      value: result?.avgFps.toFixed(1) ?? '-',
+    },
+    {
+      label: 'P95(ms)',
+      value: result?.p95FrameTime.toFixed(1) ?? '-',
+    },
+    {
+      label: 'Samples',
+      value: result?.samples ?? '-',
+    },
+    {
+      label: 'Requested',
+      value: result?.requestedMode ?? '-',
+    },
+    {
+      label: 'Backend',
+      value: result?.backend ?? '-',
+    },
+    {
+      label: 'Storage',
+      value: result ? (result.storageBufferActive ? 'on' : 'off') : '-',
+    },
+    {
+      label: 'Fallback',
+      value: result?.fallbackReason ?? '-',
+    },
+    {
+      label: 'Preset',
+      value: result?.cameraPreset ?? '-',
+    },
+    {
+      label: 'Quality',
+      value: result?.quality ?? '-',
+    },
+  ]
+}
+
+function formatWebGpuRows(result?: BenchmarkResult) {
+  const rows = formatBenchmarkRows(result)
+  return [
+    ...rows.slice(0, 5),
+    {
+      label: 'Mismatch',
+      value: result ? (result.backendMismatch ? 'yes' : 'no') : '-',
+    },
+    ...rows.slice(5),
+  ]
+}
+
+function BenchmarkControlsPanel({
+  className,
+  benchmarkQuality,
+  running,
+  cameraPresets,
+  activeCameraPreset,
+  onQualityChange,
+  onCameraPresetChange,
+}: {
+  className?: string
+  benchmarkQuality: 'balanced' | 'performance'
+  running: boolean
+  cameraPresets: Array<{ id: string; name: string }>
+  activeCameraPreset: string | null
+  onQualityChange: (quality: 'balanced' | 'performance') => void
+  onCameraPresetChange: (presetId: string) => void
+}) {
+  return (
+    <ViewerAdminPanel className={cn('pointer-events-auto flex flex-col overflow-hidden rounded-2xl', className)}>
+      <ViewerAdminPanelHeader
+        title="Benchmark Controls"
+        description="画质、机位与测试入口"
+        leading={<Layers3 className="h-4 w-4" />}
+        className="px-4 py-3"
+      />
+      <ViewerAdminPanelBody className="space-y-4 text-xs text-white/75">
+        <ViewerAdminControlGroup title="质量档位" icon={Gauge}>
+          <Button
+            size="sm"
+            variant={benchmarkQuality === 'balanced' ? 'default' : 'outline'}
+            onClick={() => onQualityChange('balanced')}
+            disabled={running}
+          >
+            Balanced
+          </Button>
+          <Button
+            size="sm"
+            variant={benchmarkQuality === 'performance' ? 'default' : 'outline'}
+            onClick={() => onQualityChange('performance')}
+            disabled={running}
+          >
+            Performance
+          </Button>
+        </ViewerAdminControlGroup>
+
+        <ViewerAdminControlGroup title="机位" icon={TimerReset}>
+          {cameraPresets.map((preset) => (
+            <Button
+              key={preset.id}
+              size="sm"
+              variant={activeCameraPreset === preset.id ? 'default' : 'outline'}
+              onClick={() => onCameraPresetChange(preset.id)}
+              disabled={running}
+            >
+              {preset.name}
+            </Button>
+          ))}
+        </ViewerAdminControlGroup>
+      </ViewerAdminPanelBody>
+    </ViewerAdminPanel>
+  )
+}
+
+function BenchmarkResultsPanel({
+  className,
+  results,
+}: {
+  className?: string
+  results: Record<string, BenchmarkResult>
+}) {
+  return (
+    <ViewerAdminPanel className={cn('pointer-events-auto flex flex-col overflow-hidden rounded-2xl', className)}>
+      <ViewerAdminPanelHeader
+        title="Results"
+        description="最近一次采样结果"
+        leading={<BarChart3 className="h-4 w-4" />}
+        className="px-4 py-3"
+      />
+      <ViewerAdminPanelBody className="grid gap-3 text-xs text-white/75">
+        <ViewerAdminMetricListCard title="WebGL2" rows={formatBenchmarkRows(results.webgl2)} />
+        <ViewerAdminMetricListCard title="WebGPU" rows={formatWebGpuRows(results.webgpu)} />
+      </ViewerAdminPanelBody>
+    </ViewerAdminPanel>
+  )
 }
 
 export default function BenchmarkPage() {
@@ -112,11 +255,11 @@ export default function BenchmarkPage() {
     >
       <ViewerAdminToolbarBar
         as="header"
-        className="mx-2 mt-2 flex min-h-14 flex-wrap items-center gap-3 rounded-[20px] px-4 py-3"
+        className="mx-2 mt-2 flex min-h-14 flex-col gap-3 rounded-[20px] px-4 py-3 xl:flex-row xl:items-center"
       >
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-3">
-            <div>
+        <div className="min-w-0 w-full xl:flex-1">
+          <div className="flex flex-wrap items-start gap-3 xl:items-center">
+            <div className="min-w-0 flex-1">
               <h1 className="text-sm font-semibold text-white">Renderer Benchmark</h1>
               <p className="text-xs text-white/60">
                 生产级园区场景下的渲染后端与画质档位对比
@@ -127,15 +270,32 @@ export default function BenchmarkPage() {
             </Badge>
           </div>
         </div>
-        <ProductModuleNav className="order-3 basis-full pt-1 xl:order-none xl:basis-auto xl:pt-0" />
-        <div className="flex items-center gap-2">
-          <Button size="sm" variant="secondary" onClick={() => runBenchmark('webgl2')} disabled={running}>
+        <ProductModuleNav className="w-full justify-start pt-1 xl:w-auto xl:pt-0" />
+        <div className="flex w-full flex-wrap items-center gap-2 xl:w-auto">
+          <Button
+            size="sm"
+            variant="secondary"
+            className="min-w-0 flex-1 sm:flex-none"
+            onClick={() => runBenchmark('webgl2')}
+            disabled={running}
+          >
             跑 WebGL2
           </Button>
-          <Button size="sm" variant="secondary" onClick={() => runBenchmark('webgpu')} disabled={running}>
+          <Button
+            size="sm"
+            variant="secondary"
+            className="min-w-0 flex-1 sm:flex-none"
+            onClick={() => runBenchmark('webgpu')}
+            disabled={running}
+          >
             跑 WebGPU
           </Button>
-          <Button size="sm" onClick={runCompare} disabled={running}>
+          <Button
+            size="sm"
+            className="min-w-0 flex-1 sm:flex-none"
+            onClick={runCompare}
+            disabled={running}
+          >
             一键对比
           </Button>
         </div>
@@ -148,104 +308,19 @@ export default function BenchmarkPage() {
           </div>
 
           <div className="pointer-events-none absolute inset-y-2 left-2 z-20 hidden w-[320px] xl:block">
-            <div className="viewer-admin-panel pointer-events-auto flex h-full flex-col overflow-hidden rounded-2xl">
-              <div className="border-b border-white/8 px-4 py-3">
-                <div className="flex items-center gap-2 text-sm font-medium text-white">
-                  <Layers3 className="h-4 w-4" />
-                  Benchmark Controls
-                </div>
-                <p className="mt-1 text-xs text-white/60">画质、机位与测试入口</p>
-              </div>
-              <div className="space-y-4 overflow-y-auto p-4 text-xs text-white/75">
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2 font-medium text-white">
-                    <Gauge className="h-3.5 w-3.5" />
-                    质量档位
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      size="sm"
-                      variant={benchmarkQuality === 'balanced' ? 'default' : 'outline'}
-                      onClick={() => setBenchmarkQuality('balanced')}
-                      disabled={running}
-                    >
-                      Balanced
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant={benchmarkQuality === 'performance' ? 'default' : 'outline'}
-                      onClick={() => setBenchmarkQuality('performance')}
-                      disabled={running}
-                    >
-                      Performance
-                    </Button>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2 font-medium text-white">
-                    <TimerReset className="h-3.5 w-3.5" />
-                    机位
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {cameraPresets.map((preset) => (
-                      <Button
-                        key={preset.id}
-                        size="sm"
-                        variant={activeCameraPreset === preset.id ? 'default' : 'outline'}
-                        onClick={() => setActiveCameraPreset(preset.id)}
-                        disabled={running}
-                      >
-                        {preset.name}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
+            <BenchmarkControlsPanel
+              className="h-full"
+              benchmarkQuality={benchmarkQuality}
+              running={running}
+              cameraPresets={cameraPresets}
+              activeCameraPreset={activeCameraPreset}
+              onQualityChange={setBenchmarkQuality}
+              onCameraPresetChange={setActiveCameraPreset}
+            />
           </div>
 
           <div className="pointer-events-none absolute inset-y-2 right-2 z-20 hidden w-[320px] xl:block">
-            <div className="viewer-admin-panel pointer-events-auto flex h-full flex-col overflow-hidden rounded-2xl">
-              <div className="border-b border-white/8 px-4 py-3">
-                <div className="flex items-center gap-2 text-sm font-medium text-white">
-                  <BarChart3 className="h-4 w-4" />
-                  Results
-                </div>
-                <p className="mt-1 text-xs text-white/60">最近一次采样结果</p>
-              </div>
-              <div className="grid gap-3 overflow-y-auto p-4 text-xs text-white/75">
-                <ViewerAdminPanel variant="soft" className="rounded-xl p-3">
-                  <div className="font-medium text-white">WebGL2</div>
-                  <div className="mt-2 space-y-1">
-                    <div>AVG FPS: {results.webgl2?.avgFps.toFixed(1) ?? '-'}</div>
-                    <div>P95(ms): {results.webgl2?.p95FrameTime.toFixed(1) ?? '-'}</div>
-                    <div>Samples: {results.webgl2?.samples ?? '-'}</div>
-                    <div>Requested: {results.webgl2?.requestedMode ?? '-'}</div>
-                    <div>Backend: {results.webgl2?.backend ?? '-'}</div>
-                    <div>Storage: {results.webgl2?.storageBufferActive ? 'on' : 'off'}</div>
-                    <div>Fallback: {results.webgl2?.fallbackReason ?? '-'}</div>
-                    <div>Preset: {results.webgl2?.cameraPreset ?? '-'}</div>
-                    <div>Quality: {results.webgl2?.quality ?? '-'}</div>
-                  </div>
-                </ViewerAdminPanel>
-                <ViewerAdminPanel variant="soft" className="rounded-xl p-3">
-                  <div className="font-medium text-white">WebGPU</div>
-                  <div className="mt-2 space-y-1">
-                    <div>AVG FPS: {results.webgpu?.avgFps.toFixed(1) ?? '-'}</div>
-                    <div>P95(ms): {results.webgpu?.p95FrameTime.toFixed(1) ?? '-'}</div>
-                    <div>Samples: {results.webgpu?.samples ?? '-'}</div>
-                    <div>Requested: {results.webgpu?.requestedMode ?? '-'}</div>
-                    <div>Backend: {results.webgpu?.backend ?? '-'}</div>
-                    <div>Mismatch: {results.webgpu?.backendMismatch ? 'yes' : 'no'}</div>
-                    <div>Storage: {results.webgpu?.storageBufferActive ? 'on' : 'off'}</div>
-                    <div>Fallback: {results.webgpu?.fallbackReason ?? '-'}</div>
-                    <div>Preset: {results.webgpu?.cameraPreset ?? '-'}</div>
-                    <div>Quality: {results.webgpu?.quality ?? '-'}</div>
-                  </div>
-                </ViewerAdminPanel>
-              </div>
-            </div>
+            <BenchmarkResultsPanel className="h-full" results={results} />
           </div>
 
           <div
@@ -254,102 +329,17 @@ export default function BenchmarkPage() {
               isMobile ? 'grid-cols-1' : 'grid-cols-2'
             )}
           >
-            <div className="viewer-admin-panel pointer-events-auto flex max-h-[34svh] flex-col overflow-hidden rounded-2xl">
-              <div className="border-b border-white/8 px-4 py-3">
-                <div className="flex items-center gap-2 text-sm font-medium text-white">
-                  <Layers3 className="h-4 w-4" />
-                  Benchmark Controls
-                </div>
-                <p className="mt-1 text-xs text-white/60">画质、机位与测试入口</p>
-              </div>
-              <div className="space-y-4 overflow-y-auto p-4 text-xs text-white/75">
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2 font-medium text-white">
-                    <Gauge className="h-3.5 w-3.5" />
-                    质量档位
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      size="sm"
-                      variant={benchmarkQuality === 'balanced' ? 'default' : 'outline'}
-                      onClick={() => setBenchmarkQuality('balanced')}
-                      disabled={running}
-                    >
-                      Balanced
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant={benchmarkQuality === 'performance' ? 'default' : 'outline'}
-                      onClick={() => setBenchmarkQuality('performance')}
-                      disabled={running}
-                    >
-                      Performance
-                    </Button>
-                  </div>
-                </div>
+            <BenchmarkControlsPanel
+              className="max-h-[34svh]"
+              benchmarkQuality={benchmarkQuality}
+              running={running}
+              cameraPresets={cameraPresets}
+              activeCameraPreset={activeCameraPreset}
+              onQualityChange={setBenchmarkQuality}
+              onCameraPresetChange={setActiveCameraPreset}
+            />
 
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2 font-medium text-white">
-                    <TimerReset className="h-3.5 w-3.5" />
-                    机位
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {cameraPresets.map((preset) => (
-                      <Button
-                        key={preset.id}
-                        size="sm"
-                        variant={activeCameraPreset === preset.id ? 'default' : 'outline'}
-                        onClick={() => setActiveCameraPreset(preset.id)}
-                        disabled={running}
-                      >
-                        {preset.name}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="viewer-admin-panel pointer-events-auto flex max-h-[34svh] flex-col overflow-hidden rounded-2xl">
-              <div className="border-b border-white/8 px-4 py-3">
-                <div className="flex items-center gap-2 text-sm font-medium text-white">
-                  <BarChart3 className="h-4 w-4" />
-                  Results
-                </div>
-                <p className="mt-1 text-xs text-white/60">最近一次采样结果</p>
-              </div>
-              <div className="grid gap-3 overflow-y-auto p-4 text-xs text-white/75">
-                <ViewerAdminPanel variant="soft" className="rounded-xl p-3">
-                  <div className="font-medium text-white">WebGL2</div>
-                  <div className="mt-2 space-y-1">
-                    <div>AVG FPS: {results.webgl2?.avgFps.toFixed(1) ?? '-'}</div>
-                    <div>P95(ms): {results.webgl2?.p95FrameTime.toFixed(1) ?? '-'}</div>
-                    <div>Samples: {results.webgl2?.samples ?? '-'}</div>
-                    <div>Requested: {results.webgl2?.requestedMode ?? '-'}</div>
-                    <div>Backend: {results.webgl2?.backend ?? '-'}</div>
-                    <div>Storage: {results.webgl2?.storageBufferActive ? 'on' : 'off'}</div>
-                    <div>Fallback: {results.webgl2?.fallbackReason ?? '-'}</div>
-                    <div>Preset: {results.webgl2?.cameraPreset ?? '-'}</div>
-                    <div>Quality: {results.webgl2?.quality ?? '-'}</div>
-                  </div>
-                </ViewerAdminPanel>
-                <ViewerAdminPanel variant="soft" className="rounded-xl p-3">
-                  <div className="font-medium text-white">WebGPU</div>
-                  <div className="mt-2 space-y-1">
-                    <div>AVG FPS: {results.webgpu?.avgFps.toFixed(1) ?? '-'}</div>
-                    <div>P95(ms): {results.webgpu?.p95FrameTime.toFixed(1) ?? '-'}</div>
-                    <div>Samples: {results.webgpu?.samples ?? '-'}</div>
-                    <div>Requested: {results.webgpu?.requestedMode ?? '-'}</div>
-                    <div>Backend: {results.webgpu?.backend ?? '-'}</div>
-                    <div>Mismatch: {results.webgpu?.backendMismatch ? 'yes' : 'no'}</div>
-                    <div>Storage: {results.webgpu?.storageBufferActive ? 'on' : 'off'}</div>
-                    <div>Fallback: {results.webgpu?.fallbackReason ?? '-'}</div>
-                    <div>Preset: {results.webgpu?.cameraPreset ?? '-'}</div>
-                    <div>Quality: {results.webgpu?.quality ?? '-'}</div>
-                  </div>
-                </ViewerAdminPanel>
-              </div>
-            </div>
+            <BenchmarkResultsPanel className="max-h-[34svh]" results={results} />
           </div>
         </div>
       </div>

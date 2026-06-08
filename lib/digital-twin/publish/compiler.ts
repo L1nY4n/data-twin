@@ -42,6 +42,7 @@ import { PUBLISHED_STATIC_ASSET_MANIFEST_URL } from './static-assets'
 import type {
   PublishedDynamicLayer,
   PublishedEquipmentLayer,
+  PublishedFloorPlanBasemap,
   PublishedInteractionLayer,
   PublishedInteractionZone,
   PublishedPersonLayer,
@@ -76,8 +77,10 @@ interface BuildPublishedScenePackageOptions {
 export interface PublishedWorkingSnapshot {
   sceneVersion: number
   sceneConfig: SceneConfig
+  cameraPresets?: CameraPreset[]
   entities: Entity[]
   staticAssets: StaticAssetInstance[]
+  floorPlanBasemaps?: PublishedFloorPlanBasemap[]
 }
 
 function offsetPoint(value: Vector3, offset: Vector3): Vector3 {
@@ -94,6 +97,73 @@ function cloneVector3(value: Vector3): Vector3 {
     y: value.y,
     z: value.z,
   }
+}
+
+function cloneCameraPreset(preset: CameraPreset): CameraPreset {
+  return {
+    ...preset,
+    position: cloneVector3(preset.position),
+    target: cloneVector3(preset.target),
+  }
+}
+
+function cloneCameraPresets(presets: CameraPreset[]): CameraPreset[] {
+  return presets.map(cloneCameraPreset)
+}
+
+function cloneFloorPlanBasemaps(
+  basemaps: PublishedWorkingSnapshot['floorPlanBasemaps']
+): PublishedFloorPlanBasemap[] {
+  if (!Array.isArray(basemaps)) return []
+
+  return basemaps
+    .filter((basemap) => {
+      return (
+        basemap &&
+        typeof basemap.id === 'string' &&
+        typeof basemap.label === 'string' &&
+        typeof basemap.imageUrl === 'string' &&
+        typeof basemap.size?.width === 'number' &&
+        typeof basemap.size?.depth === 'number' &&
+        basemap.size.width > 0 &&
+        basemap.size.depth > 0
+      )
+    })
+    .map((basemap) => ({
+      id: basemap.id,
+      label: basemap.label,
+      ...(basemap.floorId ? { floorId: basemap.floorId } : {}),
+      imageUrl: basemap.imageUrl,
+      position: cloneVector3(basemap.position ?? { x: 0, y: 0, z: 0 }),
+      size: {
+        width: basemap.size.width,
+        depth: basemap.size.depth,
+      },
+      ...(typeof basemap.rotationY === 'number' ? { rotationY: basemap.rotationY } : {}),
+      ...(typeof basemap.opacity === 'number' ? { opacity: basemap.opacity } : {}),
+      ...(typeof basemap.renderOrder === 'number' ? { renderOrder: basemap.renderOrder } : {}),
+      ...(basemap.metadata ? { metadata: { ...basemap.metadata } } : {}),
+    }))
+}
+
+function floorPlanBasemapCorners(basemap: PublishedFloorPlanBasemap): Vector3[] {
+  const halfWidth = basemap.size.width / 2
+  const halfDepth = basemap.size.depth / 2
+  const rotationY = basemap.rotationY ?? 0
+  const cos = Math.cos(rotationY)
+  const sin = Math.sin(rotationY)
+  const corners = [
+    [-halfWidth, -halfDepth],
+    [halfWidth, -halfDepth],
+    [halfWidth, halfDepth],
+    [-halfWidth, halfDepth],
+  ] as const
+
+  return corners.map(([x, z]) => ({
+    x: basemap.position.x + x * cos + z * sin,
+    y: basemap.position.y,
+    z: basemap.position.z - x * sin + z * cos,
+  }))
 }
 
 function clampBounds(min: number, max: number, fallbackCenter: number, minimumSize: number) {
@@ -548,6 +618,7 @@ function buildEquipmentLayer(sector: CampusSector, count: number): PublishedEqui
 }
 
 function createSnapshotBounds(snapshot: PublishedWorkingSnapshot): PublishedSceneBounds {
+  const floorPlanBasemaps = cloneFloorPlanBasemaps(snapshot.floorPlanBasemaps)
   const points: Vector3[] = [
     snapshot.sceneConfig.cameraPosition,
     snapshot.sceneConfig.cameraTarget,
@@ -555,6 +626,7 @@ function createSnapshotBounds(snapshot: PublishedWorkingSnapshot): PublishedScen
       isZoneEntity(entity) ? [entity.position, ...entity.boundary] : [entity.position]
     ),
     ...snapshot.staticAssets.map((asset) => asset.position),
+    ...floorPlanBasemaps.flatMap(floorPlanBasemapCorners),
   ]
 
   const xs = points.map((point) => point.x)
@@ -613,6 +685,8 @@ function createSnapshotCameraPresets(
       position: cloneVector3(sceneConfig.cameraPosition),
       target: cloneVector3(sceneConfig.cameraTarget),
       fov: 50,
+      quickAccess: true,
+      quickAccessOrder: 0,
     },
     {
       id: 'top',
@@ -624,8 +698,22 @@ function createSnapshotCameraPresets(
       },
       target: center,
       fov: 45,
+      quickAccess: true,
+      quickAccessOrder: 1,
     },
   ]
+}
+
+function resolveSnapshotCameraPresets(
+  snapshot: PublishedWorkingSnapshot,
+  bounds: PublishedSceneBounds
+): CameraPreset[] {
+  const configuredPresets = snapshot.cameraPresets ?? snapshot.sceneConfig.cameraPresets
+  if (configuredPresets && configuredPresets.length > 0) {
+    return cloneCameraPresets(configuredPresets)
+  }
+
+  return createSnapshotCameraPresets(snapshot.sceneConfig, bounds)
 }
 
 function createCampusCameraPresets(bounds: PublishedSceneBounds): CameraPreset[] {
@@ -733,7 +821,8 @@ export function buildPublishedScenePackageFromSnapshot(
   const persons = snapshot.entities.filter(isPersonEntity)
   const vehicles = snapshot.entities.filter(isVehicleEntity)
   const equipment = snapshot.entities.filter(isEquipmentEntity)
-  const cameraPresets = createSnapshotCameraPresets(snapshot.sceneConfig, bounds)
+  const cameraPresets = resolveSnapshotCameraPresets(snapshot, bounds)
+  const floorPlanBasemaps = cloneFloorPlanBasemaps(snapshot.floorPlanBasemaps)
 
   return {
     schemaVersion: SCHEMA_VERSION,
@@ -748,6 +837,7 @@ export function buildPublishedScenePackageFromSnapshot(
       ...snapshot.sceneConfig,
       cameraPosition: cloneVector3(snapshot.sceneConfig.cameraPosition),
       cameraTarget: cloneVector3(snapshot.sceneConfig.cameraTarget),
+      cameraPresets: cloneCameraPresets(cameraPresets),
     },
     sectors: [
       {
@@ -790,6 +880,7 @@ export function buildPublishedScenePackageFromSnapshot(
         features: [],
       },
     ],
+    ...(floorPlanBasemaps.length > 0 ? { floorPlanBasemaps } : {}),
     interactionLayers:
       interactionZones.length > 0
         ? [
@@ -850,6 +941,8 @@ export function buildPublishedCampusScenePackageFromSnapshot(
   })
   const zoneLayers = buildCampusSnapshotZoneLayers(snapshot)
   const counts = getEntityCountsFromSnapshot(snapshot)
+  const floorPlanBasemaps = cloneFloorPlanBasemaps(snapshot.floorPlanBasemaps)
+  const cameraPresets = resolveSnapshotCameraPresets(snapshot, campusPackage.bounds)
 
   return {
     ...campusPackage,
@@ -861,9 +954,12 @@ export function buildPublishedCampusScenePackageFromSnapshot(
       ...snapshot.sceneConfig,
       cameraPosition: cloneVector3(snapshot.sceneConfig.cameraPosition),
       cameraTarget: cloneVector3(snapshot.sceneConfig.cameraTarget),
+      cameraPresets: cloneCameraPresets(cameraPresets),
     },
+    cameraPresets,
     interactionLayers: [...campusPackage.interactionLayers, ...zoneLayers],
     zoneOverlays: [...campusPackage.zoneOverlays, ...zoneLayers],
+    ...(floorPlanBasemaps.length > 0 ? { floorPlanBasemaps } : {}),
     entityCounts: {
       default: { ...counts },
       production: { ...counts },
@@ -911,6 +1007,7 @@ export function buildPublishedScenePackage(
     CAMPUS_SECTORS.map((sector) => countEquipmentInSector(sector))
   )
   const interactionLayers = CAMPUS_SECTORS.map((sector) => buildSectorInteractionLayer(sector))
+  const cameraPresets = createCampusCameraPresets(bounds)
 
   return {
     schemaVersion: SCHEMA_VERSION,
@@ -921,12 +1018,16 @@ export function buildPublishedScenePackage(
     staticAssetManifestUrl:
       options.staticAssetManifestUrl ?? PUBLISHED_STATIC_ASSET_MANIFEST_URL,
     bounds,
-    sceneConfig: createSceneConfig(),
+    sceneConfig: {
+      ...createSceneConfig(),
+      cameraPresets: cloneCameraPresets(cameraPresets),
+    },
     sectors: CAMPUS_SECTORS.map((sector) => buildSectorEntry(sector)),
     staticChunks: [
       ...CAMPUS_SECTORS.map((sector) => buildSectorStaticChunk(sector)),
       buildInterSectorChunk(),
     ],
+    floorPlanBasemaps: [],
     interactionLayers,
     zoneOverlays: interactionLayers,
     dynamicLayers: CAMPUS_SECTORS.flatMap((sector, index) => [
@@ -935,7 +1036,7 @@ export function buildPublishedScenePackage(
       buildEquipmentLayer(sector, equipmentCounts[index] ?? 0),
     ]),
     routingLayers: buildRoutingLayers(bounds),
-    cameraPresets: createCampusCameraPresets(bounds),
+    cameraPresets,
     entityCounts: buildEntityCounts(DEFAULT_SCENE_COUNTS, PRODUCTION_SCENE_COUNTS),
   }
 }

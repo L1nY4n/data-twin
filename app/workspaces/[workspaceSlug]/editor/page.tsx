@@ -1,6 +1,7 @@
 import { notFound, redirect } from 'next/navigation'
 import { EditorShell } from '@/components/editor/EditorShell'
-import { fetchWorkspaceBySlug } from '@/lib/digital-twin/bootstrap-client'
+import { BackendUnavailableState } from '@/components/viewer-admin/BackendUnavailableState'
+import { fetchWorkspaceBySlug, isAdminApiError } from '@/lib/digital-twin/bootstrap-client'
 import { buildEditorHref } from '@/lib/digital-twin/editor-routing'
 import { hasFrontendAccess } from '@/lib/digital-twin/frontend-access-server'
 
@@ -24,7 +25,11 @@ export default async function WorkspaceEditorPage({
 
   try {
     workspace = await fetchWorkspaceBySlug(routeParams.workspaceSlug)
-  } catch {
+  } catch (error) {
+    if (isAdminApiError(error) && error.status === 0) {
+      return <BackendUnavailableState error={error} retryHref={editorHref} />
+    }
+
     notFound()
   }
 

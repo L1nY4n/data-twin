@@ -14,7 +14,15 @@ import type {
 import { AdminButton } from '@/components/admin/admin-surface'
 import { Spinner } from '@/components/ui/spinner'
 
-type CameraPreset = 'iso' | 'front' | 'left' | 'right' | 'top'
+const PREVIEW_CAMERA_PRESETS = [
+  { id: 'iso', label: '等轴', position: [5.8, 4.8, 5.8] },
+  { id: 'front', label: '正面', position: [0, 2.2, 7] },
+  { id: 'left', label: '左侧', position: [-7, 2.2, 0] },
+  { id: 'right', label: '右侧', position: [7, 2.2, 0] },
+  { id: 'top', label: '俯视', position: [0, 8, 0.01] },
+] as const
+
+type CameraPreset = (typeof PREVIEW_CAMERA_PRESETS)[number]['id']
 
 function PreviewFallback() {
   return (
@@ -114,16 +122,10 @@ function PreviewCameraController({ preset }: { preset: CameraPreset }) {
   const controls = useThree((state) => state.controls) as OrbitControlsType | null
 
   useEffect(() => {
-    const position =
-      preset === 'front'
-        ? [0, 2.2, 7]
-        : preset === 'left'
-          ? [-7, 2.2, 0]
-          : preset === 'right'
-            ? [7, 2.2, 0]
-            : preset === 'top'
-              ? [0, 8, 0.01]
-              : [5.8, 4.8, 5.8]
+    const activePreset =
+      PREVIEW_CAMERA_PRESETS.find((candidate) => candidate.id === preset) ??
+      PREVIEW_CAMERA_PRESETS[0]
+    const position = activePreset.position
 
     camera.position.set(position[0], position[1], position[2])
     if (controls) {
@@ -151,21 +153,16 @@ export function ArchetypeModelPreview({
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap gap-2">
-        <AdminButton size="sm" tone={preset === 'iso' ? 'primary' : 'default'} onClick={() => setPreset('iso')}>
-          等轴
-        </AdminButton>
-        <AdminButton size="sm" tone={preset === 'front' ? 'primary' : 'default'} onClick={() => setPreset('front')}>
-          正面
-        </AdminButton>
-        <AdminButton size="sm" tone={preset === 'left' ? 'primary' : 'default'} onClick={() => setPreset('left')}>
-          左侧
-        </AdminButton>
-        <AdminButton size="sm" tone={preset === 'right' ? 'primary' : 'default'} onClick={() => setPreset('right')}>
-          右侧
-        </AdminButton>
-        <AdminButton size="sm" tone={preset === 'top' ? 'primary' : 'default'} onClick={() => setPreset('top')}>
-          俯视
-        </AdminButton>
+        {PREVIEW_CAMERA_PRESETS.map((cameraPreset) => (
+          <AdminButton
+            key={cameraPreset.id}
+            size="sm"
+            tone={preset === cameraPreset.id ? 'primary' : 'default'}
+            onClick={() => setPreset(cameraPreset.id)}
+          >
+            {cameraPreset.label}
+          </AdminButton>
+        ))}
       </div>
 
       <div className="admin-inset-block h-72 overflow-hidden bg-[#070b14] p-0">
@@ -194,7 +191,7 @@ export function ArchetypeModelPreview({
             <PreviewCameraController preset={preset} />
           </Canvas>
         ) : (
-          <div className="flex h-full items-center justify-center text-sm text-slate-300">
+          <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
             请先上传模型文件
           </div>
         )}

@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "sceneId": "haikouwan-plaza",
+  "generatedAt": "2026-05-26T16:44:58.074Z",
+  "chunks": {
+    "chunk:sector-core:static": {
+      "chunkId": "chunk:sector-core:static",
+      "detailed": {
+        "url": "/generated/published-static/workspaces/haikouwan-plaza/versions/1-1779813896400/chunk-sector-core-static.detailed.glb",
+        "format": "glb",
+        "compression": "none"
+      }
+    }
+  }
+}

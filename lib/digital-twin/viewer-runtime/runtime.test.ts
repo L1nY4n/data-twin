@@ -112,6 +112,53 @@ describe('DigitalTwinViewerRuntime', () => {
 
     expect(fixedCount).toBe(0)
   })
+
+  test('uses supplied render delta when the coarse clock has not advanced', () => {
+    const runtime = new DigitalTwinViewerRuntime({ fixedHz: 60 })
+    let fixedCount = 0
+    const renderDeltas: number[] = []
+
+    runtime.use({
+      id: 'counter',
+      onFixedUpdatePre: () => {
+        fixedCount += 1
+      },
+      onRender: (frame) => {
+        renderDeltas.push(frame.deltaMs)
+      },
+    })
+
+    runtime.advance({ nowMs: 1000, deltaMs: 0 })
+    runtime.advance({ nowMs: 1000, deltaMs: 16.7 })
+    runtime.advance({ nowMs: 1000, deltaMs: 16.7 })
+
+    expect(fixedCount).toBeGreaterThan(0)
+    expect(renderDeltas).toEqual([0, 16.7, 16.7])
+  })
+
+  test('updates plugin order after registrations change', () => {
+    const runtime = new DigitalTwinViewerRuntime({ fixedHz: 60 })
+    const calls: string[] = []
+
+    runtime.use({
+      id: 'late',
+      order: 20,
+      onRender: () => calls.push('late'),
+    })
+    runtime.advance({ nowMs: 0, deltaMs: 0 })
+
+    const unregisterEarly = runtime.use({
+      id: 'early',
+      order: 1,
+      onRender: () => calls.push('early'),
+    })
+    runtime.advance({ nowMs: 16, deltaMs: 16 })
+    unregisterEarly()
+    runtime.advance({ nowMs: 32, deltaMs: 16 })
+
+    expect(calls).toEqual(['late', 'early', 'late', 'late'])
+    expect(runtime.getPluginIds()).toEqual(['late'])
+  })
 })
 
 describe('DigitalTwinBufferedSignalInterface', () => {

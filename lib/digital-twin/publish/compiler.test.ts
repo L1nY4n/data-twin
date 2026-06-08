@@ -66,6 +66,14 @@ describe('buildPublishedScenePackage', () => {
     expect(published.cameraPresets.map((preset) => preset.id)).toEqual(
       CAMPUS_CAMERA_PRESETS.map((preset) => preset.id)
     )
+    expect(published.sceneConfig.cameraPresets?.map((preset) => preset.id)).toEqual(
+      published.cameraPresets.map((preset) => preset.id)
+    )
+    expect(
+      published.cameraPresets
+        .filter((preset) => preset.quickAccess)
+        .map((preset) => preset.id)
+    ).toEqual(['iso', 'top', 'process'])
     expect(published.cameraPresets.map((preset) => preset.id)).toEqual(
       expect.arrayContaining(['energy-north', 'rail-logistics', 'southeast-rd'])
     )
@@ -290,6 +298,7 @@ describe('buildPublishedScenePackage', () => {
       'snapshot-current',
       'top',
     ])
+    expect(published.cameraPresets.every((preset) => preset.quickAccess === true)).toBe(true)
     expect(published.entityCounts.default).toEqual({
       persons: 1,
       vehicles: 1,
@@ -409,6 +418,24 @@ describe('buildPublishedScenePackage', () => {
           showGrid: true,
           cameraPosition: { x: 16, y: 20, z: 22 },
           cameraTarget: { x: 0, y: 0, z: 0 },
+          cameraPresets: [
+            {
+              id: 'lobby',
+              name: '大堂',
+              position: { x: 12, y: 16, z: 18 },
+              target: { x: 0, y: 0, z: 0 },
+              fov: 48,
+              quickAccess: true,
+              quickAccessOrder: 10,
+            },
+            {
+              id: 'meeting',
+              name: '会议室',
+              position: { x: -8, y: 14, z: 10 },
+              target: { x: -2, y: 0, z: 0 },
+              fov: 45,
+            },
+          ],
         },
         entities: [],
         staticAssets: [],
@@ -428,5 +455,10 @@ describe('buildPublishedScenePackage', () => {
     expect(published.dynamicLayers).toHaveLength(3)
     expect(published.sectors.some((sector) => sector.id === 'sector-east')).toBe(false)
     expect(published.dynamicLayers.some((layer) => layer.id.includes('sector-east'))).toBe(false)
+    expect(published.cameraPresets.map((preset) => preset.id)).toEqual(['lobby', 'meeting'])
+    expect(published.sceneConfig.cameraPresets?.map((preset) => preset.id)).toEqual([
+      'lobby',
+      'meeting',
+    ])
   })
 })

@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation'
 import { DigitalTwinViewerPage } from '@/components/digital-twin/DigitalTwinViewerPage'
-import { fetchWorkspaceBySlug } from '@/lib/digital-twin/bootstrap-client'
+import { BackendUnavailableState } from '@/components/viewer-admin/BackendUnavailableState'
+import { fetchWorkspaceBySlug, isAdminApiError } from '@/lib/digital-twin/bootstrap-client'
 
 export const dynamic = 'force-dynamic'
 
@@ -14,7 +15,16 @@ export default async function WorkspaceRuntimePage({
 
   try {
     workspace = await fetchWorkspaceBySlug(routeParams.workspaceSlug)
-  } catch {
+  } catch (error) {
+    if (isAdminApiError(error) && error.status === 0) {
+      return (
+        <BackendUnavailableState
+          error={error}
+          retryHref={`/workspaces/${encodeURIComponent(routeParams.workspaceSlug)}`}
+        />
+      )
+    }
+
     notFound()
   }
 

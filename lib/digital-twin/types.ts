@@ -299,6 +299,7 @@ export interface SceneConfig {
   showGrid: boolean
   cameraPosition: Vector3
   cameraTarget: Vector3
+  cameraPresets?: CameraPreset[]
 }
 
 // 视角模式
@@ -313,6 +314,8 @@ export interface CameraPreset {
   position: Vector3
   target: Vector3
   fov: number
+  quickAccess?: boolean
+  quickAccessOrder?: number
 }
 
 // 3D模型信息

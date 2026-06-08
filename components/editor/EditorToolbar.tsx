@@ -120,6 +120,9 @@ export function EditorToolbar({
         : publishStatus?.status === 'publishing'
           ? 'border-[#7da7ff]/35 bg-[#15233c]/72 text-[#d6e4ff]'
           : 'border-[#7da7ff]/28 bg-[#122035]/70 text-[#d6e4ff]'
+  const publishedVersionLabel = publishStatus?.lastPublishedVersion
+    ? `v${publishStatus.lastPublishedVersion}`
+    : '未记录版本'
   const publishMeta =
     publishStatus?.status === 'failed'
       ? publishStatus.lastError ?? '发布失败，请重试'
@@ -149,7 +152,7 @@ export function EditorToolbar({
             .filter(Boolean)
             .join(' · ') || '正在发布并持续同步进度'
       : publishStatus?.lastPublishedAt
-        ? `v${publishStatus.lastPublishedVersion ?? '--'} · ${new Date(
+        ? `${publishedVersionLabel} · ${new Date(
             publishStatus.lastPublishedAt
           ).toLocaleTimeString('zh-CN', {
             hour: '2-digit',

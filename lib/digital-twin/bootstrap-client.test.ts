@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   AdminApiError,
   fetchAdminPublishStatus,
+  fetchWorkspaceById,
   getAdminApiSceneVersionConflict,
   isAdminApiError,
   saveAdminEditorDrafts,
@@ -9,6 +10,7 @@ import {
 
 const originalFetch = globalThis.fetch
 const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
+const originalBackendAdminApiToken = process.env.BACKEND_ADMIN_API_TOKEN
 
 function setBrowserLocation(origin: string) {
   const url = new URL(origin)
@@ -37,6 +39,48 @@ function restoreWindow() {
 }
 
 describe('bootstrap client', () => {
+  test('adds the private admin token only for server-side admin API requests', async () => {
+    let requestUrl = ''
+    let requestAdminToken = ''
+
+    try {
+      restoreWindow()
+      process.env.BACKEND_ADMIN_API_TOKEN = 'server-admin-token'
+      globalThis.fetch = (async (input, init) => {
+        requestUrl = String(input)
+        requestAdminToken = new Headers(init?.headers).get('x-admin-api-token') ?? ''
+        return new Response(
+          JSON.stringify({
+            id: 'workspace-1',
+            slug: 'workspace-1',
+            name: 'Workspace 1',
+            description: null,
+            isHomepage: true,
+            createdAt: 1,
+            updatedAt: 1,
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        )
+      }) as typeof fetch
+
+      await fetchWorkspaceById('workspace-1')
+
+      expect(requestUrl).toContain('/api/v1/admin/workspaces/workspace-1')
+      expect(requestAdminToken).toBe('server-admin-token')
+    } finally {
+      globalThis.fetch = originalFetch
+      if (originalBackendAdminApiToken === undefined) {
+        delete process.env.BACKEND_ADMIN_API_TOKEN
+      } else {
+        process.env.BACKEND_ADMIN_API_TOKEN = originalBackendAdminApiToken
+      }
+      restoreWindow()
+    }
+  })
+
   test('surfaces structured json admin API errors', async () => {
     try {
       globalThis.fetch = (async () =>

@@ -47,10 +47,19 @@
     --viewer-admin-text-secondary: rgba(255, 255, 255, 0.76);
     --viewer-admin-text-muted: rgba(255, 255, 255, 0.54);
     --viewer-admin-text-dim: rgba(255, 255, 255, 0.4);
+    --editor-surface-modal: var(--viewer-admin-surface-1);
+    --editor-surface-toolbar: rgba(18, 19, 22, 0.92);
+    --editor-shadow-panel: none;
+    --editor-shadow-toolbar: none;
+    --editor-text-primary: var(--viewer-admin-text-primary);
+    --editor-text-secondary: var(--viewer-admin-text-secondary);
+    --editor-text-tertiary: var(--viewer-admin-text-muted);
+    --editor-text-quaternary: var(--viewer-admin-text-dim);
+    --editor-accent: var(--viewer-admin-accent);
     color-scheme: dark;
     color: var(--editor-text-primary);
     font-family: var(--editor-font-sans, 'Geist', 'Geist Fallback', sans-serif);
-    letter-spacing: -0.01em;
+    letter-spacing: 0;
   }
 }
 
@@ -233,7 +242,7 @@
     padding-inline: 10px;
     font-size: 11px;
     font-weight: 500;
-    letter-spacing: 0.01em;
+    letter-spacing: 0;
     border-radius: 999px !important;
     border-color: var(--viewer-admin-border-default) !important;
     box-shadow: none !important;
@@ -284,7 +293,7 @@
     color: var(--viewer-admin-text-secondary);
     font-size: 11px;
     font-weight: 600;
-    letter-spacing: 0.02em;
+    letter-spacing: 0;
     box-shadow:
       0 14px 36px rgba(6, 10, 16, 0.28),
       inset 0 1px 0 rgba(255, 255, 255, 0.07);
@@ -322,7 +331,7 @@
 
   .viewer-admin-surface .viewer-runtime-badge__status {
     font-size: 10px;
-    letter-spacing: 0.08em;
+    letter-spacing: 0;
   }
 
   .viewer-admin-surface .viewer-runtime-badge__status--live {
@@ -396,6 +405,32 @@
     backdrop-filter: blur(20px);
   }
 
+  .viewer-admin-dialog-content {
+    border-color: var(--viewer-admin-border-default) !important;
+    background: var(--editor-surface-modal) !important;
+    color: var(--viewer-admin-text-primary) !important;
+    box-shadow:
+      0 24px 72px rgba(7, 10, 16, 0.48),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.03) !important;
+    -webkit-backdrop-filter: blur(24px);
+    backdrop-filter: blur(24px);
+  }
+
+  .viewer-admin-dialog-content [data-slot='dialog-close'] {
+    border: 1px solid var(--viewer-admin-border-subtle);
+    border-radius: 10px;
+    background: var(--viewer-admin-surface-4);
+    color: var(--viewer-admin-text-muted);
+    opacity: 0.88;
+  }
+
+  .viewer-admin-dialog-content [data-slot='dialog-close']:hover {
+    border-color: var(--viewer-admin-border-strong);
+    background: var(--viewer-admin-surface-5);
+    color: var(--viewer-admin-text-primary);
+    opacity: 1;
+  }
+
   .viewer-admin-surface [data-slot='separator'] {
     background-color: rgba(255, 255, 255, 0.1) !important;
   }
@@ -465,7 +500,7 @@
   .viewer-admin-surface .viewer-admin-kicker {
     font-size: 10px;
     font-weight: 500;
-    letter-spacing: 0.2em;
+    letter-spacing: 0;
     text-transform: uppercase;
     color: var(--editor-text-quaternary);
   }
@@ -473,7 +508,7 @@
   .viewer-admin-surface .viewer-admin-entity-panel-header h3 {
     font-size: 11px;
     font-weight: 500;
-    letter-spacing: 0.01em;
+    letter-spacing: 0;
   }
 
   .viewer-admin-surface .viewer-admin-entity-search,
@@ -741,6 +776,46 @@
     border-style: dashed;
   }
 
+  .viewer-admin-surface .viewer-admin-empty-state {
+    min-width: 0;
+    color: var(--viewer-admin-text-secondary);
+  }
+
+  .viewer-admin-surface .viewer-admin-empty-state__icon {
+    color: var(--viewer-admin-text-muted);
+  }
+
+  .viewer-admin-surface .viewer-admin-empty-state__title {
+    color: var(--viewer-admin-text-primary);
+  }
+
+  .viewer-admin-surface .viewer-admin-empty-state__description {
+    color: var(--viewer-admin-text-muted);
+  }
+
+  .viewer-admin-surface .viewer-admin-empty-spotlight {
+    border-color: rgba(255, 255, 255, 0.1) !important;
+    border-style: dashed;
+    border-radius: 24px;
+    background:
+      radial-gradient(circle at top left, rgba(122, 164, 255, 0.12), transparent 38%),
+      linear-gradient(180deg, rgba(18, 19, 22, 0.94) 0%, rgba(18, 19, 22, 0.78) 100%) !important;
+  }
+
+  .viewer-admin-surface .viewer-admin-empty-spotlight__icon {
+    color: rgba(255, 255, 255, 0.8);
+  }
+
+  .viewer-admin-surface .viewer-admin-empty-spotlight__title {
+    color: white;
+  }
+
+  .viewer-admin-surface .viewer-admin-empty-spotlight__item {
+    border-color: rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.05);
+    color: rgba(255, 255, 255, 0.8);
+  }
+
   .viewer-admin-surface .viewer-admin-link-card {
     border: 1px solid var(--viewer-admin-border-subtle);
     border-radius: 20px;
@@ -879,7 +954,7 @@
     padding: 0 4px;
     color: var(--viewer-admin-text-muted);
     font-size: 9px;
-    letter-spacing: 0.08em;
+    letter-spacing: 0;
     text-transform: uppercase;
     white-space: nowrap;
   }
@@ -1060,7 +1135,7 @@
     border-radius: 999px;
     color: var(--viewer-admin-text-muted);
     font-size: 10px;
-    letter-spacing: 0.03em;
+    letter-spacing: 0;
     white-space: nowrap;
   }
 
@@ -1134,7 +1209,7 @@
     padding: 2px 6px;
     border: 1px solid var(--viewer-admin-border-subtle);
     border-radius: 999px;
-    letter-spacing: 0.08em;
+    letter-spacing: 0;
     text-transform: uppercase;
   }
 
@@ -1151,7 +1226,8 @@
 
   .viewer-admin-surface .viewer-camera-dock {
     pointer-events: auto;
-    max-width: min(390px, calc(100% - 32px));
+    max-width: min(360px, calc(100% - 32px));
+    overflow: hidden;
     padding: 4px;
     border: 1px solid rgba(171, 199, 255, 0.16);
     border-radius: 14px;
@@ -1169,13 +1245,16 @@
   .viewer-admin-surface .viewer-camera-dock__presets {
     display: inline-flex;
     min-width: 0;
+    flex: 1 1 auto;
     align-items: center;
     gap: 4px;
+    overflow: hidden;
   }
 
   .viewer-admin-surface .viewer-camera-dock__button {
     min-height: 32px !important;
     min-width: 0;
+    flex: 0 1 auto;
     gap: 4px !important;
     padding: 0 7px !important;
     border: 1px solid var(--viewer-admin-border-subtle) !important;
@@ -1199,12 +1278,12 @@
     color: var(--viewer-admin-text-dim);
     font-size: 9px;
     font-weight: 700;
-    letter-spacing: 0.08em;
+    letter-spacing: 0;
   }
 
   .viewer-admin-surface .viewer-camera-dock__label {
     display: inline-block;
-    max-width: 58px;
+    max-width: 52px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1218,10 +1297,14 @@
 
   .viewer-admin-surface .viewer-camera-dock__hmi {
     flex-shrink: 0;
+    width: 32px;
+    padding: 0 !important;
   }
 
   .viewer-admin-surface .viewer-camera-dock__menu {
     flex-shrink: 0;
+    width: 32px;
+    padding: 0 !important;
   }
 
   .viewer-camera-dock__menu-content {
@@ -1286,7 +1369,7 @@
   .viewer-admin-surface .viewer-hmi-metric-card span {
     font-size: 10px;
     font-weight: 700;
-    letter-spacing: 0.1em;
+    letter-spacing: 0;
     text-transform: uppercase;
   }
 
@@ -1303,7 +1386,7 @@
     color: var(--viewer-admin-text-dim);
     font-size: 8px;
     font-weight: 600;
-    letter-spacing: 0.08em;
+    letter-spacing: 0;
     line-height: 1.1;
     text-overflow: ellipsis;
     text-transform: uppercase;
@@ -1556,6 +1639,23 @@
 
   @media (max-width: 1180px) {
     .viewer-admin-surface .viewer-panel-toolbar__scene-pill {
+      display: none;
+    }
+  }
+
+  @media (max-width: 1400px) {
+    .viewer-admin-surface .viewer-camera-dock {
+      max-width: min(336px, calc(100% - 32px));
+    }
+
+    .viewer-admin-surface .viewer-camera-dock__button {
+      padding: 0 6px !important;
+    }
+
+    .viewer-admin-surface
+      .viewer-camera-dock__presets
+      .viewer-camera-dock__button:not(.is-active):not([aria-pressed='true'])
+      .viewer-camera-dock__label {
       display: none;
     }
   }

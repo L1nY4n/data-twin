@@ -56,13 +56,18 @@ import { Separator } from '@/components/ui/separator'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Progress } from '@/components/ui/progress'
 import {
-  ViewerAdminEmptyCard,
+  ViewerAdminContentCard,
+  ViewerAdminEmptyState,
   ViewerAdminInfoList,
   ViewerAdminInfoRow,
+  ViewerAdminKicker,
+  ViewerAdminNotice,
   ViewerAdminPanelHeader,
   ViewerAdminSection,
   ViewerAdminSidePanelBody,
-  ViewerAdminSoftCard,
+  ViewerAdminHeroCard,
+  ViewerAdminRecordCard,
+  ViewerAdminSoftLinkCard,
   ViewerAdminStatCell,
   ViewerAdminStatGrid,
 } from '@/components/viewer-admin/primitives'
@@ -207,10 +212,14 @@ export function EntityDetailPanel() {
 
   if (!entity && !staticFeature) {
     return (
-      <ViewerAdminSidePanelBody className="viewer-admin-inspector-empty items-center justify-center p-4 text-center">
-        <Map className="mb-3 h-12 w-12 text-muted-foreground/30" />
-        <p className="text-sm text-white/80">Inspector ready</p>
-        <p className="mt-1 text-xs text-muted-foreground/70">在 3D 场景或左侧对象树中选择组件</p>
+      <ViewerAdminSidePanelBody className="viewer-admin-inspector-empty justify-center p-4">
+        <ViewerAdminEmptyState
+          title="Inspector ready"
+          description="在 3D 场景或左侧对象树中选择组件。"
+          icon={Map}
+          align="center"
+          className="w-full py-8"
+        />
       </ViewerAdminSidePanelBody>
     )
   }
@@ -245,10 +254,10 @@ export function EntityDetailPanel() {
       <ScrollArea className="flex-1">
         <div className="space-y-4 p-3">
           {/* 状态 */}
-          <ViewerAdminSoftCard className={cn('viewer-admin-inspector-hero rounded-2xl p-3', statusConfig.bg)}>
+          <ViewerAdminHeroCard className={statusConfig.bg}>
             <div className="flex items-start justify-between gap-3">
               <div>
-                <span className="viewer-admin-kicker">selected component</span>
+                <ViewerAdminKicker>selected component</ViewerAdminKicker>
                 <h4 className="mt-1 truncate text-sm font-semibold text-white">{entity.name}</h4>
                 <p className="mt-1 truncate font-mono text-[10px] text-muted-foreground">{entity.id}</p>
               </div>
@@ -259,7 +268,7 @@ export function EntityDetailPanel() {
                 {statusConfig.label}
               </Badge>
             </div>
-          </ViewerAdminSoftCard>
+          </ViewerAdminHeroCard>
 
           {/* 位置信息 */}
           <ViewerAdminSection icon={MapPin} title="位置信息">
@@ -272,11 +281,11 @@ export function EntityDetailPanel() {
 
           {/* 朝向信息 */}
           <ViewerAdminSection icon={RotateCw} title="朝向">
-            <ViewerAdminSoftCard className="p-2.5">
+            <ViewerAdminContentCard density="compact">
               <p className="text-sm">
                 {formatAngle((entity.rotation.y * 180) / Math.PI)}
               </p>
-            </ViewerAdminSoftCard>
+            </ViewerAdminContentCard>
           </ViewerAdminSection>
 
           <Separator />
@@ -345,12 +354,12 @@ function StaticFeatureDetailPanel({
 
       <ScrollArea className="flex-1">
         <div className="space-y-4 p-3">
-          <ViewerAdminSoftCard className="viewer-admin-inspector-hero p-3">
+          <ViewerAdminHeroCard>
             <div className="flex items-center justify-between">
               <span className="text-sm">类型</span>
               <Badge variant="outline">{kindLabel}</Badge>
             </div>
-          </ViewerAdminSoftCard>
+          </ViewerAdminHeroCard>
 
           <ViewerAdminSection icon={Map} title="归属信息">
             <ViewerAdminInfoList>
@@ -461,7 +470,7 @@ function VehicleDetails({ entity }: { entity: VehicleEntity }) {
       </ViewerAdminSection>
 
       <ViewerAdminSection icon={Gauge} title="运行状态">
-        <ViewerAdminSoftCard className="space-y-2 p-2.5 text-sm">
+        <ViewerAdminContentCard density="compact" className="space-y-2 text-sm">
           <ViewerAdminInfoRow label="速度" value={`${entity.speed.toFixed(1)} m/s`} />
           <ViewerAdminInfoRow label="航向" value={`${entity.heading.toFixed(0)}°`} />
           {entity.capacity && (
@@ -473,7 +482,7 @@ function VehicleDetails({ entity }: { entity: VehicleEntity }) {
               <Progress value={loadPercent} className="h-1.5" />
             </div>
           )}
-        </ViewerAdminSoftCard>
+        </ViewerAdminContentCard>
       </ViewerAdminSection>
     </div>
   )
@@ -482,7 +491,7 @@ function VehicleDetails({ entity }: { entity: VehicleEntity }) {
 function EquipmentDetails({ entity }: { entity: EquipmentEntity }) {
   return (
     <ViewerAdminSection icon={Activity} title="设备参数">
-      <ViewerAdminSoftCard className="space-y-2 p-2.5">
+      <ViewerAdminContentCard density="compact" className="space-y-2">
         {Object.entries(entity.parameters).map(([key, value]) => (
           <div key={key} className="flex items-center justify-between text-sm">
             <span className="flex items-center gap-1.5 text-muted-foreground">
@@ -500,13 +509,11 @@ function EquipmentDetails({ entity }: { entity: EquipmentEntity }) {
           </div>
         ))}
         {entity.alarms.length > 0 && (
-          <div className="mt-2 rounded bg-red-500/10 p-2">
-            <span className="text-xs font-medium text-red-500">
-              {entity.alarms.length} 个告警
-            </span>
-          </div>
+          <ViewerAdminNotice tone="danger" className="mt-2 py-2 text-xs">
+            <span className="font-medium">{entity.alarms.length} 个告警</span>
+          </ViewerAdminNotice>
         )}
-      </ViewerAdminSoftCard>
+      </ViewerAdminContentCard>
     </ViewerAdminSection>
   )
 }
@@ -558,9 +565,9 @@ function CameraDetails({ entity }: { entity: CameraEntity }) {
         {entity.streamUrl && (
           <div className="space-y-1">
             <span className="text-muted-foreground">视频流</span>
-            <ViewerAdminSoftCard className="break-all rounded-md px-2 py-1 font-mono text-xs">
+            <ViewerAdminContentCard density="compact" className="break-all font-mono text-xs">
               {entity.streamUrl}
-            </ViewerAdminSoftCard>
+            </ViewerAdminContentCard>
           </div>
         )}
       </ViewerAdminInfoList>
@@ -588,24 +595,27 @@ function DigitalTwinMetadataDetails({
     <div className="space-y-3" data-digital-twin-metadata-section="root">
       {(metadata.capabilities.length > 0 || metadata.components.length > 0) && (
         <ViewerAdminSection icon={Boxes} title="组件能力" data-digital-twin-metadata-section="components">
-          <ViewerAdminSoftCard className="space-y-2 p-2.5">
+          <div className="space-y-2">
             {metadata.capabilities.length > 0 ? (
-              <div className="flex flex-wrap gap-1.5">
+              <ViewerAdminContentCard density="compact" className="flex flex-wrap gap-1.5">
                 {metadata.capabilities.map((capability) => (
                   <Badge key={capability} variant="secondary" className="text-[10px]">
                     {capability}
                   </Badge>
                 ))}
-              </div>
+              </ViewerAdminContentCard>
             ) : null}
             {metadata.components.slice(0, 4).map((component) => (
-              <div key={component.id} className="rounded-lg border border-white/8 p-2 text-xs">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="font-medium text-white/90">{component.name}</span>
-                  {component.type ? <Badge variant="outline">{component.type}</Badge> : null}
-                </div>
+              <ViewerAdminRecordCard
+                key={component.id}
+                title={component.name}
+                trailing={component.type ? <Badge variant="outline">{component.type}</Badge> : null}
+                density="compact"
+                titleClassName="text-xs text-white/90"
+                bodyClassName="text-xs"
+              >
                 {component.capabilities.length > 0 ? (
-                  <div className="mt-1 flex flex-wrap gap-1">
+                  <div className="flex flex-wrap gap-1">
                     {component.capabilities.map((capability) => (
                       <span key={capability} className="text-muted-foreground">
                         #{capability}
@@ -613,45 +623,47 @@ function DigitalTwinMetadataDetails({
                     ))}
                   </div>
                 ) : null}
-              </div>
+              </ViewerAdminRecordCard>
             ))}
-          </ViewerAdminSoftCard>
+          </div>
         </ViewerAdminSection>
       )}
 
       {signalSnapshots.length > 0 && (
         <ViewerAdminSection icon={Network} title="实时信号" data-digital-twin-metadata-section="signals">
-          <ViewerAdminInfoList className="space-y-2 text-xs">
+          <div className="space-y-2">
             {signalSnapshots.slice(0, 8).map((signal) => (
-              <div key={signal.descriptor.id} className="space-y-1">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="font-medium text-white/90">
-                    {signal.descriptor.label ?? signal.descriptor.name}
-                  </span>
-                  <Badge variant={signal.quality === 'good' ? 'outline' : 'secondary'}>
-                    {signal.quality === 'good' ? 'GOOD' : signal.quality.toUpperCase()}
-                  </Badge>
-                </div>
-                <div className="flex items-center justify-between gap-2 text-muted-foreground">
-                  <span className="truncate font-mono">{signal.descriptor.path}</span>
-                  <span className="shrink-0 font-medium text-white/80">
-                    {formatSignalValue(signal.value, signal.descriptor.unit)}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between gap-2 text-[10px] text-muted-foreground/80">
-                  <span>
-                    {signal.descriptor.direction === 'output'
-                      ? '写入'
-                      : signal.descriptor.direction === 'input'
-                        ? '读取'
-                        : '内部'}
-                    {signal.descriptor.writable ? ' · 可写' : ''}
-                  </span>
-                  <span>{signal.source === 'metadata' ? '模型绑定' : '运行态'}</span>
-                </div>
-              </div>
+              <ViewerAdminRecordCard
+                key={signal.descriptor.id}
+                title={signal.descriptor.label ?? signal.descriptor.name}
+                meta={signal.descriptor.path}
+                trailing={
+                  <div className="flex flex-col items-end gap-1">
+                    <Badge variant={signal.quality === 'good' ? 'outline' : 'secondary'}>
+                      {signal.quality === 'good' ? 'GOOD' : signal.quality.toUpperCase()}
+                    </Badge>
+                    <span className="shrink-0 font-medium text-white/80">
+                      {formatSignalValue(signal.value, signal.descriptor.unit)}
+                    </span>
+                  </div>
+                }
+                density="compact"
+                titleClassName="truncate text-xs text-white/90"
+                metaClassName="truncate font-mono"
+                bodyClassName="flex items-center justify-between gap-2 text-[10px] text-muted-foreground/80"
+              >
+                <span>
+                  {signal.descriptor.direction === 'output'
+                    ? '写入'
+                    : signal.descriptor.direction === 'input'
+                      ? '读取'
+                      : '内部'}
+                  {signal.descriptor.writable ? ' · 可写' : ''}
+                </span>
+                <span>{signal.source === 'metadata' ? '模型绑定' : '运行态'}</span>
+              </ViewerAdminRecordCard>
             ))}
-          </ViewerAdminInfoList>
+          </div>
         </ViewerAdminSection>
       )}
 
@@ -659,12 +671,12 @@ function DigitalTwinMetadataDetails({
         <ViewerAdminSection icon={FileText} title="文档链接" data-digital-twin-metadata-section="documents">
           <div className="space-y-2">
             {metadata.documents.slice(0, 5).map((document) => (
-              <a
+              <ViewerAdminSoftLinkCard
                 key={`${document.id}-${document.href}`}
                 href={document.href}
                 target="_blank"
                 rel="noreferrer"
-                className="viewer-admin-soft-card block rounded-xl p-2.5 text-xs transition hover:border-white/20"
+                className="p-2.5 text-xs"
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-medium text-white/90">{document.title}</span>
@@ -673,7 +685,7 @@ function DigitalTwinMetadataDetails({
                 {document.description ? (
                   <p className="mt-1 text-muted-foreground">{document.description}</p>
                 ) : null}
-              </a>
+              </ViewerAdminSoftLinkCard>
             ))}
           </div>
         </ViewerAdminSection>
@@ -681,24 +693,30 @@ function DigitalTwinMetadataDetails({
 
       {metadata.maintenance.length > 0 && (
         <ViewerAdminSection icon={Wrench} title="维护上下文" data-digital-twin-metadata-section="maintenance">
-          <ViewerAdminInfoList className="space-y-2 text-xs">
-            {metadata.maintenance.slice(0, 4).map((hint) => (
-              <div key={`${hint.id}-${hint.title}`}>
-                <div className="flex items-center justify-between gap-2">
-                  <span className="font-medium text-white/90">{hint.title}</span>
-                  {hint.priority ? <Badge variant="outline">{hint.priority}</Badge> : null}
-                </div>
-                {hint.description ? (
-                  <p className="mt-1 text-muted-foreground">{hint.description}</p>
-                ) : null}
-                <div className="mt-1 flex flex-wrap gap-2 text-muted-foreground">
-                  {hint.interval ? <span>周期 {hint.interval}</span> : null}
-                  {hint.dueAt ? <span>到期 {hint.dueAt}</span> : null}
-                  {hint.status ? <span>状态 {hint.status}</span> : null}
-                </div>
-              </div>
-            ))}
-          </ViewerAdminInfoList>
+          <div className="space-y-2">
+            {metadata.maintenance.slice(0, 4).map((hint) => {
+              const facts = [
+                hint.interval ? `周期 ${hint.interval}` : null,
+                hint.dueAt ? `到期 ${hint.dueAt}` : null,
+                hint.status ? `状态 ${hint.status}` : null,
+              ].filter((fact): fact is string => Boolean(fact))
+
+              return (
+                <ViewerAdminRecordCard
+                  key={`${hint.id}-${hint.title}`}
+                  title={hint.title}
+                  meta={hint.description}
+                  trailing={hint.priority ? <Badge variant="outline">{hint.priority}</Badge> : null}
+                  density="compact"
+                  titleClassName="text-xs text-white/90"
+                  metaClassName="text-xs"
+                  bodyClassName="flex flex-wrap gap-2 text-xs text-muted-foreground"
+                >
+                  {facts.length > 0 ? facts.map((fact) => <span key={fact}>{fact}</span>) : null}
+                </ViewerAdminRecordCard>
+              )
+            })}
+          </div>
         </ViewerAdminSection>
       )}
     </div>
@@ -723,9 +741,13 @@ function EntityIncidentDetails({
   if (incidents.length === 0) {
     return (
       <ViewerAdminSection icon={Sparkles} title="事件联动">
-        <ViewerAdminEmptyCard className="border-dashed p-3 text-xs text-muted-foreground">
-          当前对象暂无 Citation 事件，系统会在移动态势变化时自动生成联动卡片。
-        </ViewerAdminEmptyCard>
+        <ViewerAdminEmptyState
+          title="暂无 Citation 事件"
+          description="系统会在移动态势变化时自动生成联动卡片。"
+          icon={Sparkles}
+          density="compact"
+          className="text-xs"
+        />
       </ViewerAdminSection>
     )
   }
@@ -742,18 +764,19 @@ function EntityIncidentDetails({
             const eventTypeMeta = eventType
               ? getEventTypeRegistration(eventType)
               : null
+            const timestampLabel = (
+              <>
+                {new Date(incident.timestamp).toLocaleString('zh-CN')} ·
+                {incident.entityIds.includes(entityId) ? ' 已绑定当前对象' : ' 关联事件'}
+              </>
+            )
 
             return (
-              <ViewerAdminSoftCard
+              <ViewerAdminRecordCard
                 key={incident.id}
-                className="rounded-xl p-3"
-                onClick={() => onSelectIncident(incident.id)}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-medium">{incident.title}</div>
-                    <div className="mt-1 text-xs text-muted-foreground">{incident.summary}</div>
-                  </div>
+                title={incident.title}
+                meta={incident.summary}
+                trailing={
                   <div className="flex items-center gap-2">
                     {eventType ? (
                       <Badge variant="secondary" className="text-[10px]">
@@ -762,9 +785,13 @@ function EntityIncidentDetails({
                     ) : null}
                     <Badge variant="outline">{incident.severity}</Badge>
                   </div>
-                </div>
-
-                <div className="mt-2 flex flex-wrap gap-1">
+                }
+                className="rounded-xl"
+                titleClassName="text-sm font-medium"
+                bodyClassName="space-y-3"
+                onClick={() => onSelectIncident(incident.id)}
+              >
+                <div className="flex flex-wrap gap-1">
                   {incident.citations.slice(0, 2).map((citation) => (
                     <Badge key={citation.id} variant="secondary" className="text-[10px]">
                       {citation.label}: {citation.value}
@@ -772,40 +799,39 @@ function EntityIncidentDetails({
                   ))}
                 </div>
 
-                <div className="mt-3 flex items-center justify-between gap-3">
-                  <div className="text-[10px] text-muted-foreground">
-                    {new Date(incident.timestamp).toLocaleString('zh-CN')} ·
-                    {incident.entityIds.includes(entityId) ? ' 已绑定当前对象' : ' 关联事件'}
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="text-[10px] text-muted-foreground">{timestampLabel}</div>
+                  <div className="flex flex-wrap gap-2">
+                    {incident.videoFeed && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 px-2 text-xs"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          onOpenIncidentVideo(incident.id, incident.videoFeed!)
+                        }}
+                      >
+                        <MonitorPlay className="mr-1 h-3.5 w-3.5" />
+                        视频
+                      </Button>
+                    )}
+                    {!incident.acknowledged && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2 text-xs"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          onAcknowledgeIncident(incident.id)
+                        }}
+                      >
+                        确认
+                      </Button>
+                    )}
                   </div>
-                  {incident.videoFeed && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-7 px-2 text-xs"
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        onOpenIncidentVideo(incident.id, incident.videoFeed!)
-                      }}
-                    >
-                      <MonitorPlay className="mr-1 h-3.5 w-3.5" />
-                      视频
-                    </Button>
-                  )}
-                  {!incident.acknowledged && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 px-2 text-xs"
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        onAcknowledgeIncident(incident.id)
-                      }}
-                    >
-                      确认
-                    </Button>
-                  )}
                 </div>
-              </ViewerAdminSoftCard>
+              </ViewerAdminRecordCard>
             )
           })()
         ))}
@@ -846,13 +872,13 @@ function ZoneDetails({ entity }: { entity: ZoneEntity }) {
 
       {entity.capacity && (
         <ViewerAdminSection title="容量">
-          <ViewerAdminSoftCard className="p-2.5">
+          <ViewerAdminContentCard density="compact">
             <div className="mb-1 flex justify-between text-sm">
               <span className="text-muted-foreground">当前/最大</span>
               <span>{entity.currentOccupancy || 0} / {entity.capacity}</span>
             </div>
             <Progress value={occupancyPercent} className="h-1.5" />
-          </ViewerAdminSoftCard>
+          </ViewerAdminContentCard>
         </ViewerAdminSection>
       )}
     </div>
@@ -902,9 +928,9 @@ function DynamicDetails({
             ))}
           </ViewerAdminInfoList>
         ) : (
-          <ViewerAdminSoftCard className="p-3 text-sm text-muted-foreground">
+          <ViewerAdminContentCard className="text-sm text-muted-foreground">
             当前原型还没有注入展示字段，等待绑定或外部状态更新。
-          </ViewerAdminSoftCard>
+          </ViewerAdminContentCard>
         )}
       </ViewerAdminSection>
     </div>

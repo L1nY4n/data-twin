@@ -13,7 +13,7 @@ interface ThrottleChannel {
 }
 
 export interface TickScheduler {
-  advance: (nowMs: number) => void
+  advance: (nowMs: number, deltaMs?: number) => void
   reset: () => void
   addThrottleChannel: (
     name: string,
@@ -29,20 +29,26 @@ export function createTickScheduler(options: TickSchedulerOptions): TickSchedule
   const maxFixedStepsPerAdvance =
     options.maxFixedStepsPerAdvance ?? Math.max(1, Math.ceil(maxDeltaMs / fixedStepMs))
   let lastTimeMs: number | null = null
+  let renderTimelineMs = 0
   let accumulatorMs = 0
   const channels = new Map<string, ThrottleChannel>()
 
   return {
-    advance(nowMs) {
+    advance(nowMs, deltaMsOverride) {
       if (lastTimeMs === null) {
         lastTimeMs = nowMs
-        options.onRenderTick(nowMs, 0)
+        renderTimelineMs = nowMs
+        options.onRenderTick(renderTimelineMs, 0)
       } else {
-        const rawDeltaMs = Math.max(0, nowMs - lastTimeMs)
+        const hasDeltaOverride =
+          deltaMsOverride !== undefined && Number.isFinite(deltaMsOverride)
+        const clockDeltaMs = Math.max(0, nowMs - lastTimeMs)
+        const rawDeltaMs = hasDeltaOverride ? Math.max(0, deltaMsOverride) : clockDeltaMs
         lastTimeMs = nowMs
+        renderTimelineMs = hasDeltaOverride ? renderTimelineMs + rawDeltaMs : nowMs
         if (rawDeltaMs > maxDeltaMs) {
           accumulatorMs = 0
-          options.onRenderTick(nowMs, 0)
+          options.onRenderTick(renderTimelineMs, 0)
         } else {
           const deltaMs = rawDeltaMs
           accumulatorMs += deltaMs
@@ -58,18 +64,19 @@ export function createTickScheduler(options: TickSchedulerOptions): TickSchedule
             accumulatorMs = 0
           }
 
-          options.onRenderTick(nowMs, deltaMs)
+          options.onRenderTick(renderTimelineMs, deltaMs)
         }
       }
 
       channels.forEach((channel) => {
-        if (nowMs < channel.nextRun) return
-        channel.callback(nowMs)
-        channel.nextRun = nowMs + channel.intervalMs
+        if (renderTimelineMs < channel.nextRun) return
+        channel.callback(renderTimelineMs)
+        channel.nextRun = renderTimelineMs + channel.intervalMs
       })
     },
     reset() {
       lastTimeMs = null
+      renderTimelineMs = 0
       accumulatorMs = 0
       channels.forEach((channel) => {
         channel.nextRun = 0

@@ -2,10 +2,11 @@ export function buildEditorHref(
   workspaceSlugOrReturnTo?: string | null,
   returnTo?: string | null
 ) {
+  const hasWorkspaceSlug = arguments.length >= 2
   const workspaceSlug =
-    returnTo === undefined ? '' : workspaceSlugOrReturnTo?.trim() ?? ''
+    hasWorkspaceSlug ? workspaceSlugOrReturnTo?.trim() ?? '' : ''
   const normalizedReturnTo =
-    returnTo === undefined ? workspaceSlugOrReturnTo?.trim() : returnTo?.trim()
+    hasWorkspaceSlug ? returnTo?.trim() : workspaceSlugOrReturnTo?.trim()
   const params = new URLSearchParams()
 
   if (normalizedReturnTo) {

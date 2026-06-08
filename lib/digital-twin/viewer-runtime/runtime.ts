@@ -46,7 +46,7 @@ export interface DigitalTwinBufferedSignalStats {
 }
 
 const DEFAULT_FIXED_HZ = 60
-const DEFAULT_MAX_DELTA_MS = 100
+const DEFAULT_MAX_DELTA_MS = 250
 
 function comparePluginOrder(
   left: DigitalTwinViewerRuntimePlugin,
@@ -157,6 +157,7 @@ export class DigitalTwinViewerRuntime {
   private readonly fixedStepMs: number
   private readonly maxDeltaMs: number
   private readonly maxFixedStepsPerAdvance: number
+  private sortedPluginCache: DigitalTwinViewerRuntimePlugin[] | null = null
   private accumulatorMs = 0
   private lastNowMs: number | null = null
   private disposed = false
@@ -179,12 +180,14 @@ export class DigitalTwinViewerRuntime {
     }
 
     this.plugins.set(plugin.id, plugin)
+    this.invalidateSortedPlugins()
     callPlugin(plugin, 'onRuntimeReady', this)
 
     return () => {
       const current = this.plugins.get(plugin.id)
       if (current !== plugin) return
       this.plugins.delete(plugin.id)
+      this.invalidateSortedPlugins()
       callPlugin(plugin, 'dispose', this)
     }
   }
@@ -228,6 +231,7 @@ export class DigitalTwinViewerRuntime {
 
     const deltaMs = this.resolveDeltaMs(frame)
     const normalizedFrame = { ...frame, deltaMs }
+    const plugins = this.sortedPlugins()
 
     if (!this.isPaused && deltaMs > 0) {
       this.accumulatorMs += deltaMs
@@ -242,10 +246,10 @@ export class DigitalTwinViewerRuntime {
           fixedDeltaMs: this.fixedStepMs,
           frameDeltaMs: deltaMs,
         }
-        for (const plugin of this.sortedPlugins()) {
+        for (const plugin of plugins) {
           callPlugin(plugin, 'onFixedUpdatePre', this, tick)
         }
-        for (const plugin of this.sortedPlugins()) {
+        for (const plugin of plugins) {
           callPlugin(plugin, 'onFixedUpdatePost', this, tick)
         }
         this.accumulatorMs -= this.fixedStepMs
@@ -259,7 +263,7 @@ export class DigitalTwinViewerRuntime {
       this.accumulatorMs = 0
     }
 
-    for (const plugin of this.sortedPlugins()) {
+    for (const plugin of plugins) {
       callPlugin(plugin, 'onRender', this, normalizedFrame)
     }
   }
@@ -273,19 +277,21 @@ export class DigitalTwinViewerRuntime {
     if (this.disposed) return
     this.disposed = true
 
-    for (const plugin of this.sortedPlugins().reverse()) {
+    for (const plugin of [...this.sortedPlugins()].reverse()) {
       callPlugin(plugin, 'dispose', this)
     }
     this.plugins.clear()
+    this.invalidateSortedPlugins()
     this.pauseReasons.clear()
     this.pickIndex.clear()
   }
 
   private resolveDeltaMs(frame: DigitalTwinRuntimeFrame) {
-    let deltaMs = frame.deltaMs
-    if (this.lastNowMs !== null) {
-      deltaMs = Math.max(0, frame.nowMs - this.lastNowMs)
-    }
+    const clockDeltaMs =
+      this.lastNowMs === null ? frame.deltaMs : Math.max(0, frame.nowMs - this.lastNowMs)
+    const deltaMs = Number.isFinite(frame.deltaMs)
+      ? Math.max(0, frame.deltaMs)
+      : clockDeltaMs
     this.lastNowMs = frame.nowMs
 
     if (!Number.isFinite(deltaMs) || deltaMs < 0) return 0
@@ -297,6 +303,13 @@ export class DigitalTwinViewerRuntime {
   }
 
   private sortedPlugins() {
-    return [...this.plugins.values()].sort(comparePluginOrder)
+    if (!this.sortedPluginCache) {
+      this.sortedPluginCache = [...this.plugins.values()].sort(comparePluginOrder)
+    }
+    return this.sortedPluginCache
+  }
+
+  private invalidateSortedPlugins() {
+    this.sortedPluginCache = null
   }
 }

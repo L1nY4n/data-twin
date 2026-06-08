@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "sceneId": "factory-demo-scene",
+  "generatedAt": "2026-05-31T07:11:57.974Z",
+  "chunks": {
+    "chunk:sector-core:static": {
+      "chunkId": "chunk:sector-core:static",
+      "detailed": {
+        "url": "/generated/published-static/workspaces/factory-demo-scene/versions/7-1780211517246/chunk-sector-core-static.detailed.glb",
+        "format": "glb",
+        "compression": "none"
+      }
+    }
+  }
+}

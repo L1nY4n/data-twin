@@ -22,7 +22,10 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from '@/components/ui/sidebar'
-import { ViewerAdminPanel } from '@/components/viewer-admin/primitives'
+import {
+  ViewerAdminKicker,
+  ViewerAdminSidebarFooterCard,
+} from '@/components/viewer-admin/primitives'
 import { cn } from '@/lib/utils'
 
 export function AdminAppSidebar({
@@ -63,8 +66,8 @@ export function AdminAppSidebar({
       <SidebarContent className="gap-0">
         {normalizedGroups.map((group) => (
           <SidebarGroup key={group.title} className="px-2 py-1.5">
-            <SidebarGroupLabel className="px-2 text-[11px] uppercase tracking-[0.18em]">
-              {group.title}
+            <SidebarGroupLabel className="px-2">
+              <ViewerAdminKicker>{group.title}</ViewerAdminKicker>
             </SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
@@ -97,10 +100,7 @@ export function AdminAppSidebar({
       </SidebarContent>
 
       <SidebarFooter className="border-t px-2 py-2">
-        <ViewerAdminPanel
-          variant="soft"
-          className="space-y-2 rounded-xl p-3 text-xs group-data-[collapsible=icon]:hidden"
-        >
+        <ViewerAdminSidebarFooterCard>
           <div className="flex items-center gap-2 font-medium">
             <ShieldCheck className="size-3.5" />
             <span>配置变更</span>
@@ -111,7 +111,7 @@ export function AdminAppSidebar({
               已审计
             </Badge>
           </div>
-        </ViewerAdminPanel>
+        </ViewerAdminSidebarFooterCard>
         <SidebarMenu className="hidden group-data-[collapsible=icon]:flex">
           <SidebarMenuItem>
             <SidebarMenuButton asChild tooltip="回到总览">

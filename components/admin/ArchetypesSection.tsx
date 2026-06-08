@@ -5,8 +5,11 @@ import { Plus, RefreshCw, Save, Trash2 } from 'lucide-react'
 import { AdvancedJsonEditor } from '@/components/admin/AdvancedJsonEditor'
 import { ArchetypeModelPreview } from '@/components/admin/ArchetypeModelPreview'
 import {
+  ADMIN_VALUE_UNSELECTED,
+  adminDisplayValue,
   AdminButton,
-  AdminSelectableCard,
+  AdminSelect,
+  AdminSelectableRecordCard,
   AdminSectionFrame,
   SectionPanel,
   WorkspaceEmptyState,
@@ -211,11 +214,17 @@ export function ArchetypesSection() {
         },
         {
           label: '当前大类',
-          value: selectedCategory?.displayName ?? categoryDraft.draft?.displayName ?? '--',
+          value: adminDisplayValue(
+            selectedCategory?.displayName ?? categoryDraft.draft?.displayName,
+            ADMIN_VALUE_UNSELECTED
+          ),
         },
         {
           label: '当前原型',
-          value: selectedArchetype?.displayName ?? archetypeDraft.draft?.displayName ?? '--',
+          value: adminDisplayValue(
+            selectedArchetype?.displayName ?? archetypeDraft.draft?.displayName,
+            ADMIN_VALUE_UNSELECTED
+          ),
         },
       ]}
       railCards={[
@@ -257,23 +266,18 @@ export function ArchetypesSection() {
             <ScrollArea className="h-[520px]">
               <div className="space-y-2 pr-3">
                 {categories.map((category) => (
-                  <AdminSelectableCard
+                  <AdminSelectableRecordCard
                     key={category.id}
                     active={selectedCategoryId === category.id && categoryDraftSeed === null}
-                    className="px-3 py-3"
                     onClick={() => {
                       setCategoryDraftSeed(null)
                       setSelectedCategoryId(category.id)
                     }}
+                    title={category.displayName}
+                    meta={category.key}
+                    trailing={<Badge variant="outline">{category.sortOrder}</Badge>}
                   >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="font-medium text-foreground">{category.displayName}</div>
-                        <div className="mt-1 text-xs text-muted-foreground">{category.key}</div>
-                      </div>
-                      <Badge variant="outline">{category.sortOrder}</Badge>
-                    </div>
-                  </AdminSelectableCard>
+                  </AdminSelectableRecordCard>
                 ))}
               </div>
             </ScrollArea>
@@ -307,27 +311,22 @@ export function ArchetypesSection() {
             <ScrollArea className="h-[520px]">
               <div className="space-y-2 pr-3">
                 {archetypes.map((archetype) => (
-                  <AdminSelectableCard
+                  <AdminSelectableRecordCard
                     key={archetype.id}
                     active={selectedArchetypeId === archetype.id && archetypeDraftSeed === null}
-                    className="px-3 py-3"
                     onClick={() => {
                       setArchetypeDraftSeed(null)
                       setSelectedArchetypeId(archetype.id)
                     }}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="font-medium text-foreground">{archetype.displayName}</div>
-                        <div className="mt-1 text-xs text-muted-foreground">
-                          {archetype.categoryKey} · {archetype.key}
-                        </div>
-                      </div>
+                    title={archetype.displayName}
+                    meta={`${archetype.categoryKey} · ${archetype.key}`}
+                    trailing={
                       <Badge variant={archetype.capabilities.hasModel ? 'default' : 'outline'}>
                         {archetype.capabilities.hasModel ? '有模型' : '无模型'}
                       </Badge>
-                    </div>
-                  </AdminSelectableCard>
+                    }
+                  >
+                  </AdminSelectableRecordCard>
                 ))}
               </div>
             </ScrollArea>
@@ -444,8 +443,7 @@ export function ArchetypesSection() {
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2">
                     <Label>所属大类</Label>
-                    <select
-                      className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                    <AdminSelect
                       value={archetypeDraft.draft.categoryId}
                       onChange={(event) => {
                         const category = categories.find((item) => item.id === event.target.value) ?? null
@@ -462,7 +460,7 @@ export function ArchetypesSection() {
                           {category.displayName}
                         </option>
                       ))}
-                    </select>
+                    </AdminSelect>
                   </div>
                   <div className="space-y-2">
                     <Label>Key</Label>

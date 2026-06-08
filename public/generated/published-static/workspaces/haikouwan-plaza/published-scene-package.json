@@ -1,0 +1,4421 @@
+{
+  "schemaVersion": 1,
+  "sceneId": "haikouwan-plaza",
+  "profile": "default",
+  "generatedAt": "2026-05-26T16:44:58.074Z",
+  "source": "working-snapshot",
+  "staticAssetManifestUrl": "/generated/published-static/workspaces/haikouwan-plaza/versions/1-1779813896400/chunk-manifest.json",
+  "bounds": {
+    "min": {
+      "x": -178.2455,
+      "y": -4,
+      "z": -135
+    },
+    "max": {
+      "x": 161,
+      "y": 148,
+      "z": 160
+    }
+  },
+  "sceneConfig": {
+    "id": "haikouwan-plaza",
+    "name": "海口湾广场地域分布场景",
+    "gridSize": 340,
+    "gridDivisions": 170,
+    "backgroundColor": "#080b12",
+    "ambientLightIntensity": 0.62,
+    "showAxes": false,
+    "showGrid": true,
+    "cameraPosition": {
+      "x": 105,
+      "y": 128,
+      "z": 148
+    },
+    "cameraTarget": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    }
+  },
+  "sectors": [
+    {
+      "id": "sector-core",
+      "name": "海口湾广场地域分布场景",
+      "offset": {
+        "x": -8.622749999999996,
+        "y": 72,
+        "z": 12.5
+      },
+      "bounds": {
+        "min": {
+          "x": -178.2455,
+          "y": -4,
+          "z": -135
+        },
+        "max": {
+          "x": 161,
+          "y": 148,
+          "z": 160
+        }
+      },
+      "staticChunkId": "chunk:sector-core:static",
+      "dynamicLayerIds": [
+        "layer:sector-core:persons",
+        "layer:sector-core:vehicles",
+        "layer:sector-core:equipment"
+      ],
+      "interactionLayerIds": [
+        "layer:sector-core:zones"
+      ]
+    }
+  ],
+  "staticChunks": [
+    {
+      "id": "chunk:sector-core:static",
+      "label": "海口湾广场地域分布场景 静态块",
+      "kind": "sector",
+      "sectorId": "sector-core",
+      "bounds": {
+        "min": {
+          "x": -178.2455,
+          "y": -4,
+          "z": -135
+        },
+        "max": {
+          "x": 161,
+          "y": 148,
+          "z": 160
+        }
+      },
+      "proxy": {
+        "strategy": "sector-proxy",
+        "lodDistance": 339.2455
+      },
+      "runtimeMount": {
+        "kind": "sector-cluster",
+        "renderer": "campus-sector-cluster"
+      },
+      "renderRecipe": {
+        "detailed": []
+      },
+      "featureCount": 0,
+      "features": []
+    }
+  ],
+  "interactionLayers": [
+    {
+      "id": "layer:sector-core:zones",
+      "kind": "zones",
+      "sectorId": "sector-core",
+      "bounds": {
+        "min": {
+          "x": -178.2455,
+          "y": -4,
+          "z": -135
+        },
+        "max": {
+          "x": 161,
+          "y": 148,
+          "z": 160
+        }
+      },
+      "zones": [
+        {
+          "id": "zone-haikouwan-b1-b1-01",
+          "sectorId": "sector-core",
+          "name": "B1-01 每一角落超市",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -87.244,
+            "y": 0,
+            "z": -111.925
+          },
+          "size": {
+            "width": 18,
+            "depth": 12
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-02",
+          "sectorId": "sector-core",
+          "name": "B1-02 春光特产",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -67.65899999999999,
+            "y": 0,
+            "z": -101.994
+          },
+          "size": {
+            "width": 4.385000000000005,
+            "depth": 3.2220000000000084
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-04",
+          "sectorId": "sector-core",
+          "name": "B1-04 万应堂",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -78.60900000000001,
+            "y": 0,
+            "z": -95.57
+          },
+          "size": {
+            "width": 4.385000000000005,
+            "depth": 3.221999999999994
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-05",
+          "sectorId": "sector-core",
+          "name": "B1-05 永和豆浆",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -65.84100000000001,
+            "y": 0,
+            "z": -93.805
+          },
+          "size": {
+            "width": 4.385000000000005,
+            "depth": 3.221999999999994
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-06",
+          "sectorId": "sector-core",
+          "name": "B1-06 国民小饭馆",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -72.713,
+            "y": 0,
+            "z": -89.80799999999999
+          },
+          "size": {
+            "width": 4.385000000000005,
+            "depth": 3.2310000000000088
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-07",
+          "sectorId": "sector-core",
+          "name": "B1-07",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -78.459,
+            "y": 0,
+            "z": -89.576
+          },
+          "size": {
+            "width": 4.385000000000005,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-08",
+          "sectorId": "sector-core",
+          "name": "B1-08",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -83.363,
+            "y": 0,
+            "z": -90.196
+          },
+          "size": {
+            "width": 4.384999999999991,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-08-1",
+          "sectorId": "sector-core",
+          "name": "B1-08-1",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -100.369,
+            "y": 0,
+            "z": -89.576
+          },
+          "size": {
+            "width": 4.384999999999991,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-08-2",
+          "sectorId": "sector-core",
+          "name": "B1-08-2",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -90.82499999999999,
+            "y": 0,
+            "z": -89.547
+          },
+          "size": {
+            "width": 4.385000000000005,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-09",
+          "sectorId": "sector-core",
+          "name": "B1-09 穆林府兰州牛肉面",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -111.178,
+            "y": 0,
+            "z": -89.13900000000001
+          },
+          "size": {
+            "width": 6.231999999999999,
+            "depth": 3.221999999999994
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-10",
+          "sectorId": "sector-core",
+          "name": "B1-10 举个栗子",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -92.55000000000001,
+            "y": 0,
+            "z": -94.979
+          },
+          "size": {
+            "width": 4.385000000000005,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-11",
+          "sectorId": "sector-core",
+          "name": "B1-11 杨加坤快剪",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -97.688,
+            "y": 0,
+            "z": -94.979
+          },
+          "size": {
+            "width": 4.384999999999991,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-12",
+          "sectorId": "sector-core",
+          "name": "B1-12 二两美物",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -103.35,
+            "y": 0,
+            "z": -94.979
+          },
+          "size": {
+            "width": 4.385000000000005,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-13",
+          "sectorId": "sector-core",
+          "name": "B1-13 喜识",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -115.93100000000001,
+            "y": 0,
+            "z": -92.493
+          },
+          "size": {
+            "width": 4.385000000000005,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-14",
+          "sectorId": "sector-core",
+          "name": "B1-14 膜法世家",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -128.222,
+            "y": 0,
+            "z": -91.69800000000001
+          },
+          "size": {
+            "width": 4.385000000000005,
+            "depth": 3.221999999999994
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-15",
+          "sectorId": "sector-core",
+          "name": "B1-15 美甲",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -134.897,
+            "y": 0,
+            "z": -91.807
+          },
+          "size": {
+            "width": 4.384999999999991,
+            "depth": 3.2220000000000084
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-16",
+          "sectorId": "sector-core",
+          "name": "B1-16 生活配套",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -144.572,
+            "y": 0,
+            "z": -91.479
+          },
+          "size": {
+            "width": 4.384999999999991,
+            "depth": 3.2309999999999945
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-17",
+          "sectorId": "sector-core",
+          "name": "B1-17 魔都三兄弟",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -120.797,
+            "y": 0,
+            "z": -83.991
+          },
+          "size": {
+            "width": 4.385000000000005,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-18",
+          "sectorId": "sector-core",
+          "name": "B1-18",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -120.797,
+            "y": 0,
+            "z": -79.557
+          },
+          "size": {
+            "width": 4.385000000000005,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-19",
+          "sectorId": "sector-core",
+          "name": "B1-19 茶百道",
+          "zoneType": "work",
+          "color": "#38bdf8",
+          "center": {
+            "x": -126.89099999999999,
+            "y": 0,
+            "z": -74.934
+          },
+          "size": {
+            "width": 4.384999999999991,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-20",
+          "sectorId": "sector-core",
+          "name": "B1-20 长沙臭豆腐",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": -128.222,
+            "y": 0,
+            "z": -69.13
+          },
+          "size": {
+            "width": 4.385000000000005,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-21",
+          "sectorId": "sector-core",
+          "name": "B1-21 啊 BO 酸水粉",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": -127.65899999999999,
+            "y": 0,
+            "z": -65.966
+          },
+          "size": {
+            "width": 4.384999999999991,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-22",
+          "sectorId": "sector-core",
+          "name": "B1-22",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": -127.80000000000001,
+            "y": 0,
+            "z": -62.801
+          },
+          "size": {
+            "width": 4.385000000000005,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-23",
+          "sectorId": "sector-core",
+          "name": "B1-23",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": -125.35300000000001,
+            "y": 0,
+            "z": -62.385
+          },
+          "size": {
+            "width": 4.385000000000005,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-29",
+          "sectorId": "sector-core",
+          "name": "B1-29 郑记扣肉饼",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": -132.469,
+            "y": 0,
+            "z": -62.225
+          },
+          "size": {
+            "width": 4,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-30",
+          "sectorId": "sector-core",
+          "name": "B1-30 卤胖子",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": -135.15,
+            "y": 0,
+            "z": -62.385
+          },
+          "size": {
+            "width": 4,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-31",
+          "sectorId": "sector-core",
+          "name": "B1-31",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": -137.475,
+            "y": 0,
+            "z": -62.727999999999994
+          },
+          "size": {
+            "width": 4,
+            "depth": 2.999999999999993
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-32",
+          "sectorId": "sector-core",
+          "name": "B1-32 古巴 三明治",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": -140.006,
+            "y": 0,
+            "z": -62.466
+          },
+          "size": {
+            "width": 4.384999999999991,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-33",
+          "sectorId": "sector-core",
+          "name": "B1-33 炖盅",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": -143.194,
+            "y": 0,
+            "z": -62.69199999999999
+          },
+          "size": {
+            "width": 4,
+            "depth": 2.999999999999993
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-34",
+          "sectorId": "sector-core",
+          "name": "B1-34",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": -146.887,
+            "y": 0,
+            "z": -61.015
+          },
+          "size": {
+            "width": 4,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-35",
+          "sectorId": "sector-core",
+          "name": "B1-35",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": -147.169,
+            "y": 0,
+            "z": -63.625
+          },
+          "size": {
+            "width": 4,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-36",
+          "sectorId": "sector-core",
+          "name": "B1-36",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": -149.784,
+            "y": 0,
+            "z": -65.258
+          },
+          "size": {
+            "width": 4.384999999999991,
+            "depth": 2.999999999999993
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-37",
+          "sectorId": "sector-core",
+          "name": "B1-37 舌尖派对",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": -140.963,
+            "y": 0,
+            "z": -65.565
+          },
+          "size": {
+            "width": 4.384999999999991,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-38",
+          "sectorId": "sector-core",
+          "name": "B1-38",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": -135.131,
+            "y": 0,
+            "z": -64.857
+          },
+          "size": {
+            "width": 4.384999999999991,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-39",
+          "sectorId": "sector-core",
+          "name": "B1-39",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": -137.709,
+            "y": 0,
+            "z": -69.961
+          },
+          "size": {
+            "width": 4.384999999999991,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-40",
+          "sectorId": "sector-core",
+          "name": "B1-40 后安粉",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": -141.816,
+            "y": 0,
+            "z": -70.698
+          },
+          "size": {
+            "width": 4.384999999999991,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-41",
+          "sectorId": "sector-core",
+          "name": "B1-41 糟粕醋",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": -147.863,
+            "y": 0,
+            "z": -70.705
+          },
+          "size": {
+            "width": 4.384999999999991,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-42",
+          "sectorId": "sector-core",
+          "name": "B1-42 娜姑芳",
+          "zoneType": "work",
+          "color": "#38bdf8",
+          "center": {
+            "x": -148.065,
+            "y": 0,
+            "z": -74.592
+          },
+          "size": {
+            "width": 4,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-43",
+          "sectorId": "sector-core",
+          "name": "B1-43 燃太白",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": -141.113,
+            "y": 0,
+            "z": -73.184
+          },
+          "size": {
+            "width": 4,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-44",
+          "sectorId": "sector-core",
+          "name": "B1-44 港式烧腊",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": -136.941,
+            "y": 0,
+            "z": -72.535
+          },
+          "size": {
+            "width": 4.384999999999991,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-45",
+          "sectorId": "sector-core",
+          "name": "B1-45 滋滋享牛排",
+          "zoneType": "work",
+          "color": "#38bdf8",
+          "center": {
+            "x": -133.809,
+            "y": 0,
+            "z": -75.656
+          },
+          "size": {
+            "width": 4.384999999999991,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-46",
+          "sectorId": "sector-core",
+          "name": "B1-46 绝味鸭脖 小螺粒螺蛳粉",
+          "zoneType": "work",
+          "color": "#38bdf8",
+          "center": {
+            "x": -139.88400000000001,
+            "y": 0,
+            "z": -77.931
+          },
+          "size": {
+            "width": 4.385000000000019,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-47",
+          "sectorId": "sector-core",
+          "name": "B1-47 鲜维 C 果汁",
+          "zoneType": "work",
+          "color": "#38bdf8",
+          "center": {
+            "x": -148.341,
+            "y": 0,
+            "z": -79.324
+          },
+          "size": {
+            "width": 4.384999999999991,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-48",
+          "sectorId": "sector-core",
+          "name": "B1-48 老上海馄饨",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -148.003,
+            "y": 0,
+            "z": -82.489
+          },
+          "size": {
+            "width": 4,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-49",
+          "sectorId": "sector-core",
+          "name": "B1-49 M7",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -136.509,
+            "y": 0,
+            "z": -80.826
+          },
+          "size": {
+            "width": 4,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-50",
+          "sectorId": "sector-core",
+          "name": "B1-50 瑞幸",
+          "zoneType": "work",
+          "color": "#38bdf8",
+          "center": {
+            "x": -131.231,
+            "y": 0,
+            "z": -79.543
+          },
+          "size": {
+            "width": 4.384999999999991,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-floor",
+          "sectorId": "sector-core",
+          "name": "B1 地下商业",
+          "zoneType": "passage",
+          "color": "#64748b",
+          "center": {
+            "x": -105,
+            "y": 0,
+            "z": -82
+          },
+          "size": {
+            "width": 88,
+            "depth": 58
+          }
+        },
+        {
+          "id": "zone-haikouwan-l1-a-floor",
+          "sectorId": "sector-core",
+          "name": "L1 主力店与餐饮",
+          "zoneType": "passage",
+          "color": "#64748b",
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": -82
+          },
+          "size": {
+            "width": 88,
+            "depth": 58
+          }
+        },
+        {
+          "id": "zone-haikouwan-l1-a-l1-01",
+          "sectorId": "sector-core",
+          "name": "L1-01 宝马 I 系列",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -54.959,
+            "y": 0,
+            "z": -105.194
+          },
+          "size": {
+            "width": 12,
+            "depth": 7.572000000000003
+          }
+        },
+        {
+          "id": "zone-haikouwan-l1-a-l1-02",
+          "sectorId": "sector-core",
+          "name": "L1-02 滑板公园",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": -24.113,
+            "y": 0,
+            "z": -68.537
+          },
+          "size": {
+            "width": 15.389,
+            "depth": 9.958000000000006
+          }
+        },
+        {
+          "id": "zone-haikouwan-l1-a-l1-02-1",
+          "sectorId": "sector-core",
+          "name": "L1-02-1 DQ",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -54.971000000000004,
+            "y": 0,
+            "z": -105.214
+          },
+          "size": {
+            "width": 4.958999999999996,
+            "depth": 3.0989999999999895
+          }
+        },
+        {
+          "id": "zone-haikouwan-l1-a-l1-03",
+          "sectorId": "sector-core",
+          "name": "L1-03 必胜客",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -54.95,
+            "y": 0,
+            "z": -105.221
+          },
+          "size": {
+            "width": 8.652999999999999,
+            "depth": 5.408000000000001
+          }
+        },
+        {
+          "id": "zone-haikouwan-l1-a-l1-03-1",
+          "sectorId": "sector-core",
+          "name": "L1-03-1 面包新语",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -54.971000000000004,
+            "y": 0,
+            "z": -105.225
+          },
+          "size": {
+            "width": 7.669999999999995,
+            "depth": 4.793999999999997
+          }
+        },
+        {
+          "id": "zone-haikouwan-l1-a-l1-04",
+          "sectorId": "sector-core",
+          "name": "L1-04 日光甜铺",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -54.983,
+            "y": 0,
+            "z": -105.196
+          },
+          "size": {
+            "width": 6.5120000000000005,
+            "depth": 4.069999999999993
+          }
+        },
+        {
+          "id": "zone-haikouwan-l1-a-l1-05",
+          "sectorId": "sector-core",
+          "name": "L1-05",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": -42.107,
+            "y": 0,
+            "z": -66.694
+          },
+          "size": {
+            "width": 4,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-l1-a-l1-06",
+          "sectorId": "sector-core",
+          "name": "L1-06",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -40.777,
+            "y": 0,
+            "z": -70.854
+          },
+          "size": {
+            "width": 4,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-l1-a-l1-07",
+          "sectorId": "sector-core",
+          "name": "L1-07 岛上屋奢",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -42.104,
+            "y": 0,
+            "z": -75.479
+          },
+          "size": {
+            "width": 7.554000000000002,
+            "depth": 3.1440000000000055
+          }
+        },
+        {
+          "id": "zone-haikouwan-l1-a-l1-08",
+          "sectorId": "sector-core",
+          "name": "L1-08 华为",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -54.989000000000004,
+            "y": 0,
+            "z": -105.238
+          },
+          "size": {
+            "width": 6.610999999999997,
+            "depth": 4.132000000000005
+          }
+        },
+        {
+          "id": "zone-haikouwan-l1-a-l1-09",
+          "sectorId": "sector-core",
+          "name": "L1-09 花蜜",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -54.971000000000004,
+            "y": 0,
+            "z": -105.25800000000001
+          },
+          "size": {
+            "width": 3.3999999999999986,
+            "depth": 2.799999999999997
+          }
+        },
+        {
+          "id": "zone-haikouwan-l1-a-l1-11-12",
+          "sectorId": "sector-core",
+          "name": "L1-11-12 L1- + Apple",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -54.958,
+            "y": 0,
+            "z": -105.268
+          },
+          "size": {
+            "width": 6.420999999999999,
+            "depth": 4.013000000000005
+          }
+        },
+        {
+          "id": "zone-haikouwan-l1-a-l1-13-1",
+          "sectorId": "sector-core",
+          "name": "L1-13-1 L1- + 蔚来",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -55.003,
+            "y": 0,
+            "z": -105.25
+          },
+          "size": {
+            "width": 18,
+            "depth": 12
+          }
+        },
+        {
+          "id": "zone-haikouwan-l1-a-l1-15",
+          "sectorId": "sector-core",
+          "name": "L1-15",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -54.882000000000005,
+            "y": 0,
+            "z": -105.273
+          },
+          "size": {
+            "width": 5.960000000000001,
+            "depth": 3.7249999999999943
+          }
+        },
+        {
+          "id": "zone-haikouwan-l1-a-l1-16",
+          "sectorId": "sector-core",
+          "name": "L1-16 汉堡王",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -54.868,
+            "y": 0,
+            "z": -105.268
+          },
+          "size": {
+            "width": 4.088999999999999,
+            "depth": 2.8000000000000114
+          }
+        },
+        {
+          "id": "zone-haikouwan-l1-a-l1-17",
+          "sectorId": "sector-core",
+          "name": "L1-17 COCO 都可",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -54.873,
+            "y": 0,
+            "z": -105.259
+          },
+          "size": {
+            "width": 7.216999999999999,
+            "depth": 4.510999999999996
+          }
+        },
+        {
+          "id": "zone-haikouwan-l1-a-l1-18",
+          "sectorId": "sector-core",
+          "name": "L1-18 happy monk",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -54.896,
+            "y": 0,
+            "z": -105.251
+          },
+          "size": {
+            "width": 3.3999999999999986,
+            "depth": 2.799999999999997
+          }
+        },
+        {
+          "id": "zone-haikouwan-l1-a-l1-19",
+          "sectorId": "sector-core",
+          "name": "L1-19 MOMOYA TEA",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": 2.4899999999999998,
+            "y": 0,
+            "z": -94.44
+          },
+          "size": {
+            "width": 15.011,
+            "depth": 9.712999999999994
+          }
+        },
+        {
+          "id": "zone-haikouwan-l1-a-l1-20",
+          "sectorId": "sector-core",
+          "name": "L1-20 星巴克",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -54.929,
+            "y": 0,
+            "z": -105.252
+          },
+          "size": {
+            "width": 9.771999999999998,
+            "depth": 6.108000000000004
+          }
+        },
+        {
+          "id": "zone-haikouwan-l1-a-l1-20-1",
+          "sectorId": "sector-core",
+          "name": "L1-20-1 OPPO",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -54.928,
+            "y": 0,
+            "z": -105.27
+          },
+          "size": {
+            "width": 8.780999999999999,
+            "depth": 5.4879999999999995
+          }
+        },
+        {
+          "id": "zone-haikouwan-l1-b-floor",
+          "sectorId": "sector-core",
+          "name": "L1 外摆餐酒吧",
+          "zoneType": "passage",
+          "color": "#64748b",
+          "center": {
+            "x": 105,
+            "y": 0,
+            "z": -82
+          },
+          "size": {
+            "width": 88,
+            "depth": 58
+          }
+        },
+        {
+          "id": "zone-haikouwan-l1-b-l1-2",
+          "sectorId": "sector-core",
+          "name": "L1-2 Tommyhouse",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": 60.486999999999995,
+            "y": 0,
+            "z": -91.705
+          },
+          "size": {
+            "width": 6.4510000000000005,
+            "depth": 4.972000000000008
+          }
+        },
+        {
+          "id": "zone-haikouwan-l1-b-l1-21",
+          "sectorId": "sector-core",
+          "name": "L1-21 DT Pub",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": 47.184,
+            "y": 0,
+            "z": -92.66
+          },
+          "size": {
+            "width": 6.4510000000000005,
+            "depth": 5.093999999999994
+          }
+        },
+        {
+          "id": "zone-haikouwan-l1-b-l1-23",
+          "sectorId": "sector-core",
+          "name": "L1-23",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": 136.872,
+            "y": 0,
+            "z": -88.79400000000001
+          },
+          "size": {
+            "width": 16.775999999999982,
+            "depth": 10.855000000000004
+          }
+        },
+        {
+          "id": "zone-haikouwan-l1-b-l1-28",
+          "sectorId": "sector-core",
+          "name": "L1-28 吉米 餐酒吧",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": 74.85,
+            "y": 0,
+            "z": -91.122
+          },
+          "size": {
+            "width": 16.497,
+            "depth": 10.674000000000007
+          }
+        },
+        {
+          "id": "zone-haikouwan-l2-a-floor",
+          "sectorId": "sector-core",
+          "name": "L2 餐饮组团",
+          "zoneType": "passage",
+          "color": "#64748b",
+          "center": {
+            "x": -105,
+            "y": 0,
+            "z": -6
+          },
+          "size": {
+            "width": 88,
+            "depth": 58
+          }
+        },
+        {
+          "id": "zone-haikouwan-l2-a-l2-01",
+          "sectorId": "sector-core",
+          "name": "L2-01 西班牙餐厅",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": -127.65299999999999,
+            "y": 0,
+            "z": 11.805
+          },
+          "size": {
+            "width": 8.960999999999999,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-l2-a-l2-02",
+          "sectorId": "sector-core",
+          "name": "L2-02 和府捞面",
+          "zoneType": "work",
+          "color": "#38bdf8",
+          "center": {
+            "x": -122.922,
+            "y": 0,
+            "z": -7.618
+          },
+          "size": {
+            "width": 5.147999999999996,
+            "depth": 3.8890000000000002
+          }
+        },
+        {
+          "id": "zone-haikouwan-l2-a-l2-03-1",
+          "sectorId": "sector-core",
+          "name": "L2-03-1 范品咖啡餐酒吧",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": -146.79899999999998,
+            "y": 0,
+            "z": 15.306999999999999
+          },
+          "size": {
+            "width": 9.924000000000007,
+            "depth": 2.9999999999999982
+          }
+        },
+        {
+          "id": "zone-haikouwan-l2-a-l2-03-2",
+          "sectorId": "sector-core",
+          "name": "L2-03-2 工芸咖啡",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": -161.703,
+            "y": 0,
+            "z": 10.677
+          },
+          "size": {
+            "width": 5.8870000000000005,
+            "depth": 3.526
+          }
+        },
+        {
+          "id": "zone-haikouwan-l2-a-l2-04",
+          "sectorId": "sector-core",
+          "name": "L2-04",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": -143.675,
+            "y": 0,
+            "z": 6.725
+          },
+          "size": {
+            "width": 5.390000000000015,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-l2-a-l2-05",
+          "sectorId": "sector-core",
+          "name": "L2-05",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": -143.70100000000002,
+            "y": 0,
+            "z": -5.066
+          },
+          "size": {
+            "width": 5.032000000000011,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-l2-a-l2-06",
+          "sectorId": "sector-core",
+          "name": "L2-06 美丽田园",
+          "zoneType": "work",
+          "color": "#38bdf8",
+          "center": {
+            "x": -158.19400000000002,
+            "y": 0,
+            "z": -14.794
+          },
+          "size": {
+            "width": 16.10299999999998,
+            "depth": 10.420000000000002
+          }
+        },
+        {
+          "id": "zone-haikouwan-l2-a-l2-06-1-07",
+          "sectorId": "sector-core",
+          "name": "L2-06-1-07 L2- - /",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -156.281,
+            "y": 0,
+            "z": -26.767000000000003
+          },
+          "size": {
+            "width": 18,
+            "depth": 12.000000000000004
+          }
+        },
+        {
+          "id": "zone-haikouwan-l2-a-l2-08",
+          "sectorId": "sector-core",
+          "name": "L2-08",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -125.559,
+            "y": 0,
+            "z": -42.247
+          },
+          "size": {
+            "width": 7.875,
+            "depth": 8.332999999999998
+          }
+        },
+        {
+          "id": "zone-haikouwan-l2-a-l2-09",
+          "sectorId": "sector-core",
+          "name": "L2-09 宇安泰料",
+          "zoneType": "work",
+          "color": "#38bdf8",
+          "center": {
+            "x": -90.59,
+            "y": 0,
+            "z": -26.764000000000003
+          },
+          "size": {
+            "width": 16.700000000000003,
+            "depth": 10.806000000000001
+          }
+        },
+        {
+          "id": "zone-haikouwan-l2-a-l2-10",
+          "sectorId": "sector-core",
+          "name": "L2-10 AMO",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -100.388,
+            "y": 0,
+            "z": -41.416
+          },
+          "size": {
+            "width": 6.849000000000004,
+            "depth": 4.893999999999998
+          }
+        },
+        {
+          "id": "zone-haikouwan-l2-a-l2-11-01",
+          "sectorId": "sector-core",
+          "name": "L2-11-01",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -69.503,
+            "y": 0,
+            "z": -42.14
+          },
+          "size": {
+            "width": 7.253999999999991,
+            "depth": 3.652000000000001
+          }
+        },
+        {
+          "id": "zone-haikouwan-l2-a-l2-11-02",
+          "sectorId": "sector-core",
+          "name": "L2-11-02",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -58.655,
+            "y": 0,
+            "z": -34.993
+          },
+          "size": {
+            "width": 7.253999999999998,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-l2-b-floor",
+          "sectorId": "sector-core",
+          "name": "L2 酒吧组团",
+          "zoneType": "passage",
+          "color": "#64748b",
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": -6
+          },
+          "size": {
+            "width": 88,
+            "depth": 58
+          }
+        },
+        {
+          "id": "zone-haikouwan-l2-b-l2-12",
+          "sectorId": "sector-core",
+          "name": "L2-12",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": 48.116,
+            "y": 0,
+            "z": -15.056
+          },
+          "size": {
+            "width": 17.671999999999997,
+            "depth": 11.434999999999999
+          }
+        },
+        {
+          "id": "zone-haikouwan-l2-b-l2-15",
+          "sectorId": "sector-core",
+          "name": "L2-15 whisky bar",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -32.589,
+            "y": 0,
+            "z": -17.544999999999998
+          },
+          "size": {
+            "width": 17.314999999999998,
+            "depth": 11.203999999999999
+          }
+        },
+        {
+          "id": "zone-haikouwan-l3-a-floor",
+          "sectorId": "sector-core",
+          "name": "L3 餐饮主区",
+          "zoneType": "passage",
+          "color": "#64748b",
+          "center": {
+            "x": 105,
+            "y": 0,
+            "z": -6
+          },
+          "size": {
+            "width": 88,
+            "depth": 58
+          }
+        },
+        {
+          "id": "zone-haikouwan-l3-a-l3-01",
+          "sectorId": "sector-core",
+          "name": "L3-01 老吉堂",
+          "zoneType": "work",
+          "color": "#38bdf8",
+          "center": {
+            "x": 47.838,
+            "y": 0,
+            "z": -39.664
+          },
+          "size": {
+            "width": 18,
+            "depth": 11.863999999999997
+          }
+        },
+        {
+          "id": "zone-haikouwan-l3-a-l3-02",
+          "sectorId": "sector-core",
+          "name": "L3-02",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": 47.84,
+            "y": 0,
+            "z": -39.685
+          },
+          "size": {
+            "width": 6.970000000000006,
+            "depth": 4.356000000000002
+          }
+        },
+        {
+          "id": "zone-haikouwan-l3-a-l3-03",
+          "sectorId": "sector-core",
+          "name": "L3-03",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": 47.805,
+            "y": 0,
+            "z": -39.646
+          },
+          "size": {
+            "width": 8.504000000000005,
+            "depth": 5.314999999999998
+          }
+        },
+        {
+          "id": "zone-haikouwan-l3-a-l3-04",
+          "sectorId": "sector-core",
+          "name": "L3-04 琼州往事里",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": 47.779,
+            "y": 0,
+            "z": -39.668
+          },
+          "size": {
+            "width": 18,
+            "depth": 11.647999999999996
+          }
+        },
+        {
+          "id": "zone-haikouwan-l3-a-l3-05",
+          "sectorId": "sector-core",
+          "name": "L3-05",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": 47.809,
+            "y": 0,
+            "z": -39.666
+          },
+          "size": {
+            "width": 7.818000000000005,
+            "depth": 4.886000000000003
+          }
+        },
+        {
+          "id": "zone-haikouwan-l3-a-l3-06",
+          "sectorId": "sector-core",
+          "name": "L3-06",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": 47.805,
+            "y": 0,
+            "z": -39.682
+          },
+          "size": {
+            "width": 6.4809999999999945,
+            "depth": 4.051000000000002
+          }
+        },
+        {
+          "id": "zone-haikouwan-l3-a-l3-07",
+          "sectorId": "sector-core",
+          "name": "L3-07 半岛名轩",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": 47.794,
+            "y": 0,
+            "z": -39.716
+          },
+          "size": {
+            "width": 3.3999999999999986,
+            "depth": 2.799999999999997
+          }
+        },
+        {
+          "id": "zone-haikouwan-l3-a-l3-09",
+          "sectorId": "sector-core",
+          "name": "L3-09 匠子烤鱼",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": 47.837,
+            "y": 0,
+            "z": -39.739000000000004
+          },
+          "size": {
+            "width": 10.505000000000003,
+            "depth": 6.565999999999995
+          }
+        },
+        {
+          "id": "zone-haikouwan-l3-a-l3-10",
+          "sectorId": "sector-core",
+          "name": "L3-10",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": 100.125,
+            "y": 0,
+            "z": -37.376000000000005
+          },
+          "size": {
+            "width": 15.634999999999991,
+            "depth": 10.116999999999997
+          }
+        },
+        {
+          "id": "zone-haikouwan-l3-a-l3-10-11",
+          "sectorId": "sector-core",
+          "name": "L3-10-11 品牌：柴门公馆 - - 面积",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": 67.509,
+            "y": 0,
+            "z": -48.613
+          },
+          "size": {
+            "width": 18,
+            "depth": 12
+          }
+        },
+        {
+          "id": "zone-haikouwan-l3-a-l3-11",
+          "sectorId": "sector-core",
+          "name": "L3-11 /L3-",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": 120.131,
+            "y": 0,
+            "z": -24.951
+          },
+          "size": {
+            "width": 17.197999999999993,
+            "depth": 11.128
+          }
+        },
+        {
+          "id": "zone-haikouwan-l3-a-l3-11-12",
+          "sectorId": "sector-core",
+          "name": "L3-11-12 品牌：三俞竹苑 面积 租期： 年； 第 年租金： 元 / / 月； 第 年扣点： % ； 物业管理费： 元 / / 月。",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": 130.101,
+            "y": 0,
+            "z": -13.596
+          },
+          "size": {
+            "width": 17.197999999999993,
+            "depth": 11.128
+          }
+        },
+        {
+          "id": "zone-haikouwan-l3-a-l3-13",
+          "sectorId": "sector-core",
+          "name": "L3-13",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": 120.131,
+            "y": 0,
+            "z": -39.097
+          },
+          "size": {
+            "width": 7.325999999999993,
+            "depth": 3.4890000000000043
+          }
+        },
+        {
+          "id": "zone-haikouwan-l3-a-l3-14",
+          "sectorId": "sector-core",
+          "name": "L3-14 椰林渡糟粕醋",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": 47.916,
+            "y": 0,
+            "z": -39.741
+          },
+          "size": {
+            "width": 10.808,
+            "depth": 6.7549999999999955
+          }
+        },
+        {
+          "id": "zone-haikouwan-l3-b-floor",
+          "sectorId": "sector-core",
+          "name": "L3 露台餐吧",
+          "zoneType": "passage",
+          "color": "#64748b",
+          "center": {
+            "x": -105,
+            "y": 0,
+            "z": 70
+          },
+          "size": {
+            "width": 88,
+            "depth": 58
+          }
+        },
+        {
+          "id": "zone-haikouwan-l3-b-l3-15",
+          "sectorId": "sector-core",
+          "name": "L3-15 海口湾一号",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -156.037,
+            "y": 0,
+            "z": 60.653
+          },
+          "size": {
+            "width": 11.040999999999997,
+            "depth": 5.244
+          }
+        },
+        {
+          "id": "zone-haikouwan-l3-b-l3-16",
+          "sectorId": "sector-core",
+          "name": "L3-16 加州落日露台餐吧",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -86.20599999999999,
+            "y": 0,
+            "z": 62.365
+          },
+          "size": {
+            "width": 9.180999999999997,
+            "depth": 3.4920000000000044
+          }
+        },
+        {
+          "id": "zone-haikouwan-l4-floor",
+          "sectorId": "sector-core",
+          "name": "L4 餐饮娱乐",
+          "zoneType": "passage",
+          "color": "#64748b",
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 70
+          },
+          "size": {
+            "width": 88,
+            "depth": 58
+          }
+        },
+        {
+          "id": "zone-haikouwan-l4-l4-01",
+          "sectorId": "sector-core",
+          "name": "L4-01 徽兴盛",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -61.253,
+            "y": 0,
+            "z": 40.33
+          },
+          "size": {
+            "width": 16.052,
+            "depth": 10.387
+          }
+        },
+        {
+          "id": "zone-haikouwan-l4-l4-02",
+          "sectorId": "sector-core",
+          "name": "L4-02 锅两好",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -61.209,
+            "y": 0,
+            "z": 40.32
+          },
+          "size": {
+            "width": 8.582,
+            "depth": 5.364000000000004
+          }
+        },
+        {
+          "id": "zone-haikouwan-l4-l4-03",
+          "sectorId": "sector-core",
+          "name": "L4-03",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -61.272999999999996,
+            "y": 0,
+            "z": 40.331
+          },
+          "size": {
+            "width": 3.4409999999999954,
+            "depth": 2.8000000000000043
+          }
+        },
+        {
+          "id": "zone-haikouwan-l4-l4-04",
+          "sectorId": "sector-core",
+          "name": "L4-04",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -61.298,
+            "y": 0,
+            "z": 40.325
+          },
+          "size": {
+            "width": 18,
+            "depth": 12
+          }
+        },
+        {
+          "id": "zone-haikouwan-l4-l4-05",
+          "sectorId": "sector-core",
+          "name": "L4-05",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -61.268,
+            "y": 0,
+            "z": 40.31
+          },
+          "size": {
+            "width": 5.231999999999999,
+            "depth": 3.270000000000003
+          }
+        },
+        {
+          "id": "zone-haikouwan-l4-l4-06",
+          "sectorId": "sector-core",
+          "name": "L4-06",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -61.288,
+            "y": 0,
+            "z": 40.274
+          },
+          "size": {
+            "width": 4.32,
+            "depth": 2.799999999999997
+          }
+        },
+        {
+          "id": "zone-haikouwan-l4-l4-06-1",
+          "sectorId": "sector-core",
+          "name": "L4-06-1 湘爱 湖南人私房菜",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -61.29600000000001,
+            "y": 0,
+            "z": 40.302
+          },
+          "size": {
+            "width": 18.000000000000007,
+            "depth": 12
+          }
+        },
+        {
+          "id": "zone-haikouwan-l4-l4-07",
+          "sectorId": "sector-core",
+          "name": "L4-07 小龙坎",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": -25.811999999999998,
+            "y": 0,
+            "z": 41.741
+          },
+          "size": {
+            "width": 17.999999999999996,
+            "depth": 12
+          }
+        },
+        {
+          "id": "zone-haikouwan-l4-l4-08",
+          "sectorId": "sector-core",
+          "name": "L4-08 瓦库",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -4.77,
+            "y": 0,
+            "z": 40.944
+          },
+          "size": {
+            "width": 18,
+            "depth": 12
+          }
+        },
+        {
+          "id": "zone-haikouwan-l4-l4-09",
+          "sectorId": "sector-core",
+          "name": "L4-09",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -61.171,
+            "y": 0,
+            "z": 40.269
+          },
+          "size": {
+            "width": 3.4000000000000057,
+            "depth": 2.799999999999997
+          }
+        },
+        {
+          "id": "zone-haikouwan-l4-l4-10",
+          "sectorId": "sector-core",
+          "name": "L4-10",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": 3.8920000000000003,
+            "y": 0,
+            "z": 51.584999999999994
+          },
+          "size": {
+            "width": 6.337,
+            "depth": 4.689
+          }
+        },
+        {
+          "id": "zone-haikouwan-l5-floor",
+          "sectorId": "sector-core",
+          "name": "L5 夜间娱乐",
+          "zoneType": "passage",
+          "color": "#64748b",
+          "center": {
+            "x": 105,
+            "y": 0,
+            "z": 70
+          },
+          "size": {
+            "width": 88,
+            "depth": 58
+          }
+        },
+        {
+          "id": "zone-haikouwan-l5-l5-01",
+          "sectorId": "sector-core",
+          "name": "L5-01 约客醉美里餐厅",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": 43.724000000000004,
+            "y": 0,
+            "z": 37.573
+          },
+          "size": {
+            "width": 3.3999999999999986,
+            "depth": 2.799999999999997
+          }
+        },
+        {
+          "id": "zone-haikouwan-l5-l5-02",
+          "sectorId": "sector-core",
+          "name": "L5-02 精酿啤酒屋",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": 43.723,
+            "y": 0,
+            "z": 37.56
+          },
+          "size": {
+            "width": 8.219000000000001,
+            "depth": 5.1370000000000005
+          }
+        },
+        {
+          "id": "zone-haikouwan-l5-l5-03",
+          "sectorId": "sector-core",
+          "name": "L5-03",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": 115.196,
+            "y": 0,
+            "z": 50.006
+          },
+          "size": {
+            "width": 13.436000000000007,
+            "depth": 5.783000000000001
+          }
+        },
+        {
+          "id": "zone-haikouwan-l5-l5-05",
+          "sectorId": "sector-core",
+          "name": "L5-05",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": 43.713,
+            "y": 0,
+            "z": 37.514
+          },
+          "size": {
+            "width": 18,
+            "depth": 12.000000000000004
+          }
+        },
+        {
+          "id": "zone-haikouwan-l5-l5-06",
+          "sectorId": "sector-core",
+          "name": "L5-06 攀岩",
+          "zoneType": "work",
+          "color": "#38bdf8",
+          "center": {
+            "x": 89.71100000000001,
+            "y": 0,
+            "z": 39.179
+          },
+          "size": {
+            "width": 15.204999999999998,
+            "depth": 9.838999999999999
+          }
+        }
+      ]
+    }
+  ],
+  "zoneOverlays": [
+    {
+      "id": "layer:sector-core:zones",
+      "kind": "zones",
+      "sectorId": "sector-core",
+      "bounds": {
+        "min": {
+          "x": -178.2455,
+          "y": -4,
+          "z": -135
+        },
+        "max": {
+          "x": 161,
+          "y": 148,
+          "z": 160
+        }
+      },
+      "zones": [
+        {
+          "id": "zone-haikouwan-b1-b1-01",
+          "sectorId": "sector-core",
+          "name": "B1-01 每一角落超市",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -87.244,
+            "y": 0,
+            "z": -111.925
+          },
+          "size": {
+            "width": 18,
+            "depth": 12
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-02",
+          "sectorId": "sector-core",
+          "name": "B1-02 春光特产",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -67.65899999999999,
+            "y": 0,
+            "z": -101.994
+          },
+          "size": {
+            "width": 4.385000000000005,
+            "depth": 3.2220000000000084
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-04",
+          "sectorId": "sector-core",
+          "name": "B1-04 万应堂",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -78.60900000000001,
+            "y": 0,
+            "z": -95.57
+          },
+          "size": {
+            "width": 4.385000000000005,
+            "depth": 3.221999999999994
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-05",
+          "sectorId": "sector-core",
+          "name": "B1-05 永和豆浆",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -65.84100000000001,
+            "y": 0,
+            "z": -93.805
+          },
+          "size": {
+            "width": 4.385000000000005,
+            "depth": 3.221999999999994
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-06",
+          "sectorId": "sector-core",
+          "name": "B1-06 国民小饭馆",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -72.713,
+            "y": 0,
+            "z": -89.80799999999999
+          },
+          "size": {
+            "width": 4.385000000000005,
+            "depth": 3.2310000000000088
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-07",
+          "sectorId": "sector-core",
+          "name": "B1-07",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -78.459,
+            "y": 0,
+            "z": -89.576
+          },
+          "size": {
+            "width": 4.385000000000005,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-08",
+          "sectorId": "sector-core",
+          "name": "B1-08",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -83.363,
+            "y": 0,
+            "z": -90.196
+          },
+          "size": {
+            "width": 4.384999999999991,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-08-1",
+          "sectorId": "sector-core",
+          "name": "B1-08-1",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -100.369,
+            "y": 0,
+            "z": -89.576
+          },
+          "size": {
+            "width": 4.384999999999991,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-08-2",
+          "sectorId": "sector-core",
+          "name": "B1-08-2",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -90.82499999999999,
+            "y": 0,
+            "z": -89.547
+          },
+          "size": {
+            "width": 4.385000000000005,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-09",
+          "sectorId": "sector-core",
+          "name": "B1-09 穆林府兰州牛肉面",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -111.178,
+            "y": 0,
+            "z": -89.13900000000001
+          },
+          "size": {
+            "width": 6.231999999999999,
+            "depth": 3.221999999999994
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-10",
+          "sectorId": "sector-core",
+          "name": "B1-10 举个栗子",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -92.55000000000001,
+            "y": 0,
+            "z": -94.979
+          },
+          "size": {
+            "width": 4.385000000000005,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-11",
+          "sectorId": "sector-core",
+          "name": "B1-11 杨加坤快剪",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -97.688,
+            "y": 0,
+            "z": -94.979
+          },
+          "size": {
+            "width": 4.384999999999991,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-12",
+          "sectorId": "sector-core",
+          "name": "B1-12 二两美物",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -103.35,
+            "y": 0,
+            "z": -94.979
+          },
+          "size": {
+            "width": 4.385000000000005,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-13",
+          "sectorId": "sector-core",
+          "name": "B1-13 喜识",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -115.93100000000001,
+            "y": 0,
+            "z": -92.493
+          },
+          "size": {
+            "width": 4.385000000000005,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-14",
+          "sectorId": "sector-core",
+          "name": "B1-14 膜法世家",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -128.222,
+            "y": 0,
+            "z": -91.69800000000001
+          },
+          "size": {
+            "width": 4.385000000000005,
+            "depth": 3.221999999999994
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-15",
+          "sectorId": "sector-core",
+          "name": "B1-15 美甲",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -134.897,
+            "y": 0,
+            "z": -91.807
+          },
+          "size": {
+            "width": 4.384999999999991,
+            "depth": 3.2220000000000084
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-16",
+          "sectorId": "sector-core",
+          "name": "B1-16 生活配套",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -144.572,
+            "y": 0,
+            "z": -91.479
+          },
+          "size": {
+            "width": 4.384999999999991,
+            "depth": 3.2309999999999945
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-17",
+          "sectorId": "sector-core",
+          "name": "B1-17 魔都三兄弟",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -120.797,
+            "y": 0,
+            "z": -83.991
+          },
+          "size": {
+            "width": 4.385000000000005,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-18",
+          "sectorId": "sector-core",
+          "name": "B1-18",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -120.797,
+            "y": 0,
+            "z": -79.557
+          },
+          "size": {
+            "width": 4.385000000000005,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-19",
+          "sectorId": "sector-core",
+          "name": "B1-19 茶百道",
+          "zoneType": "work",
+          "color": "#38bdf8",
+          "center": {
+            "x": -126.89099999999999,
+            "y": 0,
+            "z": -74.934
+          },
+          "size": {
+            "width": 4.384999999999991,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-20",
+          "sectorId": "sector-core",
+          "name": "B1-20 长沙臭豆腐",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": -128.222,
+            "y": 0,
+            "z": -69.13
+          },
+          "size": {
+            "width": 4.385000000000005,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-21",
+          "sectorId": "sector-core",
+          "name": "B1-21 啊 BO 酸水粉",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": -127.65899999999999,
+            "y": 0,
+            "z": -65.966
+          },
+          "size": {
+            "width": 4.384999999999991,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-22",
+          "sectorId": "sector-core",
+          "name": "B1-22",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": -127.80000000000001,
+            "y": 0,
+            "z": -62.801
+          },
+          "size": {
+            "width": 4.385000000000005,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-23",
+          "sectorId": "sector-core",
+          "name": "B1-23",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": -125.35300000000001,
+            "y": 0,
+            "z": -62.385
+          },
+          "size": {
+            "width": 4.385000000000005,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-29",
+          "sectorId": "sector-core",
+          "name": "B1-29 郑记扣肉饼",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": -132.469,
+            "y": 0,
+            "z": -62.225
+          },
+          "size": {
+            "width": 4,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-30",
+          "sectorId": "sector-core",
+          "name": "B1-30 卤胖子",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": -135.15,
+            "y": 0,
+            "z": -62.385
+          },
+          "size": {
+            "width": 4,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-31",
+          "sectorId": "sector-core",
+          "name": "B1-31",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": -137.475,
+            "y": 0,
+            "z": -62.727999999999994
+          },
+          "size": {
+            "width": 4,
+            "depth": 2.999999999999993
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-32",
+          "sectorId": "sector-core",
+          "name": "B1-32 古巴 三明治",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": -140.006,
+            "y": 0,
+            "z": -62.466
+          },
+          "size": {
+            "width": 4.384999999999991,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-33",
+          "sectorId": "sector-core",
+          "name": "B1-33 炖盅",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": -143.194,
+            "y": 0,
+            "z": -62.69199999999999
+          },
+          "size": {
+            "width": 4,
+            "depth": 2.999999999999993
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-34",
+          "sectorId": "sector-core",
+          "name": "B1-34",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": -146.887,
+            "y": 0,
+            "z": -61.015
+          },
+          "size": {
+            "width": 4,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-35",
+          "sectorId": "sector-core",
+          "name": "B1-35",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": -147.169,
+            "y": 0,
+            "z": -63.625
+          },
+          "size": {
+            "width": 4,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-36",
+          "sectorId": "sector-core",
+          "name": "B1-36",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": -149.784,
+            "y": 0,
+            "z": -65.258
+          },
+          "size": {
+            "width": 4.384999999999991,
+            "depth": 2.999999999999993
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-37",
+          "sectorId": "sector-core",
+          "name": "B1-37 舌尖派对",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": -140.963,
+            "y": 0,
+            "z": -65.565
+          },
+          "size": {
+            "width": 4.384999999999991,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-38",
+          "sectorId": "sector-core",
+          "name": "B1-38",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": -135.131,
+            "y": 0,
+            "z": -64.857
+          },
+          "size": {
+            "width": 4.384999999999991,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-39",
+          "sectorId": "sector-core",
+          "name": "B1-39",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": -137.709,
+            "y": 0,
+            "z": -69.961
+          },
+          "size": {
+            "width": 4.384999999999991,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-40",
+          "sectorId": "sector-core",
+          "name": "B1-40 后安粉",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": -141.816,
+            "y": 0,
+            "z": -70.698
+          },
+          "size": {
+            "width": 4.384999999999991,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-41",
+          "sectorId": "sector-core",
+          "name": "B1-41 糟粕醋",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": -147.863,
+            "y": 0,
+            "z": -70.705
+          },
+          "size": {
+            "width": 4.384999999999991,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-42",
+          "sectorId": "sector-core",
+          "name": "B1-42 娜姑芳",
+          "zoneType": "work",
+          "color": "#38bdf8",
+          "center": {
+            "x": -148.065,
+            "y": 0,
+            "z": -74.592
+          },
+          "size": {
+            "width": 4,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-43",
+          "sectorId": "sector-core",
+          "name": "B1-43 燃太白",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": -141.113,
+            "y": 0,
+            "z": -73.184
+          },
+          "size": {
+            "width": 4,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-44",
+          "sectorId": "sector-core",
+          "name": "B1-44 港式烧腊",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": -136.941,
+            "y": 0,
+            "z": -72.535
+          },
+          "size": {
+            "width": 4.384999999999991,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-45",
+          "sectorId": "sector-core",
+          "name": "B1-45 滋滋享牛排",
+          "zoneType": "work",
+          "color": "#38bdf8",
+          "center": {
+            "x": -133.809,
+            "y": 0,
+            "z": -75.656
+          },
+          "size": {
+            "width": 4.384999999999991,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-46",
+          "sectorId": "sector-core",
+          "name": "B1-46 绝味鸭脖 小螺粒螺蛳粉",
+          "zoneType": "work",
+          "color": "#38bdf8",
+          "center": {
+            "x": -139.88400000000001,
+            "y": 0,
+            "z": -77.931
+          },
+          "size": {
+            "width": 4.385000000000019,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-47",
+          "sectorId": "sector-core",
+          "name": "B1-47 鲜维 C 果汁",
+          "zoneType": "work",
+          "color": "#38bdf8",
+          "center": {
+            "x": -148.341,
+            "y": 0,
+            "z": -79.324
+          },
+          "size": {
+            "width": 4.384999999999991,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-48",
+          "sectorId": "sector-core",
+          "name": "B1-48 老上海馄饨",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -148.003,
+            "y": 0,
+            "z": -82.489
+          },
+          "size": {
+            "width": 4,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-49",
+          "sectorId": "sector-core",
+          "name": "B1-49 M7",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -136.509,
+            "y": 0,
+            "z": -80.826
+          },
+          "size": {
+            "width": 4,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-b1-50",
+          "sectorId": "sector-core",
+          "name": "B1-50 瑞幸",
+          "zoneType": "work",
+          "color": "#38bdf8",
+          "center": {
+            "x": -131.231,
+            "y": 0,
+            "z": -79.543
+          },
+          "size": {
+            "width": 4.384999999999991,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-b1-floor",
+          "sectorId": "sector-core",
+          "name": "B1 地下商业",
+          "zoneType": "passage",
+          "color": "#64748b",
+          "center": {
+            "x": -105,
+            "y": 0,
+            "z": -82
+          },
+          "size": {
+            "width": 88,
+            "depth": 58
+          }
+        },
+        {
+          "id": "zone-haikouwan-l1-a-floor",
+          "sectorId": "sector-core",
+          "name": "L1 主力店与餐饮",
+          "zoneType": "passage",
+          "color": "#64748b",
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": -82
+          },
+          "size": {
+            "width": 88,
+            "depth": 58
+          }
+        },
+        {
+          "id": "zone-haikouwan-l1-a-l1-01",
+          "sectorId": "sector-core",
+          "name": "L1-01 宝马 I 系列",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -54.959,
+            "y": 0,
+            "z": -105.194
+          },
+          "size": {
+            "width": 12,
+            "depth": 7.572000000000003
+          }
+        },
+        {
+          "id": "zone-haikouwan-l1-a-l1-02",
+          "sectorId": "sector-core",
+          "name": "L1-02 滑板公园",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": -24.113,
+            "y": 0,
+            "z": -68.537
+          },
+          "size": {
+            "width": 15.389,
+            "depth": 9.958000000000006
+          }
+        },
+        {
+          "id": "zone-haikouwan-l1-a-l1-02-1",
+          "sectorId": "sector-core",
+          "name": "L1-02-1 DQ",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -54.971000000000004,
+            "y": 0,
+            "z": -105.214
+          },
+          "size": {
+            "width": 4.958999999999996,
+            "depth": 3.0989999999999895
+          }
+        },
+        {
+          "id": "zone-haikouwan-l1-a-l1-03",
+          "sectorId": "sector-core",
+          "name": "L1-03 必胜客",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -54.95,
+            "y": 0,
+            "z": -105.221
+          },
+          "size": {
+            "width": 8.652999999999999,
+            "depth": 5.408000000000001
+          }
+        },
+        {
+          "id": "zone-haikouwan-l1-a-l1-03-1",
+          "sectorId": "sector-core",
+          "name": "L1-03-1 面包新语",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -54.971000000000004,
+            "y": 0,
+            "z": -105.225
+          },
+          "size": {
+            "width": 7.669999999999995,
+            "depth": 4.793999999999997
+          }
+        },
+        {
+          "id": "zone-haikouwan-l1-a-l1-04",
+          "sectorId": "sector-core",
+          "name": "L1-04 日光甜铺",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -54.983,
+            "y": 0,
+            "z": -105.196
+          },
+          "size": {
+            "width": 6.5120000000000005,
+            "depth": 4.069999999999993
+          }
+        },
+        {
+          "id": "zone-haikouwan-l1-a-l1-05",
+          "sectorId": "sector-core",
+          "name": "L1-05",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": -42.107,
+            "y": 0,
+            "z": -66.694
+          },
+          "size": {
+            "width": 4,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-l1-a-l1-06",
+          "sectorId": "sector-core",
+          "name": "L1-06",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -40.777,
+            "y": 0,
+            "z": -70.854
+          },
+          "size": {
+            "width": 4,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-l1-a-l1-07",
+          "sectorId": "sector-core",
+          "name": "L1-07 岛上屋奢",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -42.104,
+            "y": 0,
+            "z": -75.479
+          },
+          "size": {
+            "width": 7.554000000000002,
+            "depth": 3.1440000000000055
+          }
+        },
+        {
+          "id": "zone-haikouwan-l1-a-l1-08",
+          "sectorId": "sector-core",
+          "name": "L1-08 华为",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -54.989000000000004,
+            "y": 0,
+            "z": -105.238
+          },
+          "size": {
+            "width": 6.610999999999997,
+            "depth": 4.132000000000005
+          }
+        },
+        {
+          "id": "zone-haikouwan-l1-a-l1-09",
+          "sectorId": "sector-core",
+          "name": "L1-09 花蜜",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -54.971000000000004,
+            "y": 0,
+            "z": -105.25800000000001
+          },
+          "size": {
+            "width": 3.3999999999999986,
+            "depth": 2.799999999999997
+          }
+        },
+        {
+          "id": "zone-haikouwan-l1-a-l1-11-12",
+          "sectorId": "sector-core",
+          "name": "L1-11-12 L1- + Apple",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -54.958,
+            "y": 0,
+            "z": -105.268
+          },
+          "size": {
+            "width": 6.420999999999999,
+            "depth": 4.013000000000005
+          }
+        },
+        {
+          "id": "zone-haikouwan-l1-a-l1-13-1",
+          "sectorId": "sector-core",
+          "name": "L1-13-1 L1- + 蔚来",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -55.003,
+            "y": 0,
+            "z": -105.25
+          },
+          "size": {
+            "width": 18,
+            "depth": 12
+          }
+        },
+        {
+          "id": "zone-haikouwan-l1-a-l1-15",
+          "sectorId": "sector-core",
+          "name": "L1-15",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -54.882000000000005,
+            "y": 0,
+            "z": -105.273
+          },
+          "size": {
+            "width": 5.960000000000001,
+            "depth": 3.7249999999999943
+          }
+        },
+        {
+          "id": "zone-haikouwan-l1-a-l1-16",
+          "sectorId": "sector-core",
+          "name": "L1-16 汉堡王",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -54.868,
+            "y": 0,
+            "z": -105.268
+          },
+          "size": {
+            "width": 4.088999999999999,
+            "depth": 2.8000000000000114
+          }
+        },
+        {
+          "id": "zone-haikouwan-l1-a-l1-17",
+          "sectorId": "sector-core",
+          "name": "L1-17 COCO 都可",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -54.873,
+            "y": 0,
+            "z": -105.259
+          },
+          "size": {
+            "width": 7.216999999999999,
+            "depth": 4.510999999999996
+          }
+        },
+        {
+          "id": "zone-haikouwan-l1-a-l1-18",
+          "sectorId": "sector-core",
+          "name": "L1-18 happy monk",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -54.896,
+            "y": 0,
+            "z": -105.251
+          },
+          "size": {
+            "width": 3.3999999999999986,
+            "depth": 2.799999999999997
+          }
+        },
+        {
+          "id": "zone-haikouwan-l1-a-l1-19",
+          "sectorId": "sector-core",
+          "name": "L1-19 MOMOYA TEA",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": 2.4899999999999998,
+            "y": 0,
+            "z": -94.44
+          },
+          "size": {
+            "width": 15.011,
+            "depth": 9.712999999999994
+          }
+        },
+        {
+          "id": "zone-haikouwan-l1-a-l1-20",
+          "sectorId": "sector-core",
+          "name": "L1-20 星巴克",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -54.929,
+            "y": 0,
+            "z": -105.252
+          },
+          "size": {
+            "width": 9.771999999999998,
+            "depth": 6.108000000000004
+          }
+        },
+        {
+          "id": "zone-haikouwan-l1-a-l1-20-1",
+          "sectorId": "sector-core",
+          "name": "L1-20-1 OPPO",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -54.928,
+            "y": 0,
+            "z": -105.27
+          },
+          "size": {
+            "width": 8.780999999999999,
+            "depth": 5.4879999999999995
+          }
+        },
+        {
+          "id": "zone-haikouwan-l1-b-floor",
+          "sectorId": "sector-core",
+          "name": "L1 外摆餐酒吧",
+          "zoneType": "passage",
+          "color": "#64748b",
+          "center": {
+            "x": 105,
+            "y": 0,
+            "z": -82
+          },
+          "size": {
+            "width": 88,
+            "depth": 58
+          }
+        },
+        {
+          "id": "zone-haikouwan-l1-b-l1-2",
+          "sectorId": "sector-core",
+          "name": "L1-2 Tommyhouse",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": 60.486999999999995,
+            "y": 0,
+            "z": -91.705
+          },
+          "size": {
+            "width": 6.4510000000000005,
+            "depth": 4.972000000000008
+          }
+        },
+        {
+          "id": "zone-haikouwan-l1-b-l1-21",
+          "sectorId": "sector-core",
+          "name": "L1-21 DT Pub",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": 47.184,
+            "y": 0,
+            "z": -92.66
+          },
+          "size": {
+            "width": 6.4510000000000005,
+            "depth": 5.093999999999994
+          }
+        },
+        {
+          "id": "zone-haikouwan-l1-b-l1-23",
+          "sectorId": "sector-core",
+          "name": "L1-23",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": 136.872,
+            "y": 0,
+            "z": -88.79400000000001
+          },
+          "size": {
+            "width": 16.775999999999982,
+            "depth": 10.855000000000004
+          }
+        },
+        {
+          "id": "zone-haikouwan-l1-b-l1-28",
+          "sectorId": "sector-core",
+          "name": "L1-28 吉米 餐酒吧",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": 74.85,
+            "y": 0,
+            "z": -91.122
+          },
+          "size": {
+            "width": 16.497,
+            "depth": 10.674000000000007
+          }
+        },
+        {
+          "id": "zone-haikouwan-l2-a-floor",
+          "sectorId": "sector-core",
+          "name": "L2 餐饮组团",
+          "zoneType": "passage",
+          "color": "#64748b",
+          "center": {
+            "x": -105,
+            "y": 0,
+            "z": -6
+          },
+          "size": {
+            "width": 88,
+            "depth": 58
+          }
+        },
+        {
+          "id": "zone-haikouwan-l2-a-l2-01",
+          "sectorId": "sector-core",
+          "name": "L2-01 西班牙餐厅",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": -127.65299999999999,
+            "y": 0,
+            "z": 11.805
+          },
+          "size": {
+            "width": 8.960999999999999,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-l2-a-l2-02",
+          "sectorId": "sector-core",
+          "name": "L2-02 和府捞面",
+          "zoneType": "work",
+          "color": "#38bdf8",
+          "center": {
+            "x": -122.922,
+            "y": 0,
+            "z": -7.618
+          },
+          "size": {
+            "width": 5.147999999999996,
+            "depth": 3.8890000000000002
+          }
+        },
+        {
+          "id": "zone-haikouwan-l2-a-l2-03-1",
+          "sectorId": "sector-core",
+          "name": "L2-03-1 范品咖啡餐酒吧",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": -146.79899999999998,
+            "y": 0,
+            "z": 15.306999999999999
+          },
+          "size": {
+            "width": 9.924000000000007,
+            "depth": 2.9999999999999982
+          }
+        },
+        {
+          "id": "zone-haikouwan-l2-a-l2-03-2",
+          "sectorId": "sector-core",
+          "name": "L2-03-2 工芸咖啡",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": -161.703,
+            "y": 0,
+            "z": 10.677
+          },
+          "size": {
+            "width": 5.8870000000000005,
+            "depth": 3.526
+          }
+        },
+        {
+          "id": "zone-haikouwan-l2-a-l2-04",
+          "sectorId": "sector-core",
+          "name": "L2-04",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": -143.675,
+            "y": 0,
+            "z": 6.725
+          },
+          "size": {
+            "width": 5.390000000000015,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-l2-a-l2-05",
+          "sectorId": "sector-core",
+          "name": "L2-05",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": -143.70100000000002,
+            "y": 0,
+            "z": -5.066
+          },
+          "size": {
+            "width": 5.032000000000011,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-l2-a-l2-06",
+          "sectorId": "sector-core",
+          "name": "L2-06 美丽田园",
+          "zoneType": "work",
+          "color": "#38bdf8",
+          "center": {
+            "x": -158.19400000000002,
+            "y": 0,
+            "z": -14.794
+          },
+          "size": {
+            "width": 16.10299999999998,
+            "depth": 10.420000000000002
+          }
+        },
+        {
+          "id": "zone-haikouwan-l2-a-l2-06-1-07",
+          "sectorId": "sector-core",
+          "name": "L2-06-1-07 L2- - /",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -156.281,
+            "y": 0,
+            "z": -26.767000000000003
+          },
+          "size": {
+            "width": 18,
+            "depth": 12.000000000000004
+          }
+        },
+        {
+          "id": "zone-haikouwan-l2-a-l2-08",
+          "sectorId": "sector-core",
+          "name": "L2-08",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -125.559,
+            "y": 0,
+            "z": -42.247
+          },
+          "size": {
+            "width": 7.875,
+            "depth": 8.332999999999998
+          }
+        },
+        {
+          "id": "zone-haikouwan-l2-a-l2-09",
+          "sectorId": "sector-core",
+          "name": "L2-09 宇安泰料",
+          "zoneType": "work",
+          "color": "#38bdf8",
+          "center": {
+            "x": -90.59,
+            "y": 0,
+            "z": -26.764000000000003
+          },
+          "size": {
+            "width": 16.700000000000003,
+            "depth": 10.806000000000001
+          }
+        },
+        {
+          "id": "zone-haikouwan-l2-a-l2-10",
+          "sectorId": "sector-core",
+          "name": "L2-10 AMO",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -100.388,
+            "y": 0,
+            "z": -41.416
+          },
+          "size": {
+            "width": 6.849000000000004,
+            "depth": 4.893999999999998
+          }
+        },
+        {
+          "id": "zone-haikouwan-l2-a-l2-11-01",
+          "sectorId": "sector-core",
+          "name": "L2-11-01",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -69.503,
+            "y": 0,
+            "z": -42.14
+          },
+          "size": {
+            "width": 7.253999999999991,
+            "depth": 3.652000000000001
+          }
+        },
+        {
+          "id": "zone-haikouwan-l2-a-l2-11-02",
+          "sectorId": "sector-core",
+          "name": "L2-11-02",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -58.655,
+            "y": 0,
+            "z": -34.993
+          },
+          "size": {
+            "width": 7.253999999999998,
+            "depth": 3
+          }
+        },
+        {
+          "id": "zone-haikouwan-l2-b-floor",
+          "sectorId": "sector-core",
+          "name": "L2 酒吧组团",
+          "zoneType": "passage",
+          "color": "#64748b",
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": -6
+          },
+          "size": {
+            "width": 88,
+            "depth": 58
+          }
+        },
+        {
+          "id": "zone-haikouwan-l2-b-l2-12",
+          "sectorId": "sector-core",
+          "name": "L2-12",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": 48.116,
+            "y": 0,
+            "z": -15.056
+          },
+          "size": {
+            "width": 17.671999999999997,
+            "depth": 11.434999999999999
+          }
+        },
+        {
+          "id": "zone-haikouwan-l2-b-l2-15",
+          "sectorId": "sector-core",
+          "name": "L2-15 whisky bar",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -32.589,
+            "y": 0,
+            "z": -17.544999999999998
+          },
+          "size": {
+            "width": 17.314999999999998,
+            "depth": 11.203999999999999
+          }
+        },
+        {
+          "id": "zone-haikouwan-l3-a-floor",
+          "sectorId": "sector-core",
+          "name": "L3 餐饮主区",
+          "zoneType": "passage",
+          "color": "#64748b",
+          "center": {
+            "x": 105,
+            "y": 0,
+            "z": -6
+          },
+          "size": {
+            "width": 88,
+            "depth": 58
+          }
+        },
+        {
+          "id": "zone-haikouwan-l3-a-l3-01",
+          "sectorId": "sector-core",
+          "name": "L3-01 老吉堂",
+          "zoneType": "work",
+          "color": "#38bdf8",
+          "center": {
+            "x": 47.838,
+            "y": 0,
+            "z": -39.664
+          },
+          "size": {
+            "width": 18,
+            "depth": 11.863999999999997
+          }
+        },
+        {
+          "id": "zone-haikouwan-l3-a-l3-02",
+          "sectorId": "sector-core",
+          "name": "L3-02",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": 47.84,
+            "y": 0,
+            "z": -39.685
+          },
+          "size": {
+            "width": 6.970000000000006,
+            "depth": 4.356000000000002
+          }
+        },
+        {
+          "id": "zone-haikouwan-l3-a-l3-03",
+          "sectorId": "sector-core",
+          "name": "L3-03",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": 47.805,
+            "y": 0,
+            "z": -39.646
+          },
+          "size": {
+            "width": 8.504000000000005,
+            "depth": 5.314999999999998
+          }
+        },
+        {
+          "id": "zone-haikouwan-l3-a-l3-04",
+          "sectorId": "sector-core",
+          "name": "L3-04 琼州往事里",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": 47.779,
+            "y": 0,
+            "z": -39.668
+          },
+          "size": {
+            "width": 18,
+            "depth": 11.647999999999996
+          }
+        },
+        {
+          "id": "zone-haikouwan-l3-a-l3-05",
+          "sectorId": "sector-core",
+          "name": "L3-05",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": 47.809,
+            "y": 0,
+            "z": -39.666
+          },
+          "size": {
+            "width": 7.818000000000005,
+            "depth": 4.886000000000003
+          }
+        },
+        {
+          "id": "zone-haikouwan-l3-a-l3-06",
+          "sectorId": "sector-core",
+          "name": "L3-06",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": 47.805,
+            "y": 0,
+            "z": -39.682
+          },
+          "size": {
+            "width": 6.4809999999999945,
+            "depth": 4.051000000000002
+          }
+        },
+        {
+          "id": "zone-haikouwan-l3-a-l3-07",
+          "sectorId": "sector-core",
+          "name": "L3-07 半岛名轩",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": 47.794,
+            "y": 0,
+            "z": -39.716
+          },
+          "size": {
+            "width": 3.3999999999999986,
+            "depth": 2.799999999999997
+          }
+        },
+        {
+          "id": "zone-haikouwan-l3-a-l3-09",
+          "sectorId": "sector-core",
+          "name": "L3-09 匠子烤鱼",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": 47.837,
+            "y": 0,
+            "z": -39.739000000000004
+          },
+          "size": {
+            "width": 10.505000000000003,
+            "depth": 6.565999999999995
+          }
+        },
+        {
+          "id": "zone-haikouwan-l3-a-l3-10",
+          "sectorId": "sector-core",
+          "name": "L3-10",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": 100.125,
+            "y": 0,
+            "z": -37.376000000000005
+          },
+          "size": {
+            "width": 15.634999999999991,
+            "depth": 10.116999999999997
+          }
+        },
+        {
+          "id": "zone-haikouwan-l3-a-l3-10-11",
+          "sectorId": "sector-core",
+          "name": "L3-10-11 品牌：柴门公馆 - - 面积",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": 67.509,
+            "y": 0,
+            "z": -48.613
+          },
+          "size": {
+            "width": 18,
+            "depth": 12
+          }
+        },
+        {
+          "id": "zone-haikouwan-l3-a-l3-11",
+          "sectorId": "sector-core",
+          "name": "L3-11 /L3-",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": 120.131,
+            "y": 0,
+            "z": -24.951
+          },
+          "size": {
+            "width": 17.197999999999993,
+            "depth": 11.128
+          }
+        },
+        {
+          "id": "zone-haikouwan-l3-a-l3-11-12",
+          "sectorId": "sector-core",
+          "name": "L3-11-12 品牌：三俞竹苑 面积 租期： 年； 第 年租金： 元 / / 月； 第 年扣点： % ； 物业管理费： 元 / / 月。",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": 130.101,
+            "y": 0,
+            "z": -13.596
+          },
+          "size": {
+            "width": 17.197999999999993,
+            "depth": 11.128
+          }
+        },
+        {
+          "id": "zone-haikouwan-l3-a-l3-13",
+          "sectorId": "sector-core",
+          "name": "L3-13",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": 120.131,
+            "y": 0,
+            "z": -39.097
+          },
+          "size": {
+            "width": 7.325999999999993,
+            "depth": 3.4890000000000043
+          }
+        },
+        {
+          "id": "zone-haikouwan-l3-a-l3-14",
+          "sectorId": "sector-core",
+          "name": "L3-14 椰林渡糟粕醋",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": 47.916,
+            "y": 0,
+            "z": -39.741
+          },
+          "size": {
+            "width": 10.808,
+            "depth": 6.7549999999999955
+          }
+        },
+        {
+          "id": "zone-haikouwan-l3-b-floor",
+          "sectorId": "sector-core",
+          "name": "L3 露台餐吧",
+          "zoneType": "passage",
+          "color": "#64748b",
+          "center": {
+            "x": -105,
+            "y": 0,
+            "z": 70
+          },
+          "size": {
+            "width": 88,
+            "depth": 58
+          }
+        },
+        {
+          "id": "zone-haikouwan-l3-b-l3-15",
+          "sectorId": "sector-core",
+          "name": "L3-15 海口湾一号",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -156.037,
+            "y": 0,
+            "z": 60.653
+          },
+          "size": {
+            "width": 11.040999999999997,
+            "depth": 5.244
+          }
+        },
+        {
+          "id": "zone-haikouwan-l3-b-l3-16",
+          "sectorId": "sector-core",
+          "name": "L3-16 加州落日露台餐吧",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -86.20599999999999,
+            "y": 0,
+            "z": 62.365
+          },
+          "size": {
+            "width": 9.180999999999997,
+            "depth": 3.4920000000000044
+          }
+        },
+        {
+          "id": "zone-haikouwan-l4-floor",
+          "sectorId": "sector-core",
+          "name": "L4 餐饮娱乐",
+          "zoneType": "passage",
+          "color": "#64748b",
+          "center": {
+            "x": 0,
+            "y": 0,
+            "z": 70
+          },
+          "size": {
+            "width": 88,
+            "depth": 58
+          }
+        },
+        {
+          "id": "zone-haikouwan-l4-l4-01",
+          "sectorId": "sector-core",
+          "name": "L4-01 徽兴盛",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -61.253,
+            "y": 0,
+            "z": 40.33
+          },
+          "size": {
+            "width": 16.052,
+            "depth": 10.387
+          }
+        },
+        {
+          "id": "zone-haikouwan-l4-l4-02",
+          "sectorId": "sector-core",
+          "name": "L4-02 锅两好",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -61.209,
+            "y": 0,
+            "z": 40.32
+          },
+          "size": {
+            "width": 8.582,
+            "depth": 5.364000000000004
+          }
+        },
+        {
+          "id": "zone-haikouwan-l4-l4-03",
+          "sectorId": "sector-core",
+          "name": "L4-03",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -61.272999999999996,
+            "y": 0,
+            "z": 40.331
+          },
+          "size": {
+            "width": 3.4409999999999954,
+            "depth": 2.8000000000000043
+          }
+        },
+        {
+          "id": "zone-haikouwan-l4-l4-04",
+          "sectorId": "sector-core",
+          "name": "L4-04",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -61.298,
+            "y": 0,
+            "z": 40.325
+          },
+          "size": {
+            "width": 18,
+            "depth": 12
+          }
+        },
+        {
+          "id": "zone-haikouwan-l4-l4-05",
+          "sectorId": "sector-core",
+          "name": "L4-05",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -61.268,
+            "y": 0,
+            "z": 40.31
+          },
+          "size": {
+            "width": 5.231999999999999,
+            "depth": 3.270000000000003
+          }
+        },
+        {
+          "id": "zone-haikouwan-l4-l4-06",
+          "sectorId": "sector-core",
+          "name": "L4-06",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -61.288,
+            "y": 0,
+            "z": 40.274
+          },
+          "size": {
+            "width": 4.32,
+            "depth": 2.799999999999997
+          }
+        },
+        {
+          "id": "zone-haikouwan-l4-l4-06-1",
+          "sectorId": "sector-core",
+          "name": "L4-06-1 湘爱 湖南人私房菜",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -61.29600000000001,
+            "y": 0,
+            "z": 40.302
+          },
+          "size": {
+            "width": 18.000000000000007,
+            "depth": 12
+          }
+        },
+        {
+          "id": "zone-haikouwan-l4-l4-07",
+          "sectorId": "sector-core",
+          "name": "L4-07 小龙坎",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": -25.811999999999998,
+            "y": 0,
+            "z": 41.741
+          },
+          "size": {
+            "width": 17.999999999999996,
+            "depth": 12
+          }
+        },
+        {
+          "id": "zone-haikouwan-l4-l4-08",
+          "sectorId": "sector-core",
+          "name": "L4-08 瓦库",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -4.77,
+            "y": 0,
+            "z": 40.944
+          },
+          "size": {
+            "width": 18,
+            "depth": 12
+          }
+        },
+        {
+          "id": "zone-haikouwan-l4-l4-09",
+          "sectorId": "sector-core",
+          "name": "L4-09",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": -61.171,
+            "y": 0,
+            "z": 40.269
+          },
+          "size": {
+            "width": 3.4000000000000057,
+            "depth": 2.799999999999997
+          }
+        },
+        {
+          "id": "zone-haikouwan-l4-l4-10",
+          "sectorId": "sector-core",
+          "name": "L4-10",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": 3.8920000000000003,
+            "y": 0,
+            "z": 51.584999999999994
+          },
+          "size": {
+            "width": 6.337,
+            "depth": 4.689
+          }
+        },
+        {
+          "id": "zone-haikouwan-l5-floor",
+          "sectorId": "sector-core",
+          "name": "L5 夜间娱乐",
+          "zoneType": "passage",
+          "color": "#64748b",
+          "center": {
+            "x": 105,
+            "y": 0,
+            "z": 70
+          },
+          "size": {
+            "width": 88,
+            "depth": 58
+          }
+        },
+        {
+          "id": "zone-haikouwan-l5-l5-01",
+          "sectorId": "sector-core",
+          "name": "L5-01 约客醉美里餐厅",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": 43.724000000000004,
+            "y": 0,
+            "z": 37.573
+          },
+          "size": {
+            "width": 3.3999999999999986,
+            "depth": 2.799999999999997
+          }
+        },
+        {
+          "id": "zone-haikouwan-l5-l5-02",
+          "sectorId": "sector-core",
+          "name": "L5-02 精酿啤酒屋",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": 43.723,
+            "y": 0,
+            "z": 37.56
+          },
+          "size": {
+            "width": 8.219000000000001,
+            "depth": 5.1370000000000005
+          }
+        },
+        {
+          "id": "zone-haikouwan-l5-l5-03",
+          "sectorId": "sector-core",
+          "name": "L5-03",
+          "zoneType": "custom",
+          "color": "#94a3b8",
+          "center": {
+            "x": 115.196,
+            "y": 0,
+            "z": 50.006
+          },
+          "size": {
+            "width": 13.436000000000007,
+            "depth": 5.783000000000001
+          }
+        },
+        {
+          "id": "zone-haikouwan-l5-l5-05",
+          "sectorId": "sector-core",
+          "name": "L5-05",
+          "zoneType": "work",
+          "color": "#22c55e",
+          "center": {
+            "x": 43.713,
+            "y": 0,
+            "z": 37.514
+          },
+          "size": {
+            "width": 18,
+            "depth": 12.000000000000004
+          }
+        },
+        {
+          "id": "zone-haikouwan-l5-l5-06",
+          "sectorId": "sector-core",
+          "name": "L5-06 攀岩",
+          "zoneType": "work",
+          "color": "#38bdf8",
+          "center": {
+            "x": 89.71100000000001,
+            "y": 0,
+            "z": 39.179
+          },
+          "size": {
+            "width": 15.204999999999998,
+            "depth": 9.838999999999999
+          }
+        }
+      ]
+    }
+  ],
+  "dynamicLayers": [
+    {
+      "id": "layer:sector-core:persons",
+      "entityType": "person",
+      "sectorId": "sector-core",
+      "bounds": {
+        "min": {
+          "x": -178.2455,
+          "y": -4,
+          "z": -135
+        },
+        "max": {
+          "x": 161,
+          "y": 148,
+          "z": 160
+        }
+      },
+      "count": 0,
+      "anchors": []
+    },
+    {
+      "id": "layer:sector-core:vehicles",
+      "entityType": "vehicle",
+      "sectorId": "sector-core",
+      "bounds": {
+        "min": {
+          "x": -178.2455,
+          "y": -4,
+          "z": -135
+        },
+        "max": {
+          "x": 161,
+          "y": 148,
+          "z": 160
+        }
+      },
+      "count": 0,
+      "anchorsByType": {
+        "car": [],
+        "truck": [],
+        "forklift": [],
+        "agv": [],
+        "other": []
+      },
+      "minimumSeparation": 3
+    },
+    {
+      "id": "layer:sector-core:equipment",
+      "entityType": "equipment",
+      "sectorId": "sector-core",
+      "bounds": {
+        "min": {
+          "x": -178.2455,
+          "y": -4,
+          "z": -135
+        },
+        "max": {
+          "x": 161,
+          "y": 148,
+          "z": 160
+        }
+      },
+      "count": 10,
+      "placements": [
+        {
+          "name": "B1 招商统计",
+          "position": {
+            "x": -68,
+            "y": 0,
+            "z": -107
+          },
+          "repeatable": false,
+          "spread": {
+            "x": 0,
+            "z": 0
+          }
+        },
+        {
+          "name": "L1-A 招商统计",
+          "position": {
+            "x": 37,
+            "y": 0,
+            "z": -107
+          },
+          "repeatable": false,
+          "spread": {
+            "x": 0,
+            "z": 0
+          }
+        },
+        {
+          "name": "L1-B 招商统计",
+          "position": {
+            "x": 142,
+            "y": 0,
+            "z": -107
+          },
+          "repeatable": false,
+          "spread": {
+            "x": 0,
+            "z": 0
+          }
+        },
+        {
+          "name": "L2-A 招商统计",
+          "position": {
+            "x": -68,
+            "y": 0,
+            "z": -31
+          },
+          "repeatable": false,
+          "spread": {
+            "x": 0,
+            "z": 0
+          }
+        },
+        {
+          "name": "L2-B 招商统计",
+          "position": {
+            "x": 37,
+            "y": 0,
+            "z": -31
+          },
+          "repeatable": false,
+          "spread": {
+            "x": 0,
+            "z": 0
+          }
+        },
+        {
+          "name": "L3-A 招商统计",
+          "position": {
+            "x": 142,
+            "y": 0,
+            "z": -31
+          },
+          "repeatable": false,
+          "spread": {
+            "x": 0,
+            "z": 0
+          }
+        },
+        {
+          "name": "L3-B 招商统计",
+          "position": {
+            "x": -68,
+            "y": 0,
+            "z": 45
+          },
+          "repeatable": false,
+          "spread": {
+            "x": 0,
+            "z": 0
+          }
+        },
+        {
+          "name": "L4 招商统计",
+          "position": {
+            "x": 37,
+            "y": 0,
+            "z": 45
+          },
+          "repeatable": false,
+          "spread": {
+            "x": 0,
+            "z": 0
+          }
+        },
+        {
+          "name": "L5 招商统计",
+          "position": {
+            "x": 142,
+            "y": 0,
+            "z": 45
+          },
+          "repeatable": false,
+          "spread": {
+            "x": 0,
+            "z": 0
+          }
+        },
+        {
+          "name": "海口湾广场总览",
+          "position": {
+            "x": 0,
+            "y": 0,
+            "z": -123
+          },
+          "repeatable": false,
+          "spread": {
+            "x": 0,
+            "z": 0
+          }
+        }
+      ]
+    }
+  ],
+  "routingLayers": [],
+  "cameraPresets": [
+    {
+      "id": "snapshot-current",
+      "name": "保存视角",
+      "position": {
+        "x": 105,
+        "y": 128,
+        "z": 148
+      },
+      "target": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "fov": 50
+    },
+    {
+      "id": "top",
+      "name": "俯视",
+      "position": {
+        "x": -8.622749999999996,
+        "y": 436.358675,
+        "z": 12.5
+      },
+      "target": {
+        "x": -8.622749999999996,
+        "y": 0,
+        "z": 12.5
+      },
+      "fov": 45
+    }
+  ],
+  "entityCounts": {
+    "default": {
+      "persons": 0,
+      "vehicles": 0,
+      "equipment": 10
+    },
+    "production": {
+      "persons": 0,
+      "vehicles": 0,
+      "equipment": 10
+    }
+  }
+}

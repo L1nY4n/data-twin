@@ -202,8 +202,8 @@ interface DynamicOccupant {
 
 interface DynamicOccupancyIndex {
   cellSize: number
-  buckets: Map<string, DynamicOccupant[]>
-  occupants: Map<string, { occupant: DynamicOccupant; bucketKey: string }>
+  buckets: Map<number, DynamicOccupant[]>
+  occupants: Map<string, { occupant: DynamicOccupant; bucketKey: number }>
 }
 
 const ROUTE_CELL_SIZE = 2
@@ -555,8 +555,21 @@ function getDynamicSeparationDistance(
   return PERSON_FOOTPRINT_RADIUS * 2 + 0.05
 }
 
-function bucketKey(position: Vector3, cellSize: number): string {
-  return `${Math.floor(position.x / cellSize)}:${Math.floor(position.z / cellSize)}`
+function signedCellToKeyPart(value: number): number {
+  return value >= 0 ? value * 2 : -value * 2 - 1
+}
+
+function bucketKeyFromCells(cellX: number, cellZ: number): number {
+  const x = signedCellToKeyPart(cellX)
+  const z = signedCellToKeyPart(cellZ)
+  return x >= z ? x * x + x + z : z * z + x
+}
+
+function bucketKey(position: Vector3, cellSize: number): number {
+  return bucketKeyFromCells(
+    Math.floor(position.x / cellSize),
+    Math.floor(position.z / cellSize)
+  )
 }
 
 export function createDynamicOccupancyIndex(
@@ -593,26 +606,27 @@ export function queryDynamicOccupants(
   index: DynamicOccupancyIndex,
   point: Vector3,
   radius: number,
-  excludeId?: string
+  excludeId?: string,
+  result: DynamicOccupant[] = []
 ): DynamicOccupant[] {
   const centerX = Math.floor(point.x / index.cellSize)
   const centerZ = Math.floor(point.z / index.cellSize)
   const cellRadius = Math.max(1, Math.ceil(radius / index.cellSize))
-  const neighbors: DynamicOccupant[] = []
+  result.length = 0
 
   for (let dz = -cellRadius; dz <= cellRadius; dz += 1) {
     for (let dx = -cellRadius; dx <= cellRadius; dx += 1) {
-      const bucket = index.buckets.get(`${centerX + dx}:${centerZ + dz}`)
+      const bucket = index.buckets.get(bucketKeyFromCells(centerX + dx, centerZ + dz))
       if (!bucket) continue
 
       for (const occupant of bucket) {
         if (occupant.id === excludeId) continue
-        neighbors.push(occupant)
+        result.push(occupant)
       }
     }
   }
 
-  return neighbors
+  return result
 }
 
 export function updateDynamicOccupancyIndex(
@@ -627,9 +641,15 @@ export function updateDynamicOccupancyIndex(
   if (nextKey !== entry.bucketKey) {
     const previousBucket = index.buckets.get(entry.bucketKey)
     if (previousBucket) {
-      const nextBucketMembers = previousBucket.filter((occupant) => occupant.id !== occupantId)
-      if (nextBucketMembers.length > 0) {
-        index.buckets.set(entry.bucketKey, nextBucketMembers)
+      const previousIndex = previousBucket.findIndex((occupant) => occupant.id === occupantId)
+      if (previousIndex >= 0) {
+        const last = previousBucket.pop()
+        if (last && previousIndex < previousBucket.length) {
+          previousBucket[previousIndex] = last
+        }
+      }
+      if (previousBucket.length > 0) {
+        index.buckets.set(entry.bucketKey, previousBucket)
       } else {
         index.buckets.delete(entry.bucketKey)
       }
@@ -644,7 +664,9 @@ export function updateDynamicOccupancyIndex(
     entry.bucketKey = nextKey
   }
 
-  entry.occupant.position = { ...position }
+  entry.occupant.position.x = position.x
+  entry.occupant.position.y = position.y
+  entry.occupant.position.z = position.z
 }
 
 export function applyDynamicSeparation(
@@ -664,8 +686,9 @@ export function applyDynamicSeparation(
         entityVehicleType,
         neighbor.vehicleType
       )
-      const distance = Math.hypot(position.x - neighbor.position.x, position.z - neighbor.position.z)
-      if (distance < minDistance) return false
+      const dx = position.x - neighbor.position.x
+      const dz = position.z - neighbor.position.z
+      if (dx * dx + dz * dz < minDistance * minDistance) return false
     }
     return true
   }

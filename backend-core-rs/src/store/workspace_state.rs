@@ -266,6 +266,7 @@ pub(super) async fn load_legacy_workspace_state_postgres(
             .into_iter()
             .map(|asset| (asset.id.clone(), asset))
             .collect(),
+        floor_plan_basemaps: Vec::new(),
         published_scene_version,
         published_scene_config,
         published_entities,
@@ -463,6 +464,7 @@ pub(super) async fn load_legacy_workspace_state_sqlite(
             .into_iter()
             .map(|asset| (asset.id.clone(), asset))
             .collect(),
+        floor_plan_basemaps: Vec::new(),
         published_scene_version,
         published_scene_config,
         published_entities,

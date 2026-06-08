@@ -4,13 +4,26 @@ import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
 import { ArrowUpRight, RefreshCw, Save } from 'lucide-react'
 import { AdvancedJsonEditor } from '@/components/admin/AdvancedJsonEditor'
-import { AdminButton, AdminSectionFrame, SectionPanel } from '@/components/admin/admin-surface'
-import { Input } from '@/components/ui/input'
+import {
+  ADMIN_VALUE_PENDING,
+  ADMIN_VALUE_UNSET,
+  adminDisplayValue,
+  AdminBadge,
+  AdminButton,
+  AdminEmptyState,
+  AdminInput,
+  AdminRecordCard,
+  AdminSectionFrame,
+  AdminSelect,
+  SectionPanel,
+} from '@/components/admin/admin-surface'
 import { Label } from '@/components/ui/label'
+import { ViewerAdminKicker } from '@/components/viewer-admin/primitives'
 import { useStructuredDraft } from '@/hooks/use-structured-draft'
 import { buildEditorHref } from '@/lib/digital-twin/editor-routing'
 import { fetchAdminScene, updateAdminScene } from '@/lib/digital-twin/bootstrap-client'
 import { cloneSceneDraft } from '@/lib/digital-twin/admin-view-models'
+import { selectQuickCameraPresets } from '@/lib/digital-twin/camera-presets'
 import type { SceneConfig } from '@/lib/digital-twin/types'
 
 export function SceneSection({
@@ -64,6 +77,11 @@ export function SceneSection({
   }, [draft, workspaceId])
 
   const sceneDraft = draft.draft
+  const cameraPresets = sceneDraft?.cameraPresets ?? []
+  const quickCameraPresets = selectQuickCameraPresets(cameraPresets)
+  const quickCameraPresetIndex = new Map(
+    quickCameraPresets.map((preset, index) => [preset.id, index])
+  )
 
   return (
     <AdminSectionFrame
@@ -95,35 +113,41 @@ export function SceneSection({
       metrics={[
         {
           label: '场景版本',
-          value: sceneVersion || '--',
+          value: sceneVersion > 0 ? sceneVersion : ADMIN_VALUE_PENDING,
         },
         {
           label: '网格尺寸',
           value:
             sceneDraft != null
               ? `${sceneDraft.gridSize} / ${sceneDraft.gridDivisions}`
-              : '--',
+              : ADMIN_VALUE_PENDING,
         },
         {
           label: '显示状态',
           value:
             sceneDraft != null
               ? `${sceneDraft.showGrid ? '网格开' : '网格关'} / ${sceneDraft.showAxes ? '坐标轴开' : '坐标轴关'}`
-              : '--',
+              : ADMIN_VALUE_PENDING,
         },
         {
           label: '环境光',
-          value: sceneDraft?.ambientLightIntensity ?? '--',
+          value: sceneDraft?.ambientLightIntensity ?? ADMIN_VALUE_PENDING,
+        },
+        {
+          label: '相机预设',
+          value: sceneDraft != null ? cameraPresets.length : ADMIN_VALUE_PENDING,
         },
       ]}
       railCards={[
         {
           title: '背景',
-          value: sceneDraft?.backgroundColor ?? '--',
+          value: adminDisplayValue(sceneDraft?.backgroundColor, ADMIN_VALUE_PENDING),
         },
         {
-          title: '相机',
-          value: sceneDraft?.cameraPosition ? '已配置' : '--',
+          title: '快捷视角',
+          value: quickCameraPresets.length
+            ? quickCameraPresets.map((preset) => preset.name).join(' / ')
+            : ADMIN_VALUE_UNSET,
         },
       ]}
     >
@@ -134,7 +158,7 @@ export function SceneSection({
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
                   <Label>场景名称</Label>
-                  <Input
+                  <AdminInput
                     value={sceneDraft.name}
                     onChange={(event) =>
                       draft.updateDraft((current) => ({ ...current, name: event.target.value }))
@@ -143,7 +167,7 @@ export function SceneSection({
                 </div>
                 <div className="space-y-2">
                   <Label>背景色</Label>
-                  <Input
+                  <AdminInput
                     value={sceneDraft.backgroundColor}
                     onChange={(event) =>
                       draft.updateDraft((current) => ({
@@ -158,7 +182,7 @@ export function SceneSection({
               <div className="grid gap-4 md:grid-cols-3">
                 <div className="space-y-2">
                   <Label>Grid Size</Label>
-                  <Input
+                  <AdminInput
                     type="number"
                     value={sceneDraft.gridSize}
                     onChange={(event) =>
@@ -171,7 +195,7 @@ export function SceneSection({
                 </div>
                 <div className="space-y-2">
                   <Label>Grid Divisions</Label>
-                  <Input
+                  <AdminInput
                     type="number"
                     value={sceneDraft.gridDivisions}
                     onChange={(event) =>
@@ -184,7 +208,7 @@ export function SceneSection({
                 </div>
                 <div className="space-y-2">
                   <Label>环境光</Label>
-                  <Input
+                  <AdminInput
                     type="number"
                     step="0.1"
                     value={sceneDraft.ambientLightIntensity}
@@ -201,8 +225,7 @@ export function SceneSection({
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
                   <Label>显示坐标轴</Label>
-                  <select
-                    className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                  <AdminSelect
                     value={sceneDraft.showAxes ? 'true' : 'false'}
                     onChange={(event) =>
                       draft.updateDraft((current) => ({
@@ -213,12 +236,11 @@ export function SceneSection({
                   >
                     <option value="true">显示</option>
                     <option value="false">隐藏</option>
-                  </select>
+                  </AdminSelect>
                 </div>
                 <div className="space-y-2">
                   <Label>显示网格</Label>
-                  <select
-                    className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                  <AdminSelect
                     value={sceneDraft.showGrid ? 'true' : 'false'}
                     onChange={(event) =>
                       draft.updateDraft((current) => ({
@@ -229,7 +251,7 @@ export function SceneSection({
                   >
                     <option value="true">显示</option>
                     <option value="false">隐藏</option>
-                  </select>
+                  </AdminSelect>
                 </div>
               </div>
 
@@ -238,7 +260,7 @@ export function SceneSection({
                   <Label>相机位置</Label>
                   <div className="grid grid-cols-3 gap-2">
                     {(['x', 'y', 'z'] as const).map((axis) => (
-                      <Input
+                      <AdminInput
                         key={axis}
                         type="number"
                         step="0.1"
@@ -260,7 +282,7 @@ export function SceneSection({
                   <Label>相机目标</Label>
                   <div className="grid grid-cols-3 gap-2">
                     {(['x', 'y', 'z'] as const).map((axis) => (
-                      <Input
+                      <AdminInput
                         key={axis}
                         type="number"
                         step="0.1"
@@ -292,6 +314,58 @@ export function SceneSection({
                 }}
               />
 
+              <div className="space-y-3">
+                <div>
+                  <ViewerAdminKicker className="block">相机</ViewerAdminKicker>
+                  <h3 className="mt-1 text-base font-semibold">相机预设</h3>
+                </div>
+                {cameraPresets.length ? (
+                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                    {cameraPresets.map((preset) => {
+                      const quickIndex = quickCameraPresetIndex.get(preset.id)
+
+                      return (
+                        <AdminRecordCard
+                          key={preset.id}
+                          title={preset.name}
+                          meta={preset.id}
+                          density="comfortable"
+                          titleClassName="truncate text-sm"
+                          metaClassName="truncate font-mono text-[11px]"
+                          bodyClassName="text-xs text-muted-foreground"
+                          trailing={
+                            <AdminBadge variant={quickIndex == null ? 'outline' : 'secondary'}>
+                              {quickIndex == null ? 'Menu' : `C${quickIndex + 1}`}
+                            </AdminBadge>
+                          }
+                        >
+                          <dl className="grid gap-2">
+                            <div className="flex justify-between gap-3">
+                              <dt>Position</dt>
+                              <dd className="text-right text-foreground">
+                                {preset.position.x}, {preset.position.y}, {preset.position.z}
+                              </dd>
+                            </div>
+                            <div className="flex justify-between gap-3">
+                              <dt>Target</dt>
+                              <dd className="text-right text-foreground">
+                                {preset.target.x}, {preset.target.y}, {preset.target.z}
+                              </dd>
+                            </div>
+                            <div className="flex justify-between gap-3">
+                              <dt>FOV</dt>
+                              <dd className="text-right text-foreground">{preset.fov}</dd>
+                            </div>
+                          </dl>
+                        </AdminRecordCard>
+                      )
+                    })}
+                  </div>
+                ) : (
+                  <AdminEmptyState title="暂无相机预设" />
+                )}
+              </div>
+
               <div className="flex justify-end">
                 <AdminButton tone="primary" onClick={() => void saveScene()}>
                   <Save className="mr-1 h-4 w-4" />
@@ -300,7 +374,7 @@ export function SceneSection({
               </div>
             </>
           ) : (
-            <p className="text-sm text-muted-foreground">--</p>
+            <AdminEmptyState title="暂无场景配置" />
           )}
         </div>
       </SectionPanel>

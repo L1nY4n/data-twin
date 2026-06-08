@@ -360,8 +360,8 @@ function runSpatialSeparation(entities) {
         if (neighbor.id === entity.id) continue
         const dx = entity.position.x - neighbor.position.x
         const dz = entity.position.z - neighbor.position.z
-        const distance = Math.hypot(dx, dz)
-        if (distance < getMinDistance(entity.type, neighbor.type)) {
+        const minDistance = getMinDistance(entity.type, neighbor.type)
+        if (dx * dx + dz * dz < minDistance * minDistance) {
           blocked += 1
           break
         }

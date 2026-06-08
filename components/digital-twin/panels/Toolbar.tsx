@@ -50,9 +50,9 @@ const VIEW_MODE_CONFIG: Record<ViewMode, { icon: typeof Move; label: string }> =
 }
 
 const RENDERER_MODE_OPTIONS: Array<{ value: RendererMode; label: string }> = [
-  { value: 'auto', label: '自动（优先 WebGPU）' },
-  { value: 'webgpu', label: '强制 WebGPU' },
-  { value: 'webgl2', label: '强制 WebGL2' },
+  { value: 'auto', label: '自动（稳定优先）' },
+  { value: 'webgpu', label: '强制WebGPU（失败回退）' },
+  { value: 'webgl2', label: '强制WebGL2' },
 ]
 
 const QUALITY_PROFILE_OPTIONS: Array<{ value: QualityProfile; label: string }> = [
